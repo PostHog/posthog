@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
 import {
@@ -70,7 +70,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         beforeAll(async () => {
             console.log('Creating Clickhouse client')
             clickhouse = Clickhouse.create()
-            await resetKafka()
+            await ensureKafkaTopics(TEST_KAFKA_TOPICS)
             await resetTestDatabase()
             await clickhouse.resetTestDatabase()
             await waitForClickHouseKafkaConsumer(clickhouse)
@@ -4596,34 +4596,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     expect(events[0].properties.$elements_chain).toBeUndefined()
                     expect(events[0].properties.$elements).toBeUndefined()
                 })
-            }
-        )
-        testWithTeamIngester(
-            'should drop $$heatmap events when team.heatmaps_opt_in=false',
-            { teamOverrides: { heatmaps_opt_in: false } },
-            async ({ ingester, team, kafkaProducer, token }) => {
-                const distinctId = new UUIDT().toString()
-                await ingester.handleKafkaBatch(
-                    createKafkaMessages(
-                        [
-                            new EventBuilder(team, distinctId)
-                                .withEvent('$$heatmap')
-                                .withProperties({
-                                    $heatmap_data: {
-                                        'http://localhost:3000/': [
-                                            { x: 100, y: 200, target_fixed: false, type: 'click' },
-                                        ],
-                                    },
-                                })
-                                .build(),
-                        ],
-                        token
-                    )
-                )
-
-                await waitForKafkaMessages(kafkaProducer)
-                const events = await fetchEvents(clickhouse, team.id)
-                expect(events.length).toBe(0)
             }
         )
 

@@ -274,6 +274,10 @@ impl Config {
             builder = builder.set(key, value);
         }
 
+        // After all overrides: if KAFKA_CONSUMER_GROUP_PROTOCOL=consumer selected the
+        // KIP-848 protocol, drop the classic-only keys librdkafka would reject.
+        builder = builder.strip_classic_protocol_keys_if_consumer();
+
         builder.build()
     }
 }

@@ -14,6 +14,7 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -34,16 +35,22 @@ import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
+import { supportsDirectQuery } from './schemaGroupingUtils'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
     showPrefix?: boolean
     showDescription?: boolean
     showAccessMethodSelector?: boolean
+    showCdcConfig?: boolean
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
     setSourceConfigValue?: (key: FieldName, value: any) => void
     sourceWizardLogicProps?: SourceWizardLogicProps
+    /** Override the form value setter — for hosts other than the wizard (e.g. the connect page). */
+    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
+    /** Where the OAuth authorize flow returns to — for hosts other than the wizard (e.g. the connect page). */
+    oauthRedirectUrl?: string
 }
 
 export function SourceAccessMethodSelector({
@@ -82,7 +89,7 @@ export function SourceAccessMethodSelector({
                                     </LemonTag>
                                 </div>
                                 <div className="text-xs text-secondary">
-                                    Run queries live against this Postgres connection. Data from this source can&apos;t
+                                    Run queries live against this database connection. Data from this source can&apos;t
                                     be joined with PostHog data.
                                 </div>
                             </div>
@@ -99,7 +106,8 @@ export const sourceFieldToElement = (
     sourceConfig: SourceConfig,
     lastValue?: any,
     isUpdateMode?: boolean,
-    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
+    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void,
+    oauthRedirectUrl?: string
 ): JSX.Element => {
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
@@ -163,7 +171,8 @@ export const sourceFieldToElement = (
                                             sourceConfig,
                                             lastValue?.[field.name],
                                             isUpdateMode,
-                                            setSourceConnectionDetailsValue
+                                            setSourceConnectionDetailsValue,
+                                            oauthRedirectUrl
                                         )
                                     )}
                                 </Group>
@@ -187,7 +196,8 @@ export const sourceFieldToElement = (
                         sourceConfig,
                         lastValue?.[optionField.name],
                         isUpdateMode,
-                        setSourceConnectionDetailsValue
+                        setSourceConnectionDetailsValue,
+                        oauthRedirectUrl
                     )
                 )
 
@@ -234,16 +244,29 @@ export const sourceFieldToElement = (
     if (field.type === 'oauth') {
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
-                {({ value, onChange }) => (
-                    <SourceIntegrationChoice
-                        key={field.name}
-                        sourceConfig={sourceConfig}
-                        value={value}
-                        onChange={onChange}
-                        integration={field.kind}
-                        schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
-                    />
-                )}
+                {({ value, onChange }) =>
+                    // SourceIntegrationChoice is wizard-bound (mounts sourceWizardLogic and redirects the
+                    // OAuth flow back to the wizard) — hosts like the connect page override the redirect.
+                    oauthRedirectUrl ? (
+                        <IntegrationChoice
+                            key={field.name}
+                            value={value}
+                            onChange={onChange}
+                            integration={field.kind}
+                            redirectUrl={oauthRedirectUrl}
+                            schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
+                        />
+                    ) : (
+                        <SourceIntegrationChoice
+                            key={field.name}
+                            sourceConfig={sourceConfig}
+                            value={value}
+                            onChange={onChange}
+                            integration={field.kind}
+                            schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
+                        />
+                    )
+                }
             </LemonField>
         )
     }
@@ -271,7 +294,8 @@ export const sourceFieldToElement = (
             sourceConfig,
             lastValue,
             isUpdateMode,
-            setSourceConnectionDetailsValue
+            setSourceConnectionDetailsValue,
+            oauthRedirectUrl
         )
     }
 
@@ -641,23 +665,28 @@ export function SourceFormComponent({
     showPrefix = true,
     showDescription,
     showAccessMethodSelector = true,
+    showCdcConfig = true,
     jobInputs,
     initialAccessMethod,
     setSourceConfigValue,
     sourceWizardLogicProps,
+    setSourceConnectionDetailsValue: setSourceConnectionDetailsValueOverride,
+    oauthRedirectUrl,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const setSourceConnectionDetailsValue = sourceWizardLogicProps
-        ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
-        : undefined
+    const setSourceConnectionDetailsValue =
+        setSourceConnectionDetailsValueOverride ??
+        (sourceWizardLogicProps
+            ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
+            : undefined)
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
     const [selectedAccessMethod, setSelectedAccessMethod] = React.useState<'warehouse' | 'direct'>(
         initialAccessMethod ?? 'warehouse'
     )
-    const isPostgresDirectQuery = sourceConfig.name === 'Postgres' && selectedAccessMethod === 'direct'
+    const isDirectQuerySource = supportsDirectQuery(sourceConfig.name) && selectedAccessMethod === 'direct'
 
     useEffect(() => {
         if (initialAccessMethod) {
@@ -681,7 +710,7 @@ export function SourceFormComponent({
 
     return (
         <div className="space-y-4 ph-no-capture">
-            {!isUpdateMode && sourceConfig.name === 'Postgres' && showAccessMethodSelector && (
+            {!isUpdateMode && supportsDirectQuery(sourceConfig.name) && showAccessMethodSelector && (
                 <>
                     <LemonField name="access_method">
                         {({ value, onChange }) => (
@@ -697,15 +726,15 @@ export function SourceFormComponent({
                     <LemonDivider />
                 </>
             )}
-            {isPostgresDirectQuery && (
+            {isDirectQuerySource && (
                 <LemonField
                     name="prefix"
                     label="Name"
-                    help="Required. This name is shown in the query editor when selecting a Postgres connection."
+                    help={`Required. This name is shown in the query editor when selecting a ${sourceConfig.name} connection.`}
                 >
                     {({ value, onChange }) => {
                         const validationError = value && !value.trim() ? 'Name cannot be empty whitespace' : ''
-                        const displayValue = value?.trim() || 'My Postgres database'
+                        const displayValue = value?.trim() || `My ${sourceConfig.name} database`
 
                         return (
                             <>
@@ -719,7 +748,10 @@ export function SourceFormComponent({
                                 />
                                 {validationError && <p className="text-danger text-xs mt-1">{validationError}</p>}
                                 <p className="mb-0">
-                                    Shown as: <strong>{displayValue} (Postgres)</strong>
+                                    Shown as:{' '}
+                                    <strong>
+                                        {displayValue} ({sourceConfig.name})
+                                    </strong>
                                 </p>
                             </>
                         )
@@ -763,23 +795,25 @@ export function SourceFormComponent({
                     )
                 ) : (
                     availableSources[sourceConfig.name].fields
-                        .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                        .filter((field) => !(isDirectQuerySource && field.type === 'ssh-tunnel'))
                         .map((field) =>
                             sourceFieldToElement(
                                 field,
                                 sourceConfig,
                                 jobInputs?.[field.name],
                                 isUpdateMode,
-                                setSourceConnectionDetailsValue
+                                setSourceConnectionDetailsValue,
+                                oauthRedirectUrl
                             )
                         )
                 )}
             </Group>
             {!isUpdateMode &&
+                showCdcConfig &&
                 sourceConfig.name === 'Postgres' &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
                 selectedAccessMethod === 'warehouse' && <CDCConfigSection />}
-            {showPrefix && !isPostgresDirectQuery && (
+            {showPrefix && !isDirectQuerySource && (
                 <LemonField
                     name="prefix"
                     label="Table prefix (optional)"

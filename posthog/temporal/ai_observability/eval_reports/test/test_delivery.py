@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.temporal.ai_observability.eval_reports.delivery import (
     _format_period_for_display,
     _inline_email_styles,
@@ -11,6 +13,7 @@ from posthog.temporal.ai_observability.eval_reports.delivery import (
     _render_section_mrkdwn,
     _strip_redundant_leading_heading,
     deliver_report,
+    deliver_slack_report,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     Citation,
@@ -393,3 +396,85 @@ class TestDeliverReport(SimpleTestCase):
         deliver_report("report-id", "run-id")
 
         self.assertEqual(run.delivery_status, "partial_failure")
+
+
+class TestDeliverSlackReport(SimpleTestCase):
+    """Tests for the Slack delivery path, with the Slack client mocked."""
+
+    def _make_report_run(self, sections=None):
+        if sections is None:
+            sections = [ReportSection(title="Summary", content="All good.")]
+        run = MagicMock()
+        run.content = EvalReportContent(
+            title="A nice punchline",
+            sections=sections,
+            citations=[],
+            metrics=EvalReportMetrics(total_runs=10, pass_count=9, pass_rate=90.0),
+        ).to_dict()
+        run.report_id = "report-id"
+        run.id = "run-id"
+        return run
+
+    @parameterized.expand(
+        [
+            ("one_section_no_thread", [ReportSection(title="Summary", content="All good.")], 1),
+            (
+                "two_sections_with_thread_reply",
+                [
+                    ReportSection(title="Summary", content="All good."),
+                    ReportSection(title="Details", content="More detail."),
+                ],
+                2,
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.models.integration.Integration")
+    def test_channel_id_is_used(self, _name, sections, expected_call_count, mock_integration, mock_slack_integration):
+        # Regression: the channel picker stores "<id>|#<name>" (e.g. "C0B5CHB0JQH|#tech-devops-cron").
+        # chat.postMessage only accepts the channel ID, so the "|#name" suffix must be stripped or
+        # Slack returns channel_not_found. Covers both the single-section (no thread) and
+        # multi-section (thread replies) paths.
+        client = MagicMock()
+        client.chat_postMessage.return_value = {"ts": "123.456"}
+        mock_slack_integration.return_value.client = client
+
+        targets = [{"type": "slack", "integration_id": 1, "channel": "C0B5CHB0JQH|#tech-devops-cron"}]
+        errors = deliver_slack_report(
+            self._make_report_run(sections=sections),
+            targets,
+            evaluation_name="Test Eval",
+            team_id=1,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        self.assertEqual(errors, [])
+        self.assertEqual(client.chat_postMessage.call_count, expected_call_count)
+        for call in client.chat_postMessage.call_args_list:
+            self.assertEqual(call.kwargs["channel"], "C0B5CHB0JQH")
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.models.integration.Integration")
+    def test_empty_channel_id_fails_gracefully(self, mock_integration, mock_slack_integration):
+        # A malformed target like "|#name" passes the non-empty channel check but splits to an
+        # empty channel ID, which Slack rejects with channel_not_found. Skip the send, record an
+        # error, and never call chat.postMessage.
+        client = MagicMock()
+        mock_slack_integration.return_value.client = client
+
+        targets = [{"type": "slack", "integration_id": 1, "channel": "|#tech-devops-cron"}]
+        errors = deliver_slack_report(
+            self._make_report_run(),
+            targets,
+            evaluation_name="Test Eval",
+            team_id=1,
+            project_id=1,
+            period_start="2026-03-01T00:00:00+00:00",
+            period_end="2026-03-02T00:00:00+00:00",
+        )
+
+        self.assertEqual(len(errors), 1)
+        self.assertIn("|#tech-devops-cron", errors[0])
+        client.chat_postMessage.assert_not_called()

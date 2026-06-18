@@ -32,6 +32,7 @@ jobs:
                     || steps.filter.outputs.build_inputs == 'true'
                     || contains(github.event.pull_request.labels.*.name, 'hobby-preview')
                 }}
+            dockerignore_changed: ${{ steps.filter.outputs.dockerignore }}
         steps:
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -78,6 +79,28 @@ jobs:
                         - .github/actions/build-n-cache-image/**
                         - .dockerignore
                         - pnpm-lock.yaml
+                      # Drives the fast PR-time guard below (models `COPY . .`, so it only reacts
+                      # to .dockerignore — Dockerfile COPY changes are covered by the image boot check).
+                      dockerignore:
+                        - .dockerignore
+
+    dockerignore_guard:
+        needs: changes
+        name: Guard against dropped image files
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        # PR-time only (event == pull_request), so it's skipped on merge_group. Needs no secrets or
+        # docker login — unlike the image build below, it runs on fork PRs too.
+        if: github.event_name == 'pull_request' && needs.changes.outputs.dockerignore_changed == 'true'
+        permissions:
+            contents: read
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Fetch base ref for comparison
+              run: git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
+            - name: Check for non-test files dropped from the image
+              run: bin/dockerignore-drop-check "${{ github.event.pull_request.base.sha }}"
 
     posthog_build:
         needs: changes

@@ -40,7 +40,7 @@ export const getDesktopRecordingsListUrl = (projectId: string, params?: DesktopR
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -53,8 +53,8 @@ export const getDesktopRecordingsListUrl = (projectId: string, params?: DesktopR
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsList = async (
     projectId: string,
@@ -93,8 +93,8 @@ export const getDesktopRecordingsRetrieveUrl = (projectId: string, id: string) =
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsRetrieve = async (
     projectId: string,
@@ -113,8 +113,8 @@ export const getDesktopRecordingsUpdateUrl = (projectId: string, id: string) => 
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsUpdate = async (
     projectId: string,
@@ -136,8 +136,8 @@ export const getDesktopRecordingsPartialUpdateUrl = (projectId: string, id: stri
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsPartialUpdate = async (
     projectId: string,
@@ -159,8 +159,8 @@ export const getDesktopRecordingsDestroyUrl = (projectId: string, id: string) =>
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDesktopRecordingsDestroyUrl(projectId, id), {

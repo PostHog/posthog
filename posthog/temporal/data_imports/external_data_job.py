@@ -24,6 +24,14 @@ from posthog.temporal.data_imports.metrics import get_data_import_finished_metri
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource
+from posthog.temporal.data_imports.workflow_activities.acquire_v3_lock import (
+    AcquireV3LockActivityInputs,
+    CheckPipelineVersionActivityInputs,
+    ReleaseV3LockActivityInputs,
+    acquire_v3_pipeline_lock_activity,
+    check_pipeline_version_activity,
+    release_v3_pipeline_lock_activity,
+)
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
@@ -63,9 +71,24 @@ LOGGER = get_logger(__name__)
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
+    # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
+    # can't be parsed, or password auth is missing a username/password. Shared by every
+    # SSH-capable source (Postgres, Redshift, MySQL, MSSQL, ClickHouse). The auth config is fixed,
+    # so retrying just replays the same invalid credentials; stop and tell the customer to fix it.
+    "SSHTunnel auth is not valid": (
+        "Your SSH tunnel credentials are not valid. Check the SSH authentication details "
+        "(private key, passphrase, or username and password) on the source's SSH tunnel "
+        "configuration, then re-enable the sync."
+    ),
     "Primary key required for incremental syncs": None,
     "The primary keys for this table are not unique": None,
-    "Integration matching query does not exist": None,
+    "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
+    # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
+    # REST-based source). The server refused the handshake, which is deterministic for a given
+    # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
+    # misconfigured or wrong host/URL on the customer's side. Match the stable alert name, not the
+    # volatile `_ssl.c:NNNN` suffix or per-request host.
+    "SSLV3_ALERT_HANDSHAKE_FAILURE": "Could not complete a secure (TLS) connection to the source's server — the handshake was rejected. Please check the configured host/URL is correct and that the server supports a compatible TLS version.",
 }
 
 
@@ -105,9 +128,11 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
     if inputs.job_id is None:
         job: ExternalDataJob | None = await database_sync_to_async_pool(
-            lambda: ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
-            .order_by("-created_at")
-            .first()
+            lambda: (
+                ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
+                .order_by("-created_at")
+                .first()
+            )
         )()
         if job is None:
             logger.info("No job to update status on")
@@ -258,6 +283,55 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         source_type = None
         consumer_manages_job_status = False
+        is_v3 = False
+        lock_token = None
+
+        # Check pipeline version (FF evaluated once here, propagated everywhere)
+        try:
+            version_result = await workflow.execute_activity(
+                check_pipeline_version_activity,
+                CheckPipelineVersionActivityInputs(
+                    team_id=inputs.team_id,
+                    source_id=inputs.external_data_source_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            is_v3 = version_result.is_v3
+        except Exception:
+            workflow.logger.warning(
+                "Failed to check pipeline version, defaulting to V2",
+                extra={"schema_id": str(inputs.external_data_schema_id)},
+            )
+
+        # Only acquire lock for V3 pipelines (V2 never enters this block)
+        if is_v3:
+            lock_result = None
+            try:
+                lock_result = await workflow.execute_activity(
+                    acquire_v3_pipeline_lock_activity,
+                    AcquireV3LockActivityInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.external_data_schema_id,
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception:
+                workflow.logger.error(
+                    "Failed to acquire V3 pipeline lock, skipping run",
+                    extra={"schema_id": str(inputs.external_data_schema_id)},
+                )
+
+            if lock_result is None or not lock_result.acquired:
+                workflow.logger.info(
+                    "V3 pipeline lock not acquired, skipping",
+                    extra={"schema_id": str(inputs.external_data_schema_id)},
+                )
+                return
+
+            lock_token = lock_result.token
+
         try:
             # create external data job and trigger activity
             create_external_data_job_inputs = CreateExternalDataJobModelActivityInputs(
@@ -265,6 +339,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
                 billable=inputs.billable,
+                is_v3=is_v3,
             )
 
             create_job_result = await workflow.execute_activity(
@@ -499,3 +574,24 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         non_retryable_error_types=["NotNullViolation", "IntegrityError", "DoesNotExist"],
                     ),
                 )
+
+            # Release the V3 pipeline lock when the consumer is NOT managing job
+            # status (extraction failed before producing batches, or non-V3).
+            # When consumer_manages_job_status is True, the consumer releases.
+            if is_v3 and lock_token and not consumer_manages_job_status:
+                try:
+                    await workflow.execute_activity(
+                        release_v3_pipeline_lock_activity,
+                        ReleaseV3LockActivityInputs(
+                            team_id=inputs.team_id,
+                            schema_id=inputs.external_data_schema_id,
+                            token=lock_token,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                except Exception:
+                    workflow.logger.warning(
+                        "Failed to release V3 pipeline lock in workflow finally block",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )

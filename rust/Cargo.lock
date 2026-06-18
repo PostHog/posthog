@@ -1762,6 +1762,7 @@ dependencies = [
  "flate2",
  "futures",
  "hex",
+ "http-body-util",
  "httparse",
  "hyper 1.9.0",
  "hyper-util",
@@ -3496,6 +3497,7 @@ dependencies = [
  "common-database",
  "common-geoip",
  "common-hypercache",
+ "common-kafka",
  "common-metrics",
  "common-redis",
  "common-s3",
@@ -3522,6 +3524,7 @@ dependencies = [
  "petgraph 0.8.3",
  "rand 0.8.5",
  "rayon",
+ "rdkafka",
  "regex",
  "reqwest 0.12.28",
  "rstest",
@@ -4348,7 +4351,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.84"
+version = "1.3.92"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -7363,7 +7366,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-symbol-data"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",

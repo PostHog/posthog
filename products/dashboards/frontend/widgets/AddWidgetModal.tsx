@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -74,6 +75,11 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
         void submitAddWidgetPayloads(selectedTypes, onAdd, onClose)
     }
 
+    function handleFeedbackClicked(): void {
+        posthog.capture('dashboard add widget modal - feedback clicked')
+        onClose()
+    }
+
     return (
         <LemonModal
             isOpen={isOpen}
@@ -83,6 +89,14 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
             width={960}
             footer={
                 <>
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        onClick={handleFeedbackClicked}
+                        data-attr="dashboard-add-widget-feedback"
+                    >
+                        Missing a widget? Let us know
+                    </LemonButton>
                     <div className="flex-1" />
                     <LemonButton type="secondary" onClick={onClose}>
                         Cancel
@@ -100,7 +114,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
         >
             <div className="@container/add-widget-modal">
                 <div
-                    className="grid grid-cols-1 @min-[36rem]/add-widget-modal:grid-cols-2 gap-x-3 gap-y-4"
+                    className="grid grid-cols-1 @min-[48rem]/add-widget-modal:grid-cols-2 gap-x-3 gap-y-4"
                     aria-label="Widget types"
                 >
                     {DASHBOARD_WIDGET_CATALOG_GROUPS.map((group, groupIndex) => (

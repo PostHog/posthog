@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,9 +35,9 @@ class FrontSource(ResumableSource[FrontSourceConfig, FrontResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.FRONT,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Front",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Front API token to sync your Front data into the PostHog Data warehouse.
 
 You can create an API token in your [Front settings](https://app.frontapp.com/settings/tools/api) under **Developers > API tokens**.

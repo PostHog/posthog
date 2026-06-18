@@ -1710,6 +1710,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["pr_authorship_mode"] == "user"
         assert task_run.state["run_source"] == "manual"
         assert task_run.state["pr_base_branch"] == "main"
+        assert task_run.state["github_credential_source"] == "server_integration"
         task.refresh_from_db()
         assert task.github_user_integration_id == user_integration.id
         mock_workflow.assert_called_once()
@@ -1737,6 +1738,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_200_OK
         task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
         assert get_cached_github_user_token(str(task_run.id)) == github_user_token
+        assert task_run.state["github_credential_source"] == "caller_token"
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -1762,13 +1764,14 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("low",),
-            ("medium",),
-            ("high",),
+            ("gpt_5_3_low", "gpt-5.3-codex", "low"),
+            ("gpt_5_3_medium", "gpt-5.3-codex", "medium"),
+            ("gpt_5_3_high", "gpt-5.3-codex", "high"),
+            ("gpt_5_5_xhigh", "gpt-5.5", "xhigh"),
         ]
     )
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    def test_run_endpoint_persists_runtime_metadata(self, reasoning_effort, mock_workflow):
+    def test_run_endpoint_persists_runtime_metadata(self, _case_name, model, reasoning_effort, mock_workflow):
         task = self.create_task()
 
         response = self.client.post(
@@ -1776,7 +1779,7 @@ class TestTaskAPI(BaseTaskAPITest):
             {
                 "mode": "interactive",
                 "runtime_adapter": "codex",
-                "model": "gpt-5.3-codex",
+                "model": model,
                 "reasoning_effort": reasoning_effort,
             },
             format="json",
@@ -1787,11 +1790,11 @@ class TestTaskAPI(BaseTaskAPITest):
         task_run = TaskRun.objects.get(id=latest_run["id"])
         assert task_run.state["runtime_adapter"] == "codex"
         assert task_run.state["provider"] == "openai"
-        assert task_run.state["model"] == "gpt-5.3-codex"
+        assert task_run.state["model"] == model
         assert task_run.state["reasoning_effort"] == reasoning_effort
         assert latest_run["runtime_adapter"] == "codex"
         assert latest_run["provider"] == "openai"
-        assert latest_run["model"] == "gpt-5.3-codex"
+        assert latest_run["model"] == model
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
@@ -1987,16 +1990,25 @@ class TestTaskAPI(BaseTaskAPITest):
         }
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("gpt_5_4_xhigh", "gpt-5.4", "xhigh", "low, medium, high"),
+            ("gpt_5_4_max", "gpt-5.4", "max", "low, medium, high"),
+            ("gpt_5_5_max", "gpt-5.5", "max", "low, medium, high, xhigh"),
+        ]
+    )
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_codex_reasoning_effort(self, mock_workflow):
+    def test_run_endpoint_rejects_unsupported_codex_reasoning_effort(
+        self, _case_name, model, reasoning_effort, supported_values, mock_workflow
+    ):
         task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {
                 "runtime_adapter": "codex",
-                "model": "gpt-5.4",
-                "reasoning_effort": "max",
+                "model": model,
+                "reasoning_effort": reasoning_effort,
             },
             format="json",
         )
@@ -2006,8 +2018,8 @@ class TestTaskAPI(BaseTaskAPITest):
             "type": "validation_error",
             "code": "invalid_input",
             "detail": (
-                "Reasoning effort 'max' is not supported for runtime_adapter 'codex' "
-                "and model 'gpt-5.4'. Supported values: low, medium, high."
+                f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'codex' "
+                f"and model '{model}'. Supported values: {supported_values}."
             ),
             "attr": "reasoning_effort",
         }
@@ -2038,6 +2050,36 @@ class TestTaskAPI(BaseTaskAPITest):
             "attr": "reasoning_effort",
         }
         mock_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("low",),
+            ("medium",),
+            ("high",),
+            ("xhigh",),
+            ("max",),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_fable_reasoning_effort(self, reasoning_effort, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-fable-5",
+                "reasoning_effort": reasoning_effort,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["model"] == "claude-fable-5"
+        assert task_run.state["reasoning_effort"] == reasoning_effort
+        mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_derives_provider_from_runtime_adapter(self, mock_workflow):
@@ -3069,6 +3111,66 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         mock_signal.assert_called_once()
         mock_publish_stream_state_event.assert_called_once()
+
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={
+                "github_credential_source": "caller_token",
+                "pr_authorship_mode": "user",
+                "sandbox_id": "sb-real",
+                "sandbox_cpu_cores": 2,
+                "sandbox_memory_gb": 8,
+                "sandbox_ttl_seconds": 1800,
+                "inactivity_timeout_seconds": 600,
+            },
+        )
+
+        # A caller cannot escalate to the creator's integration, flip authorship, repoint the
+        # credential-propagation target at a sandbox they control, or inflate the run's compute /
+        # lifetime to provision an oversized, long-lived sandbox. Non-protected keys still merge.
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {
+                "state": {
+                    "github_credential_source": "server_integration",
+                    "pr_authorship_mode": "bot",
+                    "sandbox_id": "sb-attacker",
+                    "sandbox_cpu_cores": 128,
+                    "sandbox_memory_gb": 512,
+                    "sandbox_ttl_seconds": 86400,
+                    "inactivity_timeout_seconds": 86400,
+                    "scratch": "ok",
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        assert run.state["github_credential_source"] == "caller_token"
+        assert run.state["pr_authorship_mode"] == "user"
+        assert run.state["sandbox_id"] == "sb-real"
+        assert run.state["sandbox_cpu_cores"] == 2
+        assert run.state["sandbox_memory_gb"] == 8
+        assert run.state["sandbox_ttl_seconds"] == 1800
+        assert run.state["inactivity_timeout_seconds"] == 600
+        assert run.state["scratch"] == "ok"  # non-protected keys still merge
+
+        # Nor can a caller remove a protected key to force a fallback or unguarded path.
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"state": {}, "state_remove_keys": ["github_credential_source", "sandbox_id", "scratch"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
+        assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
+        assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):

@@ -406,6 +406,42 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertIn("active subscription", response.json()["detail"])
             self.assertTrue(Project.objects.filter(id=self.project.id).exists())
 
+    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    def test_project_deletion_sets_pending_deletion_flag(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        mock_delete_task.delay.assert_called_once()
+
+    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    def test_project_deletion_returns_pending_deletion_in_api(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.client.delete(f"/api/projects/{self.project.id}")
+
+        response = self.client.get(f"/api/projects/{self.project.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_pending_deletion"])
+
+    @patch("posthog.api.project.delete_project_data_and_notify_task")
+    def test_delete_project_already_pending_deletion_returns_400(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.project.is_pending_deletion = True
+        self.project.save(update_fields=["is_pending_deletion"])
+
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already being deleted", response.json()["detail"])
+        mock_delete_task.delay.assert_not_called()
+
     def test_team_deletion_does_not_cascade_to_persons(self):
         """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
         # Create a Person
@@ -606,3 +642,75 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Verify changes were made
         self.project.refresh_from_db()
         self.assertEqual(self.project.name, "New Project Name")
+
+    # --- Parity coverage: fields and actions that previously existed only on /api/environments/ ---
+
+    def test_retrieve_project_includes_environment_parity_fields(self):
+        response = self.client.get(f"/api/projects/{self.project.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # Fields that used to be exposed only by /api/environments/ must now appear on /api/projects/ too
+        for field in [
+            "project_id",
+            "user_access_level",
+            "managed_viewsets",
+            "base_currency",
+            "capture_dead_clicks",
+            "cookieless_server_hash_mode",
+            "default_data_theme",
+            "revenue_analytics_config",
+            "marketing_analytics_config",
+            "customer_analytics_config",
+            "web_analytics_pre_aggregated_tables_enabled",
+        ]:
+            self.assertIn(field, data, f"/api/projects/ response is missing parity field '{field}'")
+        # project_id on a Project equals its own id (Project ↔ Team is 1:1)
+        self.assertEqual(data["project_id"], self.project.id)
+
+    def test_new_passthrough_field_writes_through_to_team(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"base_currency": "EUR", "capture_dead_clicks": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["base_currency"], "EUR")
+        self.assertEqual(response.json()["capture_dead_clicks"], True)
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.base_currency, "EUR")
+        self.assertEqual(self.team.capture_dead_clicks, True)
+
+    def test_customer_analytics_config_writes_through_to_team(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"customer_analytics_config": {"activity_event": "$pageview"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["customer_analytics_config"]["activity_event"], "$pageview")
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
+
+    def test_settings_as_of_action_available_on_projects(self):
+        # This action previously existed only on /api/environments/ — it must now work on /api/projects/ too.
+        # NOTE: we pass a `scope` filter on purpose. The unscoped snapshot path has a pre-existing bug on the
+        # environments endpoint too — TEAM_CONFIG_FIELDS includes the analytics-config *properties* (model
+        # instances, not JSON-serializable), so an unscoped call 500s on both surfaces. Faithfully replicated
+        # here; fixing it belongs in a separate change since it affects /api/environments/ identically.
+        response = self.client.get(
+            f"/api/projects/{self.project.id}/settings_as_of/?at=2020-01-01T00:00:00Z&scope=timezone"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn("timezone", response.json())
+
+    def test_experiments_config_action_available_on_projects(self):
+        response = self.client.get(f"/api/projects/{self.project.id}/experiments_config/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn("default_experiment_stats_method", response.json())

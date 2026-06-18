@@ -1,6 +1,9 @@
+from datetime import UTC, datetime
+
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -8,7 +11,9 @@ from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    GroupTypeMapping,
     GroupTypesUnavailable,
+    _fetch_group_types_for_projects_via_personhog,
     _record_group_types_fetch_failure,
     clear_dashboard_from_group_type_mapping,
     count_group_type_mappings_per_team,
@@ -21,7 +26,10 @@ from posthog.models.group_type_mapping import (
     update_group_type_mapping_fields,
 )
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.personhog_client.fake_client import FakePersonHogClient
 from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 def _clear_cache(project_id: int) -> None:
@@ -35,7 +43,7 @@ PERSONHOG_SUCCESS_DATA = [
         "group_type_index": 0,
         "name_singular": "Organization",
         "name_plural": "Organizations",
-        "detail_dashboard_id": None,
+        "detail_dashboard": None,
         "default_columns": ["name"],
         "created_at": None,
     },
@@ -44,7 +52,7 @@ PERSONHOG_SUCCESS_DATA = [
         "group_type_index": 1,
         "name_singular": None,
         "name_plural": None,
-        "detail_dashboard_id": None,
+        "detail_dashboard": None,
         "default_columns": None,
         "created_at": None,
     },
@@ -56,7 +64,7 @@ ORM_DATA = [
         "group_type_index": 0,
         "name_singular": None,
         "name_plural": None,
-        "detail_dashboard_id": None,
+        "detail_dashboard": None,
         "default_columns": None,
         "created_at": None,
     },
@@ -318,6 +326,23 @@ class TestGetGroupTypesForProjectsRouting(SimpleTestCase):
 
     def tearDown(self):
         self._client_patcher.stop()
+
+    @override_settings(PERSONHOG_BATCH_SIZE=2)
+    def test_fetch_via_personhog_chunks_project_ids(self):
+        # 5 project_ids with batch size 2 → 3 chunks (2 + 2 + 1)
+        mock_client = MagicMock()
+        mock_client.get_group_type_mappings_by_project_ids.side_effect = [
+            MagicMock(results=[MagicMock(key=1, mappings=[]), MagicMock(key=2, mappings=[])]),
+            MagicMock(results=[MagicMock(key=3, mappings=[]), MagicMock(key=4, mappings=[])]),
+            MagicMock(results=[MagicMock(key=5, mappings=[])]),
+        ]
+
+        result = _fetch_group_types_for_projects_via_personhog(mock_client, [1, 2, 3, 4, 5])
+
+        assert mock_client.get_group_type_mappings_by_project_ids.call_count == 3
+        assert set(result.keys()) == {1, 2, 3, 4, 5}
+        for c in mock_client.get_group_type_mappings_by_project_ids.call_args_list:
+            assert len(c[0][0].project_ids) <= 2
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
@@ -1305,3 +1330,71 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
 
         # A team adding its first group type must stop short-circuiting to False at once.
         assert get_safe_cache(marker_key) is None
+
+
+class TestGroupTypesForProjectPathParity(BaseTest):
+    """The personhog and ORM paths of get_group_types_for_project must return identical rows.
+
+    The ORM path only runs as the fallback when personhog errors, so a shape or
+    value divergence would surface during incidents — compare the paths against
+    each other on the same data instead of against hand-written expectations.
+    Delete this test together with the ORM fallback.
+    """
+
+    def test_personhog_and_orm_paths_return_identical_rows(self):
+        # Exact-millisecond timestamp: the proto carries epoch ms, so a sub-ms
+        # value would diverge from the ORM no matter what the code does.
+        created_at = datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
+        dashboard = Dashboard.objects.create(team=self.team, name="orgs")
+
+        GroupTypeMapping.objects.create(  # nosemgrep: no-direct-persons-db-orm
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Organization",
+            name_plural="Organizations",
+            default_columns=["name"],
+            detail_dashboard=dashboard,
+            created_at=created_at,
+        )
+        minimal = GroupTypeMapping.objects.create(  # nosemgrep: no-direct-persons-db-orm
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="company",
+            group_type_index=1,
+        )
+        # save() auto-fills created_at; NULL it to exercise the None case on both paths
+        GroupTypeMapping.objects.filter(pk=minimal.pk).update(created_at=None)  # nosemgrep: no-direct-persons-db-orm
+
+        fake = FakePersonHogClient()
+        fake.add_group_type_mapping(
+            project_id=self.team.project_id,
+            team_id=self.team.id,
+            group_type="organization",
+            group_type_index=0,
+            name_singular="Organization",
+            name_plural="Organizations",
+            default_columns=["name"],
+            detail_dashboard_id=dashboard.id,
+            created_at=int(created_at.timestamp() * 1000),
+        )
+        fake.add_group_type_mapping(
+            project_id=self.team.project_id,
+            team_id=self.team.id,
+            group_type="company",
+            group_type_index=1,
+        )
+
+        with patch(_CLIENT_PATCH, return_value=fake):
+            _clear_cache(self.team.project_id)
+            personhog_rows = get_group_types_for_project(self.team.project_id)
+
+        with patch(_CLIENT_PATCH, return_value=None):
+            _clear_cache(self.team.project_id)
+            orm_rows = get_group_types_for_project(self.team.project_id)
+
+        # Guard against vacuous equality before comparing the paths
+        assert len(orm_rows) == 2
+        assert orm_rows[0]["detail_dashboard"] == dashboard.id
+        assert personhog_rows == orm_rows

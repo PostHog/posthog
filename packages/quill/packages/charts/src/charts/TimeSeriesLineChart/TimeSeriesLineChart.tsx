@@ -2,6 +2,7 @@ import React, { useMemo } from 'react'
 
 import type {
     ChartTheme,
+    DateRangeZoomData,
     LineChartConfig,
     PointClickData,
     Series,
@@ -46,6 +47,8 @@ export interface TimeSeriesLineChartConfig {
     percentStackView?: boolean
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
+    showAxisLines?: boolean
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
 }
@@ -57,6 +60,7 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     config?: TimeSeriesLineChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     dataAttr?: string
     className?: string
     children?: React.ReactNode
@@ -70,6 +74,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     config,
     tooltip,
     onPointClick,
+    onDateRangeZoom,
     dataAttr,
     className,
     children,
@@ -86,6 +91,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         comparisonOf,
         percentStackView,
         showCrosshair,
+        showAxisLines,
         tooltip: tooltipConfig,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
@@ -119,6 +125,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         xAxisLabel: xAxis?.label,
         yAxisLabel: yAxis?.label,
         showGrid: yAxis?.showGrid,
+        showAxisLines,
         percentStackView,
         showCrosshair,
         tooltip: tooltipConfig,
@@ -133,6 +140,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
             theme={theme}
             tooltip={tooltip}
             onPointClick={onPointClick}
+            onDateRangeZoom={onDateRangeZoom}
             className={className}
             dataAttr={dataAttr}
             onError={onError}

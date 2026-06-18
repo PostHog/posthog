@@ -12,10 +12,12 @@ import {
     lemonToast,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 import { endpointsLogic } from 'products/endpoints/frontend/endpointsLogic'
@@ -160,9 +162,14 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                     />
                 </LemonField.Pure>
 
-                <LemonButton type="primary" onClick={handleSubmit} icon={<IconEndpoints />} size="medium">
-                    {isUpdateMode ? 'Update endpoint' : 'Create endpoint'}
-                </LemonButton>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Endpoint}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonButton type="primary" onClick={handleSubmit} icon={<IconEndpoints />} size="medium">
+                        {isUpdateMode ? 'Update endpoint' : 'Create endpoint'}
+                    </LemonButton>
+                </AccessControlAction>
             </div>
         </div>
     )

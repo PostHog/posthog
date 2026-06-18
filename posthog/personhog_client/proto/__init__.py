@@ -80,4 +80,7 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 impo
     Person,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
+    SplitPersonRequest,
+    SplitPersonResponse,
+    SplitResult,
 )

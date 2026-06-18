@@ -133,6 +133,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                               AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
                             GROUP BY bucket
                             ORDER BY bucket
+                            LIMIT ${option.bucketCount + 1}
                         `,
                             tags: { productKey: ProductKey.ERROR_TRACKING },
                         },
@@ -167,6 +168,7 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                               AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
                             GROUP BY bucket, metric_name
                             ORDER BY bucket
+                            LIMIT ${(option.bucketCount + 1) * 2}
                         `,
                             tags: { productKey: ProductKey.ERROR_TRACKING },
                         },

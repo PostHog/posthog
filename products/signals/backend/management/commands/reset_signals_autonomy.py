@@ -10,7 +10,6 @@ from django.utils import timezone
 
 from posthog.models import Team
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import (
     SignalEmissionRecord,
     SignalProjectProfile,
@@ -20,6 +19,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.skills.backend.models.skills import LLMSkill
 
 # The only reliable canonical-vs-custom discriminator. Canonical scouts (and the
 # `authoring-signals-scouts` companion) are stamped with this by the seeding

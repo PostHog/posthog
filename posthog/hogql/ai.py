@@ -234,7 +234,7 @@ def write_sql_from_prompt(
         raise PromptUnclear(error)
 
 
-def hit_openai(messages, user, posthog_properties=None) -> tuple[str, int, int]:
+def hit_openai(messages, user, posthog_properties=None, posthog_groups=None) -> tuple[str, int, int]:
     if not openai_client:
         raise ValueError("OPENAI_API_KEY environment variable not set")
 
@@ -244,6 +244,7 @@ def hit_openai(messages, user, posthog_properties=None) -> tuple[str, int, int]:
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
         posthog_properties=posthog_properties,
+        posthog_groups=posthog_groups,
     )
 
     content: str = ""

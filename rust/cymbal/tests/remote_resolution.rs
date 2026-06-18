@@ -20,7 +20,7 @@ use common::{
 
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
-use cymbal::langs::apple::AppleDebugImage;
+use cymbal::langs::native::DebugImage;
 use cymbal::stages::resolution::symbol::SymbolResolver;
 use cymbal::stages::resolution::ResolutionStage;
 use cymbal::symbol_store::chunk_id::OrChunkId;
@@ -47,7 +47,7 @@ impl SymbolResolver for CountingResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         self.raw_frame_calls.fetch_add(1, Ordering::SeqCst);
         Ok(Vec::new())
@@ -377,11 +377,11 @@ async fn accepted_outcomes_release_routing_slots_before_terminal_completion() {
 }
 
 #[tokio::test]
-async fn metadata_encodes_apple_debug_images_as_json_field() {
+async fn metadata_encodes_debug_images_under_both_keys() {
     let (addr, _streams, items) = spawn_recording_stub_server(ServerBehavior::Happy).await;
     let ctx = make_ctx(&[addr], 0, Duration::from_secs(5)).await;
     let mut evt = build_event(1);
-    evt.debug_images = vec![AppleDebugImage {
+    evt.debug_images = vec![DebugImage {
         debug_id: "ABCDEF".to_string(),
         image_addr: "0x100000000".to_string(),
         image_vmaddr: Some("0x100000000".to_string()),
@@ -401,6 +401,11 @@ async fn metadata_encodes_apple_debug_images_as_json_field() {
     assert_eq!(items.len(), 1);
     let metadata: serde_json::Value =
         serde_json::from_slice(&items[0].metadata).expect("metadata is json");
+    assert_eq!(
+        metadata["debug_images_json"][0]["debug_id"],
+        serde_json::Value::String("ABCDEF".to_string())
+    );
+    // Legacy key still written for older cymbal-resolution readers during rollout.
     assert_eq!(
         metadata["apple_debug_images_json"][0]["debug_id"],
         serde_json::Value::String("ABCDEF".to_string())

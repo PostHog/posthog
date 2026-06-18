@@ -1,5 +1,9 @@
-import { mergeRecipes, RecipeNormalizer, StoredRecipe } from './normalizer'
+import posthog from 'posthog-js'
+
+import { mergeRecipes, RecipeNormalizer, RunOutcome, StoredRecipe } from './normalizer'
 import { CompatMessage } from './types'
+
+export type NormalizationResult = RunOutcome
 
 // Constructed once: the constructor compiles and sorts every recipe, so per-call
 // construction would be wasteful.
@@ -17,9 +21,16 @@ export function applyTeamParserRecipes(stored: StoredRecipe[]): void {
 }
 
 export function normalizeMessage(input: unknown, defaultRole: string): CompatMessage[] {
-    return recipeNormalizer.normalizeMessage(input, defaultRole)
+    return recipeNormalizer.normalizeMessage(input, defaultRole).messages
 }
 
-export function normalizeMessages(input: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
+export function normalizeMessages(input: unknown, defaultRole: string, tools?: unknown): NormalizationResult {
     return recipeNormalizer.normalizeMessages(input, defaultRole, tools)
+}
+
+export function captureNormalizationFailure(input: unknown): void {
+    posthog.capture('llma message normalization failed', {
+        message_keys: typeof input === 'object' && input !== null ? Object.keys(input) : [],
+        message_type: typeof input,
+    })
 }

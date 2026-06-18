@@ -142,6 +142,11 @@ class ConstantType(Type):
 @dataclass(kw_only=True, slots=True)
 class UnknownType(ConstantType):
     data_type: ConstantDataType = field(default="unknown", init=False)
+    # True when the type genuinely could not be determined (e.g. an unmapped function), so the
+    # value could be anything. Such a type poisons supertype unification rather than being absorbed.
+    # The default (False) marks a vacuous unknown — a null literal or empty container — that imposes
+    # no constraint and is absorbed, letting a known sibling type win.
+    unanalyzable: bool = field(default=False)
 
     def print_type(self) -> str:
         return "Unknown"

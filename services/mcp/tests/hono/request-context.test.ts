@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const { mockMe, mockApiClientCtor } = vi.hoisted(() => {
     const mockMe = vi.fn()
-    const mockApiClientCtor = vi.fn().mockImplementation(() => ({
-        users: () => ({ me: mockMe }),
-    }))
+    const mockApiClientCtor = vi.fn().mockImplementation(function () {
+        return {
+            users: () => ({ me: mockMe }),
+        }
+    })
     return { mockMe, mockApiClientCtor }
 })
 

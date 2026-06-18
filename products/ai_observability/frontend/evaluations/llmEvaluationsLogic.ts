@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
@@ -21,9 +21,7 @@ import { EvaluationConfig } from './types'
 const INITIAL_DATE_FROM = '-24h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
-export interface LLMEvaluationsLogicProps {
-    tabId?: string
-}
+export type LLMEvaluationsLogicProps = Record<string, never>
 
 function redirectToOnlineEvaluations(searchParams: Record<string, unknown>): void {
     router.actions.replace(
@@ -40,7 +38,6 @@ function redirectToOnlineEvaluations(searchParams: Record<string, unknown>): voi
 export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationsLogic']),
     props({} as LLMEvaluationsLogicProps),
-    key((props) => props.tabId ?? 'default'),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys', 'isTrialLimitReached']],
         actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],

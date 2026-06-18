@@ -15,7 +15,9 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     create_slot_and_publication,
     drop_slot,
     drop_slot_and_publication,
+    get_max_slot_wal_keep_size_mb,
     get_slot_lag_bytes,
+    is_slot_invalidation_error,
     publication_exists,
     remove_table_from_publication,
     slot_exists,
@@ -84,6 +86,39 @@ class PostgresCDCAdapter:
 
     def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None:
         return get_slot_lag_bytes(conn, slot_name)
+
+    def get_retention_cap_mb(self, conn: Any) -> int | None:
+        return get_max_slot_wal_keep_size_mb(conn)
+
+    def is_slot_invalidation_error(self, exc: BaseException) -> bool:
+        return is_slot_invalidation_error(exc)
+
+    def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
+        """Drop the dead replication slot and create a fresh one against the existing
+        publication, recreating the publication first when PostHog owns it and it's gone.
+        Returns the job_inputs updates (new consistent point). Raises when recreation
+        isn't possible (no slot configured, customer-owned publication missing).
+        """
+        cdc_config = self.parse_cdc_config(source)
+        if not cdc_config.slot_name:
+            raise RuntimeError("Cannot recreate CDC replication slot: no slot name configured for this source")
+
+        schema = self._resolve_schema(source)
+        with cdc_pg_connection(source) as conn:
+            drop_slot(conn, cdc_config.slot_name)
+            if cdc_config.publication_name and not publication_exists(conn, cdc_config.publication_name):
+                if cdc_config.management_mode != "posthog":
+                    raise RuntimeError(
+                        f"Publication '{cdc_config.publication_name}' does not exist on the source database. "
+                        "Recreate it (see the CDC setup instructions), then resync the source."
+                    )
+                consistent_point = create_slot_and_publication(
+                    conn, cdc_config.slot_name, cdc_config.publication_name, schema, tables=tables
+                )
+            else:
+                consistent_point = create_slot(conn, cdc_config.slot_name)
+
+        return {"cdc_consistent_point": consistent_point}
 
     def setup_resources(
         self,

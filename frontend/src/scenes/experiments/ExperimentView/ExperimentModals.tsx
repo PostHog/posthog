@@ -198,7 +198,8 @@ export function ResumeExperimentModal(): JSX.Element {
 }
 
 export function FinishExperimentModal(): JSX.Element {
-    const { experiment, isSingleVariantShipped, shippedVariantKey, endExperimentLoading } = useValues(experimentLogic)
+    const { experiment, variants, isSingleVariantShipped, shippedVariantKey, endExperimentLoading } =
+        useValues(experimentLogic)
     const { finishExperiment, endExperimentWithoutShipping, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeFinishExperimentModal } = useActions(modalsLogic)
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
@@ -210,15 +211,11 @@ export function FinishExperimentModal(): JSX.Element {
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
 
     useEffect(() => {
-        if (experiment.parameters?.feature_flag_variants?.length > 1) {
+        if (variants.length > 1) {
             // First test variant selected by default
-            setSelectedVariantKey(experiment.parameters.feature_flag_variants[1].key)
+            setSelectedVariantKey(variants[1].key)
         }
-    }, [
-        experiment.id,
-        experiment.parameters?.feature_flag_variants?.length,
-        experiment.parameters?.feature_flag_variants,
-    ])
+    }, [experiment.id, variants])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
@@ -300,7 +297,10 @@ export function FinishExperimentModal(): JSX.Element {
                     ) : (
                         <>
                             <div>
-                                <LemonLabel>Variant to keep</LemonLabel>
+                                <LemonLabel showOptional>Variant to keep</LemonLabel>
+                                <div className="text-xs text-muted mb-1">
+                                    Leave blank to end the experiment without rolling out a variant.
+                                </div>
                                 <div className="w-1/2 mt-1">
                                     <LemonSelect
                                         className="w-full"

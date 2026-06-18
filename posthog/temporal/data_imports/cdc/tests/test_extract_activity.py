@@ -5,7 +5,15 @@ from typing import Literal
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.temporal.data_imports.cdc.activities import CDCExtractActivity, CDCExtractInput, cdc_extract_activity
+import psycopg.errors
+
+from posthog.temporal.data_imports.cdc.activities import (
+    SLOT_INVALIDATION_RECOVERY_MESSAGE,
+    CDCExtractActivity,
+    CDCExtractInput,
+    cdc_extract_activity,
+    cleanup_orphan_slots_activity,
+)
 from posthog.temporal.data_imports.cdc.types import ChangeEvent
 
 
@@ -99,6 +107,7 @@ def _setup_mocks(
     mock_reader.get_decoder_key_columns.return_value = []
     mock_adapter = MagicMock()
     mock_adapter.create_reader.return_value = mock_reader
+    mock_adapter.is_slot_invalidation_error.return_value = False
     mock_get_adapter.return_value = mock_adapter
 
     mock_s3 = MagicMock()
@@ -557,6 +566,7 @@ class TestCDCExtractActivity:
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
         mock_get_adapter.return_value = mock_adapter
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
@@ -1103,3 +1113,178 @@ class TestCDCExtractActivity:
 
         # Job should be marked COMPLETED by the activity (no Kafka consumer will do it)
         assert any("status" in call.kwargs.get("update_fields", []) for call in mock_job.save.call_args_list)
+
+
+class TestSlotInvalidationRecovery:
+    """When the replication slot is invalidated/dropped on the source DB, the activity
+    must recreate it and reset all CDC schemas to snapshot mode instead of failing forever."""
+
+    def _setup(self, mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity):
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_last_log_position"] = "0/OLD"
+        schema.sync_type_config["cdc_deferred_runs"] = [{"run_uuid": "stale"}]
+        mock_get_schemas.return_value = [schema]
+
+        invalidation_error = psycopg.errors.ObjectNotInPrerequisiteState(
+            'can no longer get changes from replication slot "posthog_slot"\n'
+            "DETAIL:  This slot has been invalidated because it exceeded the maximum reserved size."
+        )
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = invalidation_error
+        mock_reader.truncated_tables = []
+
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = True
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+
+        return source, schema, mock_reader, mock_adapter
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_invalidated_slot_is_recreated_and_schemas_reset_to_snapshot(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        source, schema, mock_reader, mock_adapter = self._setup(
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
+        )
+
+        def _recreate_slot(source_arg, tables):
+            # Schemas must already be reset when the slot is recreated — if recreation
+            # fails, no schema may keep streaming across the gap on the next run.
+            assert schema.sync_type_config["cdc_mode"] == "snapshot"
+            return {"cdc_consistent_point": "0/AA"}
+
+        mock_adapter.recreate_slot.side_effect = _recreate_slot
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        # Recovery handles the error — the activity must not raise (no pointless Temporal retries).
+        cdc_extract_activity(inputs)
+
+        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["users"])
+        assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+        source.save.assert_called()
+
+        assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert "cdc_last_log_position" not in schema.sync_type_config
+        assert "cdc_deferred_runs" not in schema.sync_type_config
+        assert schema.initial_sync_complete is False
+        assert schema.status == "Failed"
+        assert schema.latest_error == SLOT_INVALIDATION_RECOVERY_MESSAGE
+
+        mock_reader.close.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_recovery_failure_marks_schemas_failed_and_raises(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        source, schema, mock_reader, mock_adapter = self._setup(
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
+        )
+        mock_adapter.recreate_slot.side_effect = RuntimeError("cannot recreate slot")
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with pytest.raises(RuntimeError, match="cannot recreate slot"):
+            cdc_extract_activity(inputs)
+
+        assert schema.status == "Failed"
+        assert "cannot recreate slot" in schema.latest_error
+        mock_reader.close.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_non_invalidation_errors_do_not_trigger_recovery(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        source, schema, mock_reader, mock_adapter = self._setup(
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
+        )
+        mock_reader.read_changes.side_effect = RuntimeError("connection lost")
+        mock_adapter.is_slot_invalidation_error.return_value = False
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with pytest.raises(RuntimeError, match="connection lost"):
+            cdc_extract_activity(inputs)
+
+        mock_adapter.recreate_slot.assert_not_called()
+        assert schema.sync_type_config["cdc_mode"] == "streaming"
+
+
+class TestCleanupOrphanSlotsRetentionCap:
+    """The sweeper's auto-drop must fire below the engine's own retention cap
+    (max_slot_wal_keep_size), otherwise the engine invalidates the slot first."""
+
+    def _setup(self, mock_get_adapter, MockSourceModel, lag_mb, cap_mb):
+        source = _make_source()
+        qs = MockSourceModel.objects.filter.return_value
+        qs.exclude.return_value.exclude.return_value.exclude.return_value.exclude.return_value = [source]
+
+        cdc_config = MagicMock()
+        cdc_config.slot_name = "posthog_slot"
+        cdc_config.publication_name = "posthog_pub"
+        cdc_config.management_mode = "posthog"
+        cdc_config.auto_drop_slot = True
+        cdc_config.lag_warning_threshold_mb = 1024
+        cdc_config.lag_critical_threshold_mb = 10240
+
+        mock_adapter = MagicMock()
+        mock_adapter.parse_cdc_config.return_value = cdc_config
+        mock_adapter.get_lag_bytes.return_value = lag_mb * 1024 * 1024
+        mock_adapter.get_retention_cap_mb.return_value = cap_mb
+        mock_get_adapter.return_value = mock_adapter
+        return source, mock_adapter
+
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_retention_cap_lowers_critical_threshold(self, mock_close_conns, MockSourceModel, mock_get_adapter):
+        # Configured critical is 10240 MB, but the engine caps retention at 1000 MB:
+        # at 900 MB of lag (>= 80% of the cap) the sweeper must already act.
+        source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=1000)
+
+        cleanup_orphan_slots_activity()
+
+        mock_adapter.drop_resources.assert_called_once()
+        assert source.status is MockSourceModel.Status.ERROR
+        source.save.assert_called()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_unlimited_retention_keeps_configured_threshold(self, mock_close_conns, MockSourceModel, mock_get_adapter):
+        source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=None)
+
+        cleanup_orphan_slots_activity()
+
+        mock_adapter.drop_resources.assert_not_called()

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { LemonCheckbox, LemonDialog, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -12,6 +12,7 @@ import {
     SurveyColorsAppearance,
     SurveyContainerAppearance,
 } from 'scenes/surveys/survey-appearance/SurveyAppearanceSections'
+import { SurveyBehaviorOptions } from 'scenes/surveys/survey-appearance/SurveyBehaviorOptions'
 import { CustomizationProps } from 'scenes/surveys/survey-appearance/types'
 import { SurveyThemeSelector } from 'scenes/surveys/wizard/SurveyThemeSelector'
 
@@ -48,6 +49,7 @@ export function Customization({
     deleteBranchingLogic,
     validationErrors,
     disabledReason,
+    onTranslationsChange,
 }: CustomizationProps): JSX.Element {
     const { surveysStylingAvailable } = useValues(surveysLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -126,40 +128,13 @@ export function Customization({
                         disabledReason={disabledReason}
                     />
                     <LemonDivider className="my-0" />
-                    <LemonCheckbox
+                    <SurveyBehaviorOptions
+                        survey={survey}
+                        onAppearanceChange={onAppearanceChange}
                         disabledReason={disabledReason}
-                        label="Shuffle questions"
-                        onChange={(checked) => {
-                            if (checked && hasBranchingLogic) {
-                                onAppearanceChange({ shuffleQuestions: false })
-
-                                LemonDialog.open({
-                                    title: 'Your survey has active branching logic',
-                                    description: (
-                                        <p className="py-2">
-                                            Enabling this option will remove your branching logic. Are you sure you want
-                                            to continue?
-                                        </p>
-                                    ),
-                                    primaryButton: {
-                                        children: 'Continue',
-                                        status: 'danger',
-                                        onClick: () => {
-                                            if (deleteBranchingLogic) {
-                                                deleteBranchingLogic()
-                                            }
-                                            onAppearanceChange({ shuffleQuestions: true })
-                                        },
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                    },
-                                })
-                            } else {
-                                onAppearanceChange({ shuffleQuestions: checked })
-                            }
-                        }}
-                        checked={survey.appearance?.shuffleQuestions}
+                        hasBranchingLogic={hasBranchingLogic}
+                        deleteBranchingLogic={deleteBranchingLogic}
+                        onTranslationsChange={onTranslationsChange}
                     />
                 </div>
                 {survey.type !== SurveyType.ExternalSurvey && (

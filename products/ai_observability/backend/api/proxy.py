@@ -169,7 +169,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         http_request,
         on_complete: Callable[[float], None] | None = None,
         on_error: Callable[[Exception, float], None] | None = None,
-    ) -> Generator[bytes, None, None]:
+    ) -> Generator[bytes]:
         """Creates a generator that handles client disconnects and encodes responses"""
         started = perf_counter()
         try:
@@ -191,7 +191,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 except Exception:
                     logger.exception("llm_proxy_on_complete_callback_error")
 
-    def _create_streaming_response(self, stream: Generator[bytes, None, None]) -> StreamingHttpResponse:
+    def _create_streaming_response(self, stream: Generator[bytes]) -> StreamingHttpResponse:
         """Creates a properly configured SSE streaming response"""
         if SERVER_GATEWAY_INTERFACE == "ASGI":
             astream = SyncIterableToAsync(stream)

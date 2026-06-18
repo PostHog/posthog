@@ -8,10 +8,13 @@ import temporalio
 import posthoganalytics
 from pydantic import ValidationError
 
+from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
+from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
@@ -267,8 +270,21 @@ async def _persist_agentic_report_artefacts(
         )
 
 
+def _team_has_business_knowledge(team_id: int) -> bool:
+    """Flag + ready-sources check, evaluated fresh per run so a flag flip takes
+    effect immediately. Fail open to False — research must not die on a flag-service
+    hiccup; the agent just won't be told about the knowledge base this run."""
+    try:
+        team = Team.objects.get(id=team_id)
+        return is_available_for_team(team)
+    except Exception:
+        logger.warning("business knowledge availability check failed", team_id=team_id, exc_info=True)
+        return False
+
+
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:
@@ -289,6 +305,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 sandbox_environment_id=sandbox_env_id,
                 posthog_mcp_scopes="read_only",  # Needs only read (queries, insights)
             )
+            has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.report_id)
             # 3. Run the agentic research in the sandbox
@@ -298,6 +315,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 previous_report_id=input.report_id if previous_research else None,
                 previous_report_research=previous_research,
                 signal_report_id=input.report_id,
+                has_business_knowledge=has_bk,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(

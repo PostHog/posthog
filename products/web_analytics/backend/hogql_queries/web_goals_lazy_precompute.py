@@ -306,6 +306,7 @@ def ensure_web_goals_precomputed(
         table=LazyComputationTable.WEB_GOALS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_goals_lazy_insert",
+        spill_to_disk=True,  # per-action GROUP BY over a sessions join; can build a large hash table
     )
 
 

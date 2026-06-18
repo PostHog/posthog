@@ -11,8 +11,13 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 
 from products.business_knowledge.backend import logic
-from products.business_knowledge.backend.constants import BK_RRF_SCORE_FLOOR
-from products.business_knowledge.backend.logic import _rrf_fuse, _SemanticCandidate, search_knowledge
+from products.business_knowledge.backend.constants import BK_DRILLDOWN_MAX_RADIUS, BK_RRF_SCORE_FLOOR
+from products.business_knowledge.backend.logic import (
+    _rrf_fuse,
+    _SemanticCandidate,
+    get_document_window,
+    search_knowledge,
+)
 from products.business_knowledge.backend.models import (
     KnowledgeChunk,
     KnowledgeDocument,
@@ -225,3 +230,119 @@ class TestHybridSearch(BaseTest):
         )
         # Should still find results via FTS
         assert len(results) >= 1
+
+
+class TestDocumentWindow(BaseTest):
+    """Tests for get_document_window drill-down logic."""
+
+    def _create_source_with_chunks(
+        self, num_chunks: int, *, safe: bool = True, name: str = "src"
+    ) -> tuple[KnowledgeSource, KnowledgeDocument]:
+        """Create a source with exactly num_chunks chunks (bypasses chunker)."""
+        with team_scope(self.team.id, canonical=True):
+            source = KnowledgeSource.objects.create(
+                team_id=self.team.id,
+                name=name,
+                source_type="text",
+                status=SourceStatus.READY,
+            )
+            doc = KnowledgeDocument.objects.create(
+                team_id=self.team.id,
+                source=source,
+                title=f"Doc for {name}",
+                safety_verdict=SafetyVerdict.SAFE if safe else SafetyVerdict.UNKNOWN,
+            )
+            chunks = []
+            for i in range(num_chunks):
+                content = f"Content of chunk {i} in document."
+                chunks.append(
+                    KnowledgeChunk(
+                        id=uuid.uuid4(),
+                        team_id=self.team.id,
+                        source=source,
+                        document=doc,
+                        ordinal=i,
+                        content=content,
+                        heading_path=f"Section {i}",
+                        char_count=len(content),
+                    )
+                )
+            KnowledgeChunk.objects.bulk_create(chunks)
+        return source, doc
+
+    @parameterized.expand(
+        [
+            ("contiguous_span", 10, 5, 2, [3, 4, 5, 6, 7]),
+            ("radius_zero", 5, 2, 0, [2]),
+            ("edge_no_wrap", 5, 0, 3, [0, 1, 2, 3]),
+            ("negative_center_clamped_to_zero", 5, -3, 2, [0, 1, 2]),
+        ]
+    )
+    def test_ordinal_window(self, _name: str, num_chunks: int, center: int, radius: int, expected: list[int]) -> None:
+        _source, doc = self._create_source_with_chunks(num_chunks)
+
+        results = get_document_window(self.team.id, doc.id, center_ordinal=center, radius=radius)
+
+        assert [r.ordinal for r in results] == expected
+
+    def test_radius_clamped_to_max(self) -> None:
+        _source, doc = self._create_source_with_chunks(40)
+
+        results = get_document_window(self.team.id, doc.id, center_ordinal=20, radius=100)
+
+        ordinals = [r.ordinal for r in results]
+        low = 20 - BK_DRILLDOWN_MAX_RADIUS
+        high = 20 + BK_DRILLDOWN_MAX_RADIUS
+        assert all(low <= o <= high for o in ordinals)
+        assert len(ordinals) <= 2 * BK_DRILLDOWN_MAX_RADIUS + 1
+
+    @parameterized.expand(
+        [
+            (
+                "unsafe_verdict",
+                lambda doc: KnowledgeDocument.objects.filter(id=doc.id).update(safety_verdict=SafetyVerdict.UNSAFE),
+            ),
+            (
+                "tombstoned",
+                lambda doc: KnowledgeDocument.objects.filter(id=doc.id).update(tombstoned_at=timezone.now()),
+            ),
+            (
+                "source_not_ready",
+                lambda doc: KnowledgeSource.objects.filter(id=doc.source_id).update(status=SourceStatus.PROCESSING),
+            ),
+        ]
+    )
+    def test_safety_filters_return_empty(self, _name: str, mark_ineligible) -> None:  # noqa: ANN001
+        _source, doc = self._create_source_with_chunks(3)
+
+        with team_scope(self.team.id, canonical=True):
+            mark_ineligible(doc)
+
+        results = get_document_window(self.team.id, doc.id, center_ordinal=0, radius=5)
+        assert results == []
+
+    def test_cross_team_returns_empty(self) -> None:
+        from posthog.models.team import Team
+
+        _source, doc = self._create_source_with_chunks(3)
+
+        other_team = Team.objects.create_with_data(
+            organization=self.organization, initiating_user=self.user, name="Other"
+        )
+        results = get_document_window(other_team.id, doc.id, center_ordinal=0, radius=5)
+        assert results == []
+
+    def test_unknown_document_returns_empty(self) -> None:
+        results = get_document_window(self.team.id, uuid.uuid4(), center_ordinal=0, radius=5)
+        assert results == []
+
+    def test_result_fields_populated(self) -> None:
+        _source, doc = self._create_source_with_chunks(3, name="my_source")
+
+        results = get_document_window(self.team.id, doc.id, center_ordinal=0, radius=0)
+
+        assert len(results) == 1
+        r = results[0]
+        assert r.document_id == doc.id
+        assert r.source_name == "my_source"
+        assert "Content of chunk 0" in r.content

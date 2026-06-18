@@ -1,6 +1,8 @@
-import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/client'
+import { Client, Connection, DataConverter, TLSConfig, WorkflowHandle } from '@temporalio/client'
 import fs from 'fs/promises'
 import { Counter } from 'prom-client'
+
+import { EncryptionCodec } from '~/common/temporal/codec'
 
 import { RawKafkaEvent } from '../../types'
 import { isDevEnv } from '../../utils/env-utils'
@@ -15,6 +17,8 @@ export type TemporalServiceConfig = Pick<
     | 'TEMPORAL_PORT'
     | 'TEMPORAL_HOST'
     | 'TEMPORAL_NAMESPACE'
+    | 'TEMPORAL_SECRET_KEY'
+    | 'TEMPORAL_FALLBACK_SECRET_KEYS'
 >
 
 const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'llm-analytics-evals-task-queue'
@@ -82,6 +86,22 @@ export class TemporalService {
         }
     }
 
+    private buildDataConverter(): DataConverter | undefined {
+        const { TEMPORAL_SECRET_KEY, TEMPORAL_FALLBACK_SECRET_KEYS } = this.config
+
+        if (!TEMPORAL_SECRET_KEY) {
+            logger.warn('⚠️ No TEMPORAL_SECRET_KEY configured — workflow payloads will NOT be encrypted')
+            return undefined
+        }
+
+        const fallbackKeys = (TEMPORAL_FALLBACK_SECRET_KEYS ?? '')
+            .split(',')
+            .map((key) => key.trim())
+            .filter(Boolean)
+
+        return { payloadCodecs: [new EncryptionCodec(TEMPORAL_SECRET_KEY, fallbackKeys)] }
+    }
+
     private async createClient(): Promise<Client> {
         const tls = await this.buildTLSConfig()
 
@@ -90,15 +110,19 @@ export class TemporalService {
 
         const connection = await Connection.connect({ address, tls })
 
+        const dataConverter = this.buildDataConverter()
+
         const client = new Client({
             connection,
             namespace: this.config.TEMPORAL_NAMESPACE || 'default',
+            dataConverter,
         })
 
         logger.info('✅ Connected to Temporal', {
             address,
             namespace: this.config.TEMPORAL_NAMESPACE,
             tlsEnabled: tls !== false,
+            payloadEncryption: dataConverter !== undefined,
         })
 
         return client

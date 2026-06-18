@@ -43,6 +43,18 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 
 logger = structlog.get_logger(__name__)
 
+# Shown as latest_error on schemas reset by slot-invalidation recovery.
+SLOT_INVALIDATION_RECOVERY_MESSAGE = (
+    "The source database invalidated this source's replication slot (its WAL retention limit was "
+    "exceeded), so changes since the last successful sync could not be read. PostHog recreated the "
+    "slot and scheduled a full re-sync of this table; change data capture resumes automatically "
+    "once the re-sync completes."
+)
+
+# The sweeper's auto-drop must fire below the engine's own retention cap, otherwise the
+# engine invalidates the slot first and we lose the chance to act cleanly.
+RETENTION_CAP_SAFETY_FACTOR = 0.8
+
 
 @dataclasses.dataclass
 class CDCExtractInput:
@@ -496,6 +508,14 @@ class CDCExtractActivity:
             self._update_log_positions()
 
         except Exception as exc:
+            if self.adapter is not None and self.adapter.is_slot_invalidation_error(exc):
+                try:
+                    self._recover_from_slot_invalidation(exc)
+                    return
+                except Exception as recovery_exc:
+                    self.log.exception("cdc_slot_recovery_failed")
+                    self._handle_failure(recovery_exc)
+                    raise
             self._handle_failure(exc)
             raise
         finally:
@@ -685,20 +705,31 @@ class CDCExtractActivity:
             trunc_schema = self.schema_by_name.get(table_name)
             if trunc_schema is None:
                 continue
-            trunc_log = self._schema_log(trunc_schema)
-            trunc_log.warning("truncate_detected", table=table_name, schema_id=str(trunc_schema.id))
-            trunc_schema.sync_type_config["cdc_mode"] = "snapshot"
-            trunc_schema.sync_type_config.pop("cdc_last_log_position", None)
-            trunc_schema.initial_sync_complete = False
-            trunc_schema.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
-            try:
-                from products.data_warehouse.backend.data_load.service import unpause_external_data_schedule
-
-                unpause_external_data_schedule(str(trunc_schema.id))
-                trunc_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(trunc_schema.id))
-            except Exception:
-                trunc_log.warning("failed_to_unpause_schema_schedule", schema_id=str(trunc_schema.id))
+            self._schema_log(trunc_schema).warning(
+                "truncate_detected", table=table_name, schema_id=str(trunc_schema.id)
+            )
+            self._reset_schema_to_snapshot(trunc_schema)
+            self._unpause_schema_schedule(trunc_schema)
         return truncated_tables
+
+    def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> None:
+        """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
+        schema.sync_type_config["cdc_mode"] = "snapshot"
+        schema.sync_type_config.pop("cdc_last_log_position", None)
+        if clear_deferred_runs:
+            schema.sync_type_config.pop("cdc_deferred_runs", None)
+        schema.initial_sync_complete = False
+        schema.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
+
+    def _unpause_schema_schedule(self, schema: ExternalDataSchema) -> None:
+        schema_log = self._schema_log(schema)
+        try:
+            from products.data_warehouse.backend.data_load.service import unpause_external_data_schedule
+
+            unpause_external_data_schedule(str(schema.id))
+            schema_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(schema.id))
+        except Exception:
+            schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id), exc_info=True)
 
     def _handle_no_changes(self, truncated_tables: list[str]) -> None:
         """Early-return path: no DML events were read."""
@@ -805,15 +836,56 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # Failure / success finalization
     # ------------------------------------------------------------------
-    def _handle_failure(self, exc: Exception) -> None:
-        self.log.exception("cdc_extract_failed")
+    def _fail_created_jobs(self, error: str) -> None:
         for job in self.created_jobs:
             if job.status == ExternalDataJob.Status.RUNNING:
                 job.status = ExternalDataJob.Status.FAILED
                 # NOTE: may need to truncate if stack traces grow unwieldy
-                job.latest_error = str(exc)
+                job.latest_error = error
                 job.finished_at = dt.datetime.now(tz=dt.UTC)
                 job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
+
+    def _recover_from_slot_invalidation(self, exc: Exception) -> None:
+        """The slot can't be resumed (invalidated or dropped on the source DB): recreate it
+        and reset every CDC schema to snapshot mode so it re-syncs from current table state.
+
+        WAL between the slot's last confirmed position and the new slot's consistent point is
+        gone — the re-snapshot covers current rows, but intermediate changes in that gap
+        (including their _cdc history rows) cannot be recovered.
+        """
+        assert self.source is not None
+        assert self.adapter is not None
+        self.log.warning("cdc_slot_unrecoverable_recreating", error=str(exc))
+
+        self._fail_created_jobs(SLOT_INVALIDATION_RECOVERY_MESSAGE)
+
+        # Reset schemas before touching the slot (schedules stay paused): if recreation
+        # fails below, the next run hits the invalidation again and recovery reruns
+        # idempotently — no schema keeps streaming across the gap unnoticed. Deferred
+        # runs are dropped: they reference WAL from the dead slot, the re-snapshot
+        # supersedes them, and flushing them later would merge stale rows over fresh ones.
+        for schema in self.cdc_schemas:
+            self._reset_schema_to_snapshot(schema, clear_deferred_runs=True)
+            schema.status = ExternalDataSchema.Status.FAILED
+            schema.latest_error = SLOT_INVALIDATION_RECOVERY_MESSAGE
+            schema.save(update_fields=["status", "latest_error", "updated_at"])
+            self._schema_log(schema).warning("cdc_schema_reset_for_slot_recovery", schema_id=str(schema.id))
+
+        resource_fields = self.adapter.recreate_slot(self.source, tables=[s.name for s in self.cdc_schemas])
+
+        self.source.job_inputs = {**(self.source.job_inputs or {}), **resource_fields}
+        self.source.save(update_fields=["job_inputs", "updated_at"])
+
+        # Unpause only after the new slot exists, so no snapshot can run before change
+        # capture has a consistent point to resume from.
+        for schema in self.cdc_schemas:
+            self._unpause_schema_schedule(schema)
+
+        self.log.info("cdc_slot_recovery_complete", schemas_reset=len(self.cdc_schemas))
+
+    def _handle_failure(self, exc: Exception) -> None:
+        self.log.exception("cdc_extract_failed")
+        self._fail_created_jobs(str(exc))
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.FAILED
             # NOTE: may need to truncate if stack traces grow unwieldy
@@ -930,6 +1002,7 @@ def cleanup_orphan_slots_activity() -> None:
         try:
             with adapter.management_connection(source, connect_timeout=10) as conn:
                 lag_bytes = adapter.get_lag_bytes(conn, cdc_config.slot_name)
+                retention_cap_mb = adapter.get_retention_cap_mb(conn)
         except Exception:
             source_log.exception("failed_to_check_slot_lag")
             continue
@@ -940,11 +1013,16 @@ def cleanup_orphan_slots_activity() -> None:
 
         lag_mb = lag_bytes / (1024 * 1024)
 
-        if lag_mb >= cdc_config.lag_critical_threshold_mb:
+        critical_threshold_mb = cdc_config.lag_critical_threshold_mb
+        if retention_cap_mb is not None:
+            critical_threshold_mb = min(critical_threshold_mb, int(retention_cap_mb * RETENTION_CAP_SAFETY_FACTOR))
+
+        if lag_mb >= critical_threshold_mb:
             source_log.error(
                 "slot_lag_critical",
                 lag_mb=round(lag_mb, 1),
-                threshold_mb=cdc_config.lag_critical_threshold_mb,
+                threshold_mb=critical_threshold_mb,
+                retention_cap_mb=retention_cap_mb,
             )
 
             if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:

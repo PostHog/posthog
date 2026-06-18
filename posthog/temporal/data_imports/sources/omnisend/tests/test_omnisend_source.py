@@ -44,7 +44,7 @@ class TestOmnisendSource:
     def test_source_config_basics(self) -> None:
         config = OmnisendSource().get_source_config
         assert config.label == "Omnisend"
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/omnisend.png"
 

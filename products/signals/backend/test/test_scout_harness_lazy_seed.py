@@ -7,8 +7,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import (
     CanonicalSkill,
     CanonicalSkillFile,
@@ -17,11 +17,11 @@ from products.signals.backend.scout_harness.lazy_seed import (
     _compute_canonical_hash,
     _compute_row_hash,
     discover_canonical_skills,
-    register_missing_configs,
     seed_canonical_skills,
     sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 
 def _write_canonical_skill(
@@ -492,7 +492,7 @@ class TestSyncCanonicalSkills(BaseTest):
         assert row.metadata["seeded_by"] == "signals_scout_harness"
 
         # The companion never materializes a scout config — only prefix-matching skills do.
-        live_skills = register_missing_configs(self.team)
+        live_skills = register_missing_configs(self.team.id)
         assert live_skills == {"signals-scout-alpha"}
         assert not SignalScoutConfig.all_teams.filter(team=self.team, skill_name="authoring-signals-scouts").exists()
 

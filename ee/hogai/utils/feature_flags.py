@@ -1,10 +1,10 @@
 from typing import Literal, cast
 
-from django.conf import settings
-
 import posthoganalytics
 
 from posthog.models import Team, User
+
+from products.business_knowledge.backend.logic import has_feature_flag as bk_has_feature_flag
 
 LlmGatewayVariant = Literal["control", "gateway-anthropic", "gateway-bedrock"]
 _VALID_LLM_GATEWAY_VARIANTS: set[str] = {"control", "gateway-anthropic", "gateway-bedrock"}
@@ -36,6 +36,16 @@ def has_phai_tasks_feature_flag(team: Team, user: User) -> bool:
 def has_task_tool_feature_flag(team: Team, user: User) -> bool:
     return posthoganalytics.feature_enabled(
         "phai-task-tool",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+def has_conversation_topic_feature_flag(team: Team, user: User) -> bool:
+    return posthoganalytics.feature_enabled(
+        "posthog-ai-web-analytics-nudge",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
@@ -113,6 +123,16 @@ def has_user_interview_mode_feature_flag(team: Team, user: User) -> bool:
     )
 
 
+def has_customer_analytics_mode_feature_flag(team: Team, user: User) -> bool:
+    return posthoganalytics.feature_enabled(
+        "customer-analytics-csp",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
 def get_llm_gateway_variant(team: Team, user: User) -> LlmGatewayVariant:
     variant = cast(
         "str | bool | None",
@@ -130,12 +150,6 @@ def get_llm_gateway_variant(team: Team, user: User) -> LlmGatewayVariant:
 
 
 def has_business_knowledge_feature_flag(team: Team) -> bool:
-    if settings.DEBUG:
-        return True
-    return posthoganalytics.feature_enabled(
-        "product-business-knowledge",
-        str(team.organization_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    )
+    # Canonical check lives in the owning product; kept as a delegate so existing
+    # ee call sites and test patches don't move.
+    return bk_has_feature_flag(team)

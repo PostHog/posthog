@@ -6,7 +6,7 @@ import type { PointClickData, TooltipConfig, TooltipContext } from '@posthog/qui
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { ciRanges } from 'lib/statistics'
-import { percentage } from 'lib/utils'
+import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'

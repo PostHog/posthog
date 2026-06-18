@@ -37,6 +37,8 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "reinterpretAsFloat32": HogQLFunctionMeta("reinterpretAsFloat32", 1, 1),
     "reinterpretAsFloat64": HogQLFunctionMeta("reinterpretAsFloat64", 1, 1),
     "reinterpretAsUUID": HogQLFunctionMeta("reinterpretAsUUID", 1, 1),
+    "accurateCast": HogQLFunctionMeta("accurateCast", 2, 2),
+    "accurateCastOrNull": HogQLFunctionMeta("accurateCastOrNull", 2, 2),
     "toInt": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
     "toIntOrZero": HogQLFunctionMeta("toInt64OrZero", 1, 1, signatures=[((StringType(),), IntegerType())]),
     "_toInt8": HogQLFunctionMeta("toInt8", 1, 1),
@@ -103,7 +105,7 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toNullableString": HogQLFunctionMeta(
         "accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Nullable(String)")]
     ),
-    "toBool": HogQLFunctionMeta("toBool", 1, 1),
+    "toBool": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Bool")]),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
     "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),

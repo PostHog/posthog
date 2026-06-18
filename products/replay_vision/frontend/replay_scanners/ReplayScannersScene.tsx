@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { XRayHog } from 'lib/components/hedgehogs'
@@ -14,24 +14,16 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPill } from '../components/FilterPill'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { VisionMetrics } from './components/VisionMetrics'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
-import {
-    ENABLED_OPTIONS,
-    EnabledFilter,
-    SCANNER_TYPE_OPTIONS,
-    SCANNER_TYPE_TAG_TYPE,
-    ScannerType,
-    ReplayScanner,
-    scannerTypeLabel,
-} from './types'
+import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
@@ -106,11 +98,7 @@ export function ReplayScannersScene(): JSX.Element {
         {
             title: 'Type',
             key: 'scanner_type',
-            render: (_, scanner) => (
-                <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
-                    {scannerTypeLabel(scanner.scanner_type)}
-                </LemonTag>
-            ),
+            render: (_, scanner) => <ScannerTypeBadge scannerType={scanner.scanner_type} />,
             sorter: true,
         },
         {
@@ -199,7 +187,25 @@ export function ReplayScannersScene(): JSX.Element {
                 name="Replay vision"
                 description="Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event."
                 resourceType={{ type: 'replay_vision' }}
-                actions={<ReplayVisionFeedbackButton />}
+                actions={
+                    <>
+                        <ReplayVisionFeedbackButton />
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={<IconPlus />}
+                                to={urls.replayVisionTemplates()}
+                                data-attr="vision-scanner-create"
+                            >
+                                New scanner
+                            </LemonButton>
+                        </AccessControlAction>
+                    </>
+                }
             />
 
             <ProductIntroduction
@@ -214,35 +220,18 @@ export function ReplayScannersScene(): JSX.Element {
 
             {(scannerStats?.total ?? 0) > 0 && <VisionMetrics />}
 
-            <SceneSection
-                title="Scanners"
-                actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            to={urls.replayVisionTemplates()}
-                            data-attr="vision-scanner-create"
-                        >
-                            New scanner
-                        </LemonButton>
-                    </AccessControlAction>
-                }
-            >
-                <div className="flex flex-wrap items-center gap-2">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search scanners..."
-                        value={search}
-                        onChange={(v) => setScannersFilters({ search: v })}
-                        prefix={<IconSearch />}
-                        className="max-w-sm"
-                    />
-                    <div className="ml-auto flex flex-wrap items-center gap-2">
-                        <ReplayVisionFeedbackButton label="Feedback?" type="tertiary" />
+            <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-base m-0">Scanners</h3>
+                    <div className="ml-auto flex items-center gap-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search scanners..."
+                            value={search}
+                            onChange={(v) => setScannersFilters({ search: v })}
+                            prefix={<IconSearch />}
+                            className="max-w-sm"
+                        />
                         <FilterPill<EnabledFilter>
                             label="Status"
                             options={ENABLED_OPTIONS}
@@ -313,7 +302,7 @@ export function ReplayScannersScene(): JSX.Element {
                         )
                     }
                 />
-            </SceneSection>
+            </div>
         </SceneContent>
     )
 }

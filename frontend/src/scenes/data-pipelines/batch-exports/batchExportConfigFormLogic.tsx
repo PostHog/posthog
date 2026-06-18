@@ -46,6 +46,8 @@ const TOP_LEVEL_FORM_FIELDS = new Set([
     'integration_id',
 ])
 
+const ALLOWED_BASE_CONFIG_KEYS = new Set(['exclude_events', 'include_events'])
+
 function buildDestinationPayload(formValues: Record<string, any>): {
     type: string
     config: Record<string, any>
@@ -56,11 +58,17 @@ function buildDestinationPayload(formValues: Record<string, any>): {
     // Apply destination-specific transform first (e.g. Redshift's COPY copy_inputs assembly).
     // Destinations without a custom serialize get the raw form values passed through.
     const intermediate = definition?.serialize ? definition.serialize(formValues) : formValues
-    // Strip top-level form fields that don't belong in destination.config (always — destinations
-    // shouldn't have to re-implement this).
+    // When a destination declares configKeys, drop any config key outside it (plus the base-export
+    // keys). Mirrors the backend's allowed = destination_fields ∪ base_field_names check, so stale
+    // fields don't survive a deserialize → serialize round-trip and get rejected on save.
+    const allowed = definition?.configKeys ? new Set([...definition.configKeys, ...ALLOWED_BASE_CONFIG_KEYS]) : null
+    // Strip top-level form fields that don't belong in destination.config
     const config: Record<string, any> = {}
     for (const [key, value] of Object.entries(intermediate)) {
         if (TOP_LEVEL_FORM_FIELDS.has(key)) {
+            continue
+        }
+        if (allowed && !allowed.has(key)) {
             continue
         }
         config[key] = value

@@ -36,13 +36,15 @@ import {
     IncrementalField,
     ManualLinkSourceType,
     manualLinkSources,
+    RowFilter,
 } from '~/types'
 
 import {
-    getDefaultExpandedDirectQuerySchemaKeys,
-    groupDirectQueryTablesBySchema,
-    splitDirectQueryTableName,
-} from '../../shared/components/forms/directQuerySchemaUtils'
+    getDefaultExpandedSchemaKeys,
+    groupTablesBySchema,
+    splitQualifiedTableName,
+    supportsDirectQuery,
+} from '../../shared/components/forms/schemaGroupingUtils'
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
@@ -271,7 +273,7 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     return undefined
 }
 
-function syncExpandedDirectQuerySchemaKeys(
+function syncExpandedSchemaGroupKeys(
     actions: sourceWizardLogicType['actions'],
     values: sourceWizardLogicType['values']
 ): void {
@@ -279,12 +281,12 @@ function syncExpandedDirectQuerySchemaKeys(
         return
     }
 
-    const fingerprint = values.groupedDirectQuerySchemaKeys.join('|')
-    if (values.groupedDirectQuerySchemaKeysFingerprint === fingerprint) {
+    const fingerprint = values.schemaGroupKeys.join('|')
+    if (values.schemaGroupKeysFingerprint === fingerprint) {
         return
     }
 
-    actions.syncExpandedDirectQuerySchemaKeys(values.groupedDirectQuerySchemaKeys, fingerprint)
+    actions.syncExpandedSchemaGroupKeys(values.schemaGroupKeys, fingerprint)
 }
 
 export interface SourceWizardLogicProps {
@@ -323,6 +325,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             schema,
             enabledColumns,
         }),
+        setSchemaRowFilters: (schema: ExternalDataSourceSyncSchema, rowFilters: RowFilter[] | null) => ({
+            schema,
+            rowFilters,
+        }),
         updateSchemaSyncType: (
             schema: ExternalDataSourceSyncSchema,
             syncType: ExternalDataSourceSyncSchema['sync_type'],
@@ -355,10 +361,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
         toggleAllTables: (selectAll: boolean, tableNames?: string[]) => ({ selectAll, tableNames }),
-        toggleDirectQuerySchemaGroup: (schemaName: string, shouldSync: boolean) => ({ schemaName, shouldSync }),
+        toggleSchemaGroup: (schemaName: string, shouldSync: boolean) => ({ schemaName, shouldSync }),
         setSchemaNameFilter: (schemaNameFilter: string) => ({ schemaNameFilter }),
-        setExpandedDirectQuerySchemaKeys: (expandedSchemaKeys: string[]) => ({ expandedSchemaKeys }),
-        syncExpandedDirectQuerySchemaKeys: (groupedSchemaKeys: string[], fingerprint: string) => ({
+        setExpandedSchemaGroupKeys: (expandedSchemaKeys: string[]) => ({ expandedSchemaKeys }),
+        syncExpandedSchemaGroupKeys: (groupedSchemaKeys: string[], fingerprint: string) => ({
             groupedSchemaKeys,
             fingerprint,
         }),
@@ -471,6 +477,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         enabled_columns: s.table === schema.table ? enabledColumns : s.enabled_columns,
                     }))
                 },
+                setSchemaRowFilters: (state, { schema, rowFilters }) => {
+                    return state.map((s) => ({
+                        ...s,
+                        row_filters: s.table === schema.table ? rowFilters : s.row_filters,
+                    }))
+                },
                 updateSchemaSyncType: (
                     state,
                     { schema, syncType, incrementalField, incrementalFieldType, primaryKeyColumns, cdcTableMode }
@@ -489,11 +501,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 },
             },
         ],
-        expandedDirectQuerySchemaKeys: [
+        expandedSchemaGroupKeys: [
             [] as string[],
             {
-                setExpandedDirectQuerySchemaKeys: (_, { expandedSchemaKeys }) => expandedSchemaKeys,
-                syncExpandedDirectQuerySchemaKeys: (state, { groupedSchemaKeys }) => {
+                setExpandedSchemaGroupKeys: (_, { expandedSchemaKeys }) => expandedSchemaKeys,
+                syncExpandedSchemaGroupKeys: (state, { groupedSchemaKeys }) => {
                     const nextKeys = state.filter((key) => groupedSchemaKeys.includes(key))
                     return nextKeys.length > 0 ? nextKeys : groupedSchemaKeys
                 },
@@ -501,10 +513,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 clearSource: () => [],
             },
         ],
-        groupedDirectQuerySchemaKeysFingerprint: [
+        schemaGroupKeysFingerprint: [
             '',
             {
-                syncExpandedDirectQuerySchemaKeys: (_, { fingerprint }) => fingerprint,
+                syncExpandedSchemaGroupKeys: (_, { fingerprint }) => fingerprint,
                 onClear: () => '',
                 clearSource: () => '',
             },
@@ -759,7 +771,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         isDirectQueryMode: [
             (s) => [s.source, s.selectedConnector],
             (source, selectedConnector): boolean =>
-                source.access_method === 'direct' && selectedConnector?.name === 'Postgres',
+                source.access_method === 'direct' && supportsDirectQuery(selectedConnector?.name),
         ],
         canGoBack: [
             (s) => [s.currentStep],
@@ -914,19 +926,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return enabledCount === totalCount ? true : enabledCount > 0 ? 'indeterminate' : false
             },
         ],
-        directQueryDefaultSchema: [
+        configuredSchemaName: [
             (s) => [s.source],
             (source): string | null => (typeof source.payload.schema === 'string' ? source.payload.schema : null),
         ],
-        groupedDirectQueryDatabaseSchema: [
-            (s) => [s.filteredDatabaseSchema, s.directQueryDefaultSchema],
-            (filteredDatabaseSchema, directQueryDefaultSchema) =>
-                groupDirectQueryTablesBySchema(filteredDatabaseSchema, directQueryDefaultSchema),
+        groupedDatabaseSchema: [
+            (s) => [s.filteredDatabaseSchema, s.configuredSchemaName],
+            (filteredDatabaseSchema, configuredSchemaName) =>
+                groupTablesBySchema(filteredDatabaseSchema, (schema) => schema.table, configuredSchemaName),
         ],
-        groupedDirectQuerySchemaKeys: [
-            (s) => [s.groupedDirectQueryDatabaseSchema],
-            (groupedDirectQueryDatabaseSchema) =>
-                getDefaultExpandedDirectQuerySchemaKeys(groupedDirectQueryDatabaseSchema),
+        schemaGroupKeys: [
+            (s) => [s.groupedDatabaseSchema],
+            (groupedDatabaseSchema) => getDefaultExpandedSchemaKeys(groupedDatabaseSchema),
         ],
         modalTitle: [
             (s) => [s.currentStep, s.isDirectQueryMode],
@@ -989,7 +1000,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.touchSourceConnectionDetailsField('prefix')
         },
         setInitialConnector: () => {
-            syncExpandedDirectQuerySchemaKeys(actions, values)
+            syncExpandedSchemaGroupKeys(actions, values)
             actions.resetSourceForm()
         },
         resetSourceForm: ({ accessMethod }) => {
@@ -1004,28 +1015,27 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             )
         },
         setDatabaseSchemas: () => {
-            syncExpandedDirectQuerySchemaKeys(actions, values)
+            syncExpandedSchemaGroupKeys(actions, values)
         },
         updateSource: () => {
-            syncExpandedDirectQuerySchemaKeys(actions, values)
+            syncExpandedSchemaGroupKeys(actions, values)
         },
-        toggleDirectQuerySchemaGroup: ({ schemaName, shouldSync }) => {
+        toggleSchemaGroup: ({ schemaName, shouldSync }) => {
             actions.setDatabaseSchemas(
                 values.databaseSchema.map((schema) => ({
                     ...schema,
                     should_sync:
-                        splitDirectQueryTableName(schema.table, values.directQueryDefaultSchema).schemaName ===
-                        schemaName
+                        splitQualifiedTableName(schema.table, values.configuredSchemaName).schemaName === schemaName
                             ? schema.permission_error
                                 ? false
                                 : shouldSync
                             : schema.should_sync,
                 }))
             )
-            actions.setExpandedDirectQuerySchemaKeys(
+            actions.setExpandedSchemaGroupKeys(
                 shouldSync
-                    ? Array.from(new Set([...values.expandedDirectQuerySchemaKeys, schemaName]))
-                    : values.expandedDirectQuerySchemaKeys.filter((key) => key !== schemaName)
+                    ? Array.from(new Set([...values.expandedSchemaGroupKeys, schemaName]))
+                    : values.expandedSchemaGroupKeys.filter((key) => key !== schemaName)
             )
         },
         saveFormStateBeforeRedirect: () => {
@@ -1192,6 +1202,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         sync_time_of_day: schema.sync_time_of_day,
                                         primary_key_columns: schema.primary_key_columns,
                                         enabled_columns: schema.enabled_columns ?? null,
+                                        row_filters: schema.row_filters ?? null,
                                         ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                             ? { cdc_table_mode: schema.cdc_table_mode }
                                             : {}),
@@ -1440,12 +1451,23 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
-                const errorMessage = e.data?.message ?? e.message
+                // A gateway timeout / 5xx has no JSON body, so e.message is the raw
+                // "Non-OK response [POST ...] (status 504: )" — meaningless to the user. Surface a
+                // friendly hint for server-side failures while keeping any API-provided message.
+                const apiMessage = e.data?.message ?? e.detail
+                const errorMessage =
+                    apiMessage ??
+                    (e.status >= 500
+                        ? 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
+                        : e.message)
                 lemonToast.error(errorMessage)
 
                 posthog.capture('warehouse credentials invalid', {
                     sourceType: values.selectedConnector.name,
                     errorMessage,
+                    // Keep the raw error (status code etc.) so server-side failures stay triageable.
+                    rawError: e.message,
+                    status: e.status,
                 })
             }
 
@@ -1463,7 +1485,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
         },
         selectConnector: ({ connector, accessMethod }) => {
-            syncExpandedDirectQuerySchemaKeys(actions, values)
+            syncExpandedSchemaGroupKeys(actions, values)
             actions.resetSourceForm(accessMethod)
 
             actions.addProductIntent({
@@ -1492,7 +1514,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         toggleAllTables: () => {
             // databaseSchema reducer already applied the toggle; re-emit so the
-            // setDatabaseSchemas listener (syncExpandedDirectQuerySchemaKeys) fires.
+            // setDatabaseSchemas listener (syncExpandedSchemaGroupKeys) fires.
             actions.setDatabaseSchemas(values.databaseSchema)
         },
     })),
@@ -1581,7 +1603,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
                     const isDirectQueryMode =
-                        values.selectedConnector.name === 'Postgres' && sourceValues.access_method === 'direct'
+                        supportsDirectQuery(values.selectedConnector.name) && sourceValues.access_method === 'direct'
                     const payload: Record<string, any> = {
                         ...sourceValues,
                         access_method: isDirectQueryMode ? 'direct' : 'warehouse',

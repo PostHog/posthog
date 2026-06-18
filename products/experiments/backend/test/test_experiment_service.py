@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
@@ -652,6 +653,103 @@ class TestExperimentService(APIBaseTest):
         )
 
     # ------------------------------------------------------------------
+    # validate_experiment_metrics — threshold / math-type compatibility
+    # ------------------------------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("threshold_on_sum", "sum"),
+            ("threshold_on_total_count", "total"),
+        ]
+    )
+    def test_validate_experiment_metrics_accepts_threshold_on_summed_math(self, _: str, math: str) -> None:
+        ExperimentService.validate_experiment_metrics(
+            [
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview", "math": math, "math_property": "amount"},
+                    "threshold": 100,
+                }
+            ]
+        )
+
+    @parameterized.expand(
+        [
+            ("threshold_on_unique_session", "unique_session"),
+            ("threshold_on_dau", "dau"),
+            ("threshold_on_hogql", "hogql"),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_threshold_on_unsupported_math(self, _: str, math: str) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview", "math": math},
+                        "threshold": 100,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    @parameterized.expand(
+        [
+            ("zero", 0),
+            ("negative", -5),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_non_positive_threshold(self, _: str, threshold: int) -> None:
+        # A non-positive threshold is always satisfied, yielding a meaningless 100% proportion.
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "math": "sum",
+                            "math_property": "amount",
+                        },
+                        "threshold": threshold,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    @parameterized.expand(
+        [
+            ("lower_bound", {"lower_bound_percentile": 0.01}),
+            ("upper_bound", {"upper_bound_percentile": 0.99}),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_threshold_with_winsorization(self, _: str, bounds: dict) -> None:
+        # Winsorization caps continuous outliers, which is meaningless once the metric
+        # collapses to a binary threshold outcome — reject the combination.
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "math": "sum",
+                            "math_property": "amount",
+                        },
+                        "threshold": 100,
+                        **bounds,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    # ------------------------------------------------------------------
     # validate_experiment_metrics — improved pydantic error messages
     # ------------------------------------------------------------------
 
@@ -1120,6 +1218,19 @@ class TestExperimentService(APIBaseTest):
 
         assert updated.name == "Same Key OK"
         assert updated.get_feature_flag_key() == experiment.feature_flag.key
+
+    def test_get_feature_flag_key_strips_tombstone_for_deleted_flag(self):
+        experiment = self._create_draft_experiment(flag_key="tombstone-key-flag")
+        flag = experiment.feature_flag
+
+        flag.deleted = True
+        flag.key = flag.tombstoned_key()
+        flag.save()
+        experiment.refresh_from_db()
+
+        # The serializer (feature_flag_key) and analytics read through this method, so it
+        # must surface the original key rather than leaking the ":deleted:<id>" tombstone.
+        assert experiment.get_feature_flag_key() == "tombstone-key-flag"
 
     def test_update_experiment_rejects_different_feature_flag_key(self):
         experiment = self._create_draft_experiment()
@@ -1844,13 +1955,16 @@ class TestExperimentService(APIBaseTest):
         flag_variants = dup.feature_flag.filters["multivariate"]["variants"]
         assert len(flag_variants) == 3
 
-    def test_duplicate_experiment_revalidates_source_parameters(self):
-        self._create_flag(key="dup-invalid-source")
+    def test_duplicate_experiment_uses_flag_variants_over_stale_parameters(self):
+        self._create_flag(key="dup-stale-source")
         service = self._service()
         source = service.create_experiment(
-            name="Invalid Source",
-            feature_flag_key="dup-invalid-source",
+            name="Stale Source",
+            feature_flag_key="dup-stale-source",
         )
+        # Drift the stored parameters to an invalid single-variant set. The linked flag
+        # stays the source of truth (control + test), so duplication must ignore the stale
+        # copy and build the new flag from the flag's variants rather than revalidate them.
         Experiment.objects.filter(id=source.id).update(
             parameters={
                 "feature_flag_variants": [
@@ -1860,10 +1974,10 @@ class TestExperimentService(APIBaseTest):
         )
         source.refresh_from_db()
 
-        with self.assertRaises(ValidationError) as ctx:
-            service.duplicate_experiment(source)
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-stale-target")
 
-        assert "at least 2 variants" in str(ctx.exception)
+        assert dup.feature_flag.key == "dup-stale-target"
+        assert [v["key"] for v in dup.feature_flag.variants] == ["control", "test"]
 
     def test_duplicate_experiment_copies_saved_metrics(self):
         self._create_flag(key="dup-saved")
@@ -3391,6 +3505,41 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
+            # (name, format_filter, expected_names)
+            ("json_list", lambda ids: json.dumps([ids[0], ids[1]]), {"Creator self", "Creator other"}),
+            ("comma_separated", lambda ids: f"{ids[0]},{ids[2]}", {"Creator self", "Creator third"}),
+            ("single_id", lambda ids: str(ids[1]), {"Creator other"}),
+            ("no_match", lambda ids: json.dumps([ids[3]]), set()),
+        ]
+    )
+    def test_filter_experiments_queryset_filters_by_multiple_created_by_ids(
+        self, _name, format_filter, expected_names
+    ) -> None:
+        service = self._service()
+        other_user = self._create_user("other-user@example.com")
+        third_user = self._create_user("third-user@example.com")
+        unrelated_user = self._create_user("unrelated-user@example.com")
+
+        service.create_experiment(name="Creator self", feature_flag_key="created-by-self")
+        ExperimentService(team=self.team, user=other_user).create_experiment(
+            name="Creator other",
+            feature_flag_key="created-by-other",
+        )
+        ExperimentService(team=self.team, user=third_user).create_experiment(
+            name="Creator third",
+            feature_flag_key="created-by-third",
+        )
+
+        ids = [self.user.id, other_user.id, third_user.id, unrelated_user.id]
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"created_by_id": format_filter(ids)},
+        )
+        assert set(queryset.values_list("name", flat=True)) == expected_names
+
+    @parameterized.expand(
+        [
             ("ascending", "duration", ["Short", "Long"]),
             ("descending", "-duration", ["Long", "Short"]),
         ]
@@ -4263,6 +4412,26 @@ class TestExperimentService(APIBaseTest):
             service.launch_experiment(experiment)
         assert "deleted" in str(ctx.exception.detail).lower()
 
+    def test_update_experiment_launch_via_start_date_with_deleted_flag_raises(self):
+        """Launching a draft by PATCHing start_date must reject a deleted flag, like the launch action."""
+        experiment = self._create_launchable_experiment(
+            name="PATCH Launch Deleted Flag",
+            feature_flag_key="patch-launch-deleted-flag",
+        )
+        experiment.feature_flag.deleted = True
+        experiment.feature_flag.save()
+
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"start_date": timezone.now()})
+        assert "deleted" in str(ctx.exception.detail).lower()
+
+        # The flag must not have been activated, and the experiment must stay a draft
+        experiment.refresh_from_db()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.start_date is None
+        assert experiment.feature_flag.active is False
+
     @parameterized.expand(
         [
             ("empty_string", {"method": ""}),
@@ -4896,6 +5065,101 @@ class TestExperimentService(APIBaseTest):
                             "source": {"kind": "ActionsNode", "id": 999999},
                         },
                     ],
+                },
+            )
+
+    VARIANT_KEYS = ["control", "test"]
+
+    @parameterized.expand(
+        [
+            ("valid_baseline_control", {"baseline_variant_key": "control"}, VARIANT_KEYS, False),
+            ("valid_baseline_test", {"baseline_variant_key": "test"}, VARIANT_KEYS, False),
+            ("unknown_baseline", {"baseline_variant_key": "nonexistent"}, VARIANT_KEYS, True),
+            ("baseline_absent", {"method": "bayesian"}, VARIANT_KEYS, False),
+            ("none_stats_config", None, VARIANT_KEYS, False),
+            ("empty_stats_config", {}, VARIANT_KEYS, False),
+            ("unknown_baseline_no_variant_keys", {"baseline_variant_key": "nonexistent"}, None, False),
+            ("unknown_baseline_empty_variant_keys", {"baseline_variant_key": "nonexistent"}, [], False),
+        ]
+    )
+    def test_validate_stats_config_baseline_variant_key(
+        self,
+        _name: str,
+        stats_config: dict | None,
+        variant_keys: list[str] | None,
+        expect_error: bool,
+    ) -> None:
+        if expect_error:
+            with self.assertRaises(ValidationError):
+                ExperimentService.validate_stats_config(stats_config, variant_keys)
+        else:
+            ExperimentService.validate_stats_config(stats_config, variant_keys)
+
+    def test_create_experiment_validates_baseline_against_resolved_default_variants(self) -> None:
+        service = self._service()
+
+        # No parameters.feature_flag_variants supplied: the new flag falls back to
+        # DEFAULT_VARIANTS (control/test), so a baseline that isn't one must be rejected.
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad baseline new flag",
+                feature_flag_key="baseline-default-variants",
+                stats_config={"baseline_variant_key": "nonexistent"},
+            )
+        assert not FeatureFlag.objects.filter(key="baseline-default-variants", team_id=self.team.id).exists()
+
+    def test_create_experiment_validates_baseline_against_existing_flag_variants(self) -> None:
+        self._create_flag(
+            key="baseline-existing-flag",
+            variants=[
+                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                {"key": "variant-a", "name": "Variant A", "rollout_percentage": 50},
+            ],
+        )
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Existing flag baseline",
+            feature_flag_key="baseline-existing-flag",
+            stats_config={"baseline_variant_key": "variant-a"},
+        )
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["baseline_variant_key"] == "variant-a"
+
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Existing flag bad baseline",
+                feature_flag_key="baseline-existing-flag",
+                stats_config={"baseline_variant_key": "test"},
+            )
+
+    def test_update_experiment_revalidates_baseline_when_variants_change(self) -> None:
+        self._create_flag(
+            key="baseline-update-flag",
+            variants=[
+                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                {"key": "test", "name": "Test", "rollout_percentage": 50},
+            ],
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Update baseline experiment",
+            feature_flag_key="baseline-update-flag",
+            stats_config={"baseline_variant_key": "test"},
+        )
+
+        # A variants-only edit that removes the current baseline ("test") must be rejected,
+        # even though stats_config is absent from the update payload.
+        with self.assertRaises(ValidationError):
+            service.update_experiment(
+                experiment,
+                {
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "variant-b", "rollout_percentage": 50},
+                        ]
+                    }
                 },
             )
 

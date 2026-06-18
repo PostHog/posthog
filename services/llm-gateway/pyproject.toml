@@ -78,9 +78,6 @@ select = [
 ]
 ignore = [
     "E501",
-    "UP043",  # Generator[X, None, None] → Generator[X] (defer 3.13 sweep)
-    "B911",   # itertools.batched without explicit strict (defer 3.13 sweep)
-    "UP035",  # typing_extensions.TypeIs → typing.TypeIs (defer 3.13 sweep)
 ]
 
 # PLC0415 exemptions.

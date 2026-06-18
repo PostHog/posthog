@@ -11,7 +11,6 @@ that's on the scout.
 | Field          | Type                   | Required     | Notes                                                  |
 | -------------- | ---------------------- | ------------ | ------------------------------------------------------ |
 | `description`  | string                 | ✅           | Non-empty prose — the inbox surface and dedupe target. |
-| `weight`       | float `[0,1]`          | ✅           | Ranking score within the inbox feed.                   |
 | `confidence`   | float `[0,1]`          | ✅           | Epistemic certainty the finding is real.               |
 | `evidence`     | list (0–20)            | ✅           | `{source_product, summary, entity_id?}` per entry.     |
 | `hypothesis`   | string                 | recommended  | One-line root-cause hypothesis the finding tests.      |
@@ -21,20 +20,11 @@ that's on the scout.
 | `finding_id`   | string                 | recommended  | Stable trace id, **not** a dedupe key (see below).     |
 | `mcp_trace_id` | string                 | optional     | When you want a reviewer to replay MCP queries.        |
 
-## Weight vs. confidence — keep them distinct
+## Confidence — the emit gate
 
-`weight` = how much human attention this deserves. `confidence` = how sure the scout is it's
-real. A confidently-real but minor finding is high-confidence, low-weight.
-
-**Weight rubric:**
-
-| Range     | Use when                                                                             |
-| --------- | ------------------------------------------------------------------------------------ |
-| 0.85–1.00 | Active customer impact, large blast radius, or a deploy regression with a clear fix. |
-| 0.65–0.84 | Material pattern worth investigating today; not yet user-impacting at scale.         |
-| 0.40–0.64 | Notable but speculative; or a confirmed minor issue worth knowing about.             |
-| 0.20–0.39 | Curiosity-level.                                                                     |
-| 0.00–0.19 | Don't emit — skip or write a scratchpad entry.                                       |
+`confidence` = how sure the scout is the finding is real. It is the emit gate: a finding the
+scout can't stand behind belongs in the scratchpad, not the inbox. The scout does not rank
+findings itself — the inbox handles ordering once a finding is emitted.
 
 **Confidence rubric:**
 
@@ -102,7 +92,6 @@ day is a new finding that cites the prior `finding_id` in its description.
 
 ```yaml
 finding_id: missing-migration-access-control-propertyaccesscontrol-2026-05-01
-weight: 0.92
 confidence: 0.9
 severity: P1
 hypothesis: >

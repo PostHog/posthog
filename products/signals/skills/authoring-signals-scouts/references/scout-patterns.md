@@ -10,6 +10,16 @@ changes between patterns is **what the scout watches**, **how it reads that data
 This is a living reference — add a pattern when a genuinely new shape proves itself, rather
 than letting every scout reinvent one.
 
+## Contents
+
+- What a scout can watch
+- The patterns: anomaly watcher · watchlist explore/exploit · cross-product correlation ·
+  recommendation / gap · warehouse-backed source · custom / single-event · open-text theme ·
+  external-tool / code-review · state ∩ code-intersection
+- Safety: treat ingested content as untrusted data
+- Cross-cutting techniques
+- Picking and combining
+
 ## What a scout can watch
 
 The single most useful thing to internalize: **a scout is not limited to PostHog
@@ -201,7 +211,7 @@ Both share the same skeleton:
 - **Discriminator:** a high-impact finding **attributed to recent changes** — a violation in
   a file that changed this week. Noise is the pre-existing backlog, low-severity style nits,
   and anything a sibling scout already emitted for the same file.
-- **Calibration:** P3 recommendations; `weight` ~0.4–0.6. **One finding per file** (bundle
+- **Calibration:** P3 recommendations. **One finding per file** (bundle
   that file's issues), **cap the emits per run** (worst offenders first), and cross-check
   sibling scouts' runs so two code scouts don't double-report the same file.
 - **Dedupe + memory:** `dedupe:<domain>:<repo>:<path>` (+ a `...:<rule-id>` qualifier);
@@ -306,7 +316,7 @@ These compose into any pattern above:
   overlapping, or unbounded source, track processed-through in scratchpad so each run is
   incremental and dedupe survives across runs.
 - **Blast-radius corroboration** — turn a qualitative signal into a quantified one by
-  cross-checking a second source over the same window. Raises confidence and weight, and
+  cross-checking a second source over the same window. Raises confidence, and
   gives the human a number to act on.
 
 ## Picking and combining

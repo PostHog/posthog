@@ -374,6 +374,20 @@ def test_only(categories: dict[str, int]) -> bool:
 
 # ── Deny / allow detection ───────────────────────────────────────
 
+# Path prefixes exempt from the `auth` deny category. Code under these trees
+# performs auth/OAuth/credential handshakes as part of its normal job — e.g.
+# every data warehouse import connector — so the code and PR titles legitimately
+# mention auth, oauth, token, login, etc. without touching the auth *system*.
+# Without this, the `auth` deny would force T2-never on essentially every such
+# PR. Other deny categories (crypto/secrets, migrations, …) still apply. Add new
+# exempt trees here rather than special-casing in detect_deny_categories.
+AUTH_EXEMPT_PATH_PREFIXES = ("posthog/temporal/data_imports/sources/",)
+
+
+def _is_auth_exempt_path(path: str) -> bool:
+    low = path.lower()
+    return any(low.startswith(prefix) for prefix in AUTH_EXEMPT_PATH_PREFIXES)
+
 
 def detect_deny_categories(files: list[str], subject: str, ignored_files: set[str] | None = None) -> list[str]:
     hits: set[str] = set()
@@ -381,13 +395,23 @@ def detect_deny_categories(files: list[str], subject: str, ignored_files: set[st
     paths_lower = [f.lower() for f in files if f.lower() not in ignored_files_lower]
     subject_lower = subject.lower()
 
+    # Auth exemption for AUTH_EXEMPT_PATH_PREFIXES: drop exempt paths from auth
+    # path-matching, and — when any exempt path is in the change set — only let
+    # the PR title trip `auth` if a non-exempt file is also touched. PRs that
+    # touch no exempt paths are evaluated exactly as before.
+    auth_paths = [p for p in paths_lower if not _is_auth_exempt_path(p)]
+    has_exempt_path = len(auth_paths) != len(paths_lower)
+    auth_title_eligible = (not has_exempt_path) or bool(auth_paths)
+
     for category, scopes in DENY_PATTERNS.items():
+        category_paths = auth_paths if category == "auth" else paths_lower
+        title_eligible = auth_title_eligible if category == "auth" else True
         found = False
         # "paths" patterns — only match against file paths
         for rx in scopes.get("paths", []):
             if found:
                 break
-            for p in paths_lower:
+            for p in category_paths:
                 if rx.search(p):
                     hits.add(category)
                     found = True
@@ -398,12 +422,12 @@ def detect_deny_categories(files: list[str], subject: str, ignored_files: set[st
         for path_rx, title_rx in scopes.get("any", []):
             if found:
                 break
-            for p in paths_lower:
+            for p in category_paths:
                 if path_rx.search(p):
                     hits.add(category)
                     found = True
                     break
-            if not found and title_rx.search(subject_lower):
+            if not found and title_eligible and title_rx.search(subject_lower):
                 hits.add(category)
                 found = True
     return sorted(hits)

@@ -37,7 +37,6 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.event_usage import groups
 from posthog.models import Team, User
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.integration import (
     AzureBlobIntegration,
     AzureBlobIntegrationError,
@@ -45,7 +44,6 @@ from posthog.models.integration import (
     DatabricksIntegrationError,
     Integration,
 )
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
 
@@ -76,11 +74,9 @@ from products.batch_exports.backend.service import (
     sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
-from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
-    SUPPORTED_COMPRESSIONS as AZURE_BLOB_SUPPORTED_COMPRESSIONS,
-)
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
-    SUPPORTED_COMPRESSIONS as S3_SUPPORTED_COMPRESSIONS,
+from products.batch_exports.backend.temporal.destinations.constants import (
+    AZURE_BLOB_SUPPORTED_COMPRESSIONS,
+    S3_SUPPORTED_COMPRESSIONS,
 )
 
 logger = structlog.get_logger(__name__)
@@ -1714,58 +1710,3 @@ class BatchExportBackfillViewSet(
             raise ValidationError(f"Cannot cancel a backfill that is in '{batch_export_backfill.status}' status")
 
         return response.Response({"cancelled": True})
-
-
-@dataclasses.dataclass(frozen=True)
-class BatchExportContext(ActivityContextBase):
-    name: str
-    destination_type: str
-    interval: str
-    created_by_user_id: str | None
-    created_by_user_email: str | None
-    created_by_user_name: str | None
-
-
-@mutable_receiver(model_activity_signal, sender=BatchExport)
-def handle_batch_export_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    from posthog.models.activity_logging.batch_export_utils import (
-        get_batch_export_created_by_info,
-        get_batch_export_destination_type,
-        get_batch_export_detail_name,
-    )
-
-    # Use after_update for create/update, before_update for delete
-    batch_export = after_update or before_update
-
-    if not batch_export:
-        return
-
-    destination_type = get_batch_export_destination_type(batch_export)
-    created_by_user_id, created_by_user_email, created_by_user_name = get_batch_export_created_by_info(batch_export)
-    detail_name = get_batch_export_detail_name(batch_export, destination_type)
-
-    context = BatchExportContext(
-        name=batch_export.name or "Unnamed Export",
-        destination_type=destination_type,
-        interval=batch_export.interval or "",
-        created_by_user_id=created_by_user_id,
-        created_by_user_email=created_by_user_email,
-        created_by_user_name=created_by_user_name,
-    )
-
-    log_activity(
-        organization_id=batch_export.team.organization_id,
-        team_id=batch_export.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=batch_export.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=detail_name,
-            context=context,
-        ),
-    )

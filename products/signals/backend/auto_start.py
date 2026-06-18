@@ -49,7 +49,25 @@ def _build_autostart_task_description(
         f"{summary}\n\n"
         f"{priority_line}"
         f"Repository: {repository}\n\n"
-        "Act on this signal report. Investigate the root cause, implement the fix, and open a PR if appropriate.\n\n"
+        "Address the symptom described above — not merely an adjacent issue you notice nearby. "
+        "Investigate the root cause, implement the fix, and open a PR if appropriate. "
+        "If your change fixes something related but does not change what the user actually observed, "
+        "say so explicitly and stop rather than opening a PR for the wrong problem. "
+        "For visual or UX symptoms (loading states, layout, flashes), reproduce the state or review a "
+        "session recording of the affected flow to confirm your fix changes it — unit tests alone do not "
+        "verify a visual symptom.\n\n"
+        "You are acting fully autonomously on the user's behalf — there is no human approval step unless you "
+        "explicitly request one. So before opening a PR against a repository the user does not own (any external "
+        "/ third-party repo, not under the user's own org), check for the project's contribution and "
+        "AI/LLM-authored-commit policies first. Look in the obvious places — CONTRIBUTING.md, the README, "
+        "CODE_OF_CONDUCT.md, .github/ (including issue/PR templates), and any AGENTS.md, CLAUDE.md, ai.txt, or "
+        "similarly named policy file — for rules on automated or AI-generated contributions, required disclosure, "
+        "or PRs from non-collaborator forks. If the project forbids or restricts AI-authored PRs, requires a "
+        "particular disclosure you can't satisfy, or the repo doesn't accept PRs from forks, do NOT open a PR "
+        "against the upstream repo. Instead, push your branch to the user's own fork of the repository and point "
+        "the user to that branch so they can review the changes and decide how to proceed, and explain in your "
+        "turn summary why you didn't open the PR directly. Err on the side of caution to avoid committing a "
+        "social faux pas in someone else's project.\n\n"
         "When opening the PR, include this report deep link in the description footer, "
         "making the footer '*Created with [PostHog Code](https://posthog.com/code?ref=pr) "
         f"from [an inbox report]({report_deep_link}).' - "
@@ -155,7 +173,7 @@ async def maybe_autostart_implementation_task(
 
     team = await Team.objects.select_related("organization").aget(id=team_id)
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
-    team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P0
+    team_default_priority = Priority(team_config.default_autostart_priority) if team_config else Priority.P2
 
     task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
         team_id, priority.priority, reviewers_content, team_default_priority

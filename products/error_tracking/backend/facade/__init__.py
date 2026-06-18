@@ -1,4 +1,4 @@
-from . import types
+from . import contracts
 from .api import (
     ExternalReferenceValidationError,
     IssueNotFoundError,
@@ -39,7 +39,7 @@ __all__ = [
     "get_daily_exception_counts",
     "get_exception_counts",
     "get_exception_summary_for_team",
-    "types",
+    "contracts",
     "get_external_reference",
     "get_fingerprint",
     "get_issue",
