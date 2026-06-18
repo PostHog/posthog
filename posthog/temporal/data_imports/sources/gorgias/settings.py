@@ -12,6 +12,12 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
+# The only attributes Gorgias accepts in `order_by` (each as `<field>:asc|desc`).
+# Gorgias exposes no server-side timestamp filter, so incremental sync is done by
+# sorting on one of these descending and stopping pagination at the watermark.
+VALID_SORT_FIELDS = frozenset({"created_datetime", "updated_datetime"})
+
+
 @dataclass
 class GorgiasEndpointConfig:
     name: str
@@ -24,9 +30,16 @@ class GorgiasEndpointConfig:
     # stable across a full-refresh sync even if rows are inserted while we paginate.
     # Every list endpoint accepts `created_datetime:asc` (verified against the docs).
     order_by: str = "created_datetime:asc"
-    # Candidate cursor fields surfaced for documentation/forward-compat only. Gorgias
-    # list endpoints expose NO server-side timestamp filter (only `order_by`), so true
-    # incremental sync is impossible today — every endpoint runs as a full refresh.
+    # Whether this endpoint can sync incrementally. Gorgias has no server-side time
+    # filter, so incremental relies on sorting the cursor `<field>:desc` and halting
+    # once a whole page predates the watermark. Only safe when the advertised cursor
+    # field actually reflects the change we care about: `updated_datetime` for mutable
+    # resources, `created_datetime` for append-only ones. Mutable config tables that
+    # expose only `created_datetime` (tags/views/teams/macros) stay full-refresh,
+    # since incremental there would silently miss edits.
+    supports_incremental: bool = False
+    # Cursor fields offered to the user. Only advertise a field whose desc-sort yields
+    # correct incremental semantics for this resource.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
 
 
@@ -34,47 +47,48 @@ GORGIAS_ENDPOINTS: dict[str, GorgiasEndpointConfig] = {
     "tickets": GorgiasEndpointConfig(
         name="tickets",
         path="/tickets",
-        incremental_fields=[_datetime_field("created_datetime"), _datetime_field("updated_datetime")],
+        supports_incremental=True,
+        incremental_fields=[_datetime_field("updated_datetime")],
     ),
     "messages": GorgiasEndpointConfig(
         name="messages",
         path="/messages",
+        supports_incremental=True,
         incremental_fields=[_datetime_field("created_datetime")],
     ),
     "customers": GorgiasEndpointConfig(
         name="customers",
         path="/customers",
-        incremental_fields=[_datetime_field("created_datetime"), _datetime_field("updated_datetime")],
+        supports_incremental=True,
+        incremental_fields=[_datetime_field("updated_datetime")],
     ),
     "users": GorgiasEndpointConfig(
         name="users",
         path="/users",
-        incremental_fields=[_datetime_field("created_datetime"), _datetime_field("updated_datetime")],
+        supports_incremental=True,
+        incremental_fields=[_datetime_field("updated_datetime")],
     ),
     "satisfaction_surveys": GorgiasEndpointConfig(
         name="satisfaction_surveys",
         path="/satisfaction-surveys",
+        supports_incremental=True,
         incremental_fields=[_datetime_field("created_datetime")],
     ),
     "tags": GorgiasEndpointConfig(
         name="tags",
         path="/tags",
-        incremental_fields=[_datetime_field("created_datetime")],
     ),
     "views": GorgiasEndpointConfig(
         name="views",
         path="/views",
-        incremental_fields=[_datetime_field("created_datetime")],
     ),
     "teams": GorgiasEndpointConfig(
         name="teams",
         path="/teams",
-        incremental_fields=[_datetime_field("created_datetime")],
     ),
     "macros": GorgiasEndpointConfig(
         name="macros",
         path="/macros",
-        incremental_fields=[_datetime_field("created_datetime")],
     ),
 }
 

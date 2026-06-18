@@ -1,4 +1,5 @@
 import base64
+from datetime import UTC, datetime
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -190,6 +191,106 @@ class TestGetRows:
         assert manager.saved == []
 
 
+class TestIncrementalSync:
+    def _run(self, session: MagicMock, **kwargs):
+        manager = _FakeManager()
+        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
+            return list(
+                get_rows(
+                    "acme",
+                    "e@acme.com",
+                    "key",
+                    "tickets",
+                    MagicMock(),
+                    manager,
+                    should_use_incremental_field=True,
+                    incremental_field="updated_datetime",
+                    **kwargs,
+                )
+            )
+
+    def test_incremental_sorts_chosen_field_descending(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response(json_body={"data": [], "meta": {"next_cursor": None}})
+        self._run(session, db_incremental_field_last_value=None)
+
+        _, kwargs = session.get.call_args
+        assert kwargs["params"]["order_by"] == "updated_datetime:desc"
+
+    def test_first_incremental_sync_walks_all_pages(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [
+            _response(
+                json_body={
+                    "data": [{"id": 2, "updated_datetime": "2023-07-01T00:00:00+00:00"}],
+                    "meta": {"next_cursor": "c2"},
+                }
+            ),
+            _response(
+                json_body={
+                    "data": [{"id": 1, "updated_datetime": "2023-01-01T00:00:00+00:00"}],
+                    "meta": {"next_cursor": None},
+                }
+            ),
+        ]
+        batches = self._run(session, db_incremental_field_last_value=None)
+
+        assert [item["id"] for batch in batches for item in batch] == [2, 1]
+        assert session.get.call_count == 2
+
+    def test_stops_once_page_predates_watermark(self) -> None:
+        # Rows arrive newest-first; the third page is never fetched because the second
+        # page is entirely older than the watermark.
+        session = MagicMock()
+        session.get.side_effect = [
+            _response(
+                json_body={
+                    "data": [{"id": 3, "updated_datetime": "2023-07-01T00:00:00+00:00"}],
+                    "meta": {"next_cursor": "c2"},
+                }
+            ),
+            _response(
+                json_body={
+                    "data": [{"id": 2, "updated_datetime": "2023-05-01T00:00:00+00:00"}],
+                    "meta": {"next_cursor": "c3"},
+                }
+            ),
+            _response(
+                json_body={
+                    "data": [{"id": 1, "updated_datetime": "2023-04-01T00:00:00+00:00"}],
+                    "meta": {"next_cursor": None},
+                }
+            ),
+        ]
+        batches = self._run(session, db_incremental_field_last_value=datetime(2023, 6, 1, tzinfo=UTC))
+
+        # The over-the-watermark page is still yielded (merge dedupes), then we stop.
+        assert [item["id"] for batch in batches for item in batch] == [3, 2]
+        assert session.get.call_count == 2
+
+    def test_unknown_incremental_field_falls_back_to_full_refresh(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response(json_body={"data": [], "meta": {"next_cursor": None}})
+        manager = _FakeManager()
+        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
+            list(
+                get_rows(
+                    "acme",
+                    "e@acme.com",
+                    "key",
+                    "tickets",
+                    MagicMock(),
+                    manager,
+                    should_use_incremental_field=True,
+                    incremental_field="not_a_sortable_field",
+                    db_incremental_field_last_value=datetime(2023, 6, 1, tzinfo=UTC),
+                )
+            )
+
+        _, kwargs = session.get.call_args
+        assert kwargs["params"]["order_by"] == "created_datetime:asc"
+
+
 class TestGorgiasSource:
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
@@ -199,6 +300,19 @@ class TestGorgiasSource:
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [GORGIAS_ENDPOINTS[endpoint].partition_key]
         assert response.sort_mode == "asc"
+
+    def test_incremental_source_response_sorts_descending(self) -> None:
+        response = gorgias_source(
+            "acme",
+            "e@acme.com",
+            "key",
+            "tickets",
+            MagicMock(),
+            _FakeManager(),
+            should_use_incremental_field=True,
+            incremental_field="updated_datetime",
+        )
+        assert response.sort_mode == "desc"
 
     def test_every_endpoint_partitions_on_created_datetime(self) -> None:
         for config in GORGIAS_ENDPOINTS.values():
