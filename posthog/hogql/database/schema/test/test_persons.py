@@ -525,23 +525,34 @@ class TestArgMaxNonNullableSimplification(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         return person
 
+    @parameterized.expand(
+        [
+            # (label, property, materialize_first, expected source-read marker in the SQL)
+            ("json", "jsonprop", False, "JSONExtractRaw(person.properties"),
+            ("materialized", "matprop", True, "pmat_matprop"),
+        ]
+    )
     @snapshot_clickhouse_queries
-    def test_nullable_json_property_keeps_wrap_and_latest_null_wins(self):
-        person = self._person_unsetting_prop_in_latest_version("json-null", "jsonprop")
+    def test_nullable_property_keeps_wrap_and_latest_null_wins(self, label, prop, materialize_first, read_marker):
+        if materialize_first:
+            from ee.clickhouse.materialized_columns.analyze import materialize  # noqa: PLC0415
+
+            materialize("person", prop, is_nullable=True)
+        person = self._person_unsetting_prop_in_latest_version(f"null-{label}", prop)
         response = execute_hogql_query(
-            parse_select("SELECT properties.jsonprop, properties.untouched FROM persons WHERE id = {pid}"),
+            parse_select(f"SELECT properties.{prop}, properties.untouched FROM persons WHERE id = {{pid}}"),
             self.team,
             placeholders={"pid": ast.Constant(value=person.uuid)},
             modifiers=self._modifiers(),
         )
-        # The latest version unset jsonprop -> NULL must win. If the wrap were dropped, ClickHouse argMax
-        # would skip the NULL and return the stale earlier value instead.
+        # The latest version unset the property -> NULL must win. If the wrap were dropped, ClickHouse
+        # argMax would skip the NULL and return the stale earlier value instead.
         assert response.results[0][0] is None
         assert response.results[0][1] == "keep"
-        # And the SQL keeps the wrap because the JSON property read is nullable.
+        # The nullable read (JSON extract or materialized column) stays wrapped.
         assert response.clickhouse is not None
+        assert read_marker in response.clickhouse
         assert "tupleElement(argMax(tuple(" in response.clickhouse
-        assert "JSONExtractRaw(person.properties" in response.clickhouse
 
     @snapshot_clickhouse_queries
     def test_non_nullable_columns_are_simplified(self):
@@ -558,26 +569,6 @@ class TestArgMaxNonNullableSimplification(ClickhouseTestMixin, APIBaseTest):
         assert "tupleElement(argMax(tuple(person.is_deleted" not in response.clickhouse
         assert "tupleElement(argMax(tuple(toTimeZone(person.created_at" not in response.clickhouse
         assert str(person.uuid) == str(response.results[0][0])
-
-    @snapshot_clickhouse_queries
-    def test_nullable_materialized_property_keeps_wrap_and_latest_null_wins(self):
-        from ee.clickhouse.materialized_columns.analyze import materialize  # noqa: PLC0415
-
-        materialize("person", "matprop", is_nullable=True)
-        person = self._person_unsetting_prop_in_latest_version("mat-null", "matprop")
-        response = execute_hogql_query(
-            parse_select("SELECT properties.matprop FROM persons WHERE id = {pid}"),
-            self.team,
-            placeholders={"pid": ast.Constant(value=person.uuid)},
-            modifiers=self._modifiers(),
-        )
-        # The latest version unset matprop -> NULL must win, even though it is read from a materialized
-        # column. If the wrap were dropped, argMax would skip the NULL and return the stale earlier value.
-        assert response.results[0][0] is None
-        # The property reads the materialized column, but the nullable column stays wrapped.
-        assert response.clickhouse is not None
-        assert "pmat_matprop" in response.clickhouse
-        assert "tupleElement(argMax(tuple(" in response.clickhouse
 
     @snapshot_clickhouse_queries
     def test_event_person_override_person_id_is_simplified(self):
