@@ -346,23 +346,21 @@ class DataDeletionRequest(UUIDModel):
 
     def _clean_event_removal(self) -> None:
         self._require_time_range()
-        if self.delete_all_events and self.events:
-            raise ValidationError({"events": "Events must be empty when delete_all_events is set."})
-        if not self.delete_all_events and not self.events:
-            raise ValidationError(
-                {"events": "Provide at least one event, or set delete_all_events to delete every event."}
-            )
+        self._validate_event_scope(verb="delete")
         self._reject_person_fields()
 
     def _clean_property_removal(self) -> None:
         self._require_time_range()
+        self._validate_event_scope(verb="match")
+        self._reject_person_fields()
+
+    def _validate_event_scope(self, *, verb: str) -> None:
         if self.delete_all_events and self.events:
             raise ValidationError({"events": "Events must be empty when delete_all_events is set."})
         if not self.delete_all_events and not self.events:
             raise ValidationError(
-                {"events": "Provide at least one event, or set delete_all_events to match every event."}
+                {"events": f"Provide at least one event, or set delete_all_events to {verb} every event."}
             )
-        self._reject_person_fields()
 
     def _require_time_range(self) -> None:
         if self.start_time is None or self.end_time is None:

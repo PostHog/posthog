@@ -55,13 +55,20 @@ def test_event_removal_clean_passes(events, delete_all_events):
     request.clean()
 
 
-def test_property_removal_allows_delete_all_events():
+@pytest.mark.parametrize(
+    "events,delete_all_events",
+    [
+        (["$pageview"], False),
+        ([], True),
+    ],
+)
+def test_property_removal_clean_passes(events, delete_all_events):
     request = DataDeletionRequest(
         **_base_kwargs(
             request_type=RequestType.PROPERTY_REMOVAL,
-            events=[],
+            events=events,
             properties=["$ip"],
-            delete_all_events=True,
+            delete_all_events=delete_all_events,
         )
     )
     request.clean()
