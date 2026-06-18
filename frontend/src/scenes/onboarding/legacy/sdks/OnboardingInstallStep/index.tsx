@@ -160,7 +160,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
                 listeningForName={listeningForName}
                 teamPropertyToVerify={teamPropertyToVerify}
                 installationComplete={installationComplete}
-                header={headerWithAIConsent}
+                header={header}
                 onContinueHere={() => setMobileHandoffDismissed(true)}
             />
         )
@@ -189,7 +189,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
                 )
             }
         >
-            {headerWithAIConsent}
+            {header}
             {!hideInstallationCheck && !installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="mt-6">
                 <SDKGrid {...sdkGridProps} />
