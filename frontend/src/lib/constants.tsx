@@ -251,6 +251,7 @@ export const FEATURE_FLAGS = {
     CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-workflows-cdp
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-workflows-cdp
+    CDP_MICROSOFT_ADS: 'cdp-microsoft-ads', // owner: #team-workflows-cdp
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-workflows
     CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-workflows-cdp
     CDP_VERCEL_LOG_DRAIN: 'cdp-vercel-log-drain', // owner: #team-workflows-cdp
@@ -351,6 +352,7 @@ export const FEATURE_FLAGS = {
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
+    LOGS_FACET_RAIL: 'logs-facet-rail', // owner: #team-logs
     LOGS_SAVED_VIEWS: 'logs-saved-views', // owner: #team-logs
     LOGS_SERVICES_VIEW: 'logs-services-view', // owner: #team-logs
     LOGS_SETTINGS: 'logs-settings', // owner: #team-logs
