@@ -1586,6 +1586,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental": False,
                     "incremental_field": None,
                     "incremental_field_type": None,
+                    "incremental_field_lookback_seconds": None,
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
                     "label": schema.label,
