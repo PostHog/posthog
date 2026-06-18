@@ -20117,7 +20117,12 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Mixin for serializers to add user access control fields
+     * Full experiment representation for the detail, create, and update endpoints.
+     *
+     * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+     * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+     * fields, and refreshes stale action names while serializing. The list endpoint uses the
+     * leaner ``ExperimentBasicSerializer`` instead.
      */
     export interface Experiment {
       readonly id: number;
@@ -20212,11 +20217,18 @@ export namespace Schemas {
     /**
      * Lightweight, read-only serializer for the experiment list endpoint.
      *
-     * The list view (and the MCP list tool) render only scalar and feature-flag fields,
-     * never the metric definitions. Dropping ``metrics``/``metrics_secondary``/``saved_metrics``
-     * here lets the list query defer the large JSON columns and skip the saved-metric prefetch
-     * plus per-row fingerprinting — that work belongs to the detail response served by
-     * ``ExperimentSerializer``. See ``EnterpriseExperimentsViewSet.safely_get_queryset``.
+     * The list view (and the MCP list tool) render only the scalar and feature-flag fields
+     * shared via ``ExperimentBaseSerializer`` — never the metric definitions. Omitting
+     * ``metrics``/``metrics_secondary``/``saved_metrics`` lets the list query defer the large
+     * JSON columns and skip the saved-metric prefetch plus per-row fingerprinting; that work
+     * belongs to the detail response served by ``ExperimentSerializer``.
+     *
+     * Because the metric fields, the write-side machinery, and the action-name-refreshing
+     * ``to_representation`` all live on ``ExperimentSerializer`` rather than the shared base,
+     * this serializer needs no overrides: it gets DRF's default ``get_fields`` (no write-only
+     * ``holdout_id`` to configure), default ``to_representation`` (no metrics to normalize), and
+     * a plain ``ListSerializer`` that never touches the deferred columns. See
+     * ``EnterpriseExperimentsViewSet.safely_get_queryset``.
      */
     export interface ExperimentBasic {
       readonly id: number;
@@ -34750,7 +34762,12 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * Full experiment representation for the detail, create, and update endpoints.
+     *
+     * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+     * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+     * fields, and refreshes stale action names while serializing. The list endpoint uses the
+     * leaner ``ExperimentBasicSerializer`` instead.
      */
     export interface PatchedExperiment {
       readonly id?: number;

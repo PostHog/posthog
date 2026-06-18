@@ -139,7 +139,17 @@ class ExperimentListSerializer(serializers.ListSerializer):
         return super().to_representation(instances)
 
 
-class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """Shared read-side fields for the full and list experiment serializers.
+
+    ``ExperimentSerializer`` (detail + write) and ``ExperimentBasicSerializer`` (list) both
+    declare the scalar, feature-flag, and method fields here, so they render identical types
+    for the fields they share. That keeps ``ExperimentApi`` a structural superset of
+    ``ExperimentBasicApi`` — which consumers rely on — by construction, not by hand-mirroring
+    field definitions across two classes. This base is abstract: subclasses supply their own
+    ``Meta`` (model + fields) and it is never instantiated on its own.
+    """
+
     feature_flag_key = serializers.CharField(
         source="get_feature_flag_key",
         help_text=(
@@ -150,33 +160,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     created_by = UserBasicSerializer(read_only=True)
     feature_flag = serializers.SerializerMethodField(read_only=True)
     holdout = ExperimentHoldoutSerializer(read_only=True)
-    holdout_id = TeamScopedPrimaryKeyRelatedField(
-        queryset=ExperimentHoldout.objects.all(),
-        source="holdout",
-        required=False,
-        allow_null=True,
-        help_text="ID of a holdout group to exclude from the experiment.",
-    )
-    saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
-    saved_metrics_ids = serializers.ListField(
-        child=serializers.JSONField(),
-        required=False,
-        allow_null=True,
-        help_text="IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
-    )
-    allow_unknown_events = serializers.BooleanField(
-        required=False,
-        default=False,
-        write_only=True,
-        help_text=(
-            "Suppresses the validation that rejects metrics referencing events not yet "
-            "ingested by this project. REQUIRES explicit user confirmation before being "
-            "set to true — never flip this silently to retry a failed call. The default "
-            "validation catches typo'd event names and missing instrumentation. Set this "
-            "to true only when the user has confirmed the event is intentional (e.g. they "
-            "are about to instrument it)."
-        ),
-    )
     name = serializers.CharField(
         max_length=400,
         help_text="Name of the experiment.",
@@ -213,28 +196,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "during the deprecation window."
         ),
     )
-    metrics = ExperimentMetricsField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: "
-            "'mean' (set source to an EventsNode with an event name), "
-            "'funnel' (set series to an array of EventsNode steps), "
-            "'ratio' (set numerator and denominator EventsNode entries), or "
-            "'retention' (set start_event and completion_event). "
-            "Use the read-data-schema tool with query kind 'events' to find available events in the project."
-        ),
-    )
-    metrics_secondary = ExperimentMetricsField(
-        required=False,
-        allow_null=True,
-        help_text="Secondary metrics for additional measurements. Same format as primary metrics.",
-    )
-    exposure_criteria = ExperimentExposureCriteriaField(
-        required=False,
-        allow_null=True,
-        help_text="Exposure configuration including filter test accounts and custom exposure events.",
-    )
     conclusion = serializers.ChoiceField(
         choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
         required=False,
@@ -258,6 +219,81 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         allow_null=True,
         help_text="Experiment type: web for frontend UI changes, product for backend/API changes.",
     )
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
+            "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
+            "feature_flag.active, not stored), 'stopped' (ended)."
+        ),
+    )
+
+    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
+    def get_status(self, instance: Experiment) -> str:
+        return instance.status_label
+
+    @extend_schema_field(MinimalFeatureFlagSerializer)
+    def get_feature_flag(self, obj):
+        return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
+
+
+class ExperimentSerializer(ExperimentBaseSerializer):
+    """Full experiment representation for the detail, create, and update endpoints.
+
+    Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+    definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+    fields, and refreshes stale action names while serializing. The list endpoint uses the
+    leaner ``ExperimentBasicSerializer`` instead.
+    """
+
+    holdout_id = TeamScopedPrimaryKeyRelatedField(
+        queryset=ExperimentHoldout.objects.all(),
+        source="holdout",
+        required=False,
+        allow_null=True,
+        help_text="ID of a holdout group to exclude from the experiment.",
+    )
+    saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
+    saved_metrics_ids = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        allow_null=True,
+        help_text="IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
+    )
+    allow_unknown_events = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text=(
+            "Suppresses the validation that rejects metrics referencing events not yet "
+            "ingested by this project. REQUIRES explicit user confirmation before being "
+            "set to true — never flip this silently to retry a failed call. The default "
+            "validation catches typo'd event names and missing instrumentation. Set this "
+            "to true only when the user has confirmed the event is intentional (e.g. they "
+            "are about to instrument it)."
+        ),
+    )
+    metrics = ExperimentMetricsField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: "
+            "'mean' (set source to an EventsNode with an event name), "
+            "'funnel' (set series to an array of EventsNode steps), "
+            "'ratio' (set numerator and denominator EventsNode entries), or "
+            "'retention' (set start_event and completion_event). "
+            "Use the read-data-schema tool with query kind 'events' to find available events in the project."
+        ),
+    )
+    metrics_secondary = ExperimentMetricsField(
+        required=False,
+        allow_null=True,
+        help_text="Secondary metrics for additional measurements. Same format as primary metrics.",
+    )
+    exposure_criteria = ExperimentExposureCriteriaField(
+        required=False,
+        allow_null=True,
+        help_text="Exposure configuration including filter test accounts and custom exposure events.",
+    )
     update_feature_flag_params = serializers.BooleanField(
         required=False,
         default=False,
@@ -269,18 +305,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "for non-drafts."
         ),
     )
-    status = serializers.SerializerMethodField(
-        help_text=(
-            "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
-            "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
-            "feature_flag.active, not stored), 'stopped' (ended)."
-        ),
-    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
-
-    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
-    def get_status(self, instance: Experiment) -> str:
-        return instance.status_label
 
     class Meta:
         model = Experiment
@@ -345,10 +370,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         else:
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
-
-    @extend_schema_field(MinimalFeatureFlagSerializer)
-    def get_feature_flag(self, obj):
-        return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
@@ -539,17 +560,25 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         )
 
 
-class ExperimentBasicSerializer(ExperimentSerializer):
+class ExperimentBasicSerializer(ExperimentBaseSerializer):
     """Lightweight, read-only serializer for the experiment list endpoint.
 
-    The list view (and the MCP list tool) render only scalar and feature-flag fields,
-    never the metric definitions. Dropping ``metrics``/``metrics_secondary``/``saved_metrics``
-    here lets the list query defer the large JSON columns and skip the saved-metric prefetch
-    plus per-row fingerprinting — that work belongs to the detail response served by
-    ``ExperimentSerializer``. See ``EnterpriseExperimentsViewSet.safely_get_queryset``.
+    The list view (and the MCP list tool) render only the scalar and feature-flag fields
+    shared via ``ExperimentBaseSerializer`` — never the metric definitions. Omitting
+    ``metrics``/``metrics_secondary``/``saved_metrics`` lets the list query defer the large
+    JSON columns and skip the saved-metric prefetch plus per-row fingerprinting; that work
+    belongs to the detail response served by ``ExperimentSerializer``.
+
+    Because the metric fields, the write-side machinery, and the action-name-refreshing
+    ``to_representation`` all live on ``ExperimentSerializer`` rather than the shared base,
+    this serializer needs no overrides: it gets DRF's default ``get_fields`` (no write-only
+    ``holdout_id`` to configure), default ``to_representation`` (no metrics to normalize), and
+    a plain ``ListSerializer`` that never touches the deferred columns. See
+    ``EnterpriseExperimentsViewSet.safely_get_queryset``.
     """
 
-    class Meta(ExperimentSerializer.Meta):
+    class Meta:
+        model = Experiment
         fields = [
             "id",
             "name",
@@ -573,9 +602,11 @@ class ExperimentBasicSerializer(ExperimentSerializer):
             "status",
             "user_access_level",
         ]
-        # Mirror ExperimentSerializer's read-only set (minus saved_metrics, which isn't a field
-        # here) so each field's optionality matches the full type — keeping ExperimentApi a
-        # structural superset of ExperimentBasicApi, which consumers rely on.
+        # Shared fields take their definitions from ExperimentBaseSerializer, so their types
+        # already match ExperimentSerializer. read_only_fields still has to mirror the full
+        # serializer for the model-derived fields (id/created_at/exposure_cohort/...) so each
+        # field's optionality matches and ExperimentApi stays a structural superset of
+        # ExperimentBasicApi, which consumers rely on.
         read_only_fields = [
             "id",
             "created_by",
@@ -587,19 +618,6 @@ class ExperimentBasicSerializer(ExperimentSerializer):
             "status",
             "user_access_level",
         ]
-        # Default ListSerializer — the metric action-name batching in ExperimentListSerializer
-        # is unnecessary here and would touch the deferred metric columns (an N+1).
-        list_serializer_class = serializers.ListSerializer
-
-    def get_fields(self):
-        # Skip ExperimentSerializer.get_fields, which configures the write-only ``holdout_id``
-        # field that this read-only list serializer does not expose.
-        return serializers.ModelSerializer.get_fields(self)
-
-    def to_representation(self, instance):
-        # No metric/saved-metric fields here, so skip ExperimentSerializer's per-row
-        # date-range normalization and fingerprint computation.
-        return serializers.ModelSerializer.to_representation(self, instance)
 
 
 class EndExperimentSerializer(serializers.Serializer):
