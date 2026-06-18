@@ -39,7 +39,7 @@
     .quill-button:disabled,
     .quill-button[aria-disabled='true']:not([data-loading]) {
         cursor: default;
-        opacity: 0.7;
+        opacity: 0.5;
     }
 
     .quill-button[aria-invalid='true'] {
@@ -369,10 +369,6 @@
 
     .quill-button--inert:not(:disabled, [aria-disabled='true']):hover {
         background-color: transparent;
-    }
-
-    .quill-button--inert:not(:disabled, [aria-disabled='true']):active {
-        translate: 0 0;
     }
 
     /* =========================================================================
