@@ -78,7 +78,7 @@ test.describe('Retention', () => {
 
         await test.step('verify line chart renders', async () => {
             await expect(insight.retention.chart).toBeVisible()
-            await expect(insight.retention.chart.locator('canvas')).toBeVisible()
+            await expect(insight.retention.chart.locator('canvas[role="img"]')).toBeVisible()
         })
     })
 
@@ -90,7 +90,7 @@ test.describe('Retention', () => {
             await insight.retention.waitForChart()
             await insight.retention.selectTargetEvent(EVENT_NAME)
             await insight.retention.selectReturningEvent(EVENT_NAME)
-            await expect(insight.retention.chart.locator('canvas')).toBeVisible()
+            await expect(insight.retention.chart.locator('canvas[role="img"]')).toBeVisible()
         })
 
         await test.step('hover over chart points and verify tooltips', async () => {

@@ -150,8 +150,7 @@ test.describe('Funnel insights', () => {
         })
 
         await test.step('hover funnel bar to show tooltip', async () => {
-            const stepBar = insight.funnels.verticalChart.getByTestId('funnel-step-bar').first()
-            await stepBar.hover()
+            await insight.funnels.hoverStepBars()
             await expect(insight.funnels.tooltip.first()).toBeVisible()
         })
     })

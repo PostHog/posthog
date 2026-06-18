@@ -4,8 +4,6 @@ import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
     buildTrendsQuery,
@@ -41,12 +39,10 @@ afterEach(() => {
     cleanup()
 })
 
-const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]: true }
-
 describe('TrendsLineChart', () => {
     describe('tooltips', () => {
         it('shows the series value and glyph for a single series', async () => {
-            renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
+            renderInsight({ query: buildTrendsQuery() })
 
             const tooltip = await chart.hoverTooltip(2)
 
@@ -62,7 +58,6 @@ describe('TrendsLineChart', () => {
                         { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
                     ],
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -86,7 +81,6 @@ describe('TrendsLineChart', () => {
                         { kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' },
                     ],
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -108,7 +102,6 @@ describe('TrendsLineChart', () => {
                     series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             // Breakdown data produces multiple series, so the chart requires a
@@ -126,7 +119,6 @@ describe('TrendsLineChart', () => {
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                     trendsFilter: { formula: 'A' },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await chart.clickAtIndex(2)
@@ -142,7 +134,6 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery({
                     compareFilter: { compare: true },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -163,7 +154,6 @@ describe('TrendsLineChart', () => {
                 context: {
                     formatCompareLabel: (label) => (label === 'current' ? 'This week' : 'Last week'),
                 },
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -189,7 +179,6 @@ describe('TrendsLineChart', () => {
                         showPercentStackView: true,
                     },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -206,7 +195,6 @@ describe('TrendsLineChart', () => {
                         { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
                     ],
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -219,7 +207,6 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery({
                     series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -233,7 +220,6 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery({
                     series: [{ kind: NodeKind.EventsNode, event: 'Minimal', name: 'Minimal' }],
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(0)
@@ -251,7 +237,6 @@ describe('TrendsLineChart', () => {
                         movingAverageIntervals: 3,
                     },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             // One data series + one moving-average overlay = 2 rendered series.
@@ -268,7 +253,6 @@ describe('TrendsLineChart', () => {
                         movingAverageIntervals: 3,
                     },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -278,7 +262,7 @@ describe('TrendsLineChart', () => {
         })
 
         it('renders only the main series when disabled', async () => {
-            renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
+            renderInsight({ query: buildTrendsQuery() })
 
             await waitFor(() => {
                 expect(screen.getByRole('img', { name: /chart with 1 data series/i })).toBeInTheDocument()
@@ -299,7 +283,6 @@ describe('TrendsLineChart', () => {
                         }),
                     ],
                 },
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -321,7 +304,6 @@ describe('TrendsLineChart', () => {
                     ],
                 },
                 inSharedMode: true,
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -339,7 +321,6 @@ describe('TrendsLineChart', () => {
                     ],
                     trendsFilter: { display: ChartDisplayType.ActionsAreaGraph },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -359,7 +340,6 @@ describe('TrendsLineChart', () => {
                         showPercentStackView: true,
                     },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -377,7 +357,6 @@ describe('TrendsLineChart', () => {
         it('shows the hovered day in the tooltip title row', async () => {
             renderInsight({
                 query: buildTrendsQuery({ interval: 'day' }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -413,7 +392,6 @@ describe('TrendsLineChart', () => {
                     series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await chart.clickAtIndex(2)
@@ -431,7 +409,6 @@ describe('TrendsLineChart', () => {
         it('does not render any alert overlay for an unsaved insight (insight.id is missing)', async () => {
             renderInsight({
                 query: buildTrendsQuery(),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -450,7 +427,6 @@ describe('TrendsLineChart', () => {
                         { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
                     ],
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             // Wait for both series before toggling.
@@ -474,7 +450,6 @@ describe('TrendsLineChart', () => {
                     ],
                     trendsFilter: { showValuesOnSeries: true, showTrendLines: true },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -517,7 +492,6 @@ describe('TrendsLineChart', () => {
         ])('$name', async ({ trendsFilter, expectedX, expectedY }) => {
             renderInsight({
                 query: buildTrendsQuery({ trendsFilter }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -539,7 +513,6 @@ describe('TrendsLineChart', () => {
                     ],
                     trendsFilter: enabled ? { showMultipleYAxes: true } : undefined,
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -575,7 +548,6 @@ describe('TrendsLineChart', () => {
         ])('$name', async ({ goalLines, expectedLabels }) => {
             renderInsight({
                 query: buildTrendsQuery({ trendsFilter: { goalLines } }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -593,7 +565,6 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery({
                     trendsFilter: { showValuesOnSeries: true },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -621,7 +592,6 @@ describe('TrendsLineChart', () => {
                         showValuesOnSeries: true,
                     },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -634,7 +604,7 @@ describe('TrendsLineChart', () => {
         })
 
         it('renders no labels when showValuesOnSeries is disabled', async () => {
-            renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
+            renderInsight({ query: buildTrendsQuery() })
 
             await screen.findByRole('img', { name: /chart with/i })
             expect(getHogChart().valueLabels()).toHaveLength(0)
@@ -648,7 +618,6 @@ describe('TrendsLineChart', () => {
                     series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
                     trendsFilter: { yAxisScaleType: 'log10' },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -667,7 +636,6 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery({
                     trendsFilter: { showConfidenceIntervals: true, confidenceLevel: 95 },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
         })
 
@@ -691,7 +659,6 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery({
                     trendsFilter: { showTrendLines: true },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
         })
 
@@ -724,7 +691,6 @@ describe('TrendsLineChart', () => {
                         movingAverageIntervals: 3,
                     },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             // main + raw trendline + moving avg + moving-avg trendline = 4 series.
@@ -740,7 +706,6 @@ describe('TrendsLineChart', () => {
                 query: buildTrendsQuery({
                     series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -755,7 +720,6 @@ describe('TrendsLineChart', () => {
                     series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
                 }),
                 context: { emptyStateHeading: 'Nothing to see here, hedgehog' },
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -766,7 +730,7 @@ describe('TrendsLineChart', () => {
 
     describe('click → persons modal', () => {
         it('single series: direct click shows the actors for the clicked day', async () => {
-            renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
+            renderInsight({ query: buildTrendsQuery() })
 
             await chart.clickAtIndex(2)
 
@@ -782,7 +746,6 @@ describe('TrendsLineChart', () => {
                     series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await chart.clickAtIndex(2)
@@ -801,7 +764,6 @@ describe('TrendsLineChart', () => {
                     series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await chart.clickAtIndex(2)
@@ -817,7 +779,6 @@ describe('TrendsLineChart', () => {
             renderInsight({
                 query: buildTrendsQuery(),
                 context: { onDataPointClick },
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await chart.clickAtIndex(2)
@@ -839,7 +800,6 @@ describe('TrendsLineChart', () => {
                         { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
                     ],
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await chart.clickAtIndex(2)
