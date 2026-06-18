@@ -400,14 +400,14 @@ sole-owner `Vec<E>` and hands it back to the caller. This is why
 
 | Metric | Type | Labels | When |
 |---|---|---|---|
-| `capture_v1_serialize_duration_seconds` | histogram | `mode`, `path`, `batch_size` | Per-batch serialize wall-time (sequential or parallel) |
-| `capture_v1_serialize_failed_total` | counter | `mode`, `path` | Per event that failed to serialize |
-| `capture_v1_serialize_panic_total` | counter | `mode`, `path` | Per event whose `serialize` panicked |
+| `capture_v1_serialize_duration_seconds` | histogram | `batch_size` | Per-batch serialize wall-time (sequential or parallel) |
+| `capture_v1_serialize_failed_total` | counter | — | Per event that failed to serialize |
+| `capture_v1_serialize_panic_total` | counter | — | Per event whose `serialize` panicked |
 
 These are sink- and product-agnostic (serialization happens before any
-sink is chosen). Per-mode faceting comes from the deployment
-(`capture-analytics` / `-replay` / `-ai`), so no `cluster`/`destination`
-labels are needed here.
+sink is chosen). Per-mode faceting comes from the Kubernetes deployment
+(`capture-analytics` / `-replay` / `-ai`) via the `namespace` label
+injected by the metrics pipeline.
 
 ---
 
