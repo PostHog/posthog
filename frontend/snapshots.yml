@@ -5456,6 +5456,14 @@ snapshots:
         hash: v1.k794b7964.486007121c9a82df768c7474916477a3e46e69b49b83401da0fa51bdd6279300.UTIVI6M2LJyrUd-l5ym6crCCsGmzZ8xrdtoI1TfBrDA
     scenes-app-insights-sqllinechart--sql-line-chart-breakdown--light:
         hash: v1.k794b7964.c11566cd09e1284b866c92a29482b1fdc6cf206b0b5e1fb46f2e553c19549a57.Xk4vP5_LzV-5_uSJWDNKR9YIEzfduyKuetdlsGn3FIs
+    scenes-app-insights-sqllinechart--sql-line-chart-breakdown-quill--dark:
+        hash: v1.k794b7964.7371e939e01d43c8b17cd1f4a6dc485fe614575a0c043ea85f461f9a575cb5f2.2YpIdRgrjppvY-HjoPilKCAZ3S-AmKEUe8GvuSktUjM
+    scenes-app-insights-sqllinechart--sql-line-chart-breakdown-quill--light:
+        hash: v1.k794b7964.0b58513426c7199ba04ae95bccf1e8eef8e1c4774c45a77f8e1f8245a1db25b8.2Gk0MwGlt9DVzQy8gS0fn7vxJgneu_1zlu8A0MJ_BtA
+    scenes-app-insights-sqllinechart--sql-line-chart-quill--dark:
+        hash: v1.k794b7964.5d7059bb6f3724f9dfbda0ff64d5f8ccad2da027fcfe65836f815ec74216168b.MlNlpYfW5ckNflk1uTzUqgyzurq0AvVArfsDVR1AJBE
+    scenes-app-insights-sqllinechart--sql-line-chart-quill--light:
+        hash: v1.k794b7964.f1a741a344d1eecee7019769fff7245dec87b793e373ce21f2dc15d90ad13281.TD8VkxwSh8411bg_RncBL-FunrCPEjAIL95iQPwIUEY
     scenes-app-insights-trendsboxplot--trends-box-plot--dark:
         hash: v1.k794b7964.9421d408ac158259cf9c8120e5a4df7e79c87c38f48ff2fb096528ab4c21ccaa.kTH1yU4rwh9ATB6Xt9KnTZi2ZhBZM2uG_hsgwQ47kVY
     scenes-app-insights-trendsboxplot--trends-box-plot--light:
