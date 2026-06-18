@@ -21,9 +21,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
 
+from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
 
-MCP_TOOL_CALL_EVENT = "mcp_tool_call"
 INTENT_MODEL = "gpt-4.1-mini"
 MAX_INTENTS = 500
 # Session-detail queries look up one $mcp_session_id; without a timestamp bound

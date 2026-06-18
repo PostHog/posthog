@@ -15,6 +15,7 @@ import { template as hubspotCompanyTemplate } from './_destinations/hubspot/hubs
 import { template as klimeTemplate } from './_destinations/klime/klime.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as linkedinAdsTemplate } from './_destinations/linkedin_ads/linkedin.template'
+import { template as microsoftAdsTemplate } from './_destinations/microsoft_ads/microsoft.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
 import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
 import { template as posthogGroupIdentifyTemplate } from './_destinations/posthog_capture/posthog-group-identify.template'
@@ -57,6 +58,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     gitlabTemplate,
     googleAdsTemplate,
     linkedinAdsTemplate,
+    microsoftAdsTemplate,
     redditAdsTemplate,
     twilioTemplate,
     whatsappTemplate,

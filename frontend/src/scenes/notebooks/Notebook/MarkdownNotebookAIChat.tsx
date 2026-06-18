@@ -33,10 +33,12 @@ export function InlineNotebookAIRunner({
     request,
     onComplete,
     onError,
+    onAssistantMessage,
 }: {
     request: InlineNotebookAIRequest
-    onComplete: (request: InlineNotebookAIRequest) => void
-    onError: (request: InlineNotebookAIRequest) => void
+    onComplete: (request: InlineNotebookAIRequest, completion: InlineAICompletion) => void
+    onError: (request: InlineNotebookAIRequest, completion: InlineAICompletion) => void
+    onAssistantMessage?: (request: InlineNotebookAIRequest, message: InlineAIAssistantMessage) => void
 }): JSX.Element {
     const maxLogicProps = useMemo<maxLogicType['props']>(
         () => ({ panelId: request.panelId, initialFrontendConversationId: request.chatId, syncUrl: false }),
@@ -59,6 +61,7 @@ export function InlineNotebookAIRunner({
             askMax={askMax}
             onComplete={onComplete}
             onError={onError}
+            onAssistantMessage={onAssistantMessage}
         />
     )
 }
@@ -69,12 +72,14 @@ export function InlineNotebookAIThread({
     askMax,
     onComplete,
     onError,
+    onAssistantMessage,
 }: {
     request: InlineNotebookAIRequest
     threadLogicProps: MaxThreadLogicProps
     askMax: (prompt: string | null, addToThread?: boolean, uiContext?: Partial<MaxUIContext>) => void
-    onComplete: (request: InlineNotebookAIRequest) => void
-    onError: (request: InlineNotebookAIRequest) => void
+    onComplete: (request: InlineNotebookAIRequest, completion: InlineAICompletion) => void
+    onError: (request: InlineNotebookAIRequest, completion: InlineAICompletion) => void
+    onAssistantMessage?: (request: InlineNotebookAIRequest, message: InlineAIAssistantMessage) => void
 }): null {
     const threadLogicInstance = maxThreadLogic(threadLogicProps)
     useMountedLogic(threadLogicInstance)
@@ -82,6 +87,7 @@ export function InlineNotebookAIThread({
     const { threadRaw, threadLoading } = useValues(threadLogicInstance)
     const didAskRef = useRef(false)
     const didCompleteRef = useRef(false)
+    const reportedAssistantMessagesRef = useRef<Map<string, string>>(new Map())
     useApplyNotebookArtifactMessages(threadRaw, request.chatId)
 
     useEffect(() => {
@@ -92,6 +98,33 @@ export function InlineNotebookAIThread({
         didAskRef.current = true
         askMax(request.query, true, request.uiContext)
     }, [askMax, request])
+
+    useEffect(() => {
+        if (!onAssistantMessage) {
+            return
+        }
+
+        const hasArtifact = hasCompletedNotebookArtifactMessage(threadRaw)
+
+        threadRaw.forEach((message, index) => {
+            if (message.type !== AssistantMessageType.Assistant) {
+                return
+            }
+
+            const content = getMessageContent(message).trim()
+            if (!content) {
+                return
+            }
+
+            const id = getThreadMessageId(message, index)
+            if (reportedAssistantMessagesRef.current.get(id) === content) {
+                return
+            }
+
+            reportedAssistantMessagesRef.current.set(id, content)
+            onAssistantMessage(request, { id, content, hasArtifact })
+        })
+    }, [onAssistantMessage, request, threadRaw])
 
     useEffect(() => {
         if (!didAskRef.current || didCompleteRef.current || threadLoading) {
@@ -105,25 +138,39 @@ export function InlineNotebookAIThread({
 
         didCompleteRef.current = true
         if (completion.status === 'error') {
-            onError(request)
+            onError(request, completion)
             return
         }
 
-        onComplete(request)
+        onComplete(request, completion)
     }, [onComplete, onError, request, threadLoading, threadRaw])
 
     return null
 }
 
-export function getInlineAICompletion(
-    threadRaw: ThreadMessage[]
-): { status: 'done' | 'error'; message: string } | null {
+export type InlineAICompletion = {
+    status: 'done' | 'error'
+    message: string
+    kind: 'assistant' | 'artifact' | 'error' | 'generic'
+    hasArtifact: boolean
+}
+
+export type InlineAIAssistantMessage = {
+    id: string
+    content: string
+    hasArtifact: boolean
+}
+
+export function getInlineAICompletion(threadRaw: ThreadMessage[]): InlineAICompletion | null {
+    const hasArtifact = hasCompletedNotebookArtifactMessage(threadRaw)
     const lastErrorMessage = [...threadRaw]
         .reverse()
         .find((message) => message.type === AssistantMessageType.Failure || message.status === 'error')
     if (lastErrorMessage) {
         return {
             status: 'error',
+            kind: 'error',
+            hasArtifact,
             message: getInlineAIStatusText(
                 'content' in lastErrorMessage && typeof lastErrorMessage.content === 'string'
                     ? lastErrorMessage.content
@@ -149,6 +196,8 @@ export function getInlineAICompletion(
     if (lastAssistantMessage.type === AssistantMessageType.Assistant) {
         return {
             status: 'done',
+            kind: 'assistant',
+            hasArtifact,
             message: getInlineAIStatusText(lastAssistantMessage.content, 'PostHog AI finished.'),
         }
     }
@@ -159,14 +208,26 @@ export function getInlineAICompletion(
     ) {
         return {
             status: 'done',
+            kind: 'artifact',
+            hasArtifact,
             message: 'Updated the notebook.',
         }
     }
 
     return {
         status: 'done',
+        kind: 'generic',
+        hasArtifact,
         message: 'PostHog AI finished.',
     }
+}
+
+function hasCompletedNotebookArtifactMessage(threadRaw: ThreadMessage[]): boolean {
+    return threadRaw.some(
+        (message) =>
+            message.status === 'completed' &&
+            (message.type === AssistantMessageType.Notebook || isCompletedNotebookApplicableArtifactMessage(message))
+    )
 }
 
 export function getInlineAIStatusText(value: string | undefined, fallback: string): string {
