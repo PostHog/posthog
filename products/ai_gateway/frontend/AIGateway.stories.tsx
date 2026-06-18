@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -60,6 +61,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2024-07-09',
         pageUrl: urls.aiGateway(),
+        featureFlags: [FEATURE_FLAGS.AI_GATEWAY],
     },
 }
 export default meta

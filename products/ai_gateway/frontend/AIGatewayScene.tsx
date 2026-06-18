@@ -6,7 +6,10 @@ import { LemonSegmentedButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { RobotHog } from 'lib/components/hedgehogs'
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AnthropicLogo } from 'scenes/onboarding/sdks/logos/AnthropicLogo'
 import { OpenAILogo } from 'scenes/onboarding/sdks/logos/OpenAILogo'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -34,8 +37,13 @@ export const scene: SceneExport = {
 }
 
 export function AIGatewayScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { usage, usageLoading, spendChart, spendSeriesLoading, modelUsage, modelUsageLoading, hasUsage } =
         useValues(aiGatewayLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.AI_GATEWAY]) {
+        return <NotFound object="page" />
+    }
 
     // Until both usage queries resolve we can't tell a brand-new team from an active one, so keep showing
     // the dashboard (with skeletons) and only fall back to the intro once we know there's genuinely no usage.
