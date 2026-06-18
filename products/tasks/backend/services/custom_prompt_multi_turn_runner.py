@@ -61,9 +61,11 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        ai_stage: str | None = None,
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
+        fallback_from_text: Callable[[str], _ModelT] | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
@@ -74,6 +76,14 @@ class MultiTurnSession:
         can resolve the run by id instead of 404ing on a not-yet-created row.
 
         `max_poll_seconds` caps each turn's poll budget — see the field docstring.
+
+        `fallback_from_text`, if given, salvages a turn whose text the agent *did*
+        produce but which failed to parse/validate against `model` (empty, prose, or
+        malformed JSON). Instead of failing the whole run, the callback builds a
+        `model` instance from the raw end-turn text so the caller still gets a result
+        to persist. Single-turn callers (e.g. the Signals scout, whose summary is a
+        free-text markdown close-out) use this so an unparseable end-turn no longer
+        discards the entire run and its scan-position close-out.
         """
         session, last_message = await cls.start_raw(
             prompt=prompt,
@@ -84,6 +94,7 @@ class MultiTurnSession:
             output_fn=output_fn,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            ai_stage=ai_stage,
             internal=internal,
             on_task_run_created=on_task_run_created,
             max_poll_seconds=max_poll_seconds,
@@ -91,6 +102,31 @@ class MultiTurnSession:
         try:
             parsed = cls._parse_and_validate(last_message, model, label="initial turn")
         except (Exception, asyncio.CancelledError) as e:
+            # Salvage path: the agent produced text but it didn't parse/validate. Rather
+            # than discarding the whole run, build the model from the raw text so the caller
+            # can still persist a (degraded) result. Only for real parse failures — never for
+            # a Temporal cancellation (CancelledError), which must propagate and fail the run.
+            if (
+                fallback_from_text is not None
+                and last_message is not None
+                and not isinstance(e, asyncio.CancelledError)
+            ):
+                logger.warning(
+                    "multi_turn: end-turn did not validate against %s for run=%s — salvaging raw text (%s)",
+                    model.__name__,
+                    session.task_run.id,
+                    e,
+                )
+                try:
+                    salvaged = fallback_from_text(last_message)
+                except Exception:
+                    # A raising fallback (e.g. a stricter model that also rejects the raw text)
+                    # must not escape before teardown — the caller never received the session,
+                    # so its own finally is unreachable and the run would wedge in IN_PROGRESS.
+                    # Fall through to end the run as failed on the original parse error.
+                    logger.exception("multi_turn: fallback_from_text raised for run=%s", session.task_run.id)
+                else:
+                    return session, salvaged
             # `start()` is about to raise so the caller never receives the session to run its
             # own teardown. End it here so a first-turn parse failure (or a Temporal timeout,
             # which raises CancelledError — a BaseException) doesn't leave the run wedged in
@@ -111,6 +147,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        ai_stage: str | None = None,
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
@@ -129,6 +166,7 @@ class MultiTurnSession:
             step_name=step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            ai_stage=ai_stage,
             internal=internal,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")

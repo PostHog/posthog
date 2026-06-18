@@ -134,9 +134,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         access_key: str | None = credential.get("access_key")
         access_secret: str | None = credential.get("access_secret")
 
+        # CRITICAL: users MUST provide an access key and secret, otherwise we'll fall back to using the EC2 node's internal role.
+        # this would allow an external user to then access one of PostHog's internal S3 buckets
         if not access_key or not access_secret:
             raise serializers.ValidationError("Access key and secret are required")
-
         if len(access_key.strip()) == 0 or len(access_secret.strip()) == 0:
             raise serializers.ValidationError("Access key and secret can't be blank")
 

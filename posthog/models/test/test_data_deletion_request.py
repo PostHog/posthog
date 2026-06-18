@@ -2,6 +2,7 @@ import uuid as uuid_lib
 from datetime import datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
 
 from django.core.exceptions import ValidationError
 
@@ -216,6 +217,55 @@ def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, sna
     assert "sharded_events.`mat_$current_url`" not in sql
     assert "`mat_$current_url`" in sql
     assert sql == snapshot
+
+
+def test_compile_hogql_predicate_missing_team_raises_validation_error(db):
+    """If the team no longer exists, compilation must raise ``ValidationError`` (not
+    ``Team.DoesNotExist``) so ``Model.clean()`` callers keep their contract.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    request = DataDeletionRequest(
+        **_base_kwargs(team_id=2**31 - 1, events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
+    )
+    with pytest.raises(ValidationError, match="team no longer exists"):
+        compile_hogql_predicate(request)
+
+
+@freeze_time("2026-06-17T12:00:00Z")
+def test_compile_hogql_predicate_boolean_person_property_not_coerced(team):
+    """A boolean-typed person property compared to a non-``true``/``false`` string must not be
+    coerced to Bool. The coercion (``accurateCastOrNull(transform(...), 'Bool')``) maps the
+    stored value to NULL, so ``person.properties.isEnterprise = 'yes'`` would silently match
+    nothing. Compiling with the team's modifiers routes it through the property-group map read
+    instead, exactly as a regular HogQL query would.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    from products.event_definitions.backend.models import PropertyDefinition
+
+    team.modifiers = {"propertyGroupsMode": "optimized"}
+    team.save()
+
+    PropertyDefinition.objects.create(
+        team=team,
+        name="isEnterprise",
+        type=PropertyDefinition.Type.PERSON,
+        property_type="Boolean",
+    )
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="person.properties.isEnterprise = 'yes'",
+        )
+    )
+    sql, _ = compile_hogql_predicate(request)
+
+    assert "person_properties_map_custom" in sql
+    assert "accurateCastOrNull" not in sql
+    assert "transform(" not in sql
 
 
 def test_rendered_count_query_substitutes_parameters():
