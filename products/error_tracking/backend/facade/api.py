@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 import posthoganalytics
+from rest_framework.exceptions import ValidationError
 
 from posthog.event_usage import groups
 
@@ -298,16 +299,22 @@ def get_assignment_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingAs
 
 
 def create_assignment_rule(team_id: int, *, filters: dict, assignee: dict) -> contracts.ErrorTrackingAssignmentRule:
-    rule = logic.create_assignment_rule(
-        team_id, filters=filters, assignee_type=assignee["type"], assignee_id=assignee["id"]
-    )
+    try:
+        rule = logic.create_assignment_rule(
+            team_id, filters=filters, assignee_type=assignee["type"], assignee_id=assignee["id"]
+        )
+    except logic.ErrorTrackingInvalidBytecodeError as err:
+        raise ValidationError(str(err)) from err
     return _to_assignment_rule(rule)
 
 
 def update_assignment_rule(
     team_id: int, rule_id: str, *, filters: dict | None = None, assignee: dict | None = None
 ) -> contracts.ErrorTrackingAssignmentRule | None:
-    rule = logic.update_assignment_rule(team_id, rule_id, filters=filters, assignee=assignee)
+    try:
+        rule = logic.update_assignment_rule(team_id, rule_id, filters=filters, assignee=assignee)
+    except logic.ErrorTrackingInvalidBytecodeError as err:
+        raise ValidationError(str(err)) from err
     return _to_assignment_rule(rule) if rule is not None else None
 
 
@@ -347,14 +354,20 @@ def get_grouping_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingGrou
 def create_grouping_rule(
     team_id: int, *, filters: dict, assignee: dict | None = None, description: str | None = None
 ) -> contracts.ErrorTrackingGroupingRule:
-    rule = logic.create_grouping_rule(team_id, filters=filters, assignee=assignee, description=description)
+    try:
+        rule = logic.create_grouping_rule(team_id, filters=filters, assignee=assignee, description=description)
+    except logic.ErrorTrackingInvalidBytecodeError as err:
+        raise ValidationError(str(err)) from err
     return _to_grouping_rule(rule)
 
 
 def update_grouping_rule(
     team_id: int, rule_id: str, *, filters: dict | None = None
 ) -> contracts.ErrorTrackingGroupingRule | None:
-    rule = logic.update_grouping_rule(team_id, rule_id, filters=filters)
+    try:
+        rule = logic.update_grouping_rule(team_id, rule_id, filters=filters)
+    except logic.ErrorTrackingInvalidBytecodeError as err:
+        raise ValidationError(str(err)) from err
     return _to_grouping_rule(rule) if rule is not None else None
 
 
@@ -390,13 +403,20 @@ def get_suppression_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingS
 def create_suppression_rule(
     team_id: int, *, filters: dict, sampling_rate: float
 ) -> contracts.ErrorTrackingSuppressionRule:
-    return _to_suppression_rule(logic.create_suppression_rule(team_id, filters=filters, sampling_rate=sampling_rate))
+    try:
+        rule = logic.create_suppression_rule(team_id, filters=filters, sampling_rate=sampling_rate)
+    except logic.ErrorTrackingInvalidBytecodeError as err:
+        raise ValidationError(str(err)) from err
+    return _to_suppression_rule(rule)
 
 
 def update_suppression_rule(
     team_id: int, rule_id: str, *, filters: dict | None = None, sampling_rate: float | None = None
 ) -> contracts.ErrorTrackingSuppressionRule | None:
-    rule = logic.update_suppression_rule(team_id, rule_id, filters=filters, sampling_rate=sampling_rate)
+    try:
+        rule = logic.update_suppression_rule(team_id, rule_id, filters=filters, sampling_rate=sampling_rate)
+    except logic.ErrorTrackingInvalidBytecodeError as err:
+        raise ValidationError(str(err)) from err
     return _to_suppression_rule(rule) if rule is not None else None
 
 

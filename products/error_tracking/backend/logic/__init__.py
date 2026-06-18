@@ -36,6 +36,10 @@ class ErrorTrackingReleaseHashInUseError(Exception):
     pass
 
 
+class ErrorTrackingInvalidBytecodeError(Exception):
+    pass
+
+
 SPIKE_EVENT_ORDER_FIELDS = (
     "detected_at",
     "-detected_at",
@@ -421,9 +425,9 @@ def _validate_rule_bytecode(bytecode: list[Any]) -> None:
         if op == Operation.CALL_GLOBAL:
             name = bytecode[i + 1]
             if not isinstance(name, str):
-                raise ValueError(f"Expected string for global function name, got {type(name)}")
+                raise ErrorTrackingInvalidBytecodeError(f"Expected string for global function name, got {type(name)}")
             if name not in RUST_HOGVM_STL:
-                raise ValueError(f"Unknown global function: {name}")
+                raise ErrorTrackingInvalidBytecodeError(f"Unknown global function: {name}")
 
 
 def compile_filter_bytecode(team_id: int, filters: dict) -> list[Any]:
