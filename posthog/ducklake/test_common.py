@@ -4,7 +4,57 @@ from unittest.mock import MagicMock, patch
 import duckdb
 from parameterized import parameterized
 
-from posthog.ducklake.common import initialize_ducklake, is_version_mismatch, reset_ducklake_catalog
+from posthog.ducklake.common import (
+    derive_duckling_bucket,
+    initialize_ducklake,
+    is_version_mismatch,
+    reset_ducklake_catalog,
+    upsert_duckgres_server_for_org,
+)
+from posthog.ducklake.models import DuckgresServer
+from posthog.models import Organization
+
+
+class TestDeriveDucklingBucket:
+    @parameterized.expand(
+        [
+            ("prod_us", "US", "posthog-duckling-org-abc-prod-us"),
+            ("hosted_dev", "DEV", "posthog-duckling-org-abc-dev"),
+            ("local_unset", None, "posthog-duckling-org-abc-dev"),
+        ]
+    )
+    def test_derives_bucket_from_region(self, _name: str, region: str | None, expected_bucket: str):
+        # Mirrors the duckgres Crossplane composition: posthog-duckling-{org}-{suffix}.
+        with patch("posthog.ducklake.common.get_instance_region", return_value=region):
+            assert derive_duckling_bucket("org-abc") == (expected_bucket, "us-east-1")
+
+    def test_eu_is_not_enabled(self):
+        with patch("posthog.ducklake.common.get_instance_region", return_value="EU"):
+            with pytest.raises(NotImplementedError, match="EU"):
+                derive_duckling_bucket("org-1")
+
+
+@pytest.mark.django_db
+class TestUpsertDuckgresServerForOrg:
+    def test_creates_then_updates_a_single_row(self):
+        org = Organization.objects.create(name="Test Org")
+
+        created = upsert_duckgres_server_for_org(
+            org.id, host="wh.dw.us.postwh.com", port=5432, database="ducklake", username="root", password="pw1"
+        )
+        assert DuckgresServer.objects.filter(organization_id=org.id).count() == 1
+        assert created.host == "wh.dw.us.postwh.com"
+        assert created.password == "pw1"
+
+        updated = upsert_duckgres_server_for_org(
+            org.id, host="wh2.dw.us.postwh.com", port=6543, database="ducklake", username="root", password="pw2"
+        )
+        assert DuckgresServer.objects.filter(organization_id=org.id).count() == 1
+        assert updated.pk == created.pk
+        assert updated.host == "wh2.dw.us.postwh.com"
+        assert updated.port == 6543
+        assert updated.password == "pw2"
+
 
 TEST_CONFIG = {
     "DUCKLAKE_RDS_HOST": "localhost",
