@@ -1,6 +1,6 @@
 import type { BarRect, BarRoundedCorners } from './canvas-renderer'
 import { type BarScaleSet, groupedBandSlot, type StackedBand } from './scales'
-import type { Series } from './types'
+import type { ResolvedSeries, Series } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Brand for the BarChart `ChartScales._private` slot — populated by BarChart and
@@ -114,6 +114,54 @@ export function computeSeriesBars({
         })
     }
     return result
+}
+
+/** One drawn series and its computed rects — the unit both BarChart and ComboChart iterate. */
+export interface BarLayer {
+    series: ResolvedSeries
+    bars: BarRect[]
+}
+
+export interface BuildBarLayersOptions {
+    series: readonly ResolvedSeries[]
+    labels: string[]
+    scales: BarScaleSet
+    layout: 'stacked' | 'grouped' | 'percent'
+    isHorizontal: boolean
+    stackedData?: Map<string, StackedBand>
+    topStackedKeyByAxis: Map<string, string>
+}
+
+/** Compute the bar rects for every visible series — the per-series `computeSeriesBars` loop shared by
+ *  `drawBarChartStatic` and ComboChart so the band/axis/stack wiring lives in one place. Excluded
+ *  series are dropped; nulls (overlay/CI-band series with no stacked entry) are filtered out. */
+export function buildBarLayers({
+    series,
+    labels,
+    scales,
+    layout,
+    isHorizontal,
+    stackedData,
+    topStackedKeyByAxis,
+}: BuildBarLayersOptions): BarLayer[] {
+    const layers: BarLayer[] = []
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const bars = computeSeriesBars({
+            series: s,
+            labels,
+            scales,
+            layout,
+            isHorizontal,
+            stackedBand: stackedData?.get(s.key),
+            isTopOfStack: topStackedKeyByAxis.get(axisId) === s.key,
+        }).filter((b): b is BarRect => b !== null)
+        layers.push({ series: s, bars })
+    }
+    return layers
 }
 
 export interface ComputeBarAtIndexOptions {
