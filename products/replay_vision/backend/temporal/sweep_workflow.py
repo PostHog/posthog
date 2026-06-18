@@ -134,7 +134,16 @@ class SweepScannerWorkflow(PostHogWorkflow):
                         "replay_vision.vision_action_already_running",
                         extra={"vision_action_id": str(d.vision_action_id)},
                     )
+                except Exception:
+                    # The action was already claimed (next_run_at advanced in the eval txn), so a child
+                    # that fails to start drops this occurrence until the next fire. Log it per-action
+                    # so the drop is visible/graphable, and keep dispatching the rest.
+                    wf.logger.exception(
+                        "replay_vision.vision_action_claim_dispatch_failed",
+                        extra={"scanner_id": str(inputs.scanner_id), "vision_action_id": str(d.vision_action_id)},
+                    )
         except Exception:
+            # The eligibility activity itself failed (exhausted retries); no action was claimed.
             wf.logger.exception(
                 "replay_vision.vision_action_dispatch_failed", extra={"scanner_id": str(inputs.scanner_id)}
             )

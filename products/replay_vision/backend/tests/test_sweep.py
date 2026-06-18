@@ -442,6 +442,29 @@ async def test_sweep_dispatches_a_child_per_due_vision_action() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sweep_one_failed_vision_child_does_not_drop_the_others() -> None:
+    # Each due action is already claimed independently, so one child failing to start must not abort
+    # dispatch of the rest — the others still get fired this sweep.
+    failing = DueVisionAction(vision_action_id=uuid.uuid4(), team_id=42)
+    ok = DueVisionAction(vision_action_id=uuid.uuid4(), team_id=42)
+    mocks = _SweepMocks(
+        activity_results={
+            evaluate_due_vision_actions_activity: [failing, ok],
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
+        },
+        child_errors_for_ids={
+            build_process_vision_action_workflow_id(failing.vision_action_id): RuntimeError("temporal blip")
+        },
+    )
+
+    await _run_sweep(mocks)
+
+    started = {call["id"] for call in mocks.child_calls}
+    # Both were attempted; the healthy one's start is recorded despite the other failing.
+    assert build_process_vision_action_workflow_id(ok.vision_action_id) in started
+
+
+@pytest.mark.asyncio
 async def test_sweep_vision_action_failure_does_not_block_session_scan() -> None:
     # A vision-action child that fails to start must not abort the scanner's core duty: the session
     # scan still runs and advances its watermark.
