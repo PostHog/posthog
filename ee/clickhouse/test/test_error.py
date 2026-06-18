@@ -150,6 +150,16 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            ServerException(
+                "Code: 48. DB::Exception: Correlated subqueries are not supported with remote tables. (NOT_IMPLEMENTED)",
+                code=48,
+            ),
+            "CHQueryErrorNotImplemented",
+            "Correlated subqueries are not supported with remote tables. (NOT_IMPLEMENTED)",
+            48,
+            "CHQueryErrorNotImplemented",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):

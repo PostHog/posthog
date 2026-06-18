@@ -334,7 +334,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     ),  # column has wrong type for the operation (e.g. non-constant where constant required)
     46: ErrorCodeMeta("UNKNOWN_FUNCTION", user_safe=True),
     47: ErrorCodeMeta("UNKNOWN_IDENTIFIER", user_safe=True),  # TODO: Unset user_safe once HogQL is accurate in Data WH
-    48: ErrorCodeMeta("NOT_IMPLEMENTED"),
+    48: ErrorCodeMeta("NOT_IMPLEMENTED", user_safe=True),  # e.g. correlated subqueries on distributed/remote tables
     49: ErrorCodeMeta("LOGICAL_ERROR"),
     50: ErrorCodeMeta("UNKNOWN_TYPE", category=QueryErrorCategory.USER_ERROR),  # referenced data type does not exist
     51: ErrorCodeMeta("EMPTY_LIST_OF_COLUMNS_QUERIED"),
