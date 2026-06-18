@@ -3085,7 +3085,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$cookieless_mode": {
             "label": "Cookieless mode",
             "description": "Whether the event was captured in cookieless mode, where the person is identified without persistent identifiers.",
-            "type": "String",
+            "type": "Boolean",
         },
         "$cookieless_extra": {
             "label": "Cookieless extra hash input",
@@ -3121,16 +3121,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
         },
         # Surveys
-        "$survey_responded": {
-            "label": "Survey responded",
-            "description": "Whether the user responded to the survey.",
-            "type": "Boolean",
-        },
-        "$survey_dismissed": {
-            "label": "Survey dismissed",
-            "description": "Whether the user dismissed the survey.",
-            "type": "Boolean",
-        },
         "$survey_response_1": {
             "label": "Survey response 1",
             "description": "A survey response value. Multi-question surveys store answers after the first as `$survey_response_<index>`.",

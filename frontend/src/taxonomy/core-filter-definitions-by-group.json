@@ -1158,7 +1158,7 @@
         "$cookieless_mode": {
             "description": "Whether the event was captured in cookieless mode, where the person is identified without persistent identifiers.",
             "label": "Cookieless mode",
-            "type": "String"
+            "type": "Boolean"
         },
         "$copy_type": {
             "description": "Type of copy event.",
@@ -3117,11 +3117,6 @@
             "description": "If a survey was fully completed (all questions answered), this will be true.",
             "label": "Survey completed"
         },
-        "$survey_dismissed": {
-            "description": "Whether the user dismissed the survey.",
-            "label": "Survey dismissed",
-            "type": "Boolean"
-        },
         "$survey_id": {
             "description": "The unique identifier for the survey.",
             "label": "Survey ID"
@@ -3149,11 +3144,6 @@
         "$survey_questions": {
             "description": "The questions asked in the survey.",
             "label": "Survey questions"
-        },
-        "$survey_responded": {
-            "description": "Whether the user responded to the survey.",
-            "label": "Survey responded",
-            "type": "Boolean"
         },
         "$survey_response": {
             "description": "The response value for the first question in the survey.",
@@ -5107,7 +5097,7 @@
         "$cookieless_mode": {
             "description": "Whether the event was captured in cookieless mode, where the person is identified without persistent identifiers.",
             "label": "Cookieless mode",
-            "type": "String"
+            "type": "Boolean"
         },
         "$copy_type": {
             "description": "Type of copy event.",
@@ -7476,11 +7466,6 @@
             "description": "If a survey was fully completed (all questions answered), this will be true.",
             "label": "Survey completed"
         },
-        "$survey_dismissed": {
-            "description": "Whether the user dismissed the survey.",
-            "label": "Survey dismissed",
-            "type": "Boolean"
-        },
         "$survey_id": {
             "description": "The unique identifier for the survey.",
             "label": "Survey ID"
@@ -7513,11 +7498,6 @@
         "$survey_questions": {
             "description": "The questions asked in the survey.",
             "label": "Survey questions"
-        },
-        "$survey_responded": {
-            "description": "Whether the user responded to the survey.",
-            "label": "Survey responded",
-            "type": "Boolean"
         },
         "$survey_response": {
             "description": "The response value for the first question in the survey.",
