@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from http import HTTPStatus
 
+import pytest
 from unittest import mock
 
 from django.http import StreamingHttpResponse
@@ -12,6 +13,10 @@ def _gen() -> Iterator[bytes]:
     yield b"data: hello\n\n"
 
 
+# sse_streaming_response calls close_old_connections(), a real DB operation, so
+# every test here needs DB access — without it the pytest-django blocker trips
+# only when a prior test in the worker left a connection open (order-dependent).
+@pytest.mark.django_db
 class TestSSEStreamingResponse:
     def test_releases_db_connection_before_streaming(self):
         with mock.patch("posthog.api.streaming.close_old_connections") as release:
