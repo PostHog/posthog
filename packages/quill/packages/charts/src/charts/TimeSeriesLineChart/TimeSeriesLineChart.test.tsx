@@ -331,7 +331,7 @@ describe('TimeSeriesLineChart', () => {
                     theme={THEME}
                     config={{
                         legend: { show: true },
-                        trendLines: [{ seriesKey: 'a' }],
+                        trendLines: [{ seriesKey: 'a', kind: 'linear' as const }],
                     }}
                 />
             )

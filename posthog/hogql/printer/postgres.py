@@ -420,7 +420,12 @@ class PostgresPrinter(BasePrinter):
         return candidate
 
     def _json_property_args(self, chain):
-        return [self._print_escaped_string(name) for name in chain]
+        # Parameterize JSON property keys via ``context.add_value`` so psycopg binds them
+        # safely. Inlining them through ``_print_escaped_string`` would emit ClickHouse-style
+        # ``\'`` escapes, which Postgres/DuckDB do not recognize (``standard_conforming_strings``
+        # defaults to ``on``), allowing statement-terminator SQL injection. Same reasoning as
+        # ``visit_constant`` above.
+        return [self.context.add_value(name) for name in chain]
 
     def _print_table(self, table) -> str:
         if isinstance(table, DirectPostgresTable):
