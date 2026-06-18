@@ -42,10 +42,9 @@ export interface MetricCardProps {
     negativeColor?: ChangeColor
     /** Caption under the headline. Defaults to `labels[activeIndex]` when a sparkline is present. */
     subtitle?: React.ReactNode
-    /** Horizontal alignment of the card contents. `center` centers the title, headline, and subtitle. */
-    align?: 'left' | 'center'
-    /** Override the headline rendering. Receives the already-formatted value string; return the node
-     *  to render in place of the default `text-4xl` headline (e.g. to wrap it for auto-scaling). */
+    /** Override the headline rendering. Receives the already-formatted value string (the hover-animated
+     *  value when a sparkline is present); return the node to render in place of the default headline —
+     *  e.g. to attach click handlers or custom typography. */
     headline?: (formattedValue: string) => React.ReactNode
     animationMs?: number
     /** Dwell (ms) a pointer must settle on the sparkline before the headline follows it.
@@ -92,7 +91,6 @@ function MetricCardInner({
     positiveColor = DEFAULT_POSITIVE_COLOR,
     negativeColor = DEFAULT_NEGATIVE_COLOR,
     subtitle,
-    align = 'left',
     headline,
     animationMs = 350,
     hoverIntentMs = 140,
@@ -124,22 +122,18 @@ function MetricCardInner({
 
     const delta = resolveDelta({ showChange, change, fallbackChangePercent, formatChange })
     const headlineDisplay = sparklineData ? formatValue(animatedValue) : formatValue(restingValue)
-    const resolvedSubtitle = subtitle ?? labels?.[activeIndex] ?? ' '
+    const resolvedSubtitle = subtitle ?? labels?.[activeIndex]
 
     const positive = delta != null && delta.value >= 0
     const isGood = goodDirection === 'up' ? positive : !positive
     const pillColors = isGood ? positiveColor : negativeColor
 
-    const centered = align === 'center'
     const showHeader = title != null || delta != null
 
     return (
-        <div
-            className={`flex flex-col w-full ${centered ? 'items-center text-center' : ''} ${className ?? ''}`}
-            data-attr={dataAttr}
-        >
+        <div className={`flex flex-col w-full ${className ?? ''}`} data-attr={dataAttr}>
             {showHeader && (
-                <div className={`flex items-start gap-2 ${centered ? 'justify-center' : 'justify-between'}`}>
+                <div className="flex items-start justify-between gap-2">
                     {title != null && <div className="text-sm font-medium">{title}</div>}
                     {delta != null && <ChangePill positive={positive} label={delta.label} colors={pillColors} />}
                 </div>
@@ -151,7 +145,9 @@ function MetricCardInner({
                 <div className="mt-2 text-4xl font-bold tracking-tight tabular-nums">{headlineDisplay}</div>
             )}
 
-            <div className="mt-1 text-sm opacity-60">{resolvedSubtitle}</div>
+            {resolvedSubtitle != null && resolvedSubtitle !== '' && (
+                <div className="mt-1 text-sm opacity-60">{resolvedSubtitle}</div>
+            )}
 
             {sparklineData && theme && (
                 <Sparkline

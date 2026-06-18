@@ -171,7 +171,11 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
             }
           : undefined
 
+    // When the comparison pill is on, render the comparison the MetricCard-tile way (pill + "vs prior"
+    // subtitle) and suppress the legacy sentence below; otherwise keep the sentence (it carries the
+    // previous-period persons-modal drilldown the pill can't).
     let changePill: MetricChange | null = null
+    let comparisonSubtitle: string | undefined = undefined
     if (showComparison && showComparisonPill) {
         const [currentPeriodSeries, previousPeriodSeries] = insightData.result as TrendResult[]
         const { percentageDiff, hasComparableDiff } = computeComparisonDisplay(
@@ -180,6 +184,11 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
         )
         // MetricCard's pill expects a percentage; computeComparisonDisplay returns a ratio.
         changePill = hasComparableDiff && percentageDiff !== null ? { value: percentageDiff * 100 } : null
+        comparisonSubtitle = `vs. ${formatAggregationAxisValue(
+            trendsFilter,
+            previousPeriodSeries.aggregated_value,
+            baseCurrency
+        )} prior`
     }
 
     return (
@@ -187,34 +196,32 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
             <MetricCard
                 title={showTitle ? resultSeries.label : null}
                 value={resultSeries.aggregated_value}
-                align="center"
                 data={showSparkline ? resultSeries.data : undefined}
                 labels={showSparkline ? resultSeries.labels : undefined}
                 theme={showSparkline ? theme : undefined}
                 showChange={showComparison && showComparisonPill}
                 change={changePill}
-                subtitle={showSparkline ? undefined : ''}
+                subtitle={comparisonSubtitle}
                 formatValue={(value) => formatAggregationAxisValue(trendsFilter, value, baseCurrency)}
                 headline={(formattedValue) => (
                     <div
-                        className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
+                        className={clsx(
+                            'BoldNumber__value mt-2 text-4xl font-bold tracking-tight tabular-nums',
+                            showPersonsModal ? 'cursor-pointer' : 'cursor-default'
+                        )}
                         data-attr="bold-number-value"
                         onClick={handleClick}
                         onMouseLeave={() => setIsTooltipShown(false)}
                         ref={valueRef}
                         onMouseEnter={() => setIsTooltipShown(true)}
                     >
-                        {showSparkline ? (
-                            <span className="text-4xl">{formattedValue}</span>
-                        ) : (
-                            <Textfit min={32} max={64}>
-                                {formattedValue}
-                            </Textfit>
-                        )}
+                        {formattedValue}
                     </div>
                 )}
             />
-            {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} context={context} />}
+            {showComparison && !showComparisonPill && (
+                <BoldNumberComparison showPersonsModal={showPersonsModal} context={context} />
+            )}
         </div>
     )
 }
@@ -264,7 +271,6 @@ function BoldNumberComparison({
             className="BoldNumber__comparison"
             data-attr="bold-number-comparison"
             fullWidth
-            center
         >
             <span>
                 {percentageDiffDisplay}{' '}
