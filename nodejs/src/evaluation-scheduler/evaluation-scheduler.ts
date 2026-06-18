@@ -32,7 +32,7 @@ import { TemporalService, TemporalServiceConfig } from '../ai-observability/serv
 import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '../ai-observability/types'
 import { execHog } from '../cdp/utils/hog-exec'
 import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
-import { parseTeamsList } from '../ingestion/event-processing/split-ai-events-step'
+import { parseTeamsList } from '~/ingestion/steps/event-processing/split-ai-events-step'
 import { createKafkaConsumer } from '../kafka/consumer'
 import { PluginServerService, RawKafkaEvent } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'

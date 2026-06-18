@@ -1,7 +1,7 @@
 import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 
-import { ok } from '~/ingestion/pipelines/results'
-import { ProcessingStep } from '~/ingestion/pipelines/steps'
+import { ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 
 export interface LoadErrorTrackingSettingsInput {
     team: { id: number }

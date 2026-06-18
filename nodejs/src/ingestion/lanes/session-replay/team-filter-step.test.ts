@@ -1,4 +1,4 @@
-import { PipelineResultType } from '~/ingestion/pipelines/results'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { TeamForReplay } from '~/ingestion/lanes/session-replay/teams/types'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 

@@ -30,7 +30,7 @@ import {
     PersonHogConfig,
     RedisConnectionsConfig,
 } from '../ingestion/config'
-import { CookielessManager, CookielessServerConfig } from '../ingestion/cookieless/cookieless-manager'
+import { CookielessManager, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
 import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,

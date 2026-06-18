@@ -1,8 +1,8 @@
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { BatchBoundGroupStore, GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 
-import { BeforeBatchStep } from '../../pipelines/batching-pipeline'
-import { ok } from '../../pipelines/results'
+import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
+import { ok } from '~/ingestion/framework/results'
 
 export interface GroupStoreBatchContext {
     groupStoreForBatch: GroupStoreForBatch

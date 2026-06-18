@@ -12,9 +12,9 @@ import { TeamManager } from '~/utils/team-manager'
 import { UUIDT } from '~/utils/utils'
 
 import { EventFilterManager } from '~/ingestion/common/event-filters'
-import { CookielessManager } from '~/ingestion/cookieless/cookieless-manager'
-import { createOkContext } from '~/ingestion/pipelines/helpers'
-import { drop, ok } from '~/ingestion/pipelines/results'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { drop, ok } from '~/ingestion/framework/results'
 import { HEATMAPS_OUTPUT } from './outputs'
 import { HeatmapsPipelineConfig, createHeatmapsPipeline } from './pipeline'
 

@@ -16,7 +16,7 @@ import { resetTestDatabase } from '~/tests/helpers/sql'
 import { getDefaultKafkaDownstreamProducerEnvConfig, getDefaultKafkaUpstreamProducerEnvConfig } from '~/ingestion/common/config'
 import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
-import { CookielessManagerComponent } from '~/ingestion/cookieless/cookieless-manager'
+import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
 import { HeatmapsConsumerConfig, HeatmapsSharedScope, createHeatmapsConsumer } from './consumer'
 
 type CapturedBatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: Promise<unknown> } | void>

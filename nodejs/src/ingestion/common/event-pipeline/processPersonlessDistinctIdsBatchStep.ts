@@ -4,7 +4,7 @@ import {
     personlessDistinctIdCacheOperationsCounter,
 } from '~/ingestion/common/persons/personless-distinct-id-cache'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PipelineResult, ok } from '~/ingestion/pipelines/results'
+import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PipelineEvent, Team } from '~/types'
 
 type ProcessPersonlessDistinctIdsBatchStepInput = {

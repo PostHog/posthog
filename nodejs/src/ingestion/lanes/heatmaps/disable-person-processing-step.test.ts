@@ -1,4 +1,4 @@
-import { PipelineResultType } from '~/ingestion/pipelines/results'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { createDisablePersonProcessingStep } from './disable-person-processing-step'
 
 describe('disablePersonProcessingStep', () => {

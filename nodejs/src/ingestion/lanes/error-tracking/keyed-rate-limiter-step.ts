@@ -3,8 +3,8 @@ import { Counter } from 'prom-client'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { KeyedRateLimitRequest, KeyedRateLimiter } from '~/common/services/keyed-rate-limiter.service'
 
-import { BatchProcessingStep } from '~/ingestion/pipelines/base-batch-pipeline'
-import { drop, ok } from '~/ingestion/pipelines/results'
+import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { drop, ok } from '~/ingestion/framework/results'
 
 const outcomeCounter = new Counter({
     name: 'keyed_rate_limiter_outcomes_total',

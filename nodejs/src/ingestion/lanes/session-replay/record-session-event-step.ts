@@ -1,5 +1,5 @@
-import { ok } from '~/ingestion/pipelines/results'
-import { ProcessingStep } from '~/ingestion/pipelines/steps'
+import { ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 import { ParsedMessageData } from '~/ingestion/lanes/session-replay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/lanes/session-replay/metrics'
 import { SessionBatchManager } from '~/ingestion/lanes/session-replay/sessions/session-batch-manager'

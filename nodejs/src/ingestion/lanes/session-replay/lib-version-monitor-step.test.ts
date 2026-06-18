@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { PipelineResultType } from '~/ingestion/pipelines/results'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { ParsedMessageData } from '~/ingestion/lanes/session-replay/kafka/types'
 
 import { LibVersionMonitorStepInput, createLibVersionMonitorStep } from './lib-version-monitor-step'

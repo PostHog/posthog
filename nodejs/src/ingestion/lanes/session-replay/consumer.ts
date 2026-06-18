@@ -6,7 +6,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '~/config/config'
 import { IngestionConsumerConfig } from '~/ingestion/config'
-import { BatchPipelineUnwrapper } from '~/ingestion/pipelines/batch-pipeline-unwrapper'
+import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
 import {
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
@@ -22,7 +22,7 @@ import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/lanes/ses
 import { RetentionService } from '~/ingestion/lanes/session-replay/shared/retention/retention-service'
 import { TeamService } from '~/ingestion/lanes/session-replay/shared/teams/team-service'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/lanes/session-replay/shared/types'
-import { TopHog } from '~/ingestion/tophog/tophog'
+import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
 import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '~/types'
 import { PostgresRouter } from '~/utils/db/postgres'

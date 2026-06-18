@@ -3,8 +3,8 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { logger } from '~/utils/logger'
 import { captureException } from '~/utils/posthog'
-import { dlq, ok } from '~/ingestion/pipelines/results'
-import { ProcessingStep } from '~/ingestion/pipelines/steps'
+import { dlq, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 import { processAiEvent } from '../../process-ai-event'
 
 type ProcessAiEventInput = {

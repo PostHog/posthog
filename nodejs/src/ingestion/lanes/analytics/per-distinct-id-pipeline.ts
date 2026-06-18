@@ -9,11 +9,11 @@ import { AiEventSubpipelineFactory, AiEventSubpipelineInput } from '~/ingestion/
 
 import { Team } from '~/types'
 import { TeamManager } from '~/utils/team-manager'
-import { EmitEventStepOutput } from '~/ingestion/event-processing/emit-event-step'
-import { EventPipelineRunnerOptions } from '~/ingestion/event-processing/event-pipeline-options'
-import { SplitAiEventsStepConfig } from '~/ingestion/event-processing/split-ai-events-step'
-import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/pipelines/builders/pipeline-builders'
-import { TopHogWrapper } from '~/ingestion/pipelines/extensions/tophog'
+import { EmitEventStepOutput } from '~/ingestion/steps/event-processing/emit-event-step'
+import { EventPipelineRunnerOptions } from '~/ingestion/steps/event-processing/event-pipeline-options'
+import { SplitAiEventsStepConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
+import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
+import { TopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { EventSubpipelineInput, createEventSubpipeline } from './event-subpipeline'
 import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
 

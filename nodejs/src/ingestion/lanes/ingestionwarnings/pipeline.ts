@@ -19,13 +19,13 @@ import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateHistoricalMigrationStep,
-} from '~/ingestion/event-preprocessing'
-import { createApplyBasicEventRestrictionsStep } from '~/ingestion/event-preprocessing/apply-event-restrictions'
-import { createDropOldEventsStep } from '~/ingestion/event-processing/drop-old-events-step'
-import { EmitEventStepOutput } from '~/ingestion/event-processing/emit-event-step'
-import { createHandleClientIngestionWarningStep } from '~/ingestion/event-processing/handle-client-ingestion-warning-step'
-import { newBatchingPipeline } from '~/ingestion/pipelines/builders'
-import { PipelineConfig } from '~/ingestion/pipelines/result-handling-pipeline'
+} from '~/ingestion/steps/event-preprocessing'
+import { createApplyBasicEventRestrictionsStep } from '~/ingestion/steps/event-preprocessing/apply-event-restrictions'
+import { createDropOldEventsStep } from '~/ingestion/steps/event-processing/drop-old-events-step'
+import { EmitEventStepOutput } from '~/ingestion/steps/event-processing/emit-event-step'
+import { createHandleClientIngestionWarningStep } from '~/ingestion/steps/event-processing/handle-client-ingestion-warning-step'
+import { newBatchingPipeline } from '~/ingestion/framework/builders'
+import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'

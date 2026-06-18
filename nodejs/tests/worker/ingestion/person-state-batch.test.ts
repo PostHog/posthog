@@ -24,7 +24,7 @@ import {
 } from '~/ingestion/common/persons/person-merge-types'
 import { PersonPropertyService } from '~/ingestion/common/persons/person-property-service'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
+import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'

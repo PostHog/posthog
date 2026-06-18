@@ -12,7 +12,7 @@ import {
     createIngestionRedisConnectionConfig,
     createPosthogRedisConnectionConfig,
 } from '../../config/redis-pools'
-import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { Hub, PluginsServerConfig } from '../../types'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'

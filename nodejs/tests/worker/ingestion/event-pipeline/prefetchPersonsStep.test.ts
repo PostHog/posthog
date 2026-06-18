@@ -1,6 +1,6 @@
 import { prefetchPersonsStep } from '~/ingestion/common/event-pipeline/prefetchPersonsStep'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PipelineResultType } from '~/ingestion/pipelines/results'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { Team } from '~/types'
 
 import { createTestPluginEvent } from '../../../helpers/plugin-event'

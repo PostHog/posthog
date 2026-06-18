@@ -7,10 +7,10 @@ import { isDistinctIdIllegal } from '~/ingestion/common/persons/person-merge-ser
 import { EventHeaders, PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '~/types'
 import { logger } from '~/utils/logger'
 import { castTimestampOrNow } from '~/utils/utils'
-import { EmitEventStepOutput, IngestedEventInfo } from '~/ingestion/event-processing/emit-event-step'
-import { PipelineWarning } from '~/ingestion/pipelines/pipeline.interface'
-import { PipelineResult, drop, isOkResult, ok } from '~/ingestion/pipelines/results'
-import { ProcessingStep } from '~/ingestion/pipelines/steps'
+import { EmitEventStepOutput, IngestedEventInfo } from '~/ingestion/steps/event-processing/emit-event-step'
+import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
+import { PipelineResult, drop, isOkResult, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 import { HEATMAPS_OUTPUT, HeatmapsOutput } from './outputs'
 
 export interface ExtractHeatmapDataStepInput {

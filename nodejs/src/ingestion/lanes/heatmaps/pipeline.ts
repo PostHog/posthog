@@ -16,7 +16,7 @@ import {
 } from '~/ingestion/common/steps/event-filters-steps'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
-import { CookielessManager } from '~/ingestion/cookieless/cookieless-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
     createParseHeadersStep,
@@ -25,14 +25,14 @@ import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateHistoricalMigrationStep,
-} from '~/ingestion/event-preprocessing'
-import { createApplyBasicEventRestrictionsStep } from '~/ingestion/event-preprocessing/apply-event-restrictions'
-import { createDropOldEventsStep } from '~/ingestion/event-processing/drop-old-events-step'
-import { EmitEventStepOutput } from '~/ingestion/event-processing/emit-event-step'
-import { createNormalizeEventStep } from '~/ingestion/event-processing/normalize-event-step'
-import { createPrepareEventStep } from '~/ingestion/event-processing/prepare-event-step'
-import { newBatchingPipeline } from '~/ingestion/pipelines/builders'
-import { PipelineConfig } from '~/ingestion/pipelines/result-handling-pipeline'
+} from '~/ingestion/steps/event-preprocessing'
+import { createApplyBasicEventRestrictionsStep } from '~/ingestion/steps/event-preprocessing/apply-event-restrictions'
+import { createDropOldEventsStep } from '~/ingestion/steps/event-processing/drop-old-events-step'
+import { EmitEventStepOutput } from '~/ingestion/steps/event-processing/emit-event-step'
+import { createNormalizeEventStep } from '~/ingestion/steps/event-processing/normalize-event-step'
+import { createPrepareEventStep } from '~/ingestion/steps/event-processing/prepare-event-step'
+import { newBatchingPipeline } from '~/ingestion/framework/builders'
+import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { createCheckHeatmapOptInStep } from './check-heatmap-opt-in-step'
 import { createDisablePersonProcessingStep } from './disable-person-processing-step'
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'

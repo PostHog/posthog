@@ -2,8 +2,8 @@ import { DateTime } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { gunzipSync } from 'zlib'
 
-import { dlq, drop, ok } from '~/ingestion/pipelines/results'
-import { ProcessingStep } from '~/ingestion/pipelines/steps'
+import { dlq, drop, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 import {
     EventSchema,
     ParsedMessageData,

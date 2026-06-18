@@ -1,5 +1,5 @@
-import { dlq, drop, ok } from '~/ingestion/pipelines/results'
-import { ProcessingStep } from '~/ingestion/pipelines/steps'
+import { dlq, drop, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 import { TeamService } from '~/ingestion/lanes/session-replay/shared/teams/team-service'
 import { TeamForReplay } from '~/ingestion/lanes/session-replay/teams/types'
 import { EventHeaders } from '~/types'

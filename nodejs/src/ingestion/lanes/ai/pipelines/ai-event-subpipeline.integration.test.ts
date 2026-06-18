@@ -14,9 +14,9 @@ import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
-import { newPipelineBuilder } from '~/ingestion/pipelines/builders'
-import { createOkContext } from '~/ingestion/pipelines/helpers'
-import { PipelineResultType } from '~/ingestion/pipelines/results'
+import { newPipelineBuilder } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { AiEventSubpipelineConfig, AiEventSubpipelineInput, createAiEventSubpipeline } from './ai-event-subpipeline'
 
 const team = createTestTeam()

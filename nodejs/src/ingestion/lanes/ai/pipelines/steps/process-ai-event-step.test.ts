@@ -2,7 +2,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { captureException } from '~/utils/posthog'
 import { UUIDT } from '~/utils/utils'
-import { PipelineResultType } from '~/ingestion/pipelines/results'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { processAiEvent } from '../../process-ai-event'
 import { createProcessAiEventStep } from './process-ai-event-step'
 

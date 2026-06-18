@@ -1,6 +1,6 @@
 import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 
-import { isOkResult } from '~/ingestion/pipelines/results'
+import { isOkResult } from '~/ingestion/framework/results'
 import { createLoadErrorTrackingSettingsStep } from './load-error-tracking-settings-step'
 
 describe('createLoadErrorTrackingSettingsStep', () => {

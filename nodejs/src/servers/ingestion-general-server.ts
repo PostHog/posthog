@@ -42,7 +42,7 @@ import {
     RedisConnectionsConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
-import { CookielessManagerComponent } from '../ingestion/cookieless/cookieless-manager'
+import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
 import { createHeatmapsConsumer } from '~/ingestion/lanes/heatmaps'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { PluginServerService, RedisPool } from '../types'

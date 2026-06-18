@@ -442,3 +442,15 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
   moved-lane unit run passes (heatmaps: 42 unit tests; its e2e fails only on local infra absence). Pushed;
   awaiting CI on the full gate, after which I'll check off the lane-move item and group shared code
   (`framework/`, `steps/`, `common/`). 8/8 lanes moved.
+- Phase 4 shared-code grouping done (codemod + `git mv`): `pipelines/` -> `framework/`, `tophog/` ->
+  `framework/tophog/`, `event-processing/` -> `steps/event-processing/`, `event-preprocessing/` ->
+  `steps/event-preprocessing/`, `cookieless/` -> `common/cookieless/`. ~614 imports rewritten to `~/`. Local
+  gates green: guard 0, static import-resolution 0 broken, eslint 0 errors, moved-dir unit tests pass
+  (framework + steps, 30 tests). jest/tsconfig needed no change (everything stays under `src/ingestion/`, so
+  `~/` resolves generically). Phase 4's structural moves are now complete (8 lanes + shared grouping + guard
+  from iteration 1); the only remaining Phase 4 work is the full-suite exit gate, which needs CI.
+- CI BLOCKER: the main PostHog Actions CI has not triggered for any push after 44a7db36 (feb7df56, 042467f9,
+  and this grouping push created zero Node.js/Backend/etc. runs — only external scanner apps react). The
+  workflow is `on: pull_request` with no path gate, so it should run; this is an external GitHub Actions
+  issue, not the code. Per "continue", proceeding locally-validated and pushing to preserve work (the
+  container is ephemeral). HOLDING Phases 5-6 until CI recovers and validates the Phase-4 backlog.

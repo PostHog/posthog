@@ -5,7 +5,7 @@ import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson } from '~/types'
 
-import { PipelineResultType, isOkResult } from '~/ingestion/pipelines/results'
+import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { createFetchPersonBatchStep } from './person-properties-step'
 
 describe('createFetchPersonBatchStep', () => {

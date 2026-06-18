@@ -6,7 +6,7 @@ import { PostgresRouter } from '~/utils/db/postgres'
 import { TeamManagerComponent } from '~/utils/team-manager'
 import { newScope } from '~/ingestion/common/scopes'
 import { IngestionOutputsConfig } from '~/ingestion/config'
-import { CookielessManager } from '~/ingestion/cookieless/cookieless-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { HeatmapsConsumerConfig, HeatmapsSharedScope, createHeatmapsConsumer } from './consumer'
 import * as pipelineModule from './pipeline'
 

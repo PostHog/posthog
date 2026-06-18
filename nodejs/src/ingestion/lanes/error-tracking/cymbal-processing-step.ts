@@ -4,9 +4,9 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { ISOTimestamp, Team } from '~/types'
 import { logger } from '~/utils/logger'
 
-import { BatchProcessingStep } from '~/ingestion/pipelines/base-batch-pipeline'
-import { PipelineWarning } from '~/ingestion/pipelines/pipeline.interface'
-import { PipelineResult, drop, ok } from '~/ingestion/pipelines/results'
+import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
+import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { CymbalClient } from './cymbal/client'
 import { CymbalResponse } from './cymbal/types'
 

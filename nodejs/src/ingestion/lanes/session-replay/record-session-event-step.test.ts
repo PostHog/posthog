@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { PipelineResultType } from '~/ingestion/pipelines/results'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { ParsedMessageData } from '~/ingestion/lanes/session-replay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/lanes/session-replay/metrics'
 import { SessionBatchManager } from '~/ingestion/lanes/session-replay/sessions/session-batch-manager'

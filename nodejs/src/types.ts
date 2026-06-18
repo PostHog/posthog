@@ -24,7 +24,7 @@ import { IntegrationManagerService } from './cdp/services/managers/integration-m
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
 import type { IngestionConsumerConfig } from './ingestion/config'
-import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
+import type { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from '~/ingestion/lanes/error-tracking/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'

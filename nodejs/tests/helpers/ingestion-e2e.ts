@@ -17,7 +17,7 @@ import {
     createCookielessRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '../../src/config/redis-pools'
-import { CookielessManager } from '../../src/ingestion/cookieless/cookieless-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, RedisPool, Team } from '../../src/types'
 import { PostgresRouter } from '../../src/utils/db/postgres'

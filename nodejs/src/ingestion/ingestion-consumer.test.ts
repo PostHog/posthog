@@ -10,7 +10,7 @@ import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoi
 import { compileHog } from '~/cdp/templates/compiler'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
-import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/ingestion/cookieless/cookieless-manager'
+import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/ingestion/common/cookieless/cookieless-manager'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -24,7 +24,7 @@ import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
-import { createPrepareEventStep } from './event-processing/prepare-event-step'
+import { createPrepareEventStep } from '~/ingestion/steps/event-processing/prepare-event-step'
 import { IngestionConsumer } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
@@ -39,7 +39,7 @@ jest.mock('../utils/posthog', () => {
 })
 
 // Mock the prepare event step for error testing
-jest.mock('./event-processing/prepare-event-step', () => ({
+jest.mock('~/ingestion/steps/event-processing/prepare-event-step', () => ({
     createPrepareEventStep: jest.fn(),
 }))
 
@@ -182,7 +182,7 @@ describe('IngestionConsumer', () => {
         team2 = (await getTeam(hub.postgres, team2Id))!
 
         jest.mocked(createPrepareEventStep).mockImplementation((...args) => {
-            const original = jest.requireActual('./event-processing/prepare-event-step')
+            const original = jest.requireActual('~/ingestion/steps/event-processing/prepare-event-step')
             return original.createPrepareEventStep(...args)
         })
 

@@ -22,7 +22,7 @@ import {
 } from '~/ingestion/common/steps/event-filters-steps'
 import { GroupStoreBatchContext, createGroupStoreBeforeBatchStep } from '~/ingestion/common/steps/group-store-batch-step'
 import { PersonsStoreBatchContext, createPersonsStoreBeforeBatchStep } from '~/ingestion/common/steps/persons-store-batch-step'
-import { CookielessManager } from '~/ingestion/cookieless/cookieless-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import {
     createApplyEventRestrictionsStep,
     createEnrichSurveyPersonPropertiesStep,
@@ -32,15 +32,15 @@ import {
     createSkipCookielessRateLimitToOverflowStep,
     createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
-} from '~/ingestion/event-preprocessing'
-import { EmitEventStepOutput } from '~/ingestion/event-processing/emit-event-step'
-import { EventPipelineRunnerOptions } from '~/ingestion/event-processing/event-pipeline-options'
-import { createFlushBatchStoresStep } from '~/ingestion/event-processing/flush-batch-stores-step'
-import { SplitAiEventsStepConfig } from '~/ingestion/event-processing/split-ai-events-step'
-import { newBatchingPipeline } from '~/ingestion/pipelines/builders'
-import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/pipelines/extensions/tophog'
-import { OkResultWithContext } from '~/ingestion/pipelines/pipeline.interface'
-import { PipelineConfig } from '~/ingestion/pipelines/result-handling-pipeline'
+} from '~/ingestion/steps/event-preprocessing'
+import { EmitEventStepOutput } from '~/ingestion/steps/event-processing/emit-event-step'
+import { EventPipelineRunnerOptions } from '~/ingestion/steps/event-processing/event-pipeline-options'
+import { createFlushBatchStoresStep } from '~/ingestion/steps/event-processing/flush-batch-stores-step'
+import { SplitAiEventsStepConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
+import { newBatchingPipeline } from '~/ingestion/framework/builders'
+import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
+import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
+import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
 import {

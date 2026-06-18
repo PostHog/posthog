@@ -19,7 +19,7 @@ import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
 
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
-import { CookielessManager } from '~/ingestion/cookieless/cookieless-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
     createApplyEventRestrictionsStep,
@@ -29,18 +29,18 @@ import {
     createParseKafkaMessageStep,
     createResolveTeamStep,
     createSkipCookielessRateLimitToOverflowStep,
-} from '~/ingestion/event-preprocessing'
-import { createCreateEventStep } from '~/ingestion/event-processing/create-event-step'
-import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/event-processing/emit-event-step'
-import { createHogTransformEventStep } from '~/ingestion/event-processing/hog-transform-event-step'
-import { createReadOnlyProcessGroupsStep } from '~/ingestion/event-processing/readonly-process-groups-step'
-import { BatchPipelineUnwrapper } from '~/ingestion/pipelines/batch-pipeline-unwrapper'
-import { newBatchPipelineBuilder } from '~/ingestion/pipelines/builders'
-import { BatchPipelineBuilder } from '~/ingestion/pipelines/builders/batch-pipeline-builders'
-import { TopHogRegistry, count, countOk, createTopHogWrapper } from '~/ingestion/pipelines/extensions/tophog'
-import { createBatch, createUnwrapper } from '~/ingestion/pipelines/helpers'
-import { PipelineConfig } from '~/ingestion/pipelines/result-handling-pipeline'
-import { ok } from '~/ingestion/pipelines/results'
+} from '~/ingestion/steps/event-preprocessing'
+import { createCreateEventStep } from '~/ingestion/steps/event-processing/create-event-step'
+import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/steps/event-processing/emit-event-step'
+import { createHogTransformEventStep } from '~/ingestion/steps/event-processing/hog-transform-event-step'
+import { createReadOnlyProcessGroupsStep } from '~/ingestion/steps/event-processing/readonly-process-groups-step'
+import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
+import { TopHogRegistry, count, countOk, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
+import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
+import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { ok } from '~/ingestion/framework/results'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'

@@ -1,6 +1,6 @@
-import { PipelineWarning } from '~/ingestion/pipelines/pipeline.interface'
-import { ok } from '~/ingestion/pipelines/results'
-import { ProcessingStep } from '~/ingestion/pipelines/steps'
+import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
+import { ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 import { ParsedMessageData } from '~/ingestion/lanes/session-replay/kafka/types'
 
 export interface LibVersionMonitorStepInput {

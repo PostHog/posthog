@@ -53,10 +53,10 @@ import {
     RedisConnectionsConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
-import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
-import { parseSplitAiEventsConfig } from '../ingestion/event-processing/split-ai-events-step'
-import { createOkContext } from '../ingestion/pipelines/helpers'
-import { TopHog } from '../ingestion/tophog'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { parseSplitAiEventsConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { TopHog } from '~/ingestion/framework/tophog'
 import { MainLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '../ingestion/utils/overflow-redirect/overflow-redirect-service'

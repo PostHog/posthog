@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 import { promisify } from 'node:util'
 import { gzip } from 'zlib'
 
-import { PipelineResultType } from '~/ingestion/pipelines/results'
+import { PipelineResultType } from '~/ingestion/framework/results'
 
 import { ParseMessageStepInput, createParseMessageStep } from './parse-message-step'
 

@@ -8,7 +8,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { EventHeaders, ISOTimestamp, PreIngestionEvent, ProjectId } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 import { cloneObject } from '~/utils/utils'
-import { PipelineResultType } from '~/ingestion/pipelines/results'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'
 import { HEATMAPS_OUTPUT, HeatmapsOutput } from './outputs'
 

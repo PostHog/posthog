@@ -2,8 +2,8 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
 
-import { BatchProcessingStep } from '~/ingestion/pipelines/base-batch-pipeline'
-import { PipelineResult, ok } from '~/ingestion/pipelines/results'
+import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { PipelineResult, ok } from '~/ingestion/framework/results'
 
 export interface PersonPropertiesInput {
     event: PluginEvent

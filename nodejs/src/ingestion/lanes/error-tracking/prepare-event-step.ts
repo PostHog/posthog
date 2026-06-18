@@ -1,9 +1,9 @@
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, ISOTimestamp, Person, PreIngestionEvent, Team } from '~/types'
 
-import { stripBloatProperties } from '~/ingestion/event-processing/strip-bloat-properties'
-import { ok } from '~/ingestion/pipelines/results'
-import { ProcessingStep } from '~/ingestion/pipelines/steps'
+import { stripBloatProperties } from '~/ingestion/steps/event-processing/strip-bloat-properties'
+import { ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 
 export interface ErrorTrackingPrepareEventInput {
     event: PluginEvent

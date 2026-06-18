@@ -3,9 +3,9 @@ import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/event-preprocessing'
-import { TopHogRegistry } from '~/ingestion/pipelines/extensions/tophog'
-import { drop, ok, redirect } from '~/ingestion/pipelines/results'
+import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/steps/event-preprocessing'
+import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
+import { drop, ok, redirect } from '~/ingestion/framework/results'
 import { SessionBatchManager } from '~/ingestion/lanes/session-replay/sessions/session-batch-manager'
 import { SessionBatchRecorder } from '~/ingestion/lanes/session-replay/sessions/session-batch-recorder'
 import { TeamService } from '~/ingestion/lanes/session-replay/shared/teams/team-service'
@@ -17,7 +17,7 @@ import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 import { createSessionReplayPipeline, runSessionReplayPipeline } from './session-replay-pipeline'
 
-jest.mock('~/ingestion/event-preprocessing', () => ({
+jest.mock('~/ingestion/steps/event-preprocessing', () => ({
     createParseHeadersStep: jest.fn(),
     createApplyEventRestrictionsStep: jest.fn(),
 }))

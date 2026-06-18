@@ -11,7 +11,7 @@ import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/i
 import { Scope, extend } from '~/ingestion/common/scopes'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
-import { CookielessManager } from '~/ingestion/cookieless/cookieless-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { createOutputsRegistry } from './outputs/registry'
 import { createHeatmapsPipeline } from './pipeline'
 

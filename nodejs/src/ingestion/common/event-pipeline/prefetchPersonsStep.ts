@@ -1,5 +1,5 @@
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PipelineResult, ok } from '~/ingestion/pipelines/results'
+import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PipelineEvent, Team } from '~/types'
 
 type PrefetchPersonsStepInput = { event: PipelineEvent; team: Team; personsStoreForBatch: PersonsStoreForBatch }
