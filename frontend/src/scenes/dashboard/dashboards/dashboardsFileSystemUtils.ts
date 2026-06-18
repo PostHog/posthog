@@ -185,28 +185,17 @@ export function compactFolderChain(
     return { path, label: labels.join(' / ') }
 }
 
-export interface SubtreeDashboard {
-    dashboard: DashboardBasicType
-    // The dashboard's containing folder path, for a location hint (results span subfolders).
-    folder: string
-}
-
-// Every dashboard at or below `currentFolder`, recursively. Root ('') returns all dashboards. Each
-// result carries its containing folder so the tree arm can show where it lives, since one recursive view
-// spans many subfolders.
+// Every dashboard at or below `currentFolder`, recursively. Root ('') returns all dashboards. The tree
+// arm feeds these to the dashboards table, scoped to the selected folder's subtree.
 export function subtreeDashboards(
     dashboards: DashboardBasicType[],
     entryByRef: Record<string, FileSystemEntry>,
     currentFolder: string
-): SubtreeDashboard[] {
+): DashboardBasicType[] {
     const prefix = currentFolder ? splitPath(currentFolder) : []
-    const result: SubtreeDashboard[] = []
-    for (const dashboard of dashboards) {
+    return dashboards.filter((dashboard) => {
         const entry = entryByRef[String(dashboard.id)]
         const segments = entry?.path ? splitPath(entry.path).slice(0, -1) : UNFILED_SEGMENTS
-        if (prefix.every((segment, index) => segments[index] === segment)) {
-            result.push({ dashboard, folder: joinPath(segments) })
-        }
-    }
-    return result
+        return prefix.every((segment, index) => segments[index] === segment)
+    })
 }

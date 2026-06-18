@@ -6,14 +6,14 @@ import { useActions, useValues } from 'kea'
 import { DashboardsTree } from './DashboardsTree'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: jest.fn() }))
-jest.mock('lib/lemon-ui/Link', () => ({
-    Link: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
-}))
-jest.mock('./DashboardCardMenu', () => ({ DashboardCardMenu: () => <span>menu</span> }))
-jest.mock('./dashboardsDnd', () => ({
-    DashboardsDndContext: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    DraggableDashboard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    DroppableFolder: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+jest.mock('./DashboardsTable', () => ({
+    DashboardsTable: ({ dashboards }: { dashboards: { id: number; name: string }[] }) => (
+        <div>
+            {dashboards.map((dashboard) => (
+                <span key={dashboard.id}>{dashboard.name}</span>
+            ))}
+        </div>
+    ),
 }))
 
 describe('DashboardsTree', () => {
@@ -25,14 +25,7 @@ describe('DashboardsTree', () => {
     beforeEach(() => {
         navigateToFolder.mockClear()
         toggleFolder.mockClear()
-        ;(useActions as jest.Mock).mockReturnValue({
-            navigateToFolder,
-            toggleFolder,
-            moveDashboardToFolder: jest.fn(),
-            pasteIntoFolder: jest.fn(),
-            renameDashboard: jest.fn(),
-            stopRenaming: jest.fn(),
-        })
+        ;(useActions as jest.Mock).mockReturnValue({ navigateToFolder, toggleFolder })
     })
 
     function mockValues(overrides: Record<string, any>): void {
@@ -40,15 +33,13 @@ describe('DashboardsTree', () => {
             folderTree: [],
             currentFolder: '',
             currentSubtreeDashboards: [],
-            clipboard: null,
-            renamingDashboardId: null,
             collapsedFolders: {},
             dashboardsLoading: false,
             ...overrides,
         })
     }
 
-    it('renders the full folder tree (nested) and the current folder dashboards', () => {
+    it('renders the full folder tree (nested) and the scoped dashboards table', () => {
         mockValues({
             folderTree: [
                 {
@@ -57,12 +48,13 @@ describe('DashboardsTree', () => {
                     children: [{ path: 'Marketing/Q1', label: 'Q1', children: [] }],
                 },
             ],
-            currentSubtreeDashboards: [{ dashboard: { id: 1, name: 'Revenue' }, folder: 'Marketing/Q1' }],
+            currentSubtreeDashboards: [{ id: 1, name: 'Revenue' }],
         })
         render(<DashboardsTree />)
         expect(screen.getByText('All dashboards')).toBeInTheDocument()
         expect(screen.getByText('Marketing')).toBeInTheDocument()
         expect(screen.getByText('Q1')).toBeInTheDocument()
+        // The scoped dashboards are handed to the table (mocked here to render their names).
         expect(screen.getByText('Revenue')).toBeInTheDocument()
     })
 

@@ -9,6 +9,7 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { calculateMovePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { DashboardBasicType } from '~/types'
 
 import type { dashboardsFileSystemLogicType } from './dashboardsFileSystemLogicType'
 import {
@@ -22,7 +23,6 @@ import {
     FolderContents,
     FolderTreeNode,
     subtreeDashboards,
-    SubtreeDashboard,
 } from './dashboardsFileSystemUtils'
 import { dashboardsLogic } from './dashboardsLogic'
 
@@ -143,7 +143,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         // is a scope selector; the content pane shows everything in scope, so no drilling to leaf folders.
         currentSubtreeDashboards: [
             (s) => [s.dashboards, s.entryByRef, s.currentFolder],
-            (dashboards, entryByRef, currentFolder): SubtreeDashboard[] =>
+            (dashboards, entryByRef, currentFolder): DashboardBasicType[] =>
                 subtreeDashboards(dashboards, entryByRef, currentFolder),
         ],
         breadcrumb: [(s) => [s.currentFolder], (currentFolder): FolderBreadcrumb[] => folderBreadcrumb(currentFolder)],
