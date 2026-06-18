@@ -411,16 +411,23 @@ class TestGorgiasSource:
         assert response.partition_keys == [GORGIAS_ENDPOINTS[endpoint].partition_key]
         assert response.sort_mode == "asc"
 
-    def test_incremental_source_response_sorts_descending(self) -> None:
+    @parameterized.expand(
+        [
+            (name, config.incremental_fields[0]["field"])
+            for name, config in GORGIAS_ENDPOINTS.items()
+            if config.supports_incremental
+        ]
+    )
+    def test_incremental_source_response_sorts_descending(self, endpoint: str, incremental_field: str) -> None:
         response = gorgias_source(
             "acme",
             "e@acme.com",
             "key",
-            "tickets",
+            endpoint,
             MagicMock(),
             _FakeManager(),
             should_use_incremental_field=True,
-            incremental_field="updated_datetime",
+            incremental_field=incremental_field,
         )
         assert response.sort_mode == "desc"
 
