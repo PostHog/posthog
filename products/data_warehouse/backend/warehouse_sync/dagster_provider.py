@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 from django.conf import settings
 from django.utils import timezone
@@ -9,7 +9,7 @@ from posthog.ducklake.backfill_telemetry import BACKFILL_PARTITION_EVENT
 from products.data_warehouse.backend.warehouse_sync.contracts import InitialBackfill, SyncError, WarehouseSyncStatusDTO
 
 PARTITION_START = date(2019, 1, 1)
-CAUGHT_UP_LAG_SECONDS = 2 * 24 * 60 * 60
+RECENT_FAILURE_WINDOW = timedelta(days=7)
 
 # Latest event per partition_date for the telemetry team.
 _QUERY = """
@@ -74,25 +74,26 @@ class DagsterBackfillStatusProvider:
                     latest_failure = (event_at, error_message or "Backfill partition failed")
 
         today = now.date()
-        total_days = max((today - PARTITION_START).days, 1)
-        complete = done >= total_days
-        progress_pct = min(round(100 * done / total_days), 100)
+        total_span_days = max((today - PARTITION_START).days, 1)
 
         fresh_through = datetime.combine(fresh_date, time.max, tzinfo=UTC) if fresh_date is not None else None
         lag_seconds = int((now - fresh_through).total_seconds()) if fresh_through is not None else None
 
-        error = SyncError(message=latest_failure[1], since=latest_failure[0]) if latest_failure else None
+        frontier_days = (fresh_date - PARTITION_START).days if fresh_date is not None else 0
+        progress_pct = min(max(round(100 * frontier_days / total_span_days), 0), 100)
+        complete = fresh_date is not None and fresh_date >= today - timedelta(days=1)
 
-        if failed:
+        recent_failure = latest_failure is not None and latest_failure[0] >= now - RECENT_FAILURE_WINDOW
+        error = SyncError(message=latest_failure[1], since=latest_failure[0]) if recent_failure else None
+
+        if recent_failure:
             state = "error"
         elif done == 0:
             state = "not_started"
-        elif not complete:
-            state = "seeding"
-        elif lag_seconds is not None and lag_seconds > CAUGHT_UP_LAG_SECONDS:
-            state = "lagging"
-        else:
+        elif complete:
             state = "caught_up"
+        else:
+            state = "seeding"
 
         return WarehouseSyncStatusDTO(
             backend=self.backend,
