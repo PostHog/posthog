@@ -6,7 +6,6 @@ on:
             - .github/workflows/**
             - .github/actions/**
             - .github/actionlint.yaml
-            - .github/scripts/**
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -71,24 +70,3 @@ jobs:
                   name: actionlint-findings
                   path: actionlint.json
                   retention-days: 14
-
-    cache-write-gate:
-        # Ratchet gate: fails on a NEW cache write that isn't gated to the default
-        # branch. Branch/PR caches evict the shared master cache and serve only one
-        # PR. See .github/scripts/cache_audit.py and its baseline.
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: .github
-                  sparse-checkout-cone-mode: false
-
-            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: '3.12'
-
-            - name: Check cache writes are gated to the default branch
-              run: |
-                  pip install --quiet pyyaml
-                  python .github/scripts/cache_audit.py

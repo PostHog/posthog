@@ -41,10 +41,6 @@ jobs:
 
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
