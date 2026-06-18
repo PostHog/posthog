@@ -271,3 +271,29 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         )
         rows = self._select(f"SELECT pr_number, repo_owner, repo_name FROM ({workflow_runs.build_query(raw)}) AS r")
         assert rows[0] == (0, "PostHog", "posthog")
+
+    def test_workflow_runs_view_tolerates_all_nullable_columns(self) -> None:
+        # Prod lands every column Nullable, so a single run can carry NULL across timestamps,
+        # repository, pull_requests and run_attempt at once (e.g. a barely-started run). Driven
+        # through a real warehouse table built from the shared (now fully-Nullable) schema — the
+        # exact prod shape — to prove the builder maps it instead of 500ing: NULL timestamps ->
+        # NULL duration, NULL repository -> empty owner/name, NULL pull_requests -> pr_number 0.
+        sparse_run: dict[str, Any] = {
+            "id": 4001,
+            "name": "CI",
+            "head_sha": "shaQ",
+            "status": "completed",
+            "conclusion": None,
+            "created_at": None,
+            "run_started_at": None,
+            "updated_at": None,
+            "run_attempt": None,
+            "pull_requests": None,
+            "repository": None,
+        }
+        table_name = self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [sparse_run])
+        rows = self._select(
+            "SELECT status, conclusion, duration_seconds, repo_owner, repo_name, pr_number, run_attempt "
+            f"FROM ({workflow_runs.build_query(table_name)}) AS r"
+        )
+        assert rows[0] == ("completed", None, None, "", "", 0, None)
