@@ -624,6 +624,51 @@ class TestModelMapping:
 class TestBedrockMantleCountTokens:
     """Unit tests for the bedrock-mantle count_tokens fallback transport."""
 
+    @patch("llm_gateway.bedrock.SigV4Auth")
+    @patch("llm_gateway.bedrock.boto3.Session")
+    def test_reuses_cached_session_when_signing_mantle_requests(
+        self,
+        mock_session_cls: MagicMock,
+        mock_sigv4_auth_cls: MagicMock,
+    ) -> None:
+        from llm_gateway.bedrock import _sign_bedrock_mantle_request, get_bedrock_session
+
+        get_bedrock_session.cache_clear()
+        try:
+            frozen_credentials = MagicMock()
+            credentials = MagicMock()
+            credentials.get_frozen_credentials.return_value = frozen_credentials
+            session = MagicMock()
+            session.get_credentials.return_value = credentials
+            mock_session_cls.return_value = session
+
+            def add_auth(request: Any) -> None:
+                request.headers["Authorization"] = "signed"
+
+            mock_sigv4_auth = MagicMock()
+            mock_sigv4_auth.add_auth.side_effect = add_auth
+            mock_sigv4_auth_cls.return_value = mock_sigv4_auth
+
+            first_headers = _sign_bedrock_mantle_request(
+                "https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages/count_tokens",
+                b'{"messages":[]}',
+                "us-east-1",
+            )
+            second_headers = _sign_bedrock_mantle_request(
+                "https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages/count_tokens",
+                b'{"messages":[]}',
+                "us-east-1",
+            )
+
+            assert first_headers["Authorization"] == "signed"
+            assert second_headers["Authorization"] == "signed"
+            assert mock_session_cls.call_count == 1
+            assert session.get_credentials.call_count == 2
+            assert credentials.get_frozen_credentials.call_count == 2
+            assert mock_sigv4_auth_cls.call_count == 2
+        finally:
+            get_bedrock_session.cache_clear()
+
     @pytest.mark.asyncio
     @patch("llm_gateway.bedrock._sign_bedrock_mantle_request")
     @patch("llm_gateway.bedrock.httpx.AsyncClient")

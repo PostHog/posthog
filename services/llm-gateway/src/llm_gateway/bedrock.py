@@ -9,6 +9,7 @@ from typing import Any, Final
 import boto3
 import httpx
 import structlog
+from boto3.session import Session as Boto3Session
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.config import Config
@@ -161,6 +162,11 @@ def get_bedrock_runtime_client(region_name: str, timeout_seconds: float):
     )
 
 
+@functools.lru_cache
+def get_bedrock_session() -> Boto3Session:
+    return boto3.Session()
+
+
 async def count_tokens_with_bedrock(
     request_data: dict[str, Any],
     model: str,
@@ -203,7 +209,7 @@ def get_bedrock_mantle_count_tokens_url(region_name: str) -> str:
 def _sign_bedrock_mantle_request(url: str, body: bytes, region_name: str) -> dict[str, str]:
     """SigV4-sign a bedrock-mantle request using the ambient AWS credentials (same IAM role
     the bedrock-runtime client uses). The AWS SDKs don't expose a client for this endpoint."""
-    credentials = boto3.Session().get_credentials()
+    credentials = get_bedrock_session().get_credentials()
     if credentials is None:
         raise HTTPException(
             status_code=503,
