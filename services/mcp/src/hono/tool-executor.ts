@@ -17,13 +17,14 @@ import {
     findRecoverableApiError,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { getPostHogClient } from '@/lib/posthog'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { getToolCategory } from '@/tools/toolDefinitions'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
-import { trackToolCall } from './analytics'
+import { trackToolCall, trackToolsList, type ToolCallIntentMeta } from './analytics'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
@@ -51,24 +52,44 @@ export class ToolExecutor {
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
+        const baseTools = this.buildAdvertisedTools(state)
+
+        // Inject the `context` argument into every advertised tool so agents can
+        // state what they're trying to do. `handleToolCall` strips it via
+        // `prepareToolCall` before validation and surfaces it as `$mcp_intent`.
+        // This is the same injection `instrument()` does for SDK-wrapped servers.
+        // Guarded: analytics must never break `tools/list`, so any failure falls
+        // back to the un-augmented tool list.
+        let tools = baseTools
+        try {
+            tools = getPostHogClient().prepareToolList(baseTools)
+        } catch {
+            // fall back to un-augmented tools
+        }
+
+        void trackToolsList(
+            tools.map((t) => t.name),
+            state
+        )
+
+        return { tools }
+    }
+
+    private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
             const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
-            return {
-                tools: [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])],
-            }
+            return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
         const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
 
-        const withSqlDescription = filteredTools.map((entry) => {
+        return filteredTools.map((entry) => {
             if (entry.name === 'execute-sql') {
                 return { ...entry, description: this.instructionsBuilder.formatExecuteSqlDescription() }
             }
             return entry
         })
-
-        return { tools: withSqlDescription }
     }
 
     async handleToolCall(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
@@ -77,8 +98,26 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
         }
 
+        // Pull the agent's stated intent off the injected `context` arg and strip it
+        // so tool schemas/handlers never see it (validation here is `.strict()` in
+        // places). The intent rides through to `$mcp_intent` on the captured event.
+        // Guarded: analytics must never break `tools/call`. On failure we fall back
+        // to the raw args — safe because `context` is only ever present when the
+        // matching `prepareToolList` injection succeeded.
+        const rawArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        let intentMeta: ToolCallIntentMeta = {}
+        let callArgs = rawArgs
+        try {
+            const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs)
+            intentMeta = { intent: prepared.intent, intentSource: prepared.intentSource }
+            callArgs = prepared.args ?? rawArgs
+        } catch {
+            // fall back to raw args; intent simply won't be captured for this call
+        }
+        const callParams = { ...params, arguments: callArgs }
+
         if (toolName === 'exec') {
-            return this.callExecTool(params, state)
+            return this.callExecTool(callParams, state, intentMeta)
         }
 
         if (toolName === 'render-ui') {
@@ -87,7 +126,7 @@ export class ToolExecutor {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
-            return this.callRenderUiTool(params, state)
+            return this.callRenderUiTool(callParams, state, intentMeta)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -108,15 +147,17 @@ export class ToolExecutor {
                 handler: (ctx, args) => preBuilt.base.handler(ctx, args),
                 _meta: preBuilt.base._meta,
             },
-            params,
-            state
+            callParams,
+            state,
+            intentMeta
         )
     }
 
     private async callTool(
         tool: ResolvedTool,
         params: Record<string, unknown> | undefined,
-        state: ResolvedState
+        state: ResolvedState,
+        intentMeta?: ToolCallIntentMeta
     ): Promise<unknown> {
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
         const validation = tool.schema.safeParse(toolArgs, { reportInput: true })
@@ -166,10 +207,17 @@ export class ToolExecutor {
                 })
             }
 
-            void trackToolCall(tool.name, duration, false, state, {
-                input_tokens: estimateTokens(validation.data),
-                output_tokens: estimateResponseTokens(response),
-            })
+            void trackToolCall(
+                tool.name,
+                duration,
+                false,
+                state,
+                {
+                    input_tokens: estimateTokens(validation.data),
+                    output_tokens: estimateResponseTokens(response),
+                },
+                intentMeta
+            )
 
             return response
         } catch (error: unknown) {
@@ -177,14 +225,18 @@ export class ToolExecutor {
             stop({ status: 'error' })
             classifyToolError(error, tool.name)
 
-            void trackToolCall(tool.name, Date.now() - startMs, true, state)
+            void trackToolCall(tool.name, Date.now() - startMs, true, state, undefined, intentMeta)
 
             const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
         }
     }
 
-    private async callExecTool(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
+    private async callExecTool(
+        params: Record<string, unknown> | undefined,
+        state: ResolvedState,
+        intentMeta?: ToolCallIntentMeta
+    ): Promise<unknown> {
         const execMetrics: ExecMetricState = { innerToolName: undefined }
         const resolved = this.resolveExecTool(state, execMetrics)
 
@@ -215,10 +267,17 @@ export class ToolExecutor {
                       distinctId: undefined,
                   })
 
-            void trackToolCall('exec', duration, false, state, {
-                input_tokens: estimateTokens(validation.data),
-                output_tokens: estimateResponseTokens(response),
-            })
+            void trackToolCall(
+                'exec',
+                duration,
+                false,
+                state,
+                {
+                    input_tokens: estimateTokens(validation.data),
+                    output_tokens: estimateResponseTokens(response),
+                },
+                intentMeta
+            )
 
             return response
         } catch (error: unknown) {
@@ -228,7 +287,7 @@ export class ToolExecutor {
             }
             classifyToolError(error, metricTool)
 
-            void trackToolCall('exec', Date.now() - startMs, true, state)
+            void trackToolCall('exec', Date.now() - startMs, true, state, undefined, intentMeta)
 
             const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
             // Attribute the failure to the inner tool that actually ran (e.g. `query-logs`),
@@ -294,7 +353,8 @@ export class ToolExecutor {
 
     private async callRenderUiTool(
         params: Record<string, unknown> | undefined,
-        state: ResolvedState
+        state: ResolvedState,
+        intentMeta?: ToolCallIntentMeta
     ): Promise<unknown> {
         const renderUiTool = createRenderUiTool(state.allTools, state.context)
         if (!renderUiTool) {
@@ -317,14 +377,14 @@ export class ToolExecutor {
             const handlerResult = await renderUiTool.handler(state.context, validation.data)
             toolCallsTotal.inc({ tool: 'render-ui', status: 'success' })
             stop({ status: 'success' })
-            void trackToolCall('render-ui', Date.now() - startMs, false, state)
+            void trackToolCall('render-ui', Date.now() - startMs, false, state, undefined, intentMeta)
             // The handler always returns an exec-built payload (UI resourceUri + structuredContent).
             return handlerResult
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: 'render-ui', status: 'error' })
             stop({ status: 'error' })
             classifyToolError(error, 'render-ui')
-            void trackToolCall('render-ui', Date.now() - startMs, true, state)
+            void trackToolCall('render-ui', Date.now() - startMs, true, state, undefined, intentMeta)
             const sessionUuid = await state.reqCtx.getSessionUuid(state.requestContext.sessionId)
             return handleToolError(error, 'render-ui', state.distinctId, sessionUuid)
         }
