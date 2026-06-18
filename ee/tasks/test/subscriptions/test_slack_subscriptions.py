@@ -312,6 +312,25 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         mock_slack_integration.async_client = MagicMock(return_value=mock_async_client)
         return mock_async_client
 
+    def test_async_delivery_builds_message_off_event_loop(self, MockSlackIntegration: MagicMock) -> None:
+        # Regression: the async path must not touch lazily-loaded ORM relations
+        # (e.g. integration.team.organization) directly on the event loop — Django
+        # raises SynchronousOnlyOperation. Re-fetch cold so the relations are not
+        # cached on the instances and the lazy loads actually fire during delivery.
+        mock_async_client = self._setup_async_mock(MockSlackIntegration)
+        mock_async_client.chat_postMessage.return_value = {"ts": "1.234"}
+
+        integration = Integration.objects.get(id=self.integration.id)
+        subscription = Subscription.objects.get(id=self.subscription.id)
+        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
+
+        result = asyncio.run(
+            send_slack_message_with_integration_async(integration, subscription, assets, self.TOTAL_ASSET_COUNT)
+        )
+
+        assert result.is_complete_success
+        mock_async_client.chat_postMessage.assert_awaited()
+
     def test_async_delivery_all_message_success(self, MockSlackIntegration: MagicMock) -> None:
         mock_async_client = self._setup_async_mock(MockSlackIntegration)
         mock_async_client.chat_postMessage.return_value = {"ts": "1.234"}
