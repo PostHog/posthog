@@ -1151,7 +1151,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 AND condition = {{condition_hash}}
                 AND {date_filter}
             GROUP BY person_id
-            HAVING count() {sql_operator} {{min_matches}}
+            HAVING count(DISTINCT uuid) {sql_operator} {{min_matches}}
         """
 
         query_params: dict[str, ast.Expr] = {

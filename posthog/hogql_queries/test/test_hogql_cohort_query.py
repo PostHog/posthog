@@ -632,8 +632,8 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Should query precalculated_events
         self.assertIn("precalculated_events", query_str)
-        # Should have count aggregation
-        self.assertIn("count()", query_str)
+        # Should dedupe re-ingested rows by uuid before counting (precalculated_events is a ReplacingMergeTree)
+        self.assertIn("count(DISTINCT uuid)", query_str)
         # Should have HAVING clause for count filtering
         self.assertIn("HAVING", query_str)
         # Should use person_id directly from precalculated_events
@@ -707,7 +707,7 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
 
         self.assertIn("precalculated_events", query_str)
-        self.assertIn("count()", query_str)
+        self.assertIn("count(DISTINCT uuid)", query_str)
         self.assertIn("HAVING", query_str)
         self.assertEqual(query_str.count("toDate("), 2)
 
