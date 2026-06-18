@@ -13,6 +13,7 @@ from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.email import (
+    EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
     send_error_tracking_weekly_digest,
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
@@ -70,6 +71,7 @@ from posthog.utils import get_crontab, get_instance_region
 
 from products.conversations.backend.tasks import flush_pending_email_replies, wake_snoozed_tickets
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
+from products.data_warehouse.backend.tasks import send_external_data_failure_digest_catchup
 from products.endpoints.backend.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
@@ -80,6 +82,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flags_cache_entries,
 )
 from products.logs.backend.tasks import logs_alert_events_cleanup_task
+from products.reminders.backend.tasks import process_due_reminders
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
     cleanup_deleted_streamlit_app_zips,
@@ -381,6 +384,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="send matview failure digest",
     )
 
+    # Just after the digest day rolls over (EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC),
+    # when the date-keyed campaign block resets.
+    sender.add_periodic_task(
+        crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="15"),
+        send_external_data_failure_digest_catchup.s(),
+        name="send external data failure digest catch-up",
+    )
+
     # Every 30 minutes, send decide request counts to the main posthog instance
     sender.add_periodic_task(
         crontab(minute="*/30"),
@@ -475,6 +486,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/2"),
         process_scheduled_changes.s(),
         name="process scheduled changes",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        process_due_reminders.s(),
+        name="process due reminders",
     )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):

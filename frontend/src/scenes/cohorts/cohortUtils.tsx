@@ -3,7 +3,9 @@ import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 
 import { isEmptyProperty, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { areObjectValuesEmpty, calculateDays, isNumeric } from 'lib/utils'
+import { calculateDays } from 'lib/utils/durations'
+import { isNumeric } from 'lib/utils/guards'
+import { areObjectValuesEmpty } from 'lib/utils/objects'
 import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import {
     BehavioralFilterKey,
@@ -172,7 +174,13 @@ export function validateGroup(
         (group.type === FilterLogicalOperator.And && negatedCriteria.length === criteria.length)
     ) {
         const errorMsg = `${negatedCriteria
-            .map((c) => `'${BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(c)]!.label}'`)
+            .map((c) => {
+                const behavioralFilterType = criteriaToBehavioralFilterType(c)
+                // Fall back to the raw filter type when the label map has no entry: this surfaces which
+                // BehavioralFilterType is missing from BEHAVIORAL_TYPE_TO_LABEL (e.g. a new enum value that
+                // landed before the map was updated) rather than crashing on an undefined `.label`.
+                return `'${BEHAVIORAL_TYPE_TO_LABEL[behavioralFilterType]?.label ?? behavioralFilterType}'`
+            })
             .join(', ')} ${negatedCriteria.length > 1 ? 'are' : 'is a'} negative cohort criteria. ${
             CohortClientErrors.NegationCriteriaMissingOther
         }`
@@ -543,7 +551,7 @@ function getCriteriaValue(criteria: AnyCohortCriteriaType, key: string): any {
 // Populate empty values with default values on changing type, pruning any extra variables
 export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: boolean = false): AnyCohortCriteriaType {
     const populatedCriteria: Record<string, any> = {}
-    const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)]
+    const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)] ?? { fields: [] }
     Object.entries(apiProps).forEach(([key, defaultValue]) => {
         const nextValue = getCriteriaValue(criteria, key) ?? defaultValue
         if (shouldPurge) {

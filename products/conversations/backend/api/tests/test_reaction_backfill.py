@@ -195,6 +195,24 @@ class TestBackfillThreadReplies(BaseTest):
         assert mock_user.call_count == 2
         mock_user.assert_has_calls([call(client, "U_SAME"), call(client, "U_OTHER")], any_order=True)
 
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": None, "avatar": None})
+    @patch(f"{MODULE}.extract_slack_files", return_value=[])
+    def test_after_ts_excludes_earlier_replies(self, _mock_files, _mock_user, _mock_bot):
+        replies = [
+            _make_slack_reply(PARENT_TS, text="parent"),
+            _make_slack_reply("1700000000.000200", text="before reacted"),
+            _make_slack_reply("1700000000.000300", text="reacted message"),
+            _make_slack_reply("1700000000.000400", text="after reacted"),
+        ]
+        client = self._mock_client(replies)
+
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, after_ts="1700000000.000300")
+
+        comments = Comment.objects.filter(item_id=str(self.ticket.id)).order_by("created_at")
+        assert comments.count() == 1
+        assert comments[0].content == "after reacted"
+
     def test_no_op_when_only_parent_in_thread(self):
         replies = [_make_slack_reply(PARENT_TS, text="parent")]
         client = self._mock_client(replies)
@@ -271,7 +289,7 @@ class TestHandleSupportReactionBackfill(BaseTest):
     @patch(f"{MODULE}.get_slack_client")
     def test_calls_backfill_after_ticket_creation(self, mock_client, mock_create, mock_backfill):
         client = MagicMock()
-        client.conversations_history.return_value = {"messages": [{"user": "U1", "text": "Help me", "ts": PARENT_TS}]}
+        client.conversations_replies.return_value = {"messages": [{"user": "U1", "text": "Help me", "ts": PARENT_TS}]}
         mock_client.return_value = client
         mock_create.return_value = MagicMock(spec=Ticket)
 
@@ -279,14 +297,119 @@ class TestHandleSupportReactionBackfill(BaseTest):
 
         mock_create.assert_called_once()
         assert mock_create.call_args.kwargs["is_thread_reply"] is False
-        mock_backfill.assert_called_once_with(client, self.team, mock_create.return_value, CHANNEL, PARENT_TS)
+        assert mock_create.call_args.kwargs["thread_ts"] == PARENT_TS
+        mock_backfill.assert_called_once_with(
+            client, self.team, mock_create.return_value, CHANNEL, PARENT_TS, after_ts=PARENT_TS
+        )
+
+    @patch(f"{MODULE}._backfill_thread_replies")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_seeds_ticket_from_reacted_reply_keyed_on_root(self, mock_client, mock_create, mock_backfill):
+        reply_ts = "1700000000.000500"
+        client = MagicMock()
+        # conversations.replies returns the root first regardless of which message was reacted on.
+        client.conversations_replies.return_value = {
+            "messages": [
+                {"user": "U_ROOT", "text": "Hi Mustafa!", "ts": PARENT_TS},
+                {"user": "U_CUSTOMER", "text": "here are the screenshots", "ts": reply_ts, "thread_ts": PARENT_TS},
+            ]
+        }
+        mock_client.return_value = client
+        mock_create.return_value = MagicMock(spec=Ticket)
+
+        handle_support_reaction(self._reaction_event(ts=reply_ts), self.team, SLACK_TEAM)
+
+        # Ticket seeds from the reacted reply, but is keyed on the thread root for routing.
+        assert mock_create.call_args.kwargs["thread_ts"] == PARENT_TS
+        assert mock_create.call_args.kwargs["text"] == "here are the screenshots"
+        assert mock_create.call_args.kwargs["slack_user_id"] == "U_CUSTOMER"
+        # Backfill only replies posted after the reacted message.
+        mock_backfill.assert_called_once_with(
+            client, self.team, mock_create.return_value, CHANNEL, PARENT_TS, after_ts=reply_ts
+        )
+        # We must never fetch via conversations.history (it can't see thread replies).
+        client.conversations_history.assert_not_called()
+
+    @patch(f"{MODULE}._backfill_thread_replies")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_resolves_root_from_thread_ts_when_replies_returns_only_reply(
+        self, mock_client, mock_create, mock_backfill
+    ):
+        # Hardening for the case where conversations.replies returns only the reacted reply
+        # (not the root-first thread): the root must still come from the reply's thread_ts.
+        reply_ts = "1700000000.000500"
+        client = MagicMock()
+        client.conversations_replies.return_value = {
+            "messages": [
+                {"user": "U_CUSTOMER", "text": "screenshots", "ts": reply_ts, "thread_ts": PARENT_TS},
+            ]
+        }
+        mock_client.return_value = client
+        mock_create.return_value = MagicMock(spec=Ticket)
+
+        handle_support_reaction(self._reaction_event(ts=reply_ts), self.team, SLACK_TEAM)
+
+        assert mock_create.call_args.kwargs["thread_ts"] == PARENT_TS
+        assert mock_create.call_args.kwargs["text"] == "screenshots"
+        mock_backfill.assert_called_once_with(
+            client, self.team, mock_create.return_value, CHANNEL, PARENT_TS, after_ts=reply_ts
+        )
+
+    @patch(f"{MODULE}._backfill_thread_replies")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_falls_back_to_bounded_history_for_standalone_message(self, mock_client, mock_create, mock_backfill):
+        client = MagicMock()
+        client.conversations_replies.return_value = {"messages": []}
+        client.conversations_history.return_value = {"messages": [{"user": "U1", "text": "Help me", "ts": PARENT_TS}]}
+        mock_client.return_value = client
+        mock_create.return_value = MagicMock(spec=Ticket)
+
+        handle_support_reaction(self._reaction_event(), self.team, SLACK_TEAM)
+
+        client.conversations_history.assert_called_once_with(
+            channel=CHANNEL, latest=PARENT_TS, oldest=PARENT_TS, inclusive=True, limit=1
+        )
+        assert mock_create.call_args.kwargs["thread_ts"] == PARENT_TS
+        mock_backfill.assert_called_once_with(
+            client, self.team, mock_create.return_value, CHANNEL, PARENT_TS, after_ts=PARENT_TS
+        )
+
+    @patch(f"{MODULE}._backfill_thread_replies")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_skips_when_ticket_already_exists_for_resolved_root(self, mock_client, mock_create, mock_backfill):
+        reply_ts = "1700000000.000500"
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id=CHANNEL,
+            slack_thread_ts=PARENT_TS,
+        )
+        client = MagicMock()
+        client.conversations_replies.return_value = {
+            "messages": [
+                {"user": "U_ROOT", "text": "Hi Mustafa!", "ts": PARENT_TS},
+                {"user": "U_CUSTOMER", "text": "screenshots", "ts": reply_ts, "thread_ts": PARENT_TS},
+            ]
+        }
+        mock_client.return_value = client
+
+        handle_support_reaction(self._reaction_event(ts=reply_ts), self.team, SLACK_TEAM)
+
+        mock_create.assert_not_called()
+        mock_backfill.assert_not_called()
 
     @patch(f"{MODULE}._backfill_thread_replies")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     @patch(f"{MODULE}.get_slack_client")
     def test_skips_backfill_when_ticket_creation_returns_none(self, mock_client, mock_create, mock_backfill):
         client = MagicMock()
-        client.conversations_history.return_value = {"messages": [{"user": "U1", "text": "Help me", "ts": PARENT_TS}]}
+        client.conversations_replies.return_value = {"messages": [{"user": "U1", "text": "Help me", "ts": PARENT_TS}]}
         mock_client.return_value = client
         mock_create.return_value = None
 

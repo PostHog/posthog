@@ -159,6 +159,7 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations # Used for pytest-split sharding
+                        - .test_quarantine.json # Un-quarantining must re-run the affected tests
                         # generates posthog/schema.py
                         - frontend/src/queries/schema.json
                         # Operator parity check
@@ -218,6 +219,7 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_durations
+                        - .test_quarantine.json
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
@@ -295,7 +297,7 @@ jobs:
               run: |
                   prefix="posthog/temporal/data_imports/sources/"
                   # Space-separated, double-quoted, single line — parsed by the guard test.
-                  coupled="common postgres salesforce stripe"
+                  coupled="common mysql postgres salesforce stripe"
                   only_sources=false
                   if [ -n "$BACKEND_FILES" ]; then
                       only_sources=true
@@ -814,9 +816,10 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
+        outputs:
+            deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:
             contents: read
-            actions: write # to cancel this run when a deterministic check fails
         name: Repo checks (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
         steps:
@@ -846,9 +849,9 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            # Boundary between network-dependent setup (can flake) and the pure
-            # static checks below — the cancel step at the end uses it to avoid
-            # canceling the whole run on a transient setup failure.
+            # Boundary between network-dependent setup and the deterministic
+            # checks below. The "Flag deterministic failure" step keys off this
+            # step's outcome so a transient setup failure doesn't cancel the run.
             - name: Mark setup complete
               id: setup-complete
               run: echo "Setup complete — any failure below is a deterministic check failure"
@@ -874,21 +877,33 @@ jobs:
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
 
-            # A failure in the static checks above is deterministic — a retry can
-            # never fix it, so the rest of the run (50+ test shards) is wasted spend.
-            # PR-only: master and merge queue runs must complete (deploy gate,
-            # snapshots). Same-repo only: fork PR tokens are read-only.
-            - name: Cancel run on deterministic check failure
-              if: >
-                  failure() &&
-                  steps.setup-complete.outcome == 'success' &&
-                  github.event_name == 'pull_request' &&
-                  github.event.pull_request.head.repo.full_name == github.repository
+            # Deterministic = a static check above failed after setup completed.
+            # A retry can't fix it, so this signals the cancellation gate to stop the run.
+            - name: Flag deterministic failure
+              id: deterministic-failure
+              if: failure() && steps.setup-complete.outcome == 'success'
+              run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
+
+    cancel-backend-on-repo-check-failure:
+        needs: [repo-checks]
+        if: >
+            always() &&
+            needs.repo-checks.outputs.deterministic_failure == 'true' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            actions: write
+        name: Cancel Backend CI after repo check failure
+        runs-on: ubuntu-latest
+        steps:
+            - name: Cancel run
               env:
                   GH_TOKEN: ${{ github.token }}
                   GH_REPO: ${{ github.repository }}
               run: |
-                  echo "::notice::Repo checks failed deterministically — canceling the remaining jobs in this run. A retry cannot fix this failure; push a fix to start a new run."
+                  echo "::notice title=Repo checks failed deterministically::Canceling remaining Backend CI jobs. A retry cannot fix this failure; push a fix to start a new run."
                   gh run cancel ${{ github.run_id }}
 
     # Validates product.yaml owners against PostHog/posthog collaborator teams.
@@ -1589,9 +1604,10 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
         timeout-minutes: 20
+        outputs:
+            deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:
             contents: read
-            actions: write # to cancel this run when the OpenAPI check fails
 
         name: Validate OpenAPI types
         runs-on: depot-ubuntu-latest
@@ -1761,6 +1777,13 @@ jobs:
 
                   echo "needs-commit=true" >> $GITHUB_OUTPUT
 
+            # Deterministic = the OpenAPI check step itself failed (not a transient
+            # setup or commit-step failure), so a retry can't fix it. Mirrors repo-checks.
+            - name: Flag deterministic failure
+              id: deterministic-failure
+              if: failure() && steps.openapi-check.outcome == 'failure'
+              run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
+
             - name: Get app token for OpenAPI type commits
               if: steps.openapi-check.outputs.needs-commit == 'true'
               id: openapi-app-token
@@ -1787,21 +1810,26 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
-            # Schema generation and type drift failures are deterministic — a retry
-            # can never fix them, so the rest of the run is wasted spend. Keyed on the
-            # check step so transient setup or commit failures don't cancel anything.
-            # PR-only and same-repo only: fork PR tokens are read-only.
-            - name: Cancel run on deterministic check failure
-              if: >
-                  failure() &&
-                  steps.openapi-check.outcome == 'failure' &&
-                  github.event_name == 'pull_request' &&
-                  github.event.pull_request.head.repo.full_name == github.repository
+    cancel-backend-on-openapi-check-failure:
+        needs: [check-openapi-types]
+        if: >
+            always() &&
+            needs.check-openapi-types.outputs.deterministic_failure == 'true' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            actions: write
+        name: Cancel Backend CI after OpenAPI check failure
+        runs-on: ubuntu-latest
+        steps:
+            - name: Cancel run
               env:
                   GH_TOKEN: ${{ github.token }}
                   GH_REPO: ${{ github.repository }}
               run: |
-                  echo "::notice::OpenAPI check failed deterministically — canceling the remaining jobs in this run. A retry cannot fix this failure; push a fix to start a new run."
+                  echo "::notice title=OpenAPI check failed deterministically::Canceling remaining Backend CI jobs. A retry cannot fix this failure; push a fix to start a new run."
                   gh run cancel ${{ github.run_id }}
 
     build_django_matrix:
@@ -2612,46 +2640,76 @@ jobs:
                     echo "### Backend CI dependency results"
                     echo "| Dependency | Result |"
                     echo "| --- | --- |"
+                    echo "| repo-checks | ${{ needs.repo-checks.result }} |"
+                    echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| django | ${{ needs.django.result }} |"
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
-                    echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| async-migrations | ${{ needs.async-migrations.result }} |"
-                    echo "| repo-checks | ${{ needs.repo-checks.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
                     echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
                     echo "| handle-snapshots | ${{ needs.handle-snapshots.result }} |"
+                    if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
+                      echo ""
+                      echo "**Root cause:** Repo checks failed deterministically. Open the repo checks job logs; downstream cancelled jobs are expected."
+                    fi
+                    if [[ "${{ needs.check-openapi-types.outputs.deterministic_failure }}" == "true" ]]; then
+                      echo ""
+                      echo "**Root cause:** OpenAPI type checks failed deterministically. Open the OpenAPI type check job logs; downstream cancelled jobs are expected."
+                    fi
                   } | tee -a "$GITHUB_STEP_SUMMARY"
 
             - name: Check dependency results
               run: |
+                  deterministic_failure=false
+                  failed=false
+
+                  if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
+                    echo "::error title=Repo checks failed deterministically::Open the repo checks job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
+                    deterministic_failure=true
+                  fi
+
+                  if [[ "${{ needs.check-openapi-types.outputs.deterministic_failure }}" == "true" ]]; then
+                    echo "::error title=OpenAPI type checks failed deterministically::Open the OpenAPI type check job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
+                    deterministic_failure=true
+                  fi
+
+                  # cancel_ok tolerates a bare 'cancelled' result (the optional snapshot commit job);
+                  # required jobs treat an unexpected cancel as a failure.
                   check_required_result() {
                     local label="$1"
                     local result="$2"
+                    local cancel_ok="${3:-false}"
 
                     if [[ "$result" == "success" || "$result" == "skipped" ]]; then
                       return
                     fi
 
                     if [[ "$result" == "cancelled" ]]; then
+                      if [[ "$deterministic_failure" == "true" ]]; then
+                        echo "::notice::$label was cancelled after a deterministic failure."
+                        return
+                      fi
+                      if [[ "$cancel_ok" == "true" ]]; then
+                        return
+                      fi
                       echo "::error::$label was cancelled or timed out."
                     else
                       echo "::error::$label failed with result '$result'."
                     fi
 
-                    exit 1
+                    failed=true
                   }
 
+                  check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
+                  check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
-                  check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
-                  check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
+                  check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}" true
 
-                  # Check handle-snapshots result (OK if skipped, but fail if it failed)
-                  if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
-                    echo "Snapshot commit job failed."
+                  if [[ "$deterministic_failure" == "true" || "$failed" == "true" ]]; then
                     exit 1
                   fi
 

@@ -1,7 +1,14 @@
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
+from posthog.temporal.health_checks.framework import (
+    _SEVERITY_WEIGHT,
+    AlertContent,
+    HealthCheck,
+    Remediation,
+    SignalContent,
+    build_signal_extra,
+)
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -45,6 +52,21 @@ class ScrollDepthCheck(HealthCheck):
             title="Scroll-depth tracking disabled",
             summary=issue.payload.get("reason", "$pageleave events have no scroll-depth metadata"),
             link="/web/health",
+        )
+
+    @classmethod
+    def render_signal(cls, issue: HealthIssue) -> SignalContent | None:
+        title = "Scroll-depth tracking disabled"
+        summary = issue.payload.get("reason", "$pageleave events have no scroll-depth metadata.")
+        return SignalContent(
+            description=(
+                f"This project's `$pageleave` events carry no scroll-depth metadata over the last "
+                f"{SCROLL_DEPTH_LOOKBACK_DAYS} days, so scroll-depth reports in web analytics will be empty. "
+                "This usually means scroll-depth autocapture is disabled in the SDK config. Recommend enabling "
+                "it so engagement-by-scroll-depth is captured."
+            ),
+            weight=_SEVERITY_WEIGHT[issue.severity],
+            extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:

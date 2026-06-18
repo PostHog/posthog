@@ -13,6 +13,7 @@ from posthog.schema import (
     PropertyOperator,
     SessionPropertyFilter,
     SessionsV2JoinMode,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebGoalsQuery,
 )
@@ -228,8 +229,7 @@ class TestWebGoalsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             lazy_response = self._runner(self._build_query()).calculate()
 
-        assert lazy_response.usedLazyPrecompute is True
-        assert lazy_response.usedPreAggregatedTables is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
         live_by_action = {r[0]: (r[1], r[2], r[3]) for r in live_response.results}
         lazy_by_action = {r[0]: (r[1], r[2], r[3]) for r in lazy_response.results}

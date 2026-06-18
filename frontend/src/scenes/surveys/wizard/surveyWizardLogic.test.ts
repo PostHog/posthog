@@ -86,8 +86,8 @@ describe('surveyWizardLogic', () => {
                     },
                 },
                 patch: {
-                    '/api/environments/:team_id/add_product_intent/': async (req) => {
-                        const data = await req.json()
+                    '/api/environments/:team_id/add_product_intent/': async ({ request }) => {
+                        const data = await request.json()
                         capturedIntentRequests.push(data)
                         return [200, {}]
                     },

@@ -26,7 +26,7 @@ import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInpu
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'

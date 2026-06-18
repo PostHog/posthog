@@ -10,7 +10,7 @@ import {
 } from '@posthog/quill-charts'
 import { Skeleton } from '@posthog/quill-primitives'
 
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
 
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'

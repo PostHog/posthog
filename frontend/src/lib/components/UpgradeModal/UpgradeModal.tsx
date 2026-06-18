@@ -23,7 +23,7 @@ export function UpgradeModal(): JSX.Element {
 
     if (shouldShowPlatformAddonMessage) {
         return (
-            <LemonModal onClose={hideUpgradeModal} isOpen={!!upgradeModalFeatureKey}>
+            <LemonModal onClose={hideUpgradeModal} isOpen={!!upgradeModalFeatureKey} zIndex="1169">
                 <div className="max-w-2xl mt-8">
                     <div className="PayGateMini rounded flex flex-col items-center p-4 text-center bg-primary border border-primary">
                         <div className="mb-3 max-w-72">
@@ -49,7 +49,7 @@ export function UpgradeModal(): JSX.Element {
     }
 
     return (
-        <LemonModal onClose={hideUpgradeModal} isOpen={!!upgradeModalFeatureKey}>
+        <LemonModal onClose={hideUpgradeModal} isOpen={!!upgradeModalFeatureKey} zIndex="1169">
             <div className="max-w-2xl">
                 <PayGateMini
                     feature={upgradeModalFeatureKey}

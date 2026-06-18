@@ -54,7 +54,33 @@ def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: s
     selected_columns.append("argMax(timestamp, inserted_at) as timestamp")
     selected_columns_sql = ",\n            ".join(selected_columns)
 
-    extra_where_clause = f"\n      AND {extra_where}" if extra_where else ""
+    if extra_where:
+        # `extra_where` filters on the raw `metadata` JSON, but this SELECT also exposes
+        # `metadata` as an `argMax(...)` alias. HogQL resolves the name in WHERE to that
+        # aggregate alias and rejects the query ("aggregate function ... found in WHERE"),
+        # so any caller that filtered on `metadata` silently failed. Apply the predicate in
+        # a non-aggregating inner scan so it binds to the raw column, then dedupe in the
+        # outer aggregate. Pushing the filter down here (vs. the caller's outer query) keeps
+        # the dedup scan bounded to the matching rows.
+        raw_columns = ["document_id", "content", "metadata"]
+        if include_embedding:
+            raw_columns.append("embedding")
+        raw_columns.extend(["inserted_at", "timestamp"])
+        raw_columns_sql = ",\n                ".join(raw_columns)
+        return f"""
+        SELECT
+            {selected_columns_sql}
+        FROM (
+            SELECT
+                {raw_columns_sql}
+            FROM document_embeddings
+            WHERE model_name = {{model_name}}
+              AND product = 'signals'
+              AND document_type = 'signal'
+              AND {extra_where}
+        )
+        GROUP BY document_id
+    """
 
     return f"""
         SELECT
@@ -62,7 +88,7 @@ def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: s
         FROM document_embeddings
         WHERE model_name = {{model_name}}
           AND product = 'signals'
-          AND document_type = 'signal'{extra_where_clause}
+          AND document_type = 'signal'
         GROUP BY document_id
     """
 

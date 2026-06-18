@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
@@ -10,12 +11,19 @@ from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
+    BURSTABLE_SANDBOX_RESOURCES_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.services.sandbox_config import (
+    MAX_SANDBOX_CPU_CORES,
+    MAX_SANDBOX_MEMORY_GB,
+    MAX_SANDBOX_TTL_SECONDS,
+)
+from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -65,6 +73,9 @@ class TaskProcessingContext:
     sandbox_event_ingest_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
+    # Captured at workflow start so the provisioned box's resource request is stable across
+    # activity retries (a mid-run flag flip can't change a live sandbox's resources anyway).
+    burstable_sandbox_resources_enabled: bool = False
 
     @property
     def mode(self) -> str:
@@ -107,6 +118,40 @@ class TaskProcessingContext:
     def run_source(self) -> str | None:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
+
+    def inactivity_timeout(self) -> timedelta:
+        """How long the run may sit idle before the workflow times it out.
+
+        Longer for user-driven runs (explicitly user-created, or with no origin
+        product) than for automated/background runs. A global env override or a
+        per-task override set at creation time both take precedence.
+        """
+        is_user_origin = not self.origin_product or self.origin_product == Task.OriginProduct.USER_CREATED.value
+        return resolve_inactivity_timeout(is_user_origin=is_user_origin, state=self.state)
+
+    def sandbox_resource_overrides(self) -> dict[str, float | int]:
+        """SandboxConfig field overrides requested at task creation (compute + TTL).
+
+        Empty when the task requested none — callers spread it into SandboxConfig so
+        unset fields keep their defaults. `bool` is excluded explicitly since it's an
+        `int` subclass and would otherwise slip through as 0/1. Values are clamped to
+        server-owned bounds (and non-positive values ignored) as defense-in-depth, so
+        even if an override reaches here via an unexpected path it can't provision an
+        oversized sandbox.
+        """
+        overrides: dict[str, float | int] = {}
+        state = self.state or {}
+        for state_key, config_key, max_value in (
+            ("sandbox_cpu_cores", "cpu_cores", MAX_SANDBOX_CPU_CORES),
+            ("sandbox_memory_gb", "memory_gb", MAX_SANDBOX_MEMORY_GB),
+        ):
+            value = state.get(state_key)
+            if isinstance(value, int | float) and not isinstance(value, bool) and value > 0:
+                overrides[config_key] = float(min(value, max_value))
+        ttl = state.get("sandbox_ttl_seconds")
+        if isinstance(ttl, int | float) and not isinstance(ttl, bool) and ttl > 0:
+            overrides["ttl_seconds"] = int(min(ttl, MAX_SANDBOX_TTL_SECONDS))
+        return overrides
 
     def get_sandbox_environment(self):
         """Resolve the SandboxEnvironment, team-scoped and respecting privacy."""
@@ -221,6 +266,45 @@ def _is_modal_vm_sandbox_enabled(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
         use_modal_vm_sandbox=enabled,
+    )
+    return enabled
+
+
+def _is_burstable_sandbox_resources_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    state_override = (state or {}).get("burstable_sandbox_resources_enabled")
+    if isinstance(state_override, bool):
+        log_with_activity_context(
+            "burstable_sandbox_resources_state_override",
+            run_id=run_id,
+            burstable_sandbox_resources_enabled=state_override,
+        )
+        return state_override
+
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                BURSTABLE_SANDBOX_RESOURCES_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("burstable_sandbox_resources_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "burstable_sandbox_resources_flag_checked",
+        run_id=run_id,
+        burstable_sandbox_resources_enabled=enabled,
     )
     return enabled
 
@@ -386,6 +470,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
     )
+    burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run",
+    )
     user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
         user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
@@ -417,4 +512,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
+        burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
     )

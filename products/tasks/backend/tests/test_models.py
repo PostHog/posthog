@@ -104,6 +104,43 @@ class TestTask(TestCase):
         self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_threads_ai_stage_into_state(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        Task.create_and_run(
+            team=self.team,
+            title="Signal Task",
+            description="Signal Description",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            user_id=user.id,
+            repository="posthog/posthog",
+            ai_stage="research",
+        )
+
+        run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(task_run.state["ai_stage"], "research")
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_omits_ai_stage_when_not_provided(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        Task.create_and_run(
+            team=self.team,
+            title="Plain Task",
+            description="Plain Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog",
+        )
+
+        run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertNotIn("ai_stage", task_run.state)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_omits_permission_mode_when_not_provided(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})

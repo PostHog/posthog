@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import {
     isSkeletonItem,
@@ -35,8 +36,8 @@ describe('taxonomicFilterLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions': (res) => {
-                    const search = res.url.searchParams.get('search')
+                '/api/projects/:team/event_definitions': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
                     const results = search
                         ? mockEventDefinitions.filter((e) => e.name.includes(search))
                         : mockEventDefinitions
@@ -48,8 +49,8 @@ describe('taxonomicFilterLogic', () => {
                         },
                     ]
                 },
-                '/api/environments/:team/sessions/property_definitions': (res) => {
-                    const search = res.url.searchParams.get('search')
+                '/api/environments/:team/sessions/property_definitions': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
                     const results = search
                         ? mockSessionPropertyDefinitions.filter((e) => e.name.includes(search))
                         : mockSessionPropertyDefinitions
@@ -188,6 +189,29 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    it('emits search latency for the active remote tab when its results land', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const eventsListLogic = infiniteListLogic({
+            ...logic.props,
+            listGroupType: TaxonomicFilterGroupType.Events,
+        })
+
+        await expectLogic(eventsListLogic, () => logic.actions.setSearchQuery('event')).toDispatchActions([
+            'loadRemoteItemsSuccess',
+        ])
+        await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1)
+
+        const latencyCall = captureSpy.mock.calls.find(([event]) => event === 'taxonomic filter search latency')
+        expect(latencyCall).toBeTruthy()
+        expect(latencyCall?.[1]).toMatchObject({
+            groupType: TaxonomicFilterGroupType.Events,
+            searchQuery: 'event',
+            time_to_see_data_ms: expect.any(Number),
+        })
+
+        captureSpy.mockRestore()
+    })
+
     it('tabs skip groups with no results', async () => {
         await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1).clearHistory()
 
@@ -227,8 +251,8 @@ describe('taxonomicFilterLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': (res) => {
-                        const search = res.url.searchParams.get('search')
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const search = new URL(request.url).searchParams.get('search')
                         const results = search
                             ? eventsWithPageview.filter((e) => e.name.toLowerCase().includes(search.toLowerCase()))
                             : eventsWithPageview
