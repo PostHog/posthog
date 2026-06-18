@@ -10,6 +10,7 @@ import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
+import type { InboxTabKey } from './inbox/types'
 import type { ModelsSceneTab } from './models/modelsSceneLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
@@ -295,7 +296,9 @@ export const urls = {
         presetKinds && presetKinds.length > 0
             ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
             : '/health/alerts',
-    inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
+    // Inbox 2.0 tab-first routing: /inbox, /inbox/<tab>, /inbox/<tab>/<reportId>.
+    inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
+    inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',

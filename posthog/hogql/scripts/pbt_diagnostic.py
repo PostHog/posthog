@@ -2,10 +2,13 @@
 
 Reuses the strategies from `test_parser_grammar_pbt.py` (the
 auto-generated grammar PBT introduced in PR #58627) but runs as an
-ad-hoc CLI rather than a pytest collection. Backend-agnostic:
-defaults to `cpp-json` vs `rust-json` (the two compiled backends);
-point `--candidate` at `python` or any other backend in a feature
-branch that adds one.
+ad-hoc CLI rather than a pytest collection. Defaults to `cpp-json` vs
+`rust-py` (the primary parity target — `rust-json` was a stepping
+stone and may end up in a future wasm build, but isn't the primary
+production candidate). The `python` antlr4 visitor is intentionally
+excluded from `--oracle` / `--candidate` — it's order-of-magnitude
+slower and useless for the tight diagnose-then-fix loop the grind is
+built for.
 
 Distinct from the pytest PBT in five ways:
 
@@ -38,7 +41,7 @@ The shared parse / AST-diff / divergence-shape vocabulary lives in
 
 Typical usage:
 
-    # Default: cpp-json vs python (works in master out of the box)
+    # Default: cpp-json vs rust-py
     PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py --n 5000
 
     # With auto-shrinking on every failure
@@ -81,6 +84,9 @@ django.setup()
 
 from hypothesis import assume, given, settings
 
+# Eager so a missing `hogql-parser-parity` dep group fails at script-load,
+# not mid-grind where shrink_to_shape would lose every finding so far.
+from posthog.hogql.scripts import _shrink  # noqa: F401
 from posthog.hogql.scripts._diagnostic_common import (
     DivergenceShape,
     _ast_mismatch_shape,
@@ -179,15 +185,19 @@ def main() -> int:
             "so the match denominator is exactly --n."
         ),
     )
+    # `python` excluded — too slow for the diagnose-then-fix loop (see module docstring).
+    _BACKENDS = ("cpp-json", "rust-json", "rust-py")
     parser.add_argument(
         "--oracle",
         default=os.environ.get("ORACLE_BACKEND", "cpp-json"),
+        choices=_BACKENDS,
         help="Source-of-truth backend (default: cpp-json)",
     )
     parser.add_argument(
         "--candidate",
-        default=os.environ.get("CANDIDATE_BACKEND", "rust-json"),
-        help="Backend under test (default: rust-json; override in feature branches that add a fourth backend)",
+        default=os.environ.get("CANDIDATE_BACKEND", "rust-py"),
+        choices=_BACKENDS,
+        help="Backend under test (default: rust-py)",
     )
     parser.add_argument(
         "--max-mismatch-samples",
@@ -391,8 +401,8 @@ def main() -> int:
                 "oracle": oracle,
                 "candidate": candidate,
                 "query": query,
-                "oracle_root": bucket[0],
-                "candidate_root": bucket[1],
+                "oracle_root": mismatch_bucket[0],
+                "candidate_root": mismatch_bucket[1],
                 "diff_path": steps,
             },
             shrunk,

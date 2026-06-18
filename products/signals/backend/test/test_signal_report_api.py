@@ -672,6 +672,74 @@ class TestSignalReportListAPI(APIBaseTest):
         assert body["attr"] == "has_implementation_pr"
         assert body["code"] == "invalid_input"
 
+    # --- actionability filter ---
+
+    def test_filter_actionability_single_value(self):
+        actionable = self._create_report(title="Actionable")
+        self._actionability_artefact(actionable, actionability="immediately_actionable")
+        not_actionable = self._create_report(title="Not actionable")
+        self._actionability_artefact(not_actionable, actionability="not_actionable")
+
+        response = self.client.get(self._list_url(actionability="not_actionable"))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert {r["id"] for r in body["results"]} == {str(not_actionable.id)}
+        assert body["count"] == 1
+
+    def test_filter_actionability_multiple_values(self):
+        immediate = self._create_report(title="Immediate")
+        self._actionability_artefact(immediate, actionability="immediately_actionable")
+        needs_input = self._create_report(title="Needs input")
+        self._actionability_artefact(needs_input, actionability="requires_human_input")
+        not_actionable = self._create_report(title="Not actionable")
+        self._actionability_artefact(not_actionable, actionability="not_actionable")
+
+        response = self.client.get(self._list_url(actionability="immediately_actionable,requires_human_input"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(immediate.id), str(needs_input.id)}
+
+    def test_filter_actionability_excludes_reports_without_judgment(self):
+        # A report with no actionability_judgment artefact (annotation is NULL) is excluded.
+        unjudged = self._create_report(title="Unjudged")
+        not_actionable = self._create_report(title="Not actionable")
+        self._actionability_artefact(not_actionable, actionability="not_actionable")
+
+        response = self.client.get(self._list_url(actionability="not_actionable"))
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(unjudged.id) not in ids
+        assert str(not_actionable.id) in ids
+
+    def test_filter_actionability_count_via_limit_one(self):
+        for i in range(3):
+            report = self._create_report(title=f"NA report {i}")
+            self._actionability_artefact(report, actionability="not_actionable")
+        actionable = self._create_report(title="Actionable")
+        self._actionability_artefact(actionable, actionability="immediately_actionable")
+
+        response = self.client.get(self._list_url(actionability="not_actionable", limit=1))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 3
+        assert len(body["results"]) == 1
+
+    def test_filter_actionability_absent_returns_all(self):
+        a = self._create_report(title="A")
+        self._actionability_artefact(a, actionability="immediately_actionable")
+        b = self._create_report(title="B")
+        self._actionability_artefact(b, actionability="not_actionable")
+
+        response = self.client.get(self._list_url())
+        ids = {r["id"] for r in response.json()["results"]}
+        assert {str(a.id), str(b.id)} <= ids
+
+    def test_filter_actionability_invalid_value_returns_400(self):
+        response = self.client.get(self._list_url(actionability="maybe_later"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "actionability"
+        assert body["code"] == "invalid_input"
+
     # --- source_products ---
 
     def test_source_products_defaults_to_empty_list(self):

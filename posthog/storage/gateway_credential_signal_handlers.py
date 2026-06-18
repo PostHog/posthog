@@ -49,6 +49,10 @@ _LOADED_ELIGIBLE_ATTR = "_fp_loaded_eligible"
 _LOADED_IS_ACTIVE_ATTR = "_fp_loaded_is_active"
 _LOADED_MEMBERSHIP_LEVEL_ATTR = "_fp_loaded_membership_level"
 _LOADED_TEAM_API_TOKEN_ATTR = "_fp_loaded_team_api_token"
+_LOADED_TEAM_OVERSPEND_ATTR = "_fp_loaded_team_overspend_allowance"
+
+# Distinguishes "no snapshot captured" from a captured null allowance (null is a valid value).
+_UNSET = object()
 
 _SECRET_KEY_KIND = "project_secret_api_key"
 _OAUTH_KIND = "oauth_access_token"
@@ -253,26 +257,32 @@ def _reproject_on_membership_delete(
     _reproject_user_sync_then_async(instance.user_id)
 
 
-def _capture_old_team_token_if_deferred(sender: type[Team], instance: Team, **kwargs: Any) -> None:
+def _capture_old_team_fields_if_deferred(sender: type[Team], instance: Team, **kwargs: Any) -> None:
     # Sole snapshot source for Team: no post_init handler, since these rows are loaded
     # far more often than saved — one query per save beats a snapshot on every load.
     if not settings.AI_GATEWAY_REDIS_URL or _LOADED_TEAM_API_TOKEN_ATTR in instance.__dict__:
         return
     if not instance.pk or instance._state.adding:
         return
-    row = Team.objects.filter(pk=instance.pk).values("api_token").first()
+    row = Team.objects.filter(pk=instance.pk).values("api_token", "llm_gateway_overspend_allowance_usd").first()
     if row is not None:
         instance.__dict__[_LOADED_TEAM_API_TOKEN_ATTR] = row["api_token"]
+        instance.__dict__[_LOADED_TEAM_OVERSPEND_ATTR] = row["llm_gateway_overspend_allowance_usd"]
 
 
-def _reproject_team_on_api_token_change(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
-    # project_token in the blob is the team's api_token; a rotation leaves every
-    # gateway credential blob on this team's gateways carrying the stale token.
+def _reproject_team_on_change(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
+    # api_token (project_token) and overspend allowance both feed every credential blob on
+    # this team; a change to either leaves them stale, so re-project.
     if not settings.AI_GATEWAY_REDIS_URL or created:
         return
     old_token = instance.__dict__.get(_LOADED_TEAM_API_TOKEN_ATTR)
+    old_allowance = instance.__dict__.get(_LOADED_TEAM_OVERSPEND_ATTR, _UNSET)
     instance.__dict__[_LOADED_TEAM_API_TOKEN_ATTR] = instance.api_token
-    if not old_token or old_token == instance.api_token:
+    instance.__dict__[_LOADED_TEAM_OVERSPEND_ATTR] = instance.llm_gateway_overspend_allowance_usd
+
+    token_changed = bool(old_token) and old_token != instance.api_token
+    allowance_changed = old_allowance is not _UNSET and old_allowance != instance.llm_gateway_overspend_allowance_usd
+    if not token_changed and not allowance_changed:
         return
 
     from posthog.tasks.gateway_credential import reproject_team_gateway_credentials_task  # noqa: PLC0415
@@ -348,8 +358,8 @@ def connect_signal_handlers() -> None:
     # Team / OrganizationMembership: pre_save fallback only (no post_init). These rows
     # are read far more than written, so paying one query per save beats snapshotting
     # every load.
-    pre_save.connect(_capture_old_team_token_if_deferred, sender=Team)
-    post_save.connect(_reproject_team_on_api_token_change, sender=Team)
+    pre_save.connect(_capture_old_team_fields_if_deferred, sender=Team)
+    post_save.connect(_reproject_team_on_change, sender=Team)
 
     post_init.connect(_snapshot_user, sender=User)
     pre_save.connect(_capture_old_user_is_active_if_deferred, sender=User)

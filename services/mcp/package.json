@@ -26,7 +26,7 @@
         "build:hono": "tsx scripts/build-hono.ts",
         "build:cli": "tsx scripts/build-cli.ts",
         "build:cli:release": "tsx scripts/build-cli-release.ts",
-        "dev:hono": "tsx scripts/dev-hono.ts",
+        "dev:hono": "tsx watch --include=scripts --include=.dev.vars --include=.env scripts/dev-hono.ts",
         "test": "vitest",
         "test:integration": "vitest run --config vitest.integration.config.mts",
         "test:hono": "vitest run --config vitest.hono.config.mts",

@@ -82,6 +82,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flags_cache_entries,
 )
 from products.logs.backend.tasks import logs_alert_events_cleanup_task
+from products.reminders.backend.tasks import process_due_reminders
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
     cleanup_deleted_streamlit_app_zips,
@@ -485,6 +486,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/2"),
         process_scheduled_changes.s(),
         name="process scheduled changes",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        process_due_reminders.s(),
+        name="process due reminders",
     )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
