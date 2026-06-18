@@ -167,7 +167,10 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                     ALERT_NOTIFICATION_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type
                 // Log each failure with its destination type + API error so the cause is diagnosable later.
                 failures.forEach(({ result, notification }) => {
-                    console.error(`Failed to create ${labelForType(notification.type)} alert notification`, result.reason)
+                    console.error(
+                        `Failed to create ${labelForType(notification.type)} alert notification`,
+                        result.reason
+                    )
                 })
                 const failedTypes = Array.from(
                     new Set(failures.map(({ notification }) => labelForType(notification.type)))
