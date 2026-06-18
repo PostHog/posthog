@@ -180,7 +180,7 @@ export class ToolExecutor {
         try {
             const isContextSwitch = tool.name === 'switch-project' || tool.name === 'switch-organization'
             const previousContext = isContextSwitch
-                ? await state.reqCtx.getAnalyticsContextSafe(state.context)
+                ? await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 : undefined
 
             const handlerResult = await tool.handler(state.context, validation.data)
@@ -322,7 +322,7 @@ export class ToolExecutor {
             const toolCategory = getToolCategory(toolName)
 
             void (async () => {
-                const freshContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+                const freshContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 await state.reqCtx.trackEvent(
                     AnalyticsEvent.MCP_TOOL_CALL,
                     {

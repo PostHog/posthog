@@ -57,7 +57,7 @@ function buildBaseProperties(
 
 export async function trackInitEvent(state: ResolvedState): Promise<void> {
     try {
-        const analyticsContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
         const initDurationMs = requestContext.requestStartTime
             ? Date.now() - requestContext.requestStartTime
@@ -127,7 +127,7 @@ export async function trackToolCall(
     intentMeta?: ToolCallIntentMeta
 ): Promise<void> {
     try {
-        const analyticsContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
         const sessionUuid = requestContext.sessionId
             ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
@@ -194,7 +194,7 @@ export async function trackToolCall(
 
 export async function trackToolsList(toolNames: string[], state: ResolvedState): Promise<void> {
     try {
-        const analyticsContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
         const sessionUuid = requestContext.sessionId
             ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
