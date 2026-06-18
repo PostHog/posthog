@@ -1280,6 +1280,12 @@ class SandboxEnvironment(UUIDModel):
         indexes = [
             models.Index(fields=["team", "created_by"]),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                name="unique_sandbox_env_per_team_name",
+            ),
+        ]
 
     def is_accessible_for_task_creator(self, task_created_by_id: int | None) -> bool:
         if not self.private:

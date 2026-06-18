@@ -1,8 +1,9 @@
 import base64
 import binascii
+from typing import NoReturn
 from zoneinfo import available_timezones
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from croniter import croniter
@@ -1691,7 +1692,25 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
         validated_data["team"] = self.context["team"]
         if "request" in self.context and hasattr(self.context["request"], "user"):
             validated_data["created_by"] = self.context["request"].user
-        return super().create(validated_data)
+        try:
+            # atomic() so the failed INSERT rolls back to a savepoint and the connection stays usable.
+            with transaction.atomic():
+                return super().create(validated_data)
+        except IntegrityError as e:
+            self._reraise_name_conflict(e)
+
+    def update(self, instance, validated_data):
+        try:
+            with transaction.atomic():
+                return super().update(instance, validated_data)
+        except IntegrityError as e:
+            self._reraise_name_conflict(e)
+
+    def _reraise_name_conflict(self, error: IntegrityError) -> NoReturn:
+        # Translate the (team, name) unique-constraint violation into a 400; re-raise anything else.
+        if "unique_sandbox_env_per_team_name" in str(error):
+            raise serializers.ValidationError({"name": "A sandbox environment with this name already exists."})
+        raise error
 
 
 class SandboxEnvironmentListSerializer(serializers.ModelSerializer):

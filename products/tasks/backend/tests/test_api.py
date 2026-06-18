@@ -6511,6 +6511,85 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         names = [e["name"] for e in response.json()["results"]]
         self.assertIn("Public Env", names)
 
+    def test_create_rejects_duplicate_name_for_same_user(self):
+        SandboxEnvironment.objects.create(team=self.team, name="Dup", private=True, created_by=self.user)
+
+        response = self.client.post(
+            self.base_url,
+            {"name": "Dup", "network_access_level": "full"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["attr"], "name")
+        self.assertIn("already exists", body["detail"])
+
+    def test_create_rejects_name_matching_public_environment(self):
+        other_user = User.objects.create_user(email="dup-pub@example.com", first_name="Other", password="password")
+        self.organization.members.add(other_user)
+        SandboxEnvironment.objects.create(team=self.team, name="Shared", private=False, created_by=other_user)
+
+        response = self.client.post(
+            self.base_url,
+            {"name": "Shared", "network_access_level": "full"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_rejects_name_used_by_another_users_private_environment(self):
+        other_user = User.objects.create_user(email="dup-priv@example.com", first_name="Other", password="password")
+        self.organization.members.add(other_user)
+        SandboxEnvironment.objects.create(team=self.team, name="Mine", private=True, created_by=other_user)
+
+        response = self.client.post(
+            self.base_url,
+            {"name": "Mine", "network_access_level": "full"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_rejects_name_matching_internal_environment(self):
+        SandboxEnvironment.objects.create(team=self.team, name="Reserved", internal=True, private=False)
+
+        response = self.client.post(
+            self.base_url,
+            {"name": "Reserved", "network_access_level": "full"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_allows_same_name_in_different_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        SandboxEnvironment.objects.create(team=other_team, name="Cross", created_by=self.user)
+
+        response = self.client.post(
+            self.base_url,
+            {"name": "Cross", "network_access_level": "full"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_rename_to_existing_name_rejected(self):
+        SandboxEnvironment.objects.create(team=self.team, name="First", created_by=self.user)
+        second = SandboxEnvironment.objects.create(team=self.team, name="Second", created_by=self.user)
+
+        response = self.client.patch(
+            self.detail_url(second.id),
+            {"name": "First"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_keeping_same_name_allowed(self):
+        env = SandboxEnvironment.objects.create(team=self.team, name="Keep", created_by=self.user)
+
+        response = self.client.patch(
+            self.detail_url(env.id),
+            {"name": "Keep", "network_access_level": "trusted"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_full_access_returns_empty_effective_domains(self):
         response = self.client.post(
             self.base_url,
