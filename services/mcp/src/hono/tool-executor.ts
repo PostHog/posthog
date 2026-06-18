@@ -52,20 +52,7 @@ export class ToolExecutor {
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
-        const baseTools = this.buildAdvertisedTools(state)
-
-        // Inject the `context` argument into every advertised tool so agents can
-        // state what they're trying to do. `handleToolCall` strips it via
-        // `prepareToolCall` before validation and surfaces it as `$mcp_intent`.
-        // This is the same injection `instrument()` does for SDK-wrapped servers.
-        // Guarded: analytics must never break `tools/list`, so any failure falls
-        // back to the un-augmented tool list.
-        let tools = baseTools
-        try {
-            tools = getPostHogClient().prepareToolList(baseTools)
-        } catch {
-            // fall back to un-augmented tools
-        }
+        const tools = this.injectContext(this.buildAdvertisedTools(state))
 
         void trackToolsList(
             tools.map((t) => t.name),
@@ -73,6 +60,19 @@ export class ToolExecutor {
         )
 
         return { tools }
+    }
+
+    // Inject the `context` argument into every advertised tool so agents can state
+    // what they're trying to do (`handleToolCall` strips it before validation and
+    // surfaces it as `$mcp_intent` — the same injection `instrument()` does for
+    // SDK-wrapped servers). Guarded: analytics must never break `tools/list`, so
+    // any failure falls back to the un-augmented tools.
+    private injectContext(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
+        try {
+            return getPostHogClient().prepareToolList(tools)
+        } catch {
+            return tools
+        }
     }
 
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
@@ -98,23 +98,8 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
         }
 
-        // Pull the agent's stated intent off the injected `context` arg and strip it
-        // so tool schemas/handlers never see it (validation here is `.strict()` in
-        // places). The intent rides through to `$mcp_intent` on the captured event.
-        // Guarded: analytics must never break `tools/call`. On failure we fall back
-        // to the raw args — safe because `context` is only ever present when the
-        // matching `prepareToolList` injection succeeded.
-        const rawArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        let intentMeta: ToolCallIntentMeta = {}
-        let callArgs = rawArgs
-        try {
-            const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs)
-            intentMeta = { intent: prepared.intent, intentSource: prepared.intentSource }
-            callArgs = prepared.args ?? rawArgs
-        } catch {
-            // fall back to raw args; intent simply won't be captured for this call
-        }
-        const callParams = { ...params, arguments: callArgs }
+        const { intentMeta, args } = this.extractIntent(toolName, (params?.arguments ?? {}) as Record<string, unknown>)
+        const callParams = { ...params, arguments: args }
 
         if (toolName === 'exec') {
             return this.callExecTool(callParams, state, intentMeta)
@@ -151,6 +136,26 @@ export class ToolExecutor {
             state,
             intentMeta
         )
+    }
+
+    // Pull the agent's stated intent off the injected `context` arg and strip it so
+    // tool schemas/handlers never see it (validation is `.strict()` in places). The
+    // intent rides through to `$mcp_intent` on the captured event. Guarded: analytics
+    // must never break `tools/call`, so on failure we fall back to the raw args —
+    // safe because `context` is only present when the matching injection succeeded.
+    private extractIntent(
+        toolName: string,
+        rawArgs: Record<string, unknown>
+    ): { intentMeta: ToolCallIntentMeta; args: Record<string, unknown> } {
+        try {
+            const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs)
+            return {
+                intentMeta: { intent: prepared.intent, intentSource: prepared.intentSource },
+                args: prepared.args ?? rawArgs,
+            }
+        } catch {
+            return { intentMeta: {}, args: rawArgs }
+        }
     }
 
     private async callTool(

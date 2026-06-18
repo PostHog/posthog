@@ -132,4 +132,44 @@ describe('ToolExecutor intent capture', () => {
 
         captureSpy.mockRestore()
     })
+
+    // A native (non-exec) tool call with context: proves the native callTool path
+    // strips context and forwards intent. captureToolCall only fires *after*
+    // validation passes (the validation-error path returns before tracking), so its
+    // being called with the intent proves context was stripped before validation.
+    // (projects-get hits the API, which the harness can't fulfill, so we assert on
+    // the captured analytics, not the tool's own result.)
+    it('strips context before a native tool validates and still forwards intent', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+
+        await executor.handleToolCall(
+            { name: 'projects-get', arguments: { context: 'looking up the current user' } },
+            makeState([{ name: 'projects-get' }])
+        )
+
+        expect(captureSpy).toHaveBeenCalledTimes(1)
+        expect(captureSpy.mock.calls[0]![0].toolName).toBe('projects-get')
+        expect(captureSpy.mock.calls[0]![0].intent).toBe('looking up the current user')
+
+        captureSpy.mockRestore()
+    })
+
+    // Old-schema / old-client compatibility: an agent that doesn't know about the
+    // injected context arg calls with just the tool's own args. The call is handled
+    // exactly as before (a graceful result, never a thrown error) and no intent is
+    // captured.
+    it('handles a native call with no context (old-schema clients) gracefully', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+
+        const result = (await executor.handleToolCall(
+            { name: 'projects-get', arguments: {} },
+            makeState([{ name: 'projects-get' }])
+        )) as any
+
+        expect(result.content).toBeTruthy()
+        expect(captureSpy).toHaveBeenCalledTimes(1)
+        expect(captureSpy.mock.calls[0]![0].intent).toBeUndefined()
+
+        captureSpy.mockRestore()
+    })
 })
