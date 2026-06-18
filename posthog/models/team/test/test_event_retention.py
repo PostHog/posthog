@@ -1,5 +1,8 @@
+from typing import cast
+
 from parameterized import parameterized
 
+from posthog.models.organization import ProductFeature
 from posthog.models.team.event_retention import parse_events_feature_to_months
 
 
@@ -24,4 +27,4 @@ class TestParseEventsFeatureToMonths:
         ]
     )
     def test_parse(self, feature: dict | None, expected: int) -> None:
-        assert parse_events_feature_to_months(feature) == expected
+        assert parse_events_feature_to_months(cast(ProductFeature | None, feature)) == expected
