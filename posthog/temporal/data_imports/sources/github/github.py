@@ -635,11 +635,10 @@ def create_repo_webhook(
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {e}")
 
     if response.status_code in (200, 201):
-        # PROTOTYPE: GitHub never returns the configured secret on create. We pass
-        # the secret in, so the caller already holds it; if the secret is instead
-        # entered via webhookFields, validate that the signing_secret input is
-        # populated on the hog function rather than relying on extra_inputs here.
-        return WebhookCreationResult(success=True)
+        # GitHub never echoes the secret back, so we return the one we generated as
+        # extra_inputs — the framework persists it onto the hog function's
+        # signing_secret input, which the template uses to verify X-Hub-Signature-256.
+        return WebhookCreationResult(success=True, extra_inputs={"signing_secret": secret})
 
     if _is_repo_hook_permission_error(response):
         return WebhookCreationResult(

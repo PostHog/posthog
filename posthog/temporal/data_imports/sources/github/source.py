@@ -1,3 +1,4 @@
+import secrets
 from typing import TYPE_CHECKING, Optional, cast
 
 if TYPE_CHECKING:
@@ -259,12 +260,12 @@ If automatic creation failed, your token needs the **admin:repo_hook** scope to 
 
     def create_webhook(self, config: GithubSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
         access_token = self._get_access_token(config, team_id)
-        # PROTOTYPE: the signing secret is entered by the user via webhookFields and lives on
-        # the hog function; this prototype creates the GitHub hook without minting/persisting a
-        # secret. Wire the actual secret value through here (generate one, set it as the hook's
-        # config.secret, and return it as extra_inputs["signing_secret"]) before shipping.
+        # GitHub's webhook secret is creator-supplied, so we mint one, hand it to GitHub as the
+        # hook's config.secret, and return it via extra_inputs so it lands on the hog function for
+        # signature verification. (Contrast Stripe, which generates and returns its own secret.)
+        secret = secrets.token_hex(32)
         events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
-        return create_repo_webhook(access_token, config.repository, webhook_url, events, secret="")
+        return create_repo_webhook(access_token, config.repository, webhook_url, events, secret=secret)
 
     def delete_webhook(self, config: GithubSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
         access_token = self._get_access_token(config, team_id)
