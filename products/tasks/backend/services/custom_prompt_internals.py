@@ -736,5 +736,19 @@ def extract_json_from_text(text: str | None, label: str) -> Any:
             except json.JSONDecodeError:
                 start = brace_pos + 1
 
-    # 4. Last resort — try the whole text as-is
-    return json.loads(text)
+    # 4. Last resort — try the whole text as-is, then surface a classified error so
+    # callers (and operators reading the failure) can tell empty / fenced / prose apart
+    # instead of seeing a bare "Expecting value: line 1 column 1 (char 0)".
+    stripped = text.strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError as e:
+        if not stripped:
+            raise ValueError(f"No JSON in {label}: end-turn text was empty or whitespace-only") from e
+        if "```" in text:
+            raise ValueError(
+                f"No valid JSON in {label}: text has a code fence but its contents did not parse as JSON"
+            ) from e
+        raise ValueError(
+            f"No JSON in {label}: end-turn text was prose with no JSON object (starts with {stripped[:60]!r})"
+        ) from e

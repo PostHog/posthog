@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from django.contrib.postgres.fields import ArrayField
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -94,10 +95,55 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     )
     try:
         sql = translate_hogql(predicate, context, dialect="clickhouse")
+    except ImportError:
+        # A failed import means the runtime environment is broken (e.g. a Dagster worker that
+        # can't resolve ``common.hogvm`` during compilation), not that the predicate is invalid.
+        # Let it propagate as-is rather than masquerading as a predicate validation error.
+        raise
     except Exception as exc:
         raise ValidationError({"hogql_predicate": f"Could not compile HogQL: {exc}"}) from exc
 
     return sql, dict(context.values)
+
+
+# Compiling a predicate builds the full HogQL schema graph, which is slow. The Django admin
+# recompiles it on every stats/preview render, so cache the result in the shared Django cache
+# (Redis). Keyed by request id and guarded by the predicate text it was compiled from, so a
+# changed predicate never serves a stale fragment even if explicit invalidation is missed. The
+# destructive Dagster deletion path deliberately calls ``compile_hogql_predicate`` directly
+# (never this) so the actual mutation is always built from a freshly compiled predicate.
+_COMPILED_PREDICATE_CACHE_PREFIX = "data_deletion:compiled_predicate:"
+_COMPILED_PREDICATE_CACHE_TTL = 60 * 60 * 24  # 1 day; admin-only, a brief staleness window is fine
+
+
+def _compiled_predicate_cache_key(request_id: object) -> str:
+    return f"{_COMPILED_PREDICATE_CACHE_PREFIX}{request_id}"
+
+
+def cached_compile_hogql_predicate(obj) -> tuple[str, dict]:
+    """Cache-backed ``compile_hogql_predicate`` for the Django admin's stats/preview rendering.
+
+    Only the informational admin path should use this. The Dagster deletion job compiles fresh via
+    ``compile_hogql_predicate`` so the mutation is never built from a stale fragment.
+    """
+    predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
+    if not predicate:
+        return "", {}
+    request_id = getattr(obj, "pk", None) or getattr(obj, "request_id", None)
+    if request_id is None:
+        return compile_hogql_predicate(obj)
+    key = _compiled_predicate_cache_key(request_id)
+    cached = cache.get(key)
+    if cached is not None and cached.get("source") == predicate:
+        return cached["sql"], cached["params"]
+    sql, params = compile_hogql_predicate(obj)
+    cache.set(key, {"source": predicate, "sql": sql, "params": params}, _COMPILED_PREDICATE_CACHE_TTL)
+    return sql, params
+
+
+def invalidate_compiled_predicate_cache(request_id: object) -> None:
+    """Drop the cached compiled predicate. Called when a request's deletion criteria change."""
+    cache.delete(_compiled_predicate_cache_key(request_id))
 
 
 def event_match_sql_fragment(obj) -> str:
@@ -186,8 +232,9 @@ class DataDeletionRequest(UUIDModel):
     )
     delete_all_events = models.BooleanField(
         default=False,
-        help_text="Opt in to deleting every event for the team in the given time range. "
-        "Only honored for event_removal requests. Requires events to be empty.",
+        help_text="Opt in to matching every event for the team in the given time range. "
+        "For event_removal this deletes every event; for property_removal it removes the "
+        "property from every event. Not valid for person_removal. Requires events to be empty.",
     )
     hogql_predicate = models.TextField(
         blank=True,
@@ -320,14 +367,26 @@ class DataDeletionRequest(UUIDModel):
         help_text="When execution was most recently attempted (updated on every APPROVED → IN_PROGRESS transition).",
     )
 
+    # The team_id this request was loaded from the DB with (None until loaded). Set by from_db so
+    # clean() can reject retargeting an existing request at a different team. Not a model field.
+    _loaded_team_id: int | None = None
+
     class Meta:
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
         return f"DataDeletionRequest({self.request_type}, team={self.team_id}, status={self.status})"
 
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        instance._loaded_team_id = instance.team_id
+        return instance
+
     def clean(self) -> None:
         super().clean()
+        if self._loaded_team_id is not None and self.team_id != self._loaded_team_id:
+            raise ValidationError({"team_id": "team_id cannot be changed after the request is created."})
         if self.request_type == RequestType.EVENT_REMOVAL:
             self._clean_event_removal()
         elif self.request_type == RequestType.PROPERTY_REMOVAL:
@@ -338,26 +397,28 @@ class DataDeletionRequest(UUIDModel):
         else:
             raise ValidationError({"request_type": f"Unknown request_type: {self.request_type}"})
 
-        if self.delete_all_events and self.request_type != RequestType.EVENT_REMOVAL:
-            raise ValidationError(
-                {"delete_all_events": "delete_all_events is only valid for event_removal requests."},
-            )
+        # delete_all_events is valid for event_removal and property_removal; person_removal rejects it
+        # in _clean_person_removal and returns above before reaching here.
         if self.hogql_predicate:
             compile_hogql_predicate(self)
 
     def _clean_event_removal(self) -> None:
         self._require_time_range()
-        if self.delete_all_events and self.events:
-            raise ValidationError({"events": "Events must be empty when delete_all_events is set."})
-        if not self.delete_all_events and not self.events:
-            raise ValidationError(
-                {"events": "Provide at least one event, or set delete_all_events to delete every event."}
-            )
+        self._validate_event_scope(verb="delete")
         self._reject_person_fields()
 
     def _clean_property_removal(self) -> None:
         self._require_time_range()
+        self._validate_event_scope(verb="match")
         self._reject_person_fields()
+
+    def _validate_event_scope(self, *, verb: str) -> None:
+        if self.delete_all_events and self.events:
+            raise ValidationError({"events": "Events must be empty when delete_all_events is set."})
+        if not self.delete_all_events and not self.events:
+            raise ValidationError(
+                {"events": f"Provide at least one event, or set delete_all_events to {verb} every event."}
+            )
 
     def _require_time_range(self) -> None:
         if self.start_time is None or self.end_time is None:

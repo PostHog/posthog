@@ -14,7 +14,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import override_settings
 
@@ -6783,6 +6783,52 @@ class TestSurveySummarizeDispatchesToHeadline(APIBaseTest):
         self.assertEqual(data["headline"], "Users love it")
         self.assertEqual(data["responses_sampled"], 12)
         mock_headline.assert_called_once()
+
+
+class TestSurveySummarizeByQuestionId(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.survey = Survey.objects.create(
+            team=self.team,
+            name="Test",
+            type="popover",
+            questions=[
+                {"id": "q0", "type": "rating", "question": "How likely are you to recommend us?"},
+                {"id": "q1", "type": "open", "question": "Why?"},
+            ],
+        )
+        self.team.organization.is_ai_data_processing_approved = True
+        self.team.organization.save()
+
+    @parameterized.expand(
+        [
+            # index 0 is falsy — guard against `if not question_index` style regressions
+            ("first_question", "q0", 0),
+            ("second_question", "q1", 1),
+        ]
+    )
+    @override_settings(GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.is_cloud", return_value=True)
+    @patch("products.surveys.backend.api.survey.get_archived_response_uuids", return_value=set())
+    @patch("products.surveys.backend.api.survey.format_as_markdown", return_value="summary")
+    @patch("products.surveys.backend.api.survey.summarize_responses")
+    @patch("products.surveys.backend.api.survey.fetch_responses", return_value=["because it's great"])
+    def test_summarize_by_question_id_backfills_index(
+        self, _name, question_id, expected_index, mock_fetch, mock_summarize, _mock_format, _mock_archived, _mock_cloud
+    ):
+        mock_summarize.return_value = MagicMock(summary="summary", trace_id="trace-123")
+
+        # Request a per-question summary by question_id only (no question_index) — the path that
+        # previously passed question_index=None into getSurveyResponse() and 500'd.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/?question_id={question_id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The index must be resolved from the question_id so the index-based response key fallback
+        # works and the HogQL function receives a valid integer.
+        self.assertEqual(mock_fetch.call_args.kwargs["question_index"], expected_index)
+        self.assertEqual(mock_fetch.call_args.kwargs["question_id"], question_id)
 
 
 class TestSurveyLifecycleActions(APIBaseTest):
