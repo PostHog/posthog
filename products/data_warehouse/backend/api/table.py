@@ -31,7 +31,10 @@ from products.warehouse_sources.backend.models.table import (
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
     DataWarehouseTable,
 )
-from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
+from products.warehouse_sources.backend.models.util import (
+    get_view_or_table_by_name,
+    validate_warehouse_table_url_pattern,
+)
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -186,8 +189,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
     def validate_name(self, name):
         if not self.instance or self.instance.name != name:
-            name_exists_in_hogql_database = self.context["database"].has_table(name)
-            if name_exists_in_hogql_database:
+            # has_table covers system/posthog tables and warehouse objects the requesting user can see;
+            # it's user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
+            # Otherwise a user with denied table could create another one with colliding name.
+            if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
                 raise serializers.ValidationError("A table with this name already exists.")
 
         return name
