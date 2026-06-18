@@ -111,7 +111,15 @@ export function Settings({
     // in normal flow instead, so it sits beside the content rather than overlapping.
     const isFullScene = props.logicKey === 'settingsScene'
 
-    const settingsInSidebar = props.sectionId && !!selectedSetting
+    // When embedded in a specific section (replay, logs, error tracking, etc. — anything that
+    // passes a `sectionId`), the nav always lists that section's settings as in-context sub-tabs.
+    // It must NOT depend on `selectedSetting` resolving: that value is derived from asynchronously
+    // loaded feature flags / team config, so on a cold load it is briefly null. Folding it in here
+    // made the nav fall back to the full multi-level settings map, whose items link out to
+    // `/settings/...` — which is why clicking a replay settings sub-tab would occasionally bounce
+    // the user to the top-level settings page. The standalone settings scene passes no `sectionId`
+    // and keeps the full map. (Content single-vs-stacked is decided separately in SettingsRenderer.)
+    const settingsInSidebar = !!props.sectionId
 
     const searchItems: SearchResult[] = React.useMemo(
         () => searchResults.flatMap((group) => group.results),
