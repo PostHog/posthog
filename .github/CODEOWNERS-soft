@@ -283,13 +283,13 @@ ee/clickhouse/queries/experiments/ @PostHog/team-experiments
 frontend/src/scenes/data-model/ @PostHog/team-data-modeling
 posthog/hogql_queries/endpoints/ @PostHog/team-data-modeling
 
-# Signals / PostHog AI - owned by @PostHog/team-signals
-frontend/src/scenes/max/ @PostHog/team-signals
-frontend/src/scenes/inbox/ @PostHog/team-signals
-ee/hogai/ @PostHog/team-signals
-ee/support_sidebar_max/ @PostHog/team-signals
-posthog/models/ai/** @PostHog/team-signals
-posthog/hogql_queries/document_embeddings_query_runner.py @PostHog/team-signals
+# Signals / PostHog AI - owned by @PostHog/team-self-driving
+frontend/src/scenes/max/ @PostHog/team-self-driving
+frontend/src/scenes/inbox/ @PostHog/team-self-driving
+ee/hogai/ @PostHog/team-self-driving
+ee/support_sidebar_max/ @PostHog/team-self-driving
+posthog/models/ai/** @PostHog/team-self-driving
+posthog/hogql_queries/document_embeddings_query_runner.py @PostHog/team-self-driving
 
 # Billing - owned by @PostHog/team-billing
 frontend/src/scenes/billing/ @PostHog/team-billing
