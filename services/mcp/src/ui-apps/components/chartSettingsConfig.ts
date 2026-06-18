@@ -4,15 +4,13 @@ import type { ChartDisplayType, TrendsFilter } from './types'
 
 export type ChartType = 'line' | 'area' | 'bar' | 'stacked-bar' | 'slope'
 
-// The canonical y-unit union lives in quill-charts; reuse it so the two never drift. `import type`
-// is erased at build time, so this stays runtime-free and unit-testable in the node vitest project.
+// Reuse quill's canonical y-unit union so the two can't drift.
 export type YUnit = YAxisFormat
 
 export interface ChartConfig {
     showValueLabels: boolean
     showTrendLine: boolean
     showConfidenceIntervals: boolean
-    /** Seeded from the query only — not exposed in the options dialog. */
     confidenceLevel: number
     percentStack: boolean
     yUnit: YUnit
@@ -37,7 +35,6 @@ export const Y_UNIT_OPTIONS: { value: YUnit; label: string }[] = [
     { value: 'currency', label: 'Currency' },
 ]
 
-/** Initial options for a chart: the saved insight's trendsFilter where present, defaults otherwise. */
 export function chartConfigFromTrendsFilter(trendsFilter: TrendsFilter | undefined): ChartConfig {
     return {
         showValueLabels: trendsFilter?.showValuesOnSeries ?? DEFAULT_CHART_CONFIG.showValueLabels,
@@ -50,7 +47,6 @@ export function chartConfigFromTrendsFilter(trendsFilter: TrendsFilter | undefin
 }
 
 export function defaultChartType(displayType: ChartDisplayType): ChartType {
-    // The backend slope runner returns two points per series, so open straight into slope mode.
     if (displayType === 'SlopeGraph') {
         return 'slope'
     }
@@ -60,7 +56,7 @@ export function defaultChartType(displayType: ChartDisplayType): ChartType {
     if (displayType === 'ActionsUnstackedBar') {
         return 'bar'
     }
-    // ActionsBar has always rendered stacked (web parity), so it maps to the stacked option.
+    // ActionsBar renders stacked on web, so map it to the stacked option.
     if (displayType === 'ActionsBar' || displayType === 'ActionsStackedBar') {
         return 'stacked-bar'
     }
@@ -71,20 +67,16 @@ export function isBarFamily(chartType: ChartType): boolean {
     return chartType === 'bar' || chartType === 'stacked-bar'
 }
 
-/** Web parity: percent stack is only meaningful for stacked renderings (area auto-stacks, stacked bars). */
 export function supportsPercentStack(chartType: ChartType): boolean {
     return chartType === 'area' || chartType === 'stacked-bar'
 }
 
 export interface ResolvedChartView {
-    /** Whether the slope option should be offered — it needs at least two time points. */
     slopeAvailable: boolean
-    /** Chart type to actually render; slope falls back to line when fewer than two points remain. */
     effectiveType: ChartType
 }
 
-// Slope needs a start and an end, so it's only available with >= 2 time points; a chart that drops
-// below two points after slope was picked falls back to line rather than rendering blank.
+// Slope needs at least two time points; below that it falls back to line.
 export function resolveChartView(chartType: ChartType, labelCount: number): ResolvedChartView {
     const slopeAvailable = labelCount >= 2
     return { slopeAvailable, effectiveType: chartType === 'slope' && !slopeAvailable ? 'line' : chartType }

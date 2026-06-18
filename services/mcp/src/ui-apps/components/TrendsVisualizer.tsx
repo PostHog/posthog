@@ -43,18 +43,14 @@ const CHART_TYPE_OPTIONS = [
     { value: 'stacked-bar' as const, label: 'Stacked bar' },
 ]
 
-// "Slope" collapses each series to its first and last point — the start-vs-end view a user wants
-// when they ask "how much did X change between A and B?" rather than the path between them.
 const SLOPE_TYPE_OPTION = { value: 'slope' as const, label: 'Slope' }
 
 const TOOLTIP_CONFIG = { pinnable: true, placement: 'cursor' as const }
 
-// The default tooltip shows the raw x label (e.g. `2025-05-28`); format the date like the rest of the UI.
+// DefaultTooltip shows the raw x label; format it like the axis.
 const renderDateTooltip = (ctx: TooltipContext): ReactElement => (
     <DefaultTooltip {...ctx} label={formatTooltipDate(ctx.label)} />
 )
-
-const TITLE_CLASS = 'text-xs font-semibold uppercase tracking-wider text-muted-foreground'
 
 function calculateTotal(results: TrendsResultItem[]): number {
     return results.reduce((sum, item) => {
@@ -71,41 +67,29 @@ function calculateTotal(results: TrendsResultItem[]): number {
     }, 0)
 }
 
-export function TrendsVisualizer({ query, results, title }: TrendsVisualizerProps): ReactElement {
+export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
-    // Honour the backend slope runner: a SlopeGraph query already comes back as two points per series,
-    // so defaultChartType opens straight into slope mode rather than line + a manual toggle.
     const [chartType, setChartType] = useState<ChartType>(defaultChartType(displayType))
     const [chartConfig, setChartConfig] = useState(() => chartConfigFromTrendsFilter(query?.trendsFilter))
 
     if (!results || results.length === 0) {
         return (
-            <div>
-                {title && <div className={`mb-4 ${TITLE_CLASS}`}>{title}</div>}
-                <Empty>
-                    <EmptyHeader>
-                        <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
-                        <EmptyDescription>No data available</EmptyDescription>
-                    </EmptyHeader>
-                </Empty>
-            </div>
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
+                    <EmptyDescription>No data available</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
         )
     }
 
-    // BoldNumber and ActionsBarValue aren't time series — no chart-type select, no options.
     if (displayType === 'BoldNumber') {
         const total = calculateTotal(results)
         const label = results[0] ? getSeriesLabel(results[0], 0) : 'Total'
-        return (
-            <div>
-                {title && <div className={`mb-4 ${TITLE_CLASS}`}>{title}</div>}
-                <BigNumber value={total} label={label} />
-            </div>
-        )
+        return <BigNumber value={total} label={label} />
     }
 
-    // ActionsBarValue returns aggregated_value per series (empty data[]/days[]) — render a
-    // horizontal bar of totals, not a time series.
+    // ActionsBarValue is aggregated totals per series (no days[]) — a horizontal bar, not a time series.
     if (displayType === 'ActionsBarValue') {
         const items = results.map((item, i) => ({
             label: getSeriesLabel(item, i),
@@ -114,16 +98,13 @@ export function TrendsVisualizer({ query, results, title }: TrendsVisualizerProp
         const barSeries = buildTrendsBarValueSeries(items, { getColor: colorAt })
         const barConfig = buildTrendsBarValueConfig()
         return (
-            <div>
-                {title && <div className={`mb-4 ${TITLE_CLASS}`}>{title}</div>}
-                <div className="flex flex-col w-full h-[400px]">
-                    <BarValueChart
-                        series={barSeries}
-                        labels={items.map((item) => item.label)}
-                        theme={CHART_THEME}
-                        config={barConfig}
-                    />
-                </div>
+            <div className="flex flex-col w-full h-[400px]">
+                <BarValueChart
+                    series={barSeries}
+                    labels={items.map((item) => item.label)}
+                    theme={CHART_THEME}
+                    config={barConfig}
+                />
             </div>
         )
     }
@@ -139,23 +120,14 @@ export function TrendsVisualizer({ query, results, title }: TrendsVisualizerProp
     const { slopeAvailable, effectiveType } = resolveChartView(chartType, labels.length)
     const chartTypeOptions = slopeAvailable ? [...CHART_TYPE_OPTIONS, SLOPE_TYPE_OPTION] : CHART_TYPE_OPTIONS
 
-    // Area auto-stacks but derived overlays draw at raw per-series values, so they visually
-    // disconnect from the stacked totals. Mirror the web's pattern: disable those toggles in
-    // Options and force them off when rendering area mode.
+    // Area auto-stacks, so derived overlays would draw against the stacked totals — disable them.
     const derivedSeriesDisabled = effectiveType === 'area'
     const isPercentStackView = chartConfig.percentStack && supportsPercentStack(effectiveType)
-    // The dialog's y-unit choice wins over whatever the saved insight specified.
     const effectiveTrendsFilter = { ...query?.trendsFilter, aggregationAxisFormat: chartConfig.yUnit }
-    // `valueLabels: true` falls back to the y-tick formatter, which already respects the
-    // y-unit and percent-stack view.
     const valueLabels = chartConfig.showValueLabels ? true : undefined
 
-    // Build only the active mode's chart model — toggling shouldn't recompute the hidden one.
     const renderChart = (): ReactElement => {
         if (effectiveType === 'slope') {
-            // Hand quill the full series and labels — it reduces to the first and last point itself,
-            // so the slope shaping lives once in quill, not here. The backend's incomplete_end flag is
-            // forwarded so the provisional end dashes exactly as it does in the insight.
             const slopeSeries = trendResults
                 .filter((item) => item.data.length >= 2)
                 .map((item) => ({
@@ -226,22 +198,18 @@ export function TrendsVisualizer({ query, results, title }: TrendsVisualizerProp
 
     return (
         <div>
-            <div className="mb-2 flex items-center gap-2">
-                {title && <div className={TITLE_CLASS}>{title}</div>}
-                <div className="ml-auto flex items-center gap-2">
-                    {/* eslint-disable-next-line react/forbid-elements */}
-                    <Select value={effectiveType} onChange={setChartType} options={chartTypeOptions} />
-                    {/* Slope bypasses the chart-config pipeline entirely — none of these options apply. */}
-                    {effectiveType !== 'slope' && (
-                        <ChartSettings
-                            family={isBarFamily(effectiveType) ? 'bar' : 'line'}
-                            config={chartConfig}
-                            onChange={setChartConfig}
-                            derivedSeriesDisabled={derivedSeriesDisabled}
-                            percentStackDisabled={!supportsPercentStack(effectiveType)}
-                        />
-                    )}
-                </div>
+            <div className="mb-2 flex items-center justify-end gap-2">
+                {/* eslint-disable-next-line react/forbid-elements */}
+                <Select value={effectiveType} onChange={setChartType} options={chartTypeOptions} />
+                {effectiveType !== 'slope' && (
+                    <ChartSettings
+                        family={isBarFamily(effectiveType) ? 'bar' : 'line'}
+                        config={chartConfig}
+                        onChange={setChartConfig}
+                        derivedSeriesDisabled={derivedSeriesDisabled}
+                        percentStackDisabled={!supportsPercentStack(effectiveType)}
+                    />
+                )}
             </div>
             <div className="flex flex-col w-full h-[400px]">{renderChart()}</div>
         </div>

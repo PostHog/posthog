@@ -4,20 +4,16 @@ import { Button, Label, Switch } from '@posthog/quill'
 
 import { type ChartConfig, Y_UNIT_OPTIONS, type YUnit } from './chartSettingsConfig'
 
-// Hand-rolled popover (no Radix/Floating UI portals) for the same reason as `charts/Select.tsx`:
-// the app runs in a sandboxed iframe where portalled content can land in a different stacking
-// context. The click-away listener binds to the iframe's own document, so it stays self-contained.
+// Hand-rolled popover (no portals): Quill's portalled popover mispositions inside the MCP iframe
+// (same reason as `charts/Select.tsx`). The click-away listener binds to the iframe's own document.
 
 interface ChartSettingsProps {
     family: 'line' | 'bar'
     config: ChartConfig
     onChange: (config: ChartConfig) => void
-    /** When true, derived-series toggles (trend line / moving average / CI) are disabled —
-     *  area mode auto-stacks, and overlays drawn at raw per-series values look broken
-     *  against the stacked totals. Mirrors the web trends Options behaviour. */
+    /** Disabled in area mode, where overlays would draw against the stacked totals. */
     derivedSeriesDisabled?: boolean
-    /** When true, the percent stack toggle is disabled — only stacked renderings (area,
-     *  stacked bar) support a 100% view. */
+    /** Disabled for non-stacked types — only area / stacked bar have a 100% view. */
     percentStackDisabled?: boolean
 }
 

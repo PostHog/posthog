@@ -49,7 +49,6 @@ export function formatDate(dateStr: string): string {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-// Tooltips have room for the full date incl. year; axis ticks (formatDate) drop the year to stay compact.
 export function formatTooltipDate(dateStr: string): string {
     if (!ISO_DATE_PREFIX.test(dateStr)) {
         return dateStr
