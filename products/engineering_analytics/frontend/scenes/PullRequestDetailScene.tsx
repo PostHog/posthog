@@ -30,10 +30,11 @@ import { PullRequestDetailLogicProps, pullRequestDetailLogic } from './pullReque
 export const scene: SceneExport<PullRequestDetailLogicProps> = {
     component: PullRequestDetailScene,
     logic: pullRequestDetailLogic,
-    paramsToProps: ({ params: { repoOwner, repoName, number } }) => ({
+    paramsToProps: ({ params: { repoOwner, repoName, number }, searchParams: { source } }) => ({
         repoOwner: decodeURIComponent(repoOwner),
         repoName: decodeURIComponent(repoName),
         number: parseInt(number, 10),
+        sourceId: source ?? null,
     }),
 }
 

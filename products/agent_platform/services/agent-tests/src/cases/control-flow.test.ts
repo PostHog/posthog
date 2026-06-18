@@ -49,6 +49,27 @@ describe('control flow: real e2e', () => {
         expect(session!.state).toBe('closed')
     })
 
+    it('a meta tool call echoed by its provider-safe name (posthog_meta-end-turn) dispatches the real tool', async () => {
+        // Real models echo tool calls by the provider-safe name, not the
+        // `@posthog/...` original. Pre-fix, providerSafeName turned the leading
+        // `@` into a leading underscore (`_posthog_meta-end-turn`), so the
+        // model's `posthog_meta-end-turn` missed the reverse map and dispatched
+        // as "tool not found" — burning a turn every session before the model
+        // self-corrected. Script the sanitized name the real model emits.
+        c.setScript([fauxCallTool('posthog_meta-end-turn')])
+        await c.deployAgent({ slug: 'meta-safe-name' })
+        const res = await request(c.ingress).post('/agents/meta-safe-name/run').send({ message: 'done?' })
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id)
+        // end_turn → completed, with no errored / not-found tool result anywhere.
+        expect(session!.state).toBe('completed')
+        const hasErroredToolResult = (session!.conversation as Array<{ role: string; isError?: boolean }>).some(
+            (m) => m.role === 'toolResult' && m.isError === true
+        )
+        expect(hasErroredToolResult).toBe(false)
+        expect(JSON.stringify(session!.conversation)).not.toContain('not found')
+    })
+
     it('max_turns ceiling marks the session failed', async () => {
         // Script 5 tool calls — but the agent's max_turns is 3.
         c.setScript(

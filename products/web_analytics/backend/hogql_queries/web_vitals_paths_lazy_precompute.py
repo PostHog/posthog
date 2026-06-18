@@ -11,6 +11,7 @@ from prometheus_client import Counter
 
 from posthog.schema import (
     HogQLQueryModifiers,
+    WebAnalyticsPreComputeStrategy,
     WebVitalsMetric,
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQueryResponse,
@@ -322,7 +323,7 @@ def _build_response(
         ],
         timings=runner.timings.to_list() if runner.timings else None,
         modifiers=runner.modifiers,
-        usedLazyPrecompute=True,
+        preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
     )
 
 

@@ -207,7 +207,7 @@ export interface SignalScoutConfigCreateApi {
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
     emit?: boolean
     /**
-     * Minutes between runs (10–43200). Defaults to 60 (hourly).
+     * Minutes between runs (10–43200). Defaults to 180 (every 3 hours).
      * @minimum 10
      * @maximum 43200
      */
@@ -1158,6 +1158,8 @@ export interface ForgetResponseApi {
  * * `signals_scout` - Signals scout
  * * `logs` - Logs
  * * `health_checks` - Health checks
+ * * `endpoints` - Endpoints
+ * * `replay_vision` - Replay Vision
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -1173,6 +1175,8 @@ export const SourceProductEnumApi = {
     SignalsScout: 'signals_scout',
     Logs: 'logs',
     HealthChecks: 'health_checks',
+    Endpoints: 'endpoints',
+    ReplayVision: 'replay_vision',
 } as const
 
 /**
@@ -1186,6 +1190,9 @@ export const SourceProductEnumApi = {
  * * `cross_source_issue` - Cross source issue
  * * `alert_state_change` - Alert state change
  * * `health_issue` - Health issue
+ * * `endpoint_execution_failed` - Endpoint execution failed
+ * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+ * * `scanner_finding` - Scanner finding
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -1201,6 +1208,9 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     CrossSourceIssue: 'cross_source_issue',
     AlertStateChange: 'alert_state_change',
     HealthIssue: 'health_issue',
+    EndpointExecutionFailed: 'endpoint_execution_failed',
+    EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+    ScannerFinding: 'scanner_finding',
 } as const
 
 export interface SignalSourceConfigApi {

@@ -4,7 +4,7 @@ export class LifecycleInsight {
     readonly chart: Locator
 
     constructor(page: Page) {
-        this.chart = page.getByTestId('trend-line-graph')
+        this.chart = page.getByTestId('trend-lifecycle-graph')
     }
 
     async waitForChart(): Promise<void> {
