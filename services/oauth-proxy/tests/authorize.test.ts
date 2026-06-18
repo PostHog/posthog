@@ -22,7 +22,7 @@ describe('handleAuthorize', () => {
         expect(response.headers.get('content-type')).toContain('text/html')
 
         const html = await response.text()
-        expect(html).toContain('Log in to PostHog')
+        expect(html).toContain('Authenticate with PostHog')
         expect(html).toContain('US Cloud')
         expect(html).toContain('EU Cloud')
     })
