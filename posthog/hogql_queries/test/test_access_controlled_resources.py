@@ -12,12 +12,16 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.database.database import get_data_warehouse_table_name
+
 from posthog.hogql_queries.access_controlled_resources import (
     _references_data_warehouse,
     queried_access_controlled_resources,
 )
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -91,6 +95,28 @@ class TestQueriedAccessControlledResources(BaseTest):
     def test_warehouse_table_scope(self):
         self._create_warehouse_table("my_warehouse_table")
         result = queried_access_controlled_resources(HogQLQuery(query="select * from my_warehouse_table"), self.team)
+        assert result == {"warehouse_table"}
+
+    def test_external_warehouse_table_matched_by_raw_name(self):
+        # External tables are queryable under BOTH their raw name and the prefixed
+        # source_type.prefix.table key. A user denied the table could otherwise query the raw
+        # name and be served an allowed user's cached rows, since only the prefixed form was matched.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="s",
+            connection_id="c",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="myprefix",
+        )
+        table = self._create_warehouse_table("stripe_customers")
+        table.external_data_source = source
+        table.save()
+
+        # The two queryable names genuinely diverge, so matching only the prefixed form left a gap.
+        assert get_data_warehouse_table_name(source, table.name) != table.name
+
+        result = queried_access_controlled_resources(HogQLQuery(query="select * from stripe_customers"), self.team)
         assert result == {"warehouse_table"}
 
     def test_warehouse_view_scope(self):

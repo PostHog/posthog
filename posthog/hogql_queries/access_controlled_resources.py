@@ -47,12 +47,17 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
         # cache key by AnalyticsQueryRunner._get_object_access_restrictions.
         non_system_names = table_names - set(system_scopes)
         if non_system_names:
-            warehouse_table_names = {
-                get_data_warehouse_table_name(table.external_data_source, table.name)
-                for table in DataWarehouseTable.objects.filter(team_id=team.pk)
+            # External tables are queryable under BOTH their raw name and the prefixed
+            # source_type.prefix.table key (see database.py schema build), so match either form —
+            # otherwise a denied user could read an allowed user's cached rows via the raw name.
+            warehouse_table_names: set[str] = set()
+            for table in (
+                DataWarehouseTable.objects.filter(team_id=team.pk)
                 .exclude(deleted=True)
                 .select_related("external_data_source")
-            }
+            ):
+                warehouse_table_names.add(table.name)
+                warehouse_table_names.add(get_data_warehouse_table_name(table.external_data_source, table.name))
             if non_system_names & warehouse_table_names:
                 scopes.add("warehouse_table")
 
