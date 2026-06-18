@@ -12,9 +12,7 @@ from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symb
 from common.hogql.base import Expr
 from common.hogql.constants import HogQLQuerySettings
 from common.hogql.errors import NotImplementedError, ResolutionError
-
-Workload = _resolve_backend_symbol("posthog.clickhouse.workload", "Workload")
-
+from common.hogql.workload_types import Workload
 
 # Import Workload at module level for Pydantic (needed at runtime)
 

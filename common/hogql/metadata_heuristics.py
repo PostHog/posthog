@@ -2,9 +2,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from common.hogql import ast
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
-
-HogQLNotice = _resolve_backend_symbol("posthog.schema", "HogQLNotice")
+from common.hogql.notices import HogQLNotice
 
 
 @dataclass(frozen=True)

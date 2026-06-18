@@ -1,13 +1,11 @@
 import json
 from collections.abc import Callable
 from copy import deepcopy
-from typing import Optional, cast
-
-from django.db import models
-from django.db.models.functions.comparison import Coalesce
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Any, Optional, Protocol, cast
 
 from common.hogql import ast
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.base import AST, CTE, ConstantType
 from common.hogql.context import HogQLContext
 from common.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database
@@ -29,8 +27,10 @@ from common.hogql.database.models import (
 from common.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from common.hogql.database.schema.groups import GroupsTable
 from common.hogql.database.schema.persons import PersonsTable
+from common.hogql.dependencies import HogQLAutocompleteProvider
 from common.hogql.filters import replace_filters
 from common.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
+from common.hogql.models import HogLanguage
 from common.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from common.hogql.resolver import resolve_types, resolve_types_from_table
 from common.hogql.resolver_utils import extract_select_queries
@@ -40,26 +40,44 @@ from common.hogql.visitor import TraversingVisitor, clone_expr
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 
-AutocompleteCompletionItem = _resolve_backend_symbol("posthog.schema", "AutocompleteCompletionItem")
-AutocompleteCompletionItemKind = _resolve_backend_symbol("posthog.schema", "AutocompleteCompletionItemKind")
-HogLanguage = _resolve_backend_symbol("posthog.schema", "HogLanguage")
-HogQLAutocomplete = _resolve_backend_symbol("posthog.schema", "HogQLAutocomplete")
-HogQLAutocompleteResponse = _resolve_backend_symbol("posthog.schema", "HogQLAutocompleteResponse")
-capture_exception = _resolve_backend_symbol("posthog.exceptions_capture", "capture_exception")
-get_query_runner = _resolve_backend_symbol("posthog.hogql_queries.query_runner", "get_query_runner")
-Team = _resolve_backend_symbol("posthog.models.team.team", "Team")
-User = _resolve_backend_symbol("posthog.models.user", "User")
-PropertyDefinition = _resolve_backend_symbol(
-    "products.event_definitions.backend.models.property_definition", "PropertyDefinition"
-)
-InsightVariable = _resolve_backend_symbol(
-    "products.product_analytics.backend.models.insight_variable", "InsightVariable"
-)
-
-
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
+PROPERTY_TYPE_EVENT = 1
+PROPERTY_TYPE_PERSON = 2
+PROPERTY_TYPE_GROUP = 3
+
+
+class AutocompleteCompletionItemKind(StrEnum):
+    FUNCTION = "Function"
+    VARIABLE = "Variable"
+    FOLDER = "Folder"
+    CONSTANT = "Constant"
+
+
+@dataclass(slots=True)
+class AutocompleteCompletionItem:
+    insertText: str
+    label: str
+    kind: str
+    detail: str | None = None
+
+
+@dataclass(slots=True)
+class HogQLAutocompleteResponse:
+    suggestions: list[AutocompleteCompletionItem]
+    incomplete_list: bool
+    timings: list[dict[str, str | float]] | None = None
+
+
+class HogQLAutocompleteRequest(Protocol):
+    query: str
+    language: str
+    startPosition: int
+    endPosition: int
+    sourceQuery: Any | None
+    globals: Any | None
+    filters: Any | None
 
 
 def _get_direct_connection_metadata(context: HogQLContext) -> Optional[dict]:
@@ -211,7 +229,8 @@ def convert_field_or_table_to_type_string(
         except Exception as e:
             tracking_error = Exception("Cant resolve expression field in autocomplete")
             tracking_error.__cause__ = e
-            capture_exception(tracking_error)
+            if context.autocomplete_provider is not None:
+                context.autocomplete_provider.capture_exception(tracking_error)
 
             return "Expression"
     if isinstance(field_or_table, ast.Table | ast.LazyJoin):
@@ -445,11 +464,15 @@ def gather_hog_variables_in_scope(root_node, node) -> list[str]:
 
 
 def get_hogql_autocomplete(
-    query: HogQLAutocomplete,
-    team: Team,
-    user: Optional[User] = None,
+    query: HogQLAutocompleteRequest,
+    team: Any,
+    user: Any | None = None,
     database_arg: Optional[Database] = None,
+    autocomplete_provider: HogQLAutocompleteProvider | None = None,
 ) -> HogQLAutocompleteResponse:
+    if autocomplete_provider is None:
+        raise ValueError("HogQL autocomplete requires an autocomplete_provider")
+
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
 
@@ -458,14 +481,21 @@ def get_hogql_autocomplete(
     else:
         database = Database.create_for(team=team, user=user, timings=timings)
 
-    context = HogQLContext(team_id=team.pk, team=team, user=user, database=database, timings=timings)
+    context = HogQLContext(
+        team_id=team.pk,
+        team=team,
+        user=user,
+        database=database,
+        timings=timings,
+        autocomplete_provider=autocomplete_provider,
+    )
     if query.sourceQuery:
         if query.sourceQuery.kind == "HogQLQuery" and (
             query.sourceQuery.query is None or query.sourceQuery.query == ""
         ):
             source_query = parse_select("select 1")
         else:
-            source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
+            source_query = autocomplete_provider.source_query_to_select(query.sourceQuery, team)
     else:
         source_query = parse_select("select 1")
 
@@ -518,7 +548,7 @@ def get_hogql_autocomplete(
             node = find_node.node
             parent_node = find_node.parent_node
 
-            if HogLanguage.HOG_TEMPLATE and isinstance(node, ast.Constant):
+            if query.language in (HogLanguage.HOG_TEMPLATE, HogLanguage.HOG_JSON) and isinstance(node, ast.Constant):
                 # Do not show suggestions if not inside the {} part in a template string
                 continue
 
@@ -654,18 +684,18 @@ def get_hogql_autocomplete(
 
                             if isinstance(field, StringJSONDatabaseField):
                                 if isinstance(last_table, EventsPersonSubTable):
-                                    property_type = PropertyDefinition.Type.PERSON
+                                    property_type = PROPERTY_TYPE_PERSON
                                 elif isinstance(last_table, EventsGroupSubTable):
-                                    property_type = PropertyDefinition.Type.GROUP
+                                    property_type = PROPERTY_TYPE_GROUP
                                 elif isinstance(last_table, EventsTable):
                                     if field.name == "person_properties":
-                                        property_type = PropertyDefinition.Type.PERSON
+                                        property_type = PROPERTY_TYPE_PERSON
                                     else:
-                                        property_type = PropertyDefinition.Type.EVENT
+                                        property_type = PROPERTY_TYPE_EVENT
                                 elif isinstance(last_table, PersonsTable):
-                                    property_type = PropertyDefinition.Type.PERSON
+                                    property_type = PROPERTY_TYPE_PERSON
                                 elif isinstance(last_table, GroupsTable):
-                                    property_type = PropertyDefinition.Type.GROUP
+                                    property_type = PROPERTY_TYPE_GROUP
                                 else:
                                     property_type = None
 
@@ -675,30 +705,19 @@ def get_hogql_autocomplete(
                                         match_term = ""
 
                                     with timings.measure("property_filter"):
-                                        property_query = PropertyDefinition.objects.alias(
-                                            effective_project_id=Coalesce(
-                                                "project_id", "team_id", output_field=models.BigIntegerField()
-                                            )
-                                        ).filter(
-                                            effective_project_id=context.team.project_id,  # type: ignore
-                                            name__contains=match_term,
-                                            type=property_type,
-                                        )
-
-                                    with timings.measure("property_count"):
-                                        total_property_count = property_query.count()
-
-                                    with timings.measure("property_get_values"):
-                                        properties = property_query[:PROPERTY_DEFINITION_LIMIT].values(
-                                            "name", "property_type"
+                                        properties, incomplete_list = autocomplete_provider.list_property_definitions(
+                                            team=team,
+                                            property_type=property_type,
+                                            match=match_term,
+                                            limit=PROPERTY_DEFINITION_LIMIT,
                                         )
 
                                     extend_responses(
-                                        keys=[prop["name"] for prop in properties],
+                                        keys=[prop.name for prop in properties],
                                         suggestions=response.suggestions,
-                                        details=[prop["property_type"] for prop in properties],
+                                        details=[prop.property_type for prop in properties],
                                     )
-                                    response.incomplete_list = total_property_count > PROPERTY_DEFINITION_LIMIT
+                                    response.incomplete_list = incomplete_list
                             elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
                                 fields = list(field.fields.items())
                                 extend_responses(
@@ -773,10 +792,10 @@ def get_hogql_autocomplete(
                 if node.chain[0] == MATCH_ANY_CHARACTER or (
                     "variables".startswith(str(node.chain[0])) and len(node.chain) == 1
                 ):
-                    insight_variables = InsightVariable.objects.filter(
-                        team_id=team.pk,
-                    ).order_by("name")
-                    code_names = [f"variables.{n.code_name}" for n in insight_variables if n.code_name]
+                    code_names = [
+                        f"variables.{code_name}"
+                        for code_name in autocomplete_provider.list_insight_variable_code_names(team=team)
+                    ]
                     extend_responses(
                         keys=code_names,
                         suggestions=response.suggestions,
@@ -784,10 +803,7 @@ def get_hogql_autocomplete(
                         details=["Variable"] * len(code_names),
                     )
                 elif len(node.chain) > 1 and node.chain[0] == "variables":
-                    insight_variables = InsightVariable.objects.filter(
-                        team_id=team.pk,
-                    ).order_by("name")
-                    code_names = [n.code_name for n in insight_variables if n.code_name]
+                    code_names = autocomplete_provider.list_insight_variable_code_names(team=team)
                     extend_responses(
                         keys=code_names,
                         suggestions=response.suggestions,
@@ -800,7 +816,7 @@ def get_hogql_autocomplete(
         if len(response.suggestions) != 0:
             break
 
-    response.timings = timings.to_list()
+    response.timings = [{"k": key, "t": time} for key, time in timings.to_dict().items()]
     return response
 
 

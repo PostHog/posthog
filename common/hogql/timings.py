@@ -1,20 +1,24 @@
 from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
 from time import perf_counter
-from typing import TYPE_CHECKING
 
 from opentelemetry import trace
-
-from common.hogql.backend import (
-    create_query_timing,
-    resolve_backend_symbol as _resolve_backend_symbol,
-)
-
-if TYPE_CHECKING:
-    QueryTiming = _resolve_backend_symbol("posthog.schema", "QueryTiming")
 
 _tracer = trace.get_tracer(__name__)
 
 TIMING_DECIMAL_PLACES = 3  # round to milliseconds
+
+
+@dataclass(frozen=True)
+class HogQLTiming(dict):
+    k: str
+    t: float
+
+    def __post_init__(self) -> None:
+        dict.__init__(self, k=self.k, t=self.t)
+
+    def model_dump(self) -> dict[str, str | float]:
+        return {"k": self.k, "t": self.t}
 
 
 # Not thread safe.
@@ -60,8 +64,8 @@ class HogQLTimings:
             timings[key] = round(timings.get(key, 0.0) + (perf_counter() - start), TIMING_DECIMAL_PLACES)
         return timings
 
-    def to_list(self, back_out_stack=True) -> list["QueryTiming"]:
+    def to_list(self, back_out_stack=True) -> list[HogQLTiming]:
         return [
-            create_query_timing(kind=key, duration_seconds=round(time, TIMING_DECIMAL_PLACES))
+            HogQLTiming(k=key, t=round(time, TIMING_DECIMAL_PLACES))
             for key, time in (self.to_dict() if back_out_stack else self.timings).items()
         ]

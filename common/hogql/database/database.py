@@ -329,10 +329,9 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # We only ever load our own freshly-built blob, but restrict the unpickler anyway as defense in depth:
 # it can reconstruct only the classes the catalog is built from, so even a future change that fed it
 # untrusted bytes couldn't instantiate arbitrary code (os.system, etc.). Every catalog class lives
-# under common.hogql.* except the Workload enum, so new table/field/AST types keep working and
-# anything else fails loudly.
+# under common.hogql.*, so new table/field/AST types keep working and anything else fails loudly.
 _CATALOG_PICKLE_MODULE_PREFIXES = ("common.hogql.",)
-_CATALOG_PICKLE_MODULES = frozenset({"posthog.clickhouse.workload"})
+_CATALOG_PICKLE_MODULES = frozenset()
 
 
 class _CatalogUnpickler(pickle.Unpickler):

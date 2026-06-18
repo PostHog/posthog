@@ -19,7 +19,6 @@ from structlog import getLogger
 
 from common.hogql import ast
 from common.hogql.ast import SelectSetNode
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.base import AST
 from common.hogql.constants import RESERVED_KEYWORDS, HogQLParserBackend
 from common.hogql.errors import BaseHogQLError, ExposedHogQLError, NotImplementedError, SyntaxError
@@ -27,13 +26,11 @@ from common.hogql.grammar.HogQLLexer import HogQLLexer
 from common.hogql.grammar.HogQLParser import HogQLParser
 from common.hogql.json_ast import deserialize_ast
 from common.hogql.parse_string import parse_string_literal_ctx, parse_string_literal_text, parse_string_text_ctx
+from common.hogql.parser_modes import ParserMode
+from common.hogql.parser_reporter import report_parser_exception
 from common.hogql.placeholders import replace_placeholders
 from common.hogql.timings import HogQLTimings
 from common.hogql.visitor import clear_locations
-
-capture_exception = _resolve_backend_symbol("posthog.exceptions_capture", "capture_exception")
-ParserMode = _resolve_backend_symbol("posthog.schema_enums", "ParserMode")
-
 
 logger = getLogger(__name__)
 
@@ -127,7 +124,7 @@ except ImportError as _import_err:
     # see an unbound `NameError` when called.
     _RUST_IMPORT_ERROR_REPR = repr(_import_err)
     logger.exception("hogql_parser_rs import failed; rust-json and rust-py backends disabled")
-    capture_exception(
+    report_parser_exception(
         _import_err,
         additional_properties={"hogql_parser_rs_import_error": _RUST_IMPORT_ERROR_REPR},
     )
@@ -441,14 +438,20 @@ def _run_shadow_comparison(
     except BaseHogQLError as err:
         # Shadow rejects input the primary accepted: a divergence (raises in TEST).
         _count("shadow_rejected")
-        capture_exception(err, additional_properties={**divergence_properties, "hogql_parser_shadow_throw": "true"})
+        report_parser_exception(
+            err,
+            additional_properties={**divergence_properties, "hogql_parser_shadow_throw": "true"},
+        )
         if test_mode:
             raise
         return
     except Exception as err:
         # Packaging-class failure (broken wheel / panic). Counted, never raised.
         _count("shadow_error")
-        capture_exception(err, additional_properties={**divergence_properties, "hogql_parser_shadow_throw": "true"})
+        report_parser_exception(
+            err,
+            additional_properties={**divergence_properties, "hogql_parser_shadow_throw": "true"},
+        )
         return
     # Positions are part of the contract — the printer and planner consume cpp's per-node `start` / `end` spans, so a
     # span divergence is a real divergence. Compare full nodes; `clear_locations` is only used to classify a mismatch
@@ -471,7 +474,7 @@ def _run_shadow_comparison(
     )
     if test_mode:
         raise mismatch
-    capture_exception(
+    report_parser_exception(
         mismatch,
         additional_properties={**divergence_properties, "hogql_parser_position_only_mismatch": position_only},
     )

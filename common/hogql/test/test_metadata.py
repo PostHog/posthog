@@ -16,9 +16,9 @@ from posthog.schema import (
 )
 
 from common.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
-from common.hogql.metadata import get_hogql_metadata
 from common.hogql.parser import parse_select
 
+from posthog.hogql_metadata import get_hogql_metadata
 from posthog.models import EventDefinition, PropertyDefinition
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -374,7 +374,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         metadata = self._expr("is_identified", "persons")
         self.assertEqual(metadata.isValid, True)
 
-    @patch("common.hogql.metadata.Database.create_for")
+    @patch("common.hogql.direct_connection.Database.create_for")
     def test_metadata_resolves_database_from_connection_id(self, mock_create_for):
         source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",

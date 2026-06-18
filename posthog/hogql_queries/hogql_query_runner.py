@@ -27,6 +27,7 @@ from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_variables import PostHogVariableProvider
 
 from products.warehouse_sources.backend.models.external_data_source import (
     get_direct_external_data_source_for_connection,
@@ -76,7 +77,12 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
         if self.query.variables:
             with self.timings.measure("replace_variables"):
-                parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
+                parsed_select = replace_variables(
+                    parsed_select,
+                    list(self.query.variables.values()),
+                    self.team,
+                    variable_provider=PostHogVariableProvider(),
+                )
         if finder.placeholder_fields or finder.placeholder_expressions:
             with self.timings.measure("replace_placeholders"):
                 var_dict: dict[str, Any] = {}
@@ -112,21 +118,24 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
 
         if self.query.sendRawQuery and self.query.connectionId:
-            return execute_hogql_query(
-                query_type="HogQLQuery",
-                query=self.query.query,
-                filters=self.query.filters,
-                modifiers=self.query.modifiers or self.modifiers,
-                team=self.team,
-                user=self.user,
-                user_access_control=self.user_access_control,
-                timings=self.timings,
-                variables=self.query.variables,
-                connection_id=self.query.connectionId,
-                limit_context=self.limit_context,
-                workload=self.workload,
-                settings=self.settings,
-                send_raw_query=True,
+            return cast(
+                HogQLQueryResponse,
+                execute_hogql_query(
+                    query_type="HogQLQuery",
+                    query=self.query.query,
+                    filters=self.query.filters,
+                    modifiers=self.query.modifiers or self.modifiers,
+                    team=self.team,
+                    user=self.user,
+                    user_access_control=self.user_access_control,
+                    timings=self.timings,
+                    variables=self.query.variables,
+                    connection_id=self.query.connectionId,
+                    limit_context=self.limit_context,
+                    workload=self.workload,
+                    settings=self.settings,
+                    send_raw_query=True,
+                ),
             )
 
         query = self.to_query()

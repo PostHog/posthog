@@ -1,34 +1,34 @@
 from difflib import get_close_matches
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from common.hogql import ast
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
+from common.hogql.dependencies import HogQLVariableProvider, InsightVariableDefinition
 from common.hogql.errors import QueryError
 from common.hogql.visitor import CloningVisitor
-
-HogQLVariable = _resolve_backend_symbol("posthog.schema", "HogQLVariable")
-Team = _resolve_backend_symbol("posthog.models.team.team", "Team")
-InsightVariable = _resolve_backend_symbol(
-    "products.product_analytics.backend.models.insight_variable", "InsightVariable"
-)
-
 
 T = TypeVar("T", bound=ast.Expr)
 
 
-def replace_variables(node: T, variables: list[HogQLVariable], team: Team) -> T:
-    return ReplaceVariables(variables, team).visit(node)
+def replace_variables(
+    node: T,
+    variables: list[Any],
+    team: Any,
+    *,
+    variable_provider: HogQLVariableProvider,
+) -> T:
+    return ReplaceVariables(variables, team, variable_provider).visit(node)
 
 
 class ReplaceVariables(CloningVisitor):
-    insight_variables: list[InsightVariable]
+    insight_variables: list[InsightVariableDefinition]
 
-    def __init__(self, variables: list[HogQLVariable], team: Team):
+    def __init__(self, variables: list[Any], team: Any, variable_provider: HogQLVariableProvider):
         super().__init__()
 
-        insight_vars = InsightVariable.objects.filter(team_id=team.pk, id__in=[v.variableId for v in variables]).all()
-
-        self.insight_variables = list(insight_vars)
+        self.insight_variables = variable_provider.list_insight_variables(
+            team=team,
+            variable_ids=[variable.variableId for variable in variables],
+        )
         self.variables = variables
         self.team = team
 

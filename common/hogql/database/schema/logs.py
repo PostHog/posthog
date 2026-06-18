@@ -1,4 +1,3 @@
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     DateTimeDatabaseField,
@@ -8,9 +7,7 @@ from common.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
-
-Workload = _resolve_backend_symbol("posthog.clickhouse.workload", "Workload")
-
+from common.hogql.workload_types import Workload
 
 # 50GB - limit for user-provided HogQL queries on log tables to prevent expensive full scans
 HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES = 50_000_000_000

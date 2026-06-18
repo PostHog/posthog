@@ -11,11 +11,12 @@ from posthog.schema import (
 )
 
 from common.hogql import ast
-from common.hogql.autocomplete import get_hogql_autocomplete
 from common.hogql.database.database import Database
 from common.hogql.database.models import StringDatabaseField
 from common.hogql.database.schema.events import EventsTable
 from common.hogql.database.schema.persons import PERSONS_FIELDS
+
+from posthog.hogql_autocomplete import get_hogql_autocomplete
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import ExternalDataSourceType

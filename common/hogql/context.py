@@ -2,30 +2,23 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from common.hogql.backend import (
-    create_default_query_modifiers,
-    create_notice,
-    get_project_id_for_team,
-    resolve_backend_symbol as _resolve_backend_symbol,
-)
+from common.hogql.backend import create_default_query_modifiers, get_project_id_for_team
 from common.hogql.constants import LimitContext
+from common.hogql.notices import HogQLNotice
 from common.hogql.timings import HogQLTimings
-
-Workload = _resolve_backend_symbol("posthog.clickhouse.workload", "Workload")
-
+from common.hogql.workload_types import Workload
 
 if TYPE_CHECKING:
-    DataWarehouseSyncWarning = _resolve_backend_symbol("posthog.schema", "DataWarehouseSyncWarning")
-    HogQLNotice = _resolve_backend_symbol("posthog.schema", "HogQLNotice")
-    HogQLQueryModifiers = _resolve_backend_symbol("posthog.schema", "HogQLQueryModifiers")
-
     from common.hogql.database.database import Database
+    from common.hogql.dependencies import HogQLAutocompleteProvider, HogQLSourceQueryProvider
     from common.hogql.observability import HogQLTypeObservability
     from common.hogql.transforms.property_types import PropertySwapper
 
-    Team = _resolve_backend_symbol("posthog.models", "Team")
-    User = _resolve_backend_symbol("posthog.models", "User")
-    UserAccessControl = _resolve_backend_symbol("posthog.rbac.user_access_control", "UserAccessControl")
+    DataWarehouseSyncWarning = Any
+    HogQLQueryModifiers = Any
+    Team = Any
+    User = Any
+    UserAccessControl = Any
 
 
 def _default_modifiers() -> "HogQLQueryModifiers":
@@ -82,6 +75,10 @@ class HogQLContext:
     # merged into a table via UNION ALL in error tracking).
     data_to_ingest: dict[str, Any] = field(default_factory=dict)
 
+    # Optional host-provided services for features that need application data.
+    autocomplete_provider: Optional["HogQLAutocompleteProvider"] = None
+    source_query_provider: Optional["HogQLSourceQueryProvider"] = None
+
     # Warnings returned with the metadata query
     warnings: list["HogQLNotice"] = field(default_factory=list)
     # Notices returned with the metadata query
@@ -137,7 +134,7 @@ class HogQLContext:
         fix: Optional[str] = None,
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.notices):
-            self.notices.append(create_notice(start=start, end=end, message=message, fix=fix))
+            self.notices.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
 
     def add_warning(
         self,
@@ -147,7 +144,7 @@ class HogQLContext:
         fix: Optional[str] = None,
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.warnings):
-            self.warnings.append(create_notice(start=start, end=end, message=message, fix=fix))
+            self.warnings.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
 
     def add_error(
         self,
@@ -157,7 +154,7 @@ class HogQLContext:
         fix: Optional[str] = None,
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.errors):
-            self.errors.append(create_notice(start=start, end=end, message=message, fix=fix))
+            self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
 
     def add_data_warehouse_sync_warning(self, table_id: str, warning: "DataWarehouseSyncWarning") -> None:
         self.data_warehouse_sync_warnings[(table_id, warning.schema_name)] = warning

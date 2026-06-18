@@ -5,11 +5,7 @@ from typing import Any, Literal, Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.errors import QueryError, ResolutionError
-
-UUIDT = _resolve_backend_symbol("posthog.models.utils", "UUIDT")
-
 
 # Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.
 escape_chars_map = {
@@ -297,14 +293,14 @@ def escape_clickhouse_identifier(identifier: str) -> str:
 
 
 def escape_hogql_string(
-    name: bool | float | int | str | list | tuple | date | datetime | UUID | UUIDT | None,
+    name: bool | float | int | str | list | tuple | date | datetime | UUID | None,
     timezone: Optional[str] = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="hogql").visit(name)
 
 
 def escape_clickhouse_string(
-    name: Optional[float | int | str | list | tuple | date | datetime | UUID | UUIDT],
+    name: Optional[float | int | str | list | tuple | date | datetime | UUID],
     timezone: Optional[str] = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="clickhouse").visit(name)
@@ -354,7 +350,7 @@ class SQLValueEscaper:
             return f"toUUID({self.visit(str(value))})"
         return f"toUUIDOrNull({self.visit(str(value))})"
 
-    def visit_uuidt(self, value: UUIDT):
+    def visit_uuidt(self, value: UUID):
         if self._dialect == "hogql":
             return f"toUUID({self.visit(str(value))})"
         return f"toUUIDOrNull({self.visit(str(value))})"

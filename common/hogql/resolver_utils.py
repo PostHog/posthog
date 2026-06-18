@@ -7,7 +7,6 @@ from typing import Optional
 from pydantic import BaseModel
 
 from common.hogql import ast
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.context import HogQLContext
 from common.hogql.database.models import (
     BooleanDatabaseField,
@@ -238,19 +237,23 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
         raise SyntaxError(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
 
 
-def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
+def expand_hogqlx_query(node: ast.HogQLXTag, context: HogQLContext):
     from common.hogql.visitor import clone_expr
 
-    get_query_runner = _resolve_backend_symbol("posthog.hogql_queries.query_runner", "get_query_runner")
-    Team = _resolve_backend_symbol("posthog.models", "Team")
-
-    if team_id is None:
+    if context.team_id is None:
         raise ResolutionError("team_id is required to convert a query tag to a query", start=node.start, end=node.end)
+    if context.team is None:
+        raise ResolutionError("team is required to convert a query tag to a query", start=node.start, end=node.end)
+    if context.source_query_provider is None:
+        raise ResolutionError(
+            "source_query_provider is required to convert a query tag to a query",
+            start=node.start,
+            end=node.end,
+        )
 
     try:
         query_node = ast_to_query_node(node)
-        runner = get_query_runner(query_node, Team.objects.get(pk=team_id))
-        query = clone_expr(runner.to_query(), clear_locations=True)
+        query = clone_expr(context.source_query_provider.source_query_to_select(query_node, context.team), True)
         return query
     except Exception as e:
         raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)

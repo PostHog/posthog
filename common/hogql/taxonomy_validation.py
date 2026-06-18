@@ -9,9 +9,9 @@ from django.db.models import QuerySet
 from common.hogql import ast
 from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
+from common.hogql.notices import HogQLNotice
 from common.hogql.visitor import TraversingVisitor
 
-HogQLNotice = _resolve_backend_symbol("posthog.schema", "HogQLNotice")
 EventDefinition = _resolve_backend_symbol("posthog.models", "EventDefinition")
 PropertyDefinition = _resolve_backend_symbol("posthog.models", "PropertyDefinition")
 Team = _resolve_backend_symbol("posthog.models", "Team")

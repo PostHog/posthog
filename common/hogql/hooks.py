@@ -1,6 +1,9 @@
 from importlib import import_module
 from os import environ
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from common.hogql.dependencies import HogQLQueryProvider
 
 BACKEND_HOOKS_MODULE_ENV = "HOGQL_BACKEND_HOOKS_MODULE"
 
@@ -8,20 +11,11 @@ BACKEND_HOOKS_MODULE_ENV = "HOGQL_BACKEND_HOOKS_MODULE"
 class HogQLBackendHooks(Protocol):
     def resolve_symbol(self, module: str, name: str) -> Any: ...
 
-    def create_notice(
-        self,
-        *,
-        start: int | None,
-        end: int | None,
-        message: str,
-        fix: str | None,
-    ) -> Any: ...
-
-    def create_query_timing(self, *, kind: str, duration_seconds: float) -> Any: ...
-
     def create_default_query_modifiers(self) -> Any: ...
 
     def get_project_id_for_team(self, team_id: int) -> int: ...
+
+    def get_query_provider(self) -> "HogQLQueryProvider": ...
 
 
 _backend_hooks: HogQLBackendHooks | None = None

@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import date, datetime
-from typing import ClassVar, Literal, Optional, TypedDict, Union, cast
+from typing import Any, ClassVar, Literal, Optional, TypedDict, Union, cast
 
 import psycopg
 import pymysql
@@ -12,7 +12,7 @@ from sqlparse import tokens as sqlparse_tokens
 from sqlparse.sql import Statement
 
 from common.hogql import ast
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
+from common.hogql.backend import get_query_provider
 from common.hogql.constants import (
     HogQLGlobalSettings,
     LimitContext,
@@ -24,6 +24,7 @@ from common.hogql.database.direct_mysql_table import DirectMySQLTable
 from common.hogql.database.direct_postgres_table import DirectPostgresTable
 from common.hogql.database.schema.duckdb_table_functions import GenerateSeriesTable, OpaqueFunctionCallTable, RangeTable
 from common.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
+from common.hogql.dependencies import HogQLQueryProvider
 from common.hogql.direct_connection import (
     get_direct_connection_source,
     get_direct_connection_source_none_or_raise,
@@ -35,6 +36,7 @@ from common.hogql.escape_sql import escape_postgres_identifier
 from common.hogql.feature_extractor import extract_hogql_features
 from common.hogql.filters import replace_filters
 from common.hogql.hogql import HogQLContext
+from common.hogql.models import HogLanguage, HogQLMetadataRequest, HogQLQueryResponse
 from common.hogql.modifiers import create_default_modifiers_for_team
 from common.hogql.parser import parse_select
 from common.hogql.placeholders import find_placeholders, replace_placeholders
@@ -46,24 +48,7 @@ from common.hogql.transforms.preaggregated_table_transformation import do_preagg
 from common.hogql.variables import replace_variables
 from common.hogql.visitor import clone_expr
 from common.hogql.warehouse_warnings import record_warnings
-
-HogLanguage = _resolve_backend_symbol("posthog.schema", "HogLanguage")
-HogQLFilters = _resolve_backend_symbol("posthog.schema", "HogQLFilters")
-HogQLMetadata = _resolve_backend_symbol("posthog.schema", "HogQLMetadata")
-HogQLMetadataResponse = _resolve_backend_symbol("posthog.schema", "HogQLMetadataResponse")
-HogQLQueryModifiers = _resolve_backend_symbol("posthog.schema", "HogQLQueryModifiers")
-HogQLQueryResponse = _resolve_backend_symbol("posthog.schema", "HogQLQueryResponse")
-HogQLVariable = _resolve_backend_symbol("posthog.schema", "HogQLVariable")
-sync_execute = _resolve_backend_symbol("posthog.clickhouse.client", "sync_execute")
-Workload = _resolve_backend_symbol("posthog.clickhouse.client.connection", "Workload")
-tag_queries = _resolve_backend_symbol("posthog.clickhouse.query_tagging", "tag_queries")
-ExposedCHQueryError = _resolve_backend_symbol("posthog.errors", "ExposedCHQueryError")
-capture_exception = _resolve_backend_symbol("posthog.exceptions_capture", "capture_exception")
-Team = _resolve_backend_symbol("posthog.models.team", "Team")
-User = _resolve_backend_symbol("posthog.models.user", "User")
-UserAccessControl = _resolve_backend_symbol("posthog.rbac.user_access_control", "UserAccessControl")
-HOGQL_INCREASED_MAX_EXECUTION_TIME = _resolve_backend_symbol("posthog.settings", "HOGQL_INCREASED_MAX_EXECUTION_TIME")
-
+from common.hogql.workload_types import Workload
 
 tracer = trace.get_tracer(__name__)
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
@@ -349,15 +334,15 @@ def should_hydrate_runtime_direct_postgres_connection_metadata(
 @dataclasses.dataclass
 class HogQLQueryExecutor:
     query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
-    team: Team
+    team: Any
     _: dataclasses.KW_ONLY
     query_type: str = "hogql_query"
-    filters: Optional[HogQLFilters] = None
+    filters: Optional[Any] = None
     placeholders: Optional[dict[str, ast.Expr]] = None
-    variables: Optional[dict[str, HogQLVariable]] = None
+    variables: Optional[dict[str, Any]] = None
     workload: Workload = Workload.DEFAULT
     settings: Optional[HogQLGlobalSettings] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
+    modifiers: Optional[Any] = None
     limit_context: Optional[LimitContext] = LimitContext.QUERY
     timings: HogQLTimings = dataclasses.field(default_factory=HogQLTimings)
     pretty: Optional[bool] = True
@@ -373,8 +358,9 @@ class HogQLQueryExecutor:
     direct_dialect: Optional[Literal["postgres", "mysql"]] = None
     connection_id: Optional[str] = None
     send_raw_query: bool = False
-    user: Optional[User] = None
-    user_access_control: Optional[UserAccessControl] = None
+    user: Optional[Any] = None
+    user_access_control: Optional[Any] = None
+    query_provider: HogQLQueryProvider = dataclasses.field(default_factory=get_query_provider)
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -388,10 +374,15 @@ class HogQLQueryExecutor:
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
             self.context = HogQLContext(
-                team_id=self.team.pk, user=self.user, user_access_control=self.user_access_control
+                team_id=self.team.pk,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                source_query_provider=self.query_provider,
             )
         elif self.context.user_access_control is None:
             self.context.user_access_control = self.user_access_control
+        if self.context.source_query_provider is None:
+            self.context.source_query_provider = self.query_provider
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
         self.debug = self.modifiers is not None and self.modifiers.debug
@@ -399,7 +390,7 @@ class HogQLQueryExecutor:
         self.explain: Optional[list[str]] = None
         self.results = None
         self.types = None
-        self.metadata: Optional[HogQLMetadataResponse] = None
+        self.metadata: Optional[Any] = None
         self.hogql: Optional[str] = None
         self.print_columns: list[str] = []
         self.has_more: Optional[bool] = None
@@ -424,7 +415,10 @@ class HogQLQueryExecutor:
         with self.timings.measure("variables"):
             if self.variables and len(self.variables.keys()) > 0:
                 self.select_query = replace_variables(
-                    node=self.select_query, variables=list(self.variables.values()), team=self.team
+                    node=self.select_query,
+                    variables=list(self.variables.values()),
+                    team=self.team,
+                    variable_provider=self.query_provider,
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._process_placeholders")
@@ -481,11 +475,9 @@ class HogQLQueryExecutor:
             with self.timings.measure("daily_unique_persons_pageviews_transform"):
                 assert self.hogql_context is not None
                 assert self.hogql_context.team is not None
-                DailyUniquePersonsPageviewsTransformer = _resolve_backend_symbol(
-                    "products.analytics_platform.backend.lazy_computation.lazy_computation_transformer", "Transformer"
+                transformer = self.query_provider.create_preaggregated_intermediate_results_transformer(
+                    self.hogql_context
                 )
-
-                transformer = DailyUniquePersonsPageviewsTransformer(self.hogql_context)
                 transformed_node = transformer.visit(self.select_query)
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
                     self.select_query = transformed_node
@@ -527,6 +519,7 @@ class HogQLQueryExecutor:
             modifiers=self.query_modifiers,
             limit_context=self.limit_context,
             database=database,
+            source_query_provider=self.query_provider,
         )
 
         self._apply_optimizers()
@@ -581,7 +574,10 @@ class HogQLQueryExecutor:
             LimitContext.RETENTION,
             LimitContext.POSTHOG_AI,
         ):
-            settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
+            settings.max_execution_time = max(
+                settings.max_execution_time or 0,
+                self.query_provider.increased_max_execution_time,
+            )
 
         return settings
 
@@ -654,6 +650,7 @@ class HogQLQueryExecutor:
             modifiers=self.query_modifiers,
             limit_context=self.limit_context,
             database=self.hogql_context.database if self.hogql_context else None,
+            source_query_provider=self.query_provider,
         )
 
         direct_prepared_ast = prepare_ast_for_printing(
@@ -699,20 +696,13 @@ class HogQLQueryExecutor:
         assert self.direct_sql is not None
         assert self.direct_source_id is not None
 
-        _get_sslmode = _resolve_backend_symbol(
-            "posthog.temporal.data_imports.sources.postgres.postgres", "_get_sslmode"
-        )
-        source_requires_ssl = _resolve_backend_symbol(
-            "posthog.temporal.data_imports.sources.postgres.postgres", "source_requires_ssl"
-        )
-
         source = get_direct_connection_source(self.team, self.direct_source_id, user=self.user)
         if source is None:
             raise ExposedHogQLError("Connection not found or has been deleted")
 
         postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
         source_schema = source_config.schema
-        require_ssl = source_requires_ssl(source, source_config)
+        require_ssl = self.query_provider.source_requires_ssl(source, source_config)
         settings = self._effective_direct_settings()
         statement_timeout_ms = (
             max(settings.max_execution_time or DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1) * 1000
@@ -733,7 +723,7 @@ class HogQLQueryExecutor:
                         "user": source_config.user,
                         "password": source_config.password,
                         "connect_timeout": DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
-                        "sslmode": _get_sslmode(require_ssl),
+                        "sslmode": self.query_provider.get_postgres_sslmode(require_ssl),
                         "options": f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}",
                         # Prevent libpq from probing ~/.postgresql/ for client certs,
                         # which fails with "Permission denied" in containers where
@@ -845,7 +835,10 @@ class HogQLQueryExecutor:
             LimitContext.RETENTION,
             LimitContext.POSTHOG_AI,
         ):
-            settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
+            settings.max_execution_time = max(
+                settings.max_execution_time or 0,
+                self.query_provider.increased_max_execution_time,
+            )
 
         if self.query_modifiers.formatCsvAllowDoubleQuotes is not None:
             settings.format_csv_allow_double_quotes = self.query_modifiers.formatCsvAllowDoubleQuotes
@@ -863,6 +856,7 @@ class HogQLQueryExecutor:
                 modifiers=self.query_modifiers,
                 limit_context=self.limit_context,
                 database=self.hogql_context.database if self.hogql_context else None,
+                source_query_provider=self.query_provider,
             )
             with self.timings.measure("prepare_ast_for_printing"):
                 self.clickhouse_prepared_ast = prepare_ast_for_printing(
@@ -892,7 +886,7 @@ class HogQLQueryExecutor:
         except Exception as e:
             if self.debug:
                 self.clickhouse_sql = ""
-                if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
+                if isinstance(e, (self.query_provider.exposed_clickhouse_query_error, ExposedHogQLError)):
                     self.error = str(e)
                 else:
                     self.error = "Unknown error"
@@ -976,9 +970,9 @@ class HogQLQueryExecutor:
             shadow_executor._prepare_execution()
             self.hogql = shadow_executor.hogql
         except Exception as error:
-            capture_exception(
+            self.query_provider.capture_exception(
                 error,
-                {
+                additional_properties={
                     "component": "send_raw_query_parse_and_print",
                     "send_raw_query": True,
                     "team_id": self.team.pk,
@@ -996,7 +990,7 @@ class HogQLQueryExecutor:
         with self.timings.measure("clickhouse_execute"):
             with self.timings.measure("extract_hogql_features"):
                 hogql_features = extract_hogql_features(self.select_query)
-            tag_queries(
+            self.query_provider.tag_queries(
                 team_id=self.team.pk,
                 query_type=self.query_type,
                 has_joins="JOIN" in self.clickhouse_sql,
@@ -1013,7 +1007,7 @@ class HogQLQueryExecutor:
                 workload = clickhouse_context.workload
 
             try:
-                self.results, self.types = sync_execute(
+                self.results, self.types = self.query_provider.sync_execute(
                     self.clickhouse_sql,
                     clickhouse_context.values,
                     with_column_types=True,
@@ -1024,7 +1018,7 @@ class HogQLQueryExecutor:
             except Exception as e:
                 if self.debug:
                     self.results = []
-                    if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
+                    if isinstance(e, (self.query_provider.exposed_clickhouse_query_error, ExposedHogQLError)):
                         self.error = str(e)
                     else:
                         self.error = "Unknown error"
@@ -1033,9 +1027,8 @@ class HogQLQueryExecutor:
 
         if self.debug and self.error is None:
             with self.timings.measure("explain"):
-                # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
-                explain_results = sync_execute(
-                    f"EXPLAIN {self.clickhouse_sql}",
+                explain_results = self.query_provider.sync_explain(
+                    self.clickhouse_sql,
                     clickhouse_context.values,
                     with_column_types=True,
                     workload=workload,
@@ -1044,10 +1037,8 @@ class HogQLQueryExecutor:
                 )
                 self.explain = [str(r[0]) for r in explain_results[0]]
             with self.timings.measure("metadata"):
-                from common.hogql.metadata import get_hogql_metadata
-
-                self.metadata = get_hogql_metadata(
-                    HogQLMetadata(language=HogLanguage.HOG_QL, query=self.hogql, debug=True),
+                self.metadata = self.query_provider.get_hogql_metadata(
+                    HogQLMetadataRequest(language=HogLanguage.HOG_QL, query=self.hogql or "", debug=True),
                     self.team,
                     user=self.user,
                     hogql_ast=self.select_query,

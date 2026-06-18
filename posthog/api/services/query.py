@@ -18,18 +18,18 @@ from posthog.schema import (
     QuerySchemaRoot,
 )
 
-from common.hogql.autocomplete import get_hogql_autocomplete
 from common.hogql.compiler.bytecode import execute_hog
 from common.hogql.constants import LimitContext
 from common.hogql.context import HogQLContext
 from common.hogql.direct_connection import resolve_database_for_connection
-from common.hogql.metadata import get_hogql_metadata
 from common.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import AnalyticsProps
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_autocomplete import get_hogql_autocomplete
+from posthog.hogql_metadata import get_hogql_metadata
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl

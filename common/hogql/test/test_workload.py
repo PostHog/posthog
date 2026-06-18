@@ -5,8 +5,7 @@ from common.hogql.database.schema.events import EventsTable
 from common.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
 from common.hogql.errors import QueryError
 from common.hogql.workload import WorkloadCollector
-
-from posthog.clickhouse.workload import Workload
+from common.hogql.workload_types import Workload
 
 
 class TestWorkloadCollector:

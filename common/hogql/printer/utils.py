@@ -39,9 +39,9 @@ from common.hogql.transforms.property_types import PropertySwapper, build_proper
 from common.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
 from common.hogql.visitor import clone_expr
 from common.hogql.workload import WorkloadCollector
+from common.hogql.workload_types import Workload
 
 InCohortVia = _resolve_backend_symbol("posthog.schema_enums", "InCohortVia")
-Workload = _resolve_backend_symbol("posthog.clickhouse.workload", "Workload")
 Team = _resolve_backend_symbol("posthog.models.team", "Team")
 get_restricted_properties_for_team = _resolve_backend_symbol(
     "products.access_control.backend.property_access_control", "get_restricted_properties_for_team"

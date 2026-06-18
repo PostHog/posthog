@@ -30,7 +30,6 @@ from posthog.schema import (
 from common.hogql.ai import PromptUnclear, write_sql_from_prompt
 from common.hogql.constants import LimitContext
 from common.hogql.errors import ExposedHogQLError, ResolutionError
-from common.hogql.metadata import enrich_hogql_validation_error
 
 from posthog import settings
 from posthog.api.documentation import _FallbackSerializer, extend_schema
@@ -50,6 +49,7 @@ from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_metadata import enrich_hogql_validation_error
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh

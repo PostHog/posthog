@@ -1,20 +1,16 @@
-from typing import Literal, Optional, Union, cast
-
-from django.conf import settings
-
-from pydantic import BaseModel
+from typing import Any, Literal, Optional, Union, cast
 
 from common.hogql import ast
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.base import AST
 from common.hogql.compiler.bytecode import create_bytecode
 from common.hogql.context import HogQLContext
-from common.hogql.database.database import Database
-from common.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
+from common.hogql.dependencies import DirectConnectionResolution, HogQLMetadataProvider
 from common.hogql.errors import ExposedHogQLError
 from common.hogql.filters import replace_filters
 from common.hogql.metadata_heuristics import run_metadata_heuristics
+from common.hogql.models import HogLanguage, HogQLMetadataRequest, HogQLMetadataResponse
 from common.hogql.modifiers import create_default_modifiers_for_team
+from common.hogql.notices import HogQLNotice
 from common.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from common.hogql.placeholders import find_placeholders, replace_placeholders
 from common.hogql.printer import prepare_and_print_ast
@@ -22,23 +18,20 @@ from common.hogql.taxonomy_validation import validate_taxonomy_references
 from common.hogql.variables import replace_variables
 from common.hogql.visitor import TraversingVisitor, clone_expr
 
-HogLanguage = _resolve_backend_symbol("posthog.schema", "HogLanguage")
-HogQLMetadata = _resolve_backend_symbol("posthog.schema", "HogQLMetadata")
-HogQLMetadataResponse = _resolve_backend_symbol("posthog.schema", "HogQLMetadataResponse")
-HogQLNotice = _resolve_backend_symbol("posthog.schema", "HogQLNotice")
-HogQLQuery = _resolve_backend_symbol("posthog.schema", "HogQLQuery")
-get_query_runner = _resolve_backend_symbol("posthog.hogql_queries.query_runner", "get_query_runner")
-Team = _resolve_backend_symbol("posthog.models", "Team")
-User = _resolve_backend_symbol("posthog.models.user", "User")
+INVALID_CONNECTION_ID_ERROR = (
+    "Invalid connectionId: not a direct external data source (access_method='direct') in this team. "
+    "Warehouse import sources are not valid here."
+)
 
 
 def get_hogql_metadata(
-    query: HogQLMetadata,
-    team: Team,
-    user: Optional[User] = None,
+    query: HogQLMetadataRequest | Any,
+    team: Any,
+    user: Any | None = None,
     hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
     prepared_ast: Optional[ast.AST] = None,  # precached
     printed_sql: Optional[str] = None,  # precached
+    metadata_provider: HogQLMetadataProvider | None = None,
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
@@ -50,20 +43,28 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
-    source = get_direct_connection_source(team, query.connectionId, user=user)
-    if query.connectionId and source is None:
+    source = DirectConnectionResolution(database=None, source_id=None)
+    if query.connectionId:
+        if metadata_provider is None:
+            source = DirectConnectionResolution(
+                database=None,
+                source_id=None,
+                error=INVALID_CONNECTION_ID_ERROR,
+            )
+        else:
+            source = metadata_provider.resolve_database_for_connection(
+                team=team,
+                connection_id=query.connectionId,
+                user=user,
+                modifiers=query_modifiers,
+            )
+
+    if source.error:
         response.isValid = False
-        response.errors = [HogQLNotice(message=INVALID_CONNECTION_ID_ERROR)]
+        response.errors = [HogQLNotice(message=source.error)]
         return response
 
-    database = None
-    if source:
-        database = Database.create_for(
-            team=team,
-            user=user,
-            modifiers=query_modifiers,
-            connection_id=str(source.id),
-        )
+    database = source.database
 
     heuristic_warnings: list[HogQLNotice] = []
     context: Optional[HogQLContext] = None
@@ -71,12 +72,14 @@ def get_hogql_metadata(
     try:
         context = HogQLContext(
             team_id=team.pk,
+            team=team,
             user=user,
             database=database,
             modifiers=query_modifiers,
             enable_select_queries=True,
             debug=query.debug or False,
             globals=query.globals,
+            source_query_provider=metadata_provider,
         )
         if query.language == HogLanguage.HOG:
             program = parse_program(query.query)
@@ -87,7 +90,9 @@ def get_hogql_metadata(
         elif query.language == HogLanguage.HOG_QL_EXPR:
             node = parse_expr(query.query)
             if query.sourceQuery is not None:
-                source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
+                if metadata_provider is None:
+                    raise ValueError("HogQL metadata requires a metadata_provider for sourceQuery")
+                source_query = metadata_provider.source_query_to_select(query.sourceQuery, team)
                 process_expr_on_table(node, context=context, source_query=source_query)
             else:
                 process_expr_on_table(node, context=context)
@@ -97,10 +102,19 @@ def get_hogql_metadata(
                 finder = find_placeholders(hogql_ast)
                 if finder.has_filters:
                     hogql_ast = replace_filters(hogql_ast, query.filters, team, database=database)
-                if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
+                has_variable_placeholders = any(
+                    len(field) > 0 and field[0] == "variables" for field in finder.placeholder_fields
+                )
+                if query.variables or has_variable_placeholders:
+                    if metadata_provider is None:
+                        raise ValueError("HogQL metadata requires a metadata_provider for variables")
                     hogql_ast = replace_variables(
-                        hogql_ast, list(query.variables.values()) if query.variables else [], team
+                        hogql_ast,
+                        list(query.variables.values()) if query.variables else [],
+                        team,
+                        variable_provider=metadata_provider,
                     )
+                if finder.placeholder_fields or finder.placeholder_expressions:
                     hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
             heuristic_warnings.extend(run_metadata_heuristics(hogql_ast))
@@ -109,13 +123,11 @@ def get_hogql_metadata(
             response.table_names = hogql_table_names
 
             if not printed_sql or not prepared_ast:
-                direct_dialect: Literal["postgres", "mysql"] = (
-                    "mysql" if source and source.is_direct_mysql else "postgres"
-                )
+                direct_dialect: Literal["postgres", "mysql"] = "mysql" if source.is_direct_mysql else "postgres"
                 printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
-                    dialect=direct_dialect if source else "clickhouse",
+                    dialect=direct_dialect if source.source_id else "clickhouse",
                 )
 
             if prepared_ast:
@@ -133,9 +145,7 @@ def get_hogql_metadata(
                 response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))
             else:
                 response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
-        elif (
-            settings.DEBUG
-        ):  # We don't want to accidentally expose too much data via errors, so expose only when debug is enabled
+        elif metadata_provider is not None and metadata_provider.debug_errors:
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}: {str(e)}"))
         else:
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
@@ -160,10 +170,11 @@ def get_hogql_metadata(
 
 
 def enrich_hogql_validation_error(
-    query: BaseModel | None,
-    team: Team,
-    user: Optional[User],
+    query: Any | None,
+    team: Any,
+    user: Any | None,
     original_detail: str,
+    metadata_provider: HogQLMetadataProvider | None = None,
 ) -> tuple[str, dict | None]:
     """When a HogQLQuery fails, run it through metadata resolution to collect
     structured error positions, table references, and any fix hints. Returns a
@@ -171,13 +182,12 @@ def enrich_hogql_validation_error(
     ``extra`` attribute — or ``(original_detail, None)`` when enrichment isn't
     applicable or fails.
     """
-    if not isinstance(query, HogQLQuery) or not query.query:
+    if getattr(query, "kind", None) != "HogQLQuery" or not getattr(query, "query", None):
         return original_detail, None
 
     try:
         metadata = get_hogql_metadata(
-            query=HogQLMetadata(
-                kind="HogQLMetadata",
+            query=HogQLMetadataRequest(
                 language=HogLanguage.HOG_QL,
                 query=query.query,
                 modifiers=query.modifiers,
@@ -186,6 +196,7 @@ def enrich_hogql_validation_error(
             ),
             team=team,
             user=user,
+            metadata_provider=metadata_provider,
         )
     except Exception:
         return original_detail, None

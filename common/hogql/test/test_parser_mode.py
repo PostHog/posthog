@@ -49,7 +49,7 @@ class TestParserMode(BaseTest):
 
     def test_shadow_silent_when_backends_agree(self):
         with patch("common.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
-            with patch("common.hogql.parser.capture_exception") as captured:
+            with patch("common.hogql.parser.report_parser_exception") as captured:
                 node = parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_SHADOW)
         self.assertIsInstance(node, ast.SelectQuery)
         captured.assert_not_called()
@@ -83,7 +83,7 @@ class TestParserMode(BaseTest):
             with patch("common.hogql.parser.settings") as mock_settings:
                 mock_settings.TEST = False
                 with patch("common.hogql.parser._invoke_parser", side_effect=only_shadow_diverges):
-                    with patch("common.hogql.parser.capture_exception") as captured:
+                    with patch("common.hogql.parser.report_parser_exception") as captured:
                         node = parse_select(
                             "select shadow_mismatch_probe from events",
                             parser_mode=ParserMode.CPP_WITH_RUST_SHADOW,
@@ -105,7 +105,7 @@ class TestParserMode(BaseTest):
             return real_invoke(backend, rule, statement, start)
 
         with patch("common.hogql.parser._invoke_parser", side_effect=shadow_throws_parser_class):
-            with patch("common.hogql.parser.capture_exception"):
+            with patch("common.hogql.parser.report_parser_exception"):
                 with self.assertRaises(HogQLSyntaxError):
                     parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_SHADOW)
 
@@ -122,7 +122,7 @@ class TestParserMode(BaseTest):
             with patch("common.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
                 with patch("common.hogql.parser._invoke_parser", side_effect=shadow_throws_parser_class):
                     with patch("common.hogql.parser._SHADOW_COMPARISONS") as counter:
-                        with patch("common.hogql.parser.capture_exception") as captured:
+                        with patch("common.hogql.parser.report_parser_exception") as captured:
                             node = parse_select(
                                 "select shadow_rejected_probe from events",
                                 parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
@@ -144,7 +144,7 @@ class TestParserMode(BaseTest):
             return real_invoke(backend, rule, statement, start)
 
         with patch("common.hogql.parser._invoke_parser", side_effect=shadow_throws_packaging):
-            with patch("common.hogql.parser.capture_exception") as captured:
+            with patch("common.hogql.parser.report_parser_exception") as captured:
                 node = parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_SHADOW)
         self.assertIsInstance(node, ast.SelectQuery)
         captured.assert_called_once()
@@ -152,7 +152,7 @@ class TestParserMode(BaseTest):
 
     def test_shadow_agreement_counts_as_agree_with_parser_version_labels(self):
         with patch("common.hogql.parser._SHADOW_COMPARISONS") as counter:
-            with patch("common.hogql.parser.capture_exception") as captured:
+            with patch("common.hogql.parser.report_parser_exception") as captured:
                 parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW)
         self.assertEqual([c.kwargs.get("result") for c in counter.labels.call_args_list], ["agree"])
         agree_call = counter.labels.call_args_list[0]
@@ -174,7 +174,7 @@ class TestParserMode(BaseTest):
             with patch("common.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
                 with patch("common.hogql.parser._invoke_parser", side_effect=only_shadow_diverges):
                     with patch("common.hogql.parser._SHADOW_COMPARISONS") as counter:
-                        with patch("common.hogql.parser.capture_exception") as captured:
+                        with patch("common.hogql.parser.report_parser_exception") as captured:
                             parse_select(
                                 "select sql_attach_probe from events",
                                 parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,

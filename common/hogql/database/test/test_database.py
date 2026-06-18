@@ -151,7 +151,7 @@ class TestBuildDatabaseRootNode(TestCase):
         # can't instantiate code-execution gadgets.
         unpickler = _CatalogUnpickler(io.BytesIO(b""))
         assert unpickler.find_class("common.hogql.database.models", "StringDatabaseField") is not None
-        assert unpickler.find_class("posthog.clickhouse.workload", "Workload") is not None
+        assert unpickler.find_class("common.hogql.workload", "Workload") is not None
         for module, name in [
             ("os", "system"),
             ("builtins", "eval"),

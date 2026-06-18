@@ -1,4 +1,3 @@
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
@@ -8,8 +7,7 @@ from common.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
-
-Workload = _resolve_backend_symbol("posthog.clickhouse.workload", "Workload")
+from common.hogql.workload_types import Workload
 
 
 class TraceSpansTable(Table):

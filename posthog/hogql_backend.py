@@ -2,28 +2,18 @@ from importlib import import_module
 from typing import Any
 
 from common.hogql.hooks import HogQLBackendHooks, set_hogql_backend_hooks
+from common.hogql.parser_reporter import set_parser_exception_reporter
+
+
+def _capture_parser_exception(exception: Exception, additional_properties: dict[str, Any] | None) -> None:
+    from posthog.exceptions_capture import capture_exception  # noqa: PLC0415 - installed as an optional parser callback
+
+    capture_exception(exception, additional_properties=additional_properties)
 
 
 class PostHogHogQLBackendHooks(HogQLBackendHooks):
     def resolve_symbol(self, module: str, name: str) -> Any:
         return getattr(import_module(module), name)
-
-    def create_notice(
-        self,
-        *,
-        start: int | None,
-        end: int | None,
-        message: str,
-        fix: str | None,
-    ) -> Any:
-        from posthog.schema import HogQLNotice  # noqa: PLC0415 - keeps schema imports behind hook calls
-
-        return HogQLNotice(start=start, end=end, message=message, fix=fix)
-
-    def create_query_timing(self, *, kind: str, duration_seconds: float) -> Any:
-        from posthog.schema import QueryTiming  # noqa: PLC0415 - keeps schema imports behind hook calls
-
-        return QueryTiming(k=kind, t=duration_seconds)
 
     def create_default_query_modifiers(self) -> Any:
         from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415 - keeps schema imports behind hook calls
@@ -35,6 +25,12 @@ class PostHogHogQLBackendHooks(HogQLBackendHooks):
 
         return Team.objects.only("project_id").get(id=team_id).project_id
 
+    def get_query_provider(self):
+        from posthog.hogql_query import PostHogQueryProvider  # noqa: PLC0415 - keeps query execution dependencies lazy
+
+        return PostHogQueryProvider()
+
 
 def install_hogql_backend_hooks() -> None:
     set_hogql_backend_hooks(PostHogHogQLBackendHooks())
+    set_parser_exception_reporter(_capture_parser_exception)

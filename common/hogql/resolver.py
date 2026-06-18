@@ -1096,7 +1096,7 @@ class Resolver(CloningVisitor):
         scope = self._get_scope()
 
         if isinstance(node.table, ast.HogQLXTag):
-            node.table = expand_hogqlx_query(node.table, self.context.team_id)
+            node.table = expand_hogqlx_query(node.table, self.context)
 
         if isinstance(node.table, ast.Field):
             table_name_chain = [str(n) for n in node.table.chain]
@@ -1471,7 +1471,7 @@ class Resolver(CloningVisitor):
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         if node.kind in HOGQLX_TAGS or node.kind in HOGQLX_COMPONENTS:
             return self.visit(convert_to_hx(node))
-        return self.visit(expand_hogqlx_query(node, self.context.team_id))
+        return self.visit(expand_hogqlx_query(node, self.context))
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""

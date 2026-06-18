@@ -1,10 +1,8 @@
 from common.hogql import ast
-from common.hogql.backend import resolve_backend_symbol as _resolve_backend_symbol
 from common.hogql.database.models import FunctionCallTable
 from common.hogql.errors import QueryError
 from common.hogql.visitor import TraversingVisitor
-
-Workload = _resolve_backend_symbol("posthog.clickhouse.workload", "Workload")
+from common.hogql.workload_types import Workload
 
 
 class WorkloadCollector(TraversingVisitor):
