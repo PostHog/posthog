@@ -194,7 +194,7 @@ export interface VisionActionApi {
      * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
      * @nullable
      */
-    readonly hog_flow_id: number | null
+    readonly hog_flow_id: string | null
     readonly created_at: string
     /** User who created the action. */
     readonly created_by: UserBasicApi | null
@@ -253,7 +253,7 @@ export interface PatchedVisionActionApi {
      * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
      * @nullable
      */
-    readonly hog_flow_id?: number | null
+    readonly hog_flow_id?: string | null
     readonly created_at?: string
     /** User who created the action. */
     readonly created_by?: UserBasicApi | null

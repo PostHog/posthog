@@ -157,7 +157,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Timestamp of the most recent run, or null if it has never run.",
     )
-    hog_flow_id = serializers.IntegerField(
+    hog_flow_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
         help_text="ID of the delivery flow provisioned for this action. Null until delivery is wired up.",
