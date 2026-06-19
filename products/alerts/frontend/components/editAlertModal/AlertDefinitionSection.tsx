@@ -18,6 +18,7 @@ import {
     AlertSimulationResult,
     isAnyRowHogQLConfig,
     isFunnelsAlertConfig,
+    isHogQLAlertConfig,
     isTrendsAlertConfig,
 } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
@@ -126,7 +127,7 @@ export function AlertDefinitionSection({
                     funnelPreview={funnelPreview}
                     onSetAlertFormValue={onSetAlertFormValue}
                 />
-            ) : (
+            ) : isHogQLAlertConfig(alertForm.config) ? (
                 <HogQLDefinitionFields
                     alertForm={alertForm}
                     hogqlPreview={hogqlPreview}
@@ -135,7 +136,7 @@ export function AlertDefinitionSection({
                     hogqlLabelColumnOptions={hogqlLabelColumnOptions}
                     onSetAlertFormValue={onSetAlertFormValue}
                 />
-            )}
+            ) : null}
 
             {anomalyDetectionEnabled && (
                 <LemonSegmentedButton
