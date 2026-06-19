@@ -50,15 +50,20 @@ MAX_RUNS_PER_TICK = 1000
 # per day: cap × ticks/day), so a team registering many scouts degrades its own cadence,
 # not everyone else's. Sized well above the canonical fleet (~16 scouts) so a fully-enrolled
 # team is never trimmed; round-robin allocation still keeps any one team from starving the
-# others even when this is close to the global cap. This is the DEFAULT — a per-team override
-# takes precedence when set in the `signals-scout` flag payload under `team_configs` (see
-# `_team_configs`), to give an important dogfooder more headroom or hold a noisy one lower,
-# no deploy.
+# others even when this is close to the global cap.
+#
+# This is the LAST-RESORT default. Effective per-team cap resolves through three layers,
+# most specific first (see `_resolve_max_runs_per_tick`): a team's own `team_configs` entry →
+# the fleet-wide `default_team_config` → this code constant. The two flag layers are read
+# fresh each tick, so the launch posture (e.g. cap every enrolled team at 1 run/tick via
+# `default_team_config`, then hand a close partner more headroom via `team_configs`) is
+# tunable in the flag UI with no deploy.
 MAX_RUNS_PER_TEAM_PER_TICK = 50
 
-# Key inside a team's `team_configs` entry that overrides `MAX_RUNS_PER_TEAM_PER_TICK` for that
-# team. `team_configs` is a forward-looking per-team override bag — add more keys here as other
-# settings become per-team-tunable; each consumer reads + validates the key it cares about.
+# Key inside a `team_configs` entry (or the `default_team_config` blob) that overrides
+# `MAX_RUNS_PER_TEAM_PER_TICK`. Both blobs share the same inner shape — a forward-looking
+# override bag — so add more per-team-tunable settings here and each consumer reads + validates
+# the key it cares about.
 TEAM_CONFIG_MAX_RUNS_PER_TICK = "max_runs_per_tick"
 
 # Coordinator tick cadence. Per-scout schedules are enforced via the due-check, so this is
@@ -129,8 +134,9 @@ async def fetch_enabled_signals_scout_runs_activity(
         payload = await asyncio.to_thread(_read_flag_payload)
         enrolled_team_ids = _enrolled_team_ids(payload)
         team_configs = _team_configs(payload)
+        default_team_config = _default_team_config(payload)
         planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(
-            enrolled_team_ids, team_configs
+            enrolled_team_ids, team_configs, default_team_config
         )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
     return FetchEnabledRunsOutput(planned_runs=planned)
@@ -172,11 +178,15 @@ class _DueRun:
     skill_name: str
 
 
-def _collect_planned_runs(enrolled_team_ids: set[int], team_configs: dict[int, dict] | None = None) -> list[PlannedRun]:
+def _collect_planned_runs(
+    enrolled_team_ids: set[int],
+    team_configs: dict[int, dict] | None = None,
+    default_team_config: dict | None = None,
+) -> list[PlannedRun]:
     """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt.
 
-    Takes the already-resolved enrolled team ids (and optional per-team config overrides) so
-    the flag reads stay off this DB pool.
+    Takes the already-resolved enrolled team ids, the optional per-team config overrides, and
+    the fleet-wide default config so the flag reads stay off this DB pool.
     """
     now = timezone.now()
     team_configs = _canonicalize_team_config_keys(team_configs or {})
@@ -208,32 +218,32 @@ def _collect_planned_runs(enrolled_team_ids: set[int], team_configs: dict[int, d
     if not due:
         return []
 
-    selected = _allocate_tick_budget(due, team_configs)
+    selected = _allocate_tick_budget(due, team_configs, default_team_config)
     planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
     return planned
 
 
-def _allocate_tick_budget(due: list[_DueRun], team_configs: dict[int, dict] | None = None) -> list[_DueRun]:
+def _allocate_tick_budget(
+    due: list[_DueRun],
+    team_configs: dict[int, dict] | None = None,
+    default_team_config: dict | None = None,
+) -> list[_DueRun]:
     """Apply the per-team and global tick caps fairly. Deterministic — no sampling.
 
-    Each team's due runs are ordered most-overdue-first and trimmed to its per-team cap — the
-    `max_runs_per_tick` from its `team_configs` flag override if set, else
-    `MAX_RUNS_PER_TEAM_PER_TICK`; the global `MAX_RUNS_PER_TICK` budget is then filled
-    round-robin across teams (one run per team per round) so a single team with many due scouts
-    can't monopolize the tick. Deferred runs stay unstamped, so they're the most overdue next
-    tick — a poor-man's queue, same catch-up semantics as before.
+    Each team's due runs are ordered most-overdue-first and trimmed to its per-team cap,
+    resolved per `_resolve_max_runs_per_tick` (team override → fleet default → code constant);
+    the global `MAX_RUNS_PER_TICK` budget is then filled round-robin across teams (one run per
+    team per round) so a single team with many due scouts can't monopolize the tick. Deferred
+    runs stay unstamped, so they're the most overdue next tick — a poor-man's queue, same
+    catch-up semantics as before.
     """
     team_configs = team_configs or {}
+    default_team_config = default_team_config or {}
 
     def _team_cap(team_id: int) -> int:
-        # Per-team override takes precedence; validate the value here (the config blob is
-        # arbitrary flag JSON) and fall back to the global default if absent or invalid.
-        override = (team_configs.get(team_id) or {}).get(TEAM_CONFIG_MAX_RUNS_PER_TICK)
-        if isinstance(override, int) and not isinstance(override, bool) and override > 0:
-            return override
-        return MAX_RUNS_PER_TEAM_PER_TICK
+        return _resolve_max_runs_per_tick(team_id, team_configs, default_team_config)
 
     by_team: dict[int, list[_DueRun]] = {}
     for d in due:
@@ -277,6 +287,21 @@ def _allocate_tick_budget(due: list[_DueRun], team_configs: dict[int, dict] | No
             if len(selected) >= MAX_RUNS_PER_TICK:
                 break
     return selected
+
+
+def _resolve_max_runs_per_tick(team_id: int, team_configs: dict[int, dict], default_team_config: dict) -> int:
+    """Effective per-tick cap for a team, most-specific layer first.
+
+    `team_configs[team_id]` (per-team override) → `default_team_config` (fleet-wide default) →
+    `MAX_RUNS_PER_TEAM_PER_TICK` (code constant). Both flag blobs are arbitrary JSON, so the
+    `max_runs_per_tick` value is validated at each layer (positive int, not bool); an absent or
+    malformed value falls through to the next layer rather than failing the tick.
+    """
+    for source in ((team_configs.get(team_id) or {}), default_team_config):
+        override = source.get(TEAM_CONFIG_MAX_RUNS_PER_TICK)
+        if isinstance(override, int) and not isinstance(override, bool) and override > 0:
+            return override
+    return MAX_RUNS_PER_TEAM_PER_TICK
 
 
 def _participating_teams(enrolled: set[int]) -> list[Team]:
@@ -406,6 +431,23 @@ def _team_configs(payload: dict | None) -> dict[int, dict]:
             continue
         configs[team_id] = value
     return configs
+
+
+def _default_team_config(payload: dict | None) -> dict:
+    """Fleet-wide default config applied to every enrolled team, parsed from the `signals-scout`
+    flag payload key `default_team_config`.
+
+    Same inner shape as a `team_configs` entry (today: `max_runs_per_tick`). It sits between a
+    per-team `team_configs` override and the code constant in `_resolve_max_runs_per_tick`, so a
+    single fleet-wide cost guardrail (e.g. cap every enrolled team at 1 run/tick for launch) can
+    be set in the flag UI with no deploy, while specific teams still get more headroom via
+    `team_configs`. Absent/malformed (`None` payload included) → `{}` (everyone falls back to the
+    code constants — unchanged behaviour).
+    """
+    if payload is None:
+        return {}
+    raw = payload.get("default_team_config", {})
+    return raw if isinstance(raw, dict) else {}
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:

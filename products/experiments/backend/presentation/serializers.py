@@ -698,7 +698,7 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=["manual", "experiment_launch", "experiment_stop", "experiment_update"],
+        choices=ExperimentMetricsRecalculation.Trigger.choices,
         required=False,
         default="manual",
         help_text="What triggered this recalculation (manual is the default for user-initiated runs)",

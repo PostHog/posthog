@@ -15,6 +15,7 @@ const baseRow = {
     state: 'live',
     bundle_uri: 's3://x/',
     bundle_sha256: null,
+    encrypted_env: null,
 }
 
 describe('safeRowToRev', () => {

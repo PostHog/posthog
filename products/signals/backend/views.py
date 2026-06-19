@@ -750,7 +750,7 @@ class SignalReportViewSet(
             name = part[1:] if descending else part
             db_field = self._SIGNAL_REPORT_ORDERING_FIELDS.get(name)
             if db_field is None:
-                return self._default_signal_report_ordering_clauses
+                continue
             clause = f"-{db_field}" if descending else db_field
             clauses.append(clause)
         return clauses

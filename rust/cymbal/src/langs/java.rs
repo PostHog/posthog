@@ -10,7 +10,7 @@ use crate::{
     error::{FrameError, ProguardError, ResolveError, UnhandledError},
     frames::{record_frame_resolution_failure, Frame},
     langs::{utils::add_raw_to_junk, CommonFrameMetadata},
-    symbol_store::{
+    symbolication::symbol_store::{
         chunk_id::OrChunkId,
         proguard::{FetchedMapping, ProguardRef},
         SymbolCatalog,
