@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 
 import structlog
@@ -21,7 +21,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
@@ -65,6 +65,25 @@ MAX_RUNS_PER_TEAM_PER_TICK = 50
 # override bag — so add more per-team-tunable settings here and each consumer reads + validates
 # the key it cares about.
 TEAM_CONFIG_MAX_RUNS_PER_TICK = "max_runs_per_tick"
+
+# Per-team DAILY run budget — the cost guarantee the per-tick cap can't express. The tick cap
+# bounds bursts (≤ cap per 30-min tick → ≤ cap × 48/day); this bounds the day directly, so a
+# launch team that enables many scouts (or cranks their intervals down) still runs at most N
+# times a day. Counted over a rolling 24h window of dispatched runs and folded into the per-team
+# tick cap (the tighter of the two binds each tick — see `_allocate_tick_budget`).
+#
+# `None` = no daily cap (the historical behaviour; the per-tick cap stays the only bound). Like
+# the tick cap, the effective value resolves most-specific-first (see `_resolve_max_runs_per_day`):
+# a team's `team_configs` entry → the fleet-wide `default_team_config` → this code constant. Left
+# `None` so existing teams are unchanged; the launch posture sets a small N on
+# `default_team_config` in the flag, no deploy.
+MAX_RUNS_PER_TEAM_PER_DAY: int | None = None
+
+# Key inside `team_configs` / `default_team_config` that overrides `MAX_RUNS_PER_TEAM_PER_DAY`.
+TEAM_CONFIG_MAX_RUNS_PER_DAY = "max_runs_per_day"
+
+# Rolling window the per-team daily budget is counted over.
+DAILY_BUDGET_WINDOW = timedelta(hours=24)
 
 # Coordinator tick cadence. Per-scout schedules are enforced via the due-check, so this is
 # just the polling granularity — the floor on how often any scout can run.
@@ -224,7 +243,8 @@ def _collect_planned_runs(
     if not due:
         return []
 
-    selected = _allocate_tick_budget(due, team_configs, default_team_config)
+    runs_today = _runs_today_by_team({d.team_id for d in due}, now - DAILY_BUDGET_WINDOW)
+    selected = _allocate_tick_budget(due, team_configs, default_team_config, runs_today)
     planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
@@ -235,21 +255,36 @@ def _allocate_tick_budget(
     due: list[_DueRun],
     team_configs: dict[int, dict] | None = None,
     default_team_config: dict | None = None,
+    runs_today: dict[int, int] | None = None,
 ) -> list[_DueRun]:
     """Apply the per-team and global tick caps fairly. Deterministic — no sampling.
 
-    Each team's due runs are ordered most-overdue-first and trimmed to its per-team cap,
-    resolved per `_resolve_max_runs_per_tick` (team override → fleet default → code constant);
-    the global `MAX_RUNS_PER_TICK` budget is then filled round-robin across teams (one run per
-    team per round) so a single team with many due scouts can't monopolize the tick. Deferred
+    Each team's due runs are ordered most-overdue-first and trimmed to its effective per-team
+    cap, then the global `MAX_RUNS_PER_TICK` budget is filled round-robin across teams (one run
+    per team per round) so a single team with many due scouts can't monopolize the tick. Deferred
     runs stay unstamped, so they're the most overdue next tick — a poor-man's queue, same
     catch-up semantics as before.
+
+    The effective per-team cap is the tighter of two bounds: the per-tick cap
+    (`_resolve_max_runs_per_tick`) and the day's remaining headroom under the per-team daily
+    budget (`_resolve_max_runs_per_day` minus `runs_today`). The daily budget is what bounds a
+    team to N runs/day regardless of how many scouts it enables or how short their intervals —
+    the per-tick cap alone can only bound bursts (≤ cap × ticks/day).
     """
     team_configs = team_configs or {}
     default_team_config = default_team_config or {}
+    runs_today = runs_today or {}
 
     def _team_cap(team_id: int) -> int:
-        return _resolve_max_runs_per_tick(team_id, team_configs, default_team_config)
+        per_tick = _resolve_max_runs_per_tick(team_id, team_configs, default_team_config)
+        per_day = _resolve_max_runs_per_day(team_id, team_configs, default_team_config)
+        if per_day is None:
+            return per_tick
+        # Day's remaining headroom caps this tick too: a team that's spent its daily budget gets
+        # 0 this tick, no matter how many scouts are due. Counted runs exclude this tick's
+        # not-yet-started dispatches; the per-tick cap bounds that brief window.
+        remaining_today = max(0, per_day - runs_today.get(team_id, 0))
+        return min(per_tick, remaining_today)
 
     by_team: dict[int, list[_DueRun]] = {}
     for d in due:
@@ -259,12 +294,16 @@ def _allocate_tick_budget(
         cap = _team_cap(team_id)
         if len(runs) > cap:
             logger.warning(
-                "signals_scout coordinator: team over per-tick cap, deferring overflow",
+                "signals_scout coordinator: team over effective per-team cap, deferring overflow",
                 team_id=team_id,
                 due=len(runs),
                 cap=cap,
             )
             del runs[cap:]
+
+    # Drop teams trimmed to zero (e.g. daily budget spent) so the round-robin's most-overdue-team
+    # sort never indexes into an empty list.
+    by_team = {team_id: runs for team_id, runs in by_team.items() if runs}
 
     # Count after per-team trimming — that's the real candidate pool the global cap defers
     # against, so the warning doesn't fire on runs already dropped by the per-team caps.
@@ -308,6 +347,40 @@ def _resolve_max_runs_per_tick(team_id: int, team_configs: dict[int, dict], defa
         if isinstance(override, int) and not isinstance(override, bool) and override > 0:
             return override
     return MAX_RUNS_PER_TEAM_PER_TICK
+
+
+def _resolve_max_runs_per_day(team_id: int, team_configs: dict[int, dict], default_team_config: dict) -> int | None:
+    """Effective per-team daily run budget, most-specific layer first.
+
+    `team_configs[team_id]` (per-team override) → `default_team_config` (fleet-wide default) →
+    `MAX_RUNS_PER_TEAM_PER_DAY` (code constant, `None` = unbounded). Same per-layer fallback and
+    validation (positive int, not bool) as `_resolve_max_runs_per_tick`: a malformed value at one
+    layer falls through to the next rather than failing the tick. `None` means no daily cap — only
+    the per-tick cap binds, the historical behaviour.
+    """
+    for source in ((team_configs.get(team_id) or {}), default_team_config):
+        override = source.get(TEAM_CONFIG_MAX_RUNS_PER_DAY)
+        if isinstance(override, int) and not isinstance(override, bool) and override > 0:
+            return override
+    return MAX_RUNS_PER_TEAM_PER_DAY
+
+
+def _runs_today_by_team(team_ids: set[int], window_start: datetime) -> dict[int, int]:
+    """Scout runs dispatched per team within the trailing daily-budget window.
+
+    Counts `SignalScoutRun` bridge rows (created at run start), so the budget tracks runs that
+    actually happened — the durable, cost-relevant signal. Uses the unscoped `all_teams` manager,
+    matching the coordinator's other cross-team reads. A run dispatched this tick but not yet
+    started isn't counted until its row lands; the per-tick cap bounds that brief window.
+    """
+    if not team_ids:
+        return {}
+    rows = (
+        SignalScoutRun.all_teams.filter(team_id__in=team_ids, created_at__gte=window_start)
+        .values("team_id")
+        .annotate(n=Count("id"))
+    )
+    return {row["team_id"]: row["n"] for row in rows}
 
 
 def _participating_teams(enrolled: set[int]) -> list[Team]:

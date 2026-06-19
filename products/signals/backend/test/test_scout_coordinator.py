@@ -30,9 +30,12 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     PlannedRun,
     SignalsScoutCoordinatorWorkflow,
     StampDispatchedRunsInput,
+    _allocate_tick_budget,
     _default_team_config,
+    _DueRun,
     _enrolled_team_ids,
     _read_flag_payload,
+    _resolve_max_runs_per_day,
     _team_configs,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
@@ -736,6 +739,116 @@ async def test_seed_enabled_interval_validates_bounds(ateam, interval, expected)
     else:
         # Unchanged from the model default (not the out-of-range value).
         assert general.run_interval_minutes != interval
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_seed_launch_cadence_stamped_on_disabled_canonical(ateam):
+    # Option B: a canonical scout that seeds DISABLED under the allowlist still gets the launch
+    # cadence stamped, so when the user later toggles it on it runs at the daily cadence, not the
+    # 3h model default. general is allowlisted (enabled); error-tracking is gated (disabled).
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-error-tracking")
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {
+                "enabled_skills": ["signals-scout-general"],
+                "enabled_interval_minutes": 1440,
+            },
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        await _run_activity()
+
+    rows = await database_sync_to_async(
+        lambda: {
+            c.skill_name: (c.enabled, c.run_interval_minutes)
+            for c in SignalScoutConfig.all_teams.filter(team_id=ateam.id)
+        }
+    )()
+    assert rows["signals-scout-general"] == (True, 1440)
+    # Disabled, but already on the daily cadence — so enabling it later doesn't run it every 3h.
+    assert rows["signals-scout-error-tracking"] == (False, 1440)
+
+
+# ── Per-team daily run budget (max_runs_per_day) ──────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "team_configs,default_cfg,expected",
+    [
+        ({}, {}, None),  # nothing set → unbounded (only the per-tick cap binds)
+        ({}, {"max_runs_per_day": 3}, 3),  # fleet default binds
+        ({7: {"max_runs_per_day": 10}}, {"max_runs_per_day": 3}, 10),  # per-team override wins
+        ({7: {"max_runs_per_day": "nope"}}, {"max_runs_per_day": 3}, 3),  # malformed team → fleet default
+        ({}, {"max_runs_per_day": 0}, None),  # non-positive → falls through to the constant (None)
+        ({}, {"max_runs_per_day": True}, None),  # bool rejected
+    ],
+)
+def test_resolve_max_runs_per_day(team_configs, default_cfg, expected):
+    assert _resolve_max_runs_per_day(7, team_configs, default_cfg) == expected
+
+
+def _due_run(team_id: int, skill_name: str, overdue_s: float) -> _DueRun:
+    return _DueRun(overdue_s=overdue_s, config_pk=skill_name, team_id=team_id, skill_name=skill_name)
+
+
+def test_daily_budget_trims_to_remaining_headroom():
+    # Three due scouts, fleet daily budget 3, team already ran twice today → only 1 slot left, so
+    # just the most-overdue dispatches even though the per-tick cap (50) is nowhere near binding.
+    due = [
+        _due_run(7, "signals-scout-most", 10 * 3600),
+        _due_run(7, "signals-scout-mid", 5 * 3600),
+        _due_run(7, "signals-scout-least", 2 * 3600),
+    ]
+    selected = _allocate_tick_budget(due, {}, {"max_runs_per_day": 3}, {7: 2})
+    assert [d.skill_name for d in selected] == ["signals-scout-most"]
+
+
+def test_daily_budget_exhausted_dispatches_nothing():
+    # Budget fully spent → 0 runs this tick, and the empty team must not crash the round-robin.
+    due = [_due_run(7, "signals-scout-most", 10 * 3600)]
+    assert _allocate_tick_budget(due, {}, {"max_runs_per_day": 3}, {7: 3}) == []
+
+
+def test_daily_budget_none_leaves_only_the_tick_cap():
+    # No daily budget set → historical behaviour: every due run (within the per-tick cap) goes.
+    due = [_due_run(7, "signals-scout-a", 3600), _due_run(7, "signals-scout-b", 2 * 3600)]
+    selected = _allocate_tick_budget(due, {}, {}, {7: 999})
+    assert sorted(d.skill_name for d in selected) == ["signals-scout-a", "signals-scout-b"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_daily_budget_bounds_dispatch_end_to_end(ateam):
+    # End-to-end through the activity: fleet daily budget 2, team already ran once today (the
+    # trailing-24h count is stubbed to 1) → only 1 slot left, so the single most-overdue scout
+    # dispatches regardless of the per-tick cap.
+    now = timezone.now()
+    for name, hours in [("signals-scout-most", 10), ("signals-scout-mid", 5), ("signals-scout-least", 2)]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+        await database_sync_to_async(_create_config)(
+            ateam, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
+        )
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"max_runs_per_day": 2},
+        }
+
+    with (
+        patch(_PAYLOAD_PATH, side_effect=_payload),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator._runs_today_by_team",
+            return_value={ateam.id: 1},
+        ),
+    ):
+        planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["signals-scout-most"]
 
 
 @pytest.mark.asyncio
