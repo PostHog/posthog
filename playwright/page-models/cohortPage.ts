@@ -2,6 +2,7 @@ import { Page } from '@playwright/test'
 
 import { delay } from 'lib/utils/async'
 
+// Page model for cohort creation and management flows.
 import { expect } from '../utils/workspace-test-base'
 
 export class CohortPage {
