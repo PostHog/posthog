@@ -67,11 +67,7 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.ducklake.client import make_duckgres_conninfo
-from posthog.ducklake.common import (
-    _get_org_id_for_team,
-    derive_duckling_bucket,
-    get_ducklake_catalog_for_organization,
-)
+from posthog.ducklake.common import _get_org_id_for_team, derive_duckling_bucket, get_ducklake_catalog_for_organization
 from posthog.ducklake.models import DuckLakeBackfill
 
 logger = structlog.get_logger(__name__)
