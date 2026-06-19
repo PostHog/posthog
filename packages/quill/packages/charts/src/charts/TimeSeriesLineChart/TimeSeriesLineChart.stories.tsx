@@ -48,6 +48,72 @@ export const Basic: Story = {
     },
 }
 
+/** Two series on independent y-axes: revenue (currency, left) and conversion rate (percentage,
+ *  right), each formatting its own ticks. Pass `yAxis` as an array — one entry per axis. */
+export const DualYAxis: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'revenue', label: 'Revenue', color: '', data: [1100, 1300, 1250, 1700, 1500, 1900, 1800] },
+            {
+                key: 'conversion',
+                label: 'Conversion',
+                color: '',
+                data: [0.022, 0.028, 0.025, 0.034, 0.031, 0.038, 0.036],
+                yAxisId: 'right',
+            },
+        ]
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: [
+                            { id: 'left', label: 'Revenue', format: 'currency', currency: 'USD', showGrid: true },
+                            { id: 'right', position: 'right', label: 'Conversion', format: 'percentage_scaled' },
+                        ],
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
+/** Mixed scale types across axes: a linear count on the left and a log-scaled latency series on
+ *  the right, each with its own formatter. */
+export const DualYAxisMixedScales: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'requests', label: 'Requests', color: '', data: [120, 180, 150, 210, 170, 240, 220] },
+            {
+                key: 'latency',
+                label: 'p99 latency',
+                color: '',
+                data: [12, 80, 35, 600, 90, 1400, 300],
+                yAxisId: 'right',
+            },
+        ]
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: [
+                            { id: 'left', label: 'Requests', format: 'short', showGrid: true },
+                            { id: 'right', position: 'right', label: 'p99 latency', scale: 'log', suffix: 'ms' },
+                        ],
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
 export const DragToZoom: Story = {
     render: () => {
         const theme = useReactiveTheme()

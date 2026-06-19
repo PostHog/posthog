@@ -123,7 +123,37 @@ export function Chart<Meta = unknown>({
         animateHover,
         margins: marginsOverride,
         maxCategoryLabelWidth,
+        yAxes,
     } = config ?? {}
+
+    // Per-axis tick formatters, sides, and right-axis title for multi-axis charts. Each gutter
+    // formats against its own axis config; absent here, an axis auto-formats against its ticks.
+    const yAxisFormatters = useMemo<Record<string, (value: number) => string> | undefined>(() => {
+        if (!yAxes) {
+            return undefined
+        }
+        const map: Record<string, (value: number) => string> = {}
+        for (const axis of yAxes) {
+            if (axis.tickFormatter) {
+                map[axis.id] = axis.tickFormatter
+            }
+        }
+        return Object.keys(map).length > 0 ? map : undefined
+    }, [yAxes])
+    const yAxisPositions = useMemo<Record<string, 'left' | 'right'> | undefined>(() => {
+        if (!yAxes) {
+            return undefined
+        }
+        const map: Record<string, 'left' | 'right'> = {}
+        for (const axis of yAxes) {
+            map[axis.id] = axis.position
+        }
+        return map
+    }, [yAxes])
+    const yAxisLabelRight = useMemo<string | undefined>(
+        () => yAxes?.find((axis) => axis.position === 'right')?.label,
+        [yAxes]
+    )
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
@@ -145,6 +175,9 @@ export function Chart<Meta = unknown>({
         override: marginsOverride,
         valueRangeSeries,
         maxCategoryLabelWidth,
+        yAxisFormatters,
+        yAxisPositions,
+        yAxisLabelRight,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
@@ -268,6 +301,7 @@ export function Chart<Meta = unknown>({
                         xTickFormatter={xTickFormatter}
                         yTickFormatter={resolvedYFormatter}
                         userYTickFormatter={yTickFormatter}
+                        yAxisFormatters={yAxisFormatters}
                         hideXAxis={hideXAxis}
                         hideYAxis={hideYAxis}
                         axisColor={axisColor}
@@ -278,6 +312,7 @@ export function Chart<Meta = unknown>({
                     <AxisTitles
                         xAxisLabel={xAxisLabel}
                         yAxisLabel={yAxisLabel}
+                        yAxisLabelRight={yAxisLabelRight}
                         hideXAxis={hideXAxis}
                         hideYAxis={hideYAxis}
                         axisColor={axisColor}

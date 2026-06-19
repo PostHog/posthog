@@ -234,6 +234,29 @@ export interface ChartConfig {
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
      *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
     maxCategoryLabelWidth?: number
+    /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
+     *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
+     *  the scalar `yScaleType`/`yTickFormatter`/`yAxisLabel` then describe the primary (left) axis.
+     *  Omit for single-axis charts. */
+    yAxes?: YAxisRenderConfig[]
+}
+
+/** Per-axis render config for a multi-axis (dual y-axis) chart. One entry per distinct
+ *  {@link Series.yAxisId}; series resolve to their axis by id. Drives each axis's scale type,
+ *  tick formatting, side, and label independently. */
+export interface YAxisRenderConfig {
+    /** Axis id — matches {@link Series.yAxisId}. The default-axis id is {@link DEFAULT_Y_AXIS_ID}. */
+    id: string
+    /** Which side this axis renders on. */
+    position: 'left' | 'right'
+    /** Scale type for this axis. Defaults to 'linear'. */
+    scaleType?: 'linear' | 'log'
+    /** Resolved tick formatter for this axis. When omitted, ticks auto-format against their values. */
+    tickFormatter?: (value: number) => string
+    /** Axis title. */
+    label?: string
+    /** Whether this axis owns the interior grid lines. Only the primary (left) axis draws them. */
+    showGrid?: boolean
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
