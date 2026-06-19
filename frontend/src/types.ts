@@ -6133,6 +6133,9 @@ export interface ExternalDataSourceSyncSchema {
     sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
+    /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
+     *  window (catches late/backdated rows). Timestamp/date incremental fields only. */
+    incremental_field_lookback_seconds?: number | null
     sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
     incremental_fields: IncrementalField[]
     incremental_available: boolean
@@ -6181,6 +6184,9 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     latest_error: string | null
     incremental_field: string | null
     incremental_field_type: string | null
+    /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
+     *  window (catches late/backdated rows). Timestamp/date incremental fields only. */
+    incremental_field_lookback_seconds?: number | null
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
     should_sync_default?: boolean
