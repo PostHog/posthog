@@ -1,7 +1,7 @@
 from io import StringIO
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -17,7 +17,7 @@ _PUBLISH = "posthog.management.commands.setup_local_gateway_credential.project_g
 
 
 class TestSetupLocalGatewayCredentialCommand(BaseTest):
-    def _run(self, *args: str) -> tuple[str, object]:
+    def _run(self, *args: str) -> tuple[str, MagicMock]:
         out = StringIO()
         with patch(_PUBLISH) as publish:
             call_command(_CMD, *args, stdout=out)
@@ -52,14 +52,14 @@ class TestSetupLocalGatewayCredentialCommand(BaseTest):
 
         keys = ProjectSecretAPIKey.objects.filter(team=self.team, label=_LABEL)
         self.assertEqual(keys.count(), 1)
-        self.assertEqual(keys.first().secure_value, hash_key_value(rotated))
+        self.assertEqual(keys.get().secure_value, hash_key_value(rotated))
 
     def test_defaults_to_lowest_pk_team(self) -> None:
         out, _ = self._run("--phs", _PHS)
         self.assertIn("__GATEWAY_E2E_TEAM_ID__=", out)
 
     @patch("posthog.management.commands.setup_local_gateway_credential.settings")
-    def test_refuses_against_cloud(self, mock_settings: object) -> None:
+    def test_refuses_against_cloud(self, mock_settings: MagicMock) -> None:
         mock_settings.CLOUD_DEPLOYMENT = True
         with self.assertRaises(CommandError):
             self._run("--phs", _PHS, "--team", str(self.team.id))
