@@ -1344,6 +1344,7 @@
         end: 10
         expr: {
           end: 10
+          is_sensitive: False
           start: 9
           value: 1
         }
@@ -8590,6 +8591,7 @@
     end: 45
     limit: {
       end: 45
+      is_sensitive: False
       start: 44
       value: 2
     }
@@ -8607,6 +8609,7 @@
       ]
       n: {
         end: 28
+        is_sensitive: False
         start: 27
         value: 1
       }
@@ -8614,12 +8617,14 @@
     }
     offset: {
       end: 54
+      is_sensitive: False
       start: 53
       value: 3
     }
     select: [
       {
         end: 8
+        is_sensitive: False
         start: 7
         value: 1
       }
