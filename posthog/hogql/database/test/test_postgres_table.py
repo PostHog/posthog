@@ -31,10 +31,11 @@ from posthog.rbac.user_access_control import RESOURCE_INHERITANCE_MAP
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
 
+ALL_POSTGRES_SYSTEM_TABLES: list[tuple[str, PostgresTable]] = [
+    (name, node.table) for name, node in SystemTables().children.items() if isinstance(node.table, PostgresTable)
+]
 _SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
-    name: node.table
-    for name, node in SystemTables().children.items()
-    if isinstance(node.table, PostgresTable) and node.table.access_scope is not None
+    name: table for name, table in ALL_POSTGRES_SYSTEM_TABLES if table.access_scope is not None
 }
 
 
@@ -386,11 +387,6 @@ class TestPostgresTable(BaseTest):
             self._select("SELECT id FROM postgres_table LIMIT 10"),
             f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(postgres_table.properties, %(hogql_val_5)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_6)s), 1)) LIMIT 10",
         )
-
-
-ALL_POSTGRES_SYSTEM_TABLES = [
-    (name, node.table) for name, node in SystemTables().children.items() if isinstance(node.table, PostgresTable)
-]
 
 
 class TestPostgresTablePrimaryKey(BaseTest):
