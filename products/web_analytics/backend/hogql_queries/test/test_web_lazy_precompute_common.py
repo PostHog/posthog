@@ -19,19 +19,29 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
+from posthog import redis
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    TtlSchedule,
+)
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    OOM_PIN_TTL_SECONDS,
     PerQueryOptedOut,
     PerQueryOptInNotSet,
     TooManyFilters,
     UnsupportedFilterKey,
+    _oom_pin_key,
     check_common_eligibility,
     compute_filters_eligibility_hash,
     host_filter_expr,
     is_precompute_enabled_for_team,
     is_precompute_unrestricted_for_team,
+    is_team_oom_pinned,
+    pin_team_oom,
+    web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
@@ -350,3 +360,74 @@ class TestFiltersEligibilityHashContextvarBinding(ClickhouseTestMixin, APIBaseTe
             runner.calculate()
 
         assert captured["query_tag"] is None
+
+
+class TestTeamOomPin(BaseTest):
+    def tearDown(self):
+        redis.get_client().delete(_oom_pin_key(self.team.pk))
+        super().tearDown()
+
+    def test_unpinned_team(self):
+        assert is_team_oom_pinned(self.team.pk) is False
+
+    def test_pin_then_read_with_ttl(self):
+        pin_team_oom(self.team.pk)
+        assert is_team_oom_pinned(self.team.pk) is True
+        ttl = redis.get_client().ttl(_oom_pin_key(self.team.pk))
+        assert 0 < ttl <= OOM_PIN_TTL_SECONDS
+
+    @mock.patch(f"{_COMMON}.redis.get_client", side_effect=Exception("redis down"))
+    def test_redis_failure_reads_as_unpinned(self, _client):
+        assert is_team_oom_pinned(self.team.pk) is False
+
+
+class TestWebEnsurePrecomputed(BaseTest):
+    def tearDown(self):
+        redis.get_client().delete(_oom_pin_key(self.team.pk))
+        super().tearDown()
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_pins_team_on_oom_and_runs_uncapped_first(self, mock_ensure):
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=True)
+        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        # ran with the caller's raw schedule this time (not yet pinned), then pinned for next time
+        assert mock_ensure.call_args.kwargs["ttl_seconds"] == {"default": 3600}
+        assert is_team_oom_pinned(self.team.pk) is True
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_pinned_team_gets_width_capped_schedule(self, mock_ensure):
+        pin_team_oom(self.team.pk)
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        passed = mock_ensure.call_args.kwargs["ttl_seconds"]
+        assert isinstance(passed, TtlSchedule)
+        assert passed.max_window_days == 1
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_already_pinned_oom_refreshes_ttl(self, mock_ensure):
+        pin_team_oom(self.team.pk)
+        # expire-soon, then a re-OOM should refresh the TTL back to full
+        redis.get_client().expire(_oom_pin_key(self.team.pk), 5)
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=True)
+        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        ttl = redis.get_client().ttl(_oom_pin_key(self.team.pk))
+        assert ttl > 5
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_no_pin_on_success(self, mock_ensure):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        assert is_team_oom_pinned(self.team.pk) is False
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_pinned_team_restamps_prebuilt_schedule(self, mock_ensure):
+        # A caller may pass an already-built TtlSchedule (ensure_precomputed accepts one);
+        # the pin must stamp the cap onto it, not crash by re-parsing it.
+        pin_team_oom(self.team.pk)
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        prebuilt = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=None)
+        web_ensure_precomputed(team=self.team, ttl_seconds=prebuilt, table=None)
+        passed = mock_ensure.call_args.kwargs["ttl_seconds"]
+        assert isinstance(passed, TtlSchedule)
+        assert passed.max_window_days == 1
+        assert passed.default_ttl_seconds == 3600

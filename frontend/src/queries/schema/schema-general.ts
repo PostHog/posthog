@@ -589,6 +589,7 @@ export const VALID_RECORDING_ORDERS = [
     'mouse_activity_count',
     'activity_score',
     'recording_ttl',
+    'surfacing_score',
 ] as const
 
 export interface MatchingEventsResponse {
@@ -6863,6 +6864,7 @@ export const externalDataSources = [
     'Streamlabs',
     'Datorama',
     'Ahrefs',
+    'Lightfield',
     'Custom',
 ] as const
 

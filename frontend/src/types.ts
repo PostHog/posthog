@@ -4753,6 +4753,8 @@ export interface Experiment {
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
+    /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
+    is_legacy?: boolean
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -6131,6 +6133,9 @@ export interface ExternalDataSourceSyncSchema {
     sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
+    /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
+     *  window (catches late/backdated rows). Timestamp/date incremental fields only. */
+    incremental_field_lookback_seconds?: number | null
     sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
     incremental_fields: IncrementalField[]
     incremental_available: boolean
@@ -6179,6 +6184,9 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     latest_error: string | null
     incremental_field: string | null
     incremental_field_type: string | null
+    /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
+     *  window (catches late/backdated rows). Timestamp/date incremental fields only. */
+    incremental_field_lookback_seconds?: number | null
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
     should_sync_default?: boolean

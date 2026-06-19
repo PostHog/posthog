@@ -1685,6 +1685,11 @@ class LeverSourceConfig(config.Config):
 
 
 @config.config
+class LightfieldSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class LightspeedRetailSourceConfig(config.Config):
     domain_prefix: str
     api_token: str
@@ -3736,6 +3741,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
         ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
         ExternalDataSourceType.LEVER: LeverSourceConfig,
+        ExternalDataSourceType.LIGHTFIELD: LightfieldSourceConfig,
         ExternalDataSourceType.LIGHTSPEEDRETAIL: LightspeedRetailSourceConfig,
         ExternalDataSourceType.LINEAR: LinearSourceConfig,
         ExternalDataSourceType.LINKEDINADS: LinkedinAdsSourceConfig,
