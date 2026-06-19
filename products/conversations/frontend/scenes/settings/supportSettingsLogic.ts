@@ -78,7 +78,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         addTeamsChannelPair: (teamId: string, channelId: string) => ({ teamId, channelId }),
         removeTeamsChannelPair: (channelId: string) => ({ channelId }),
         setTeamsChannelPairLoading: (channelId: string | null) => ({ channelId }),
-        cacheTeamsChannelsForTeam: (teamId: string, channels: { id: string; name: string }[]) => ({ teamId, channels }),
+        cacheTeamsChannelsForTeam: (
+            teamId: string,
+            channels: { id: string; name: string; membership_type?: string | null }[]
+        ) => ({ teamId, channels }),
         // Email channel settings (multi-config)
         loadEmailConfigs: true,
         loadEmailConfigsDone: (configs: EmailConfigStatus[]) => ({ configs }),
@@ -251,7 +254,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
         teamsChannelsCache: [
-            {} as Record<string, { id: string; name: string }[]>,
+            {} as Record<string, { id: string; name: string; membership_type?: string | null }[]>,
             {
                 cacheTeamsChannelsForTeam: (state, { teamId, channels }) => ({ ...state, [teamId]: channels }),
                 disconnectTeams: () => ({}),
@@ -357,7 +360,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
         teamsChannels: [
-            [] as { id: string; name: string }[],
+            [] as { id: string; name: string; membership_type?: string | null }[],
             {
                 loadTeamsChannelsForTeam: async ({ teamId }: { teamId: string }) => {
                     try {
@@ -453,7 +456,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (
                 currentTeam
-            ): { team_id: string; team_name?: string | null; channel_id: string; channel_name?: string | null }[] => {
+            ): {
+                team_id: string
+                team_name?: string | null
+                channel_id: string
+                channel_name?: string | null
+                membership_type?: string | null
+            }[] => {
                 const cs = currentTeam?.conversations_settings
                 if (Array.isArray(cs?.teams_channels) && cs.teams_channels.length > 0) {
                     return cs.teams_channels

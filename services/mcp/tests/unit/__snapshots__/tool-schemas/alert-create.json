@@ -27,36 +27,79 @@
         "config": {
             "anyOf": [
                 {
-                    "properties": {
-                        "check_ongoing_interval": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "check_ongoing_interval": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones."
                                 },
-                                {
-                                    "type": "null"
+                                "series_index": {
+                                    "description": "Zero-based index of the series in the insight's query to monitor.",
+                                    "type": "number"
+                                },
+                                "type": {
+                                    "default": "TrendsAlertConfig",
+                                    "enum": ["TrendsAlertConfig"],
+                                    "type": "string"
                                 }
-                            ],
-                            "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones."
+                            },
+                            "required": ["series_index"],
+                            "type": "object"
                         },
-                        "series_index": {
-                            "description": "Zero-based index of the series in the insight's query to monitor.",
-                            "type": "number"
-                        },
-                        "type": {
-                            "const": "TrendsAlertConfig",
-                            "default": "TrendsAlertConfig",
-                            "type": "string"
+                        {
+                            "properties": {
+                                "column": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column)."
+                                },
+                                "evaluation": {
+                                    "description": "How to read the result rows — an explicit choice, no implicit default.",
+                                    "enum": ["last_row", "first_row", "any_row"],
+                                    "type": "string"
+                                },
+                                "label_column": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number."
+                                },
+                                "type": {
+                                    "default": "HogQLAlertConfig",
+                                    "enum": ["HogQLAlertConfig"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["evaluation"],
+                            "type": "object"
                         }
-                    },
-                    "required": ["series_index"],
-                    "type": "object"
+                    ],
+                    "description": "Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support."
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval)."
+            "description": "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row)."
         },
         "detector_config": {
             "anyOf": [

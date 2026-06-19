@@ -6,7 +6,7 @@ use bytes::Bytes;
 use common_redis::MockRedisClient;
 use cymbal::{
     app_context::AppContext, config::Config, error::UnhandledError, router::get_router,
-    symbol_store::BlobClient,
+    symbolication::symbol_store::BlobClient,
 };
 
 use async_trait::async_trait;

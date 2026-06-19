@@ -2537,6 +2537,8 @@ export interface DashboardBasicType extends WithAccessControl {
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate' | 'unlisted'
     tags?: string[]
+    /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
+    folder?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /**
@@ -2556,7 +2558,7 @@ export interface DashboardTemplateListParams {
     is_featured?: boolean
 }
 
-export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag' | 'organization'
 
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
@@ -2621,6 +2623,13 @@ export type DashboardTemplateStoredTile =
     | DashboardTemplateStoredButtonTile
     | DashboardTemplateStoredWidgetTile
 
+/** Project-specific references embedded in a template's tiles that may not resolve in another project. */
+export interface NonPortableReferences {
+    actions: number
+    cohorts: number
+    warehouse_tables: string[]
+}
+
 export interface DashboardTemplateType {
     id: string
     team_id?: number
@@ -2639,6 +2648,8 @@ export interface DashboardTemplateType {
     is_featured?: boolean
     /** Soft delete; API allows PATCH for staff undo (restore). */
     deleted?: boolean
+    /** Read-only. Project-specific references in tiles (actions, cohorts, warehouse tables) that may not resolve in another project. */
+    non_portable_references?: NonPortableReferences
 }
 
 export interface MonacoMarker {
@@ -2873,6 +2884,7 @@ export enum ChartDisplayType {
     ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     BoldNumber = 'BoldNumber',
+    Metric = 'Metric',
     ActionsPie = 'ActionsPie',
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
@@ -3351,6 +3363,9 @@ export interface FunnelStep {
     breakdown_value?: BreakdownKeyType
     data?: number[]
     days?: string[]
+
+    /** Set by the funnel compare orchestrator to tag which period a step belongs to. */
+    compare_label?: 'current' | 'previous'
 
     /** Url that you can GET to retrieve the people that converted in this step */
     converted_people_url: string
@@ -5286,6 +5301,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'postgresql',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5516,6 +5532,7 @@ export type APIScopeObject =
     | 'annotation'
     | 'approvals'
     | 'batch_export'
+    | 'business_knowledge'
     | 'clickhouse_test_cluster_perf'
     | 'cohort'
     | 'comment'
@@ -5529,6 +5546,7 @@ export type APIScopeObject =
     | 'early_access_feature'
     | 'element'
     | 'endpoint'
+    | 'engineering_analytics'
     | 'error_tracking'
     | 'evaluation'
     | 'event_definition'
@@ -5578,11 +5596,13 @@ export type APIScopeObject =
     | 'signal_scout'
     | 'subscription'
     | 'survey'
+    | 'tagger'
     | 'task'
     | 'ticket'
     | 'uploaded_media'
     | 'usage_metric'
     | 'user'
+    | 'user_interview'
     | 'visual_review'
     | 'warehouse_objects'
     | 'warehouse_table'
@@ -6228,6 +6248,8 @@ export interface ExternalDataJob {
 export interface SimpleDataWarehouseTable {
     id: string
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices`). */
+    hogql_name?: string
     columns: DatabaseSchemaField[]
     row_count: number
 }
@@ -6290,11 +6312,12 @@ export type BatchExportServiceS3Compatible = {
 
 export type BatchExportServicePostgres = {
     type: 'Postgres'
+    integration?: number
     config: {
-        user: string
-        password: string
-        host: string
-        port: number
+        user?: string
+        password?: string
+        host?: string
+        port?: number
         database: string
         schema: string
         table_name: string
