@@ -85,6 +85,8 @@ class TestSQLGeneratorNode(NonAtomicBaseTest):
         self.assertEqual(len(new_state.messages), 1)
         msg = new_state.messages[0]
         self.assertIsInstance(msg, expected_message_type)
+        assert isinstance(msg, AssistantToolCallMessage | FailureMessage)
+        assert msg.content is not None
         self.assertIn("valid SQL query", msg.content)
         if isinstance(msg, AssistantToolCallMessage):
             self.assertEqual(msg.tool_call_id, root_tool_call_id)
