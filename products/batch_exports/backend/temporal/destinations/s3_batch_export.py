@@ -401,6 +401,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
             producer_task=producer_task,
             transformer=transformer,
             json_columns=json_columns,
+            records_total=inputs.records_total,
         )
         return S3BatchExportResult(
             bytes_exported=result.bytes_exported,

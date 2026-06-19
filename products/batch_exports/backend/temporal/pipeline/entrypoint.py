@@ -149,7 +149,7 @@ async def execute_batch_export_using_internal_stage(
         raise ValueError(f"Unsupported interval: '{interval}'")
 
     try:
-        stage_folder = await workflow.execute_activity(
+        stage_result = await workflow.execute_activity(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=batch_export_inputs.team_id,
@@ -174,7 +174,8 @@ async def execute_batch_export_using_internal_stage(
                 non_retryable_error_types=["InvalidFilterError", "DataIntervalEndInFutureError"],
             ),
         )
-        batch_export_inputs.stage_folder = stage_folder
+        batch_export_inputs.stage_folder = stage_result.stage_folder
+        batch_export_inputs.records_total = stage_result.records_total
         result = await workflow.execute_activity(
             activity,
             inputs,
