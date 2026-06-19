@@ -653,11 +653,13 @@ class TestSavedQuery(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("15min", "15min", timedelta(minutes=15)),
             ("6hour", "6hour", timedelta(hours=6)),
             ("1hour", "1hour", timedelta(hours=1)),
             ("30day", "30day", timedelta(days=30)),
-            # "5min" is deprecated for saved queries and intentionally clamped to "15min".
+            # Sub-15min cadences are deprecated for saved queries and clamped up to the "15min" floor.
             ("5min", "15min", timedelta(minutes=15)),
+            ("1min", "15min", timedelta(minutes=15)),
         ]
     )
     def test_update_sync_frequency_round_trip(self, sent: str, expected_value: str, expected_interval: timedelta):

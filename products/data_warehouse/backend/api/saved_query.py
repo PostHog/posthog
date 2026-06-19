@@ -70,11 +70,12 @@ from products.warehouse_sources.backend.models.util import (
 
 logger = structlog.get_logger(__name__)
 
-# Mirrors the values accepted by `sync_frequency_to_sync_frequency_interval`.
+# Cadences offered for view materialization. 15min is the fastest — sub-15min intervals
+# (1min, 5min) are source-only and not meaningful for materialized views, matching the
+# frontend `DataModelingSyncInterval` type. All values are accepted by
+# `sync_frequency_to_sync_frequency_interval`.
 SYNC_FREQUENCY_CHOICES = [
     ("never", "never"),
-    ("1min", "1min"),
-    ("5min", "5min"),
     ("15min", "15min"),
     ("30min", "30min"),
     ("1hour", "1hour"),
@@ -84,6 +85,10 @@ SYNC_FREQUENCY_CHOICES = [
     ("7day", "7day"),
     ("30day", "30day"),
 ]
+
+# Deprecated sub-15min cadences clamped up to the 15min floor for backwards compatibility
+# with any legacy caller still sending them.
+DEPRECATED_FAST_SYNC_FREQUENCIES = {"1min", "5min"}
 
 
 class SyncFrequencyField(serializers.ChoiceField):
@@ -100,6 +105,12 @@ class SyncFrequencyField(serializers.ChoiceField):
         kwargs.setdefault("required", False)
         kwargs.setdefault("allow_null", True)
         super().__init__(**kwargs)
+
+    def to_internal_value(self, data: Any) -> str | None:
+        # Clamp deprecated sub-15min cadences up to the floor before validating against choices.
+        if data in DEPRECATED_FAST_SYNC_FREQUENCIES:
+            data = "15min"
+        return super().to_internal_value(data)
 
     def get_attribute(self, instance: DataWarehouseSavedQuery) -> str | None:
         return sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
@@ -248,8 +259,9 @@ class DataWarehouseSavedQuerySerializer(
     )
     sync_frequency = SyncFrequencyField(
         help_text=(
-            "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', "
-            "'6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization."
+            "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', "
+            "'24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest "
+            "cadence available."
         ),
     )
     latest_history_id = serializers.SerializerMethodField(read_only=True)
@@ -482,9 +494,6 @@ class DataWarehouseSavedQuerySerializer(
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
-                # Clamp deprecated 5min interval to 15min for saved queries
-                if sync_frequency == "5min":
-                    sync_frequency = "15min"
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 locked_instance.sync_frequency_interval = sync_frequency_interval

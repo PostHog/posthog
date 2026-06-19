@@ -512,6 +512,34 @@ SPECTACULAR_SETTINGS = {
         # generated names so the shared enums don't get component-prefixed auto-names on collision.
         "ExperimentTypeEnum": ["web", "product", None],
         "ExperimentStatusEnum": ["draft", "running", "paused", "stopped"],
+        # Two `sync_frequency` ChoiceFields with different member sets: warehouse-source schemas
+        # accept sub-15min cadences, while saved-query (view) materialization floors at 15min.
+        # Pin both to stable names so neither gets a component-prefixed auto-name on collision.
+        # "SyncFrequencyEnum" keeps the source-schema enum at its pre-existing generated name.
+        "SyncFrequencyEnum": [
+            "never",
+            "1min",
+            "5min",
+            "15min",
+            "30min",
+            "1hour",
+            "6hour",
+            "12hour",
+            "24hour",
+            "7day",
+            "30day",
+        ],
+        "SavedQuerySyncFrequencyEnum": [
+            "never",
+            "15min",
+            "30min",
+            "1hour",
+            "6hour",
+            "12hour",
+            "24hour",
+            "7day",
+            "30day",
+        ],
         # Two serializers now expose an `op` ChoiceField (metrics filters and email-template design
         # patches). Pin both to stable names so neither gets a component-prefixed auto-name on collision.
         # "OpEnum" keeps the metrics filter enum at its pre-existing generated name.
