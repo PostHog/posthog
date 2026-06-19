@@ -21292,6 +21292,7 @@
                 "Lightfield",
                 "Appstack",
                 "Razorpay",
+                "Neon",
                 "Custom"
             ],
             "type": "string"
