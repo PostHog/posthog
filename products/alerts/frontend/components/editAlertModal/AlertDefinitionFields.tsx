@@ -135,9 +135,7 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
     )
 }
 
-/** Funnels: pick which conversion rate to alert on. A single dropdown of valid conversions
- * (labeled with the funnel's real step names) backed by the `{metric, funnel_step}` config — see
- * funnelAlertOptions for why the two axes are collapsed into one picker. */
+/** Funnels: a single valid-conversion picker over the `{metric, funnel_step}` config — see funnelAlertOptions. */
 export function FunnelsDefinitionFields({
     alertForm,
     stepLabels,
