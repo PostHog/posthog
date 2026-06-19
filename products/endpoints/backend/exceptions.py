@@ -3,12 +3,7 @@ from rest_framework.exceptions import APIException
 
 
 class EndpointQueryTooExpensive(APIException):
-    """A customer query hit a ClickHouse cost guardrail (execution time, memory, or size).
-
-    Deterministic: the query keeps failing until the customer narrows its scope or
-    materializes the endpoint, so we answer 400 (rather than a 5xx that invites blind
-    retries) with an actionable `code` the client can branch on.
-    """
+    """A customer query hit a ClickHouse cost guardrail — deterministic, so 400 (not a retry-inviting 5xx)."""
 
     status_code = status.HTTP_400_BAD_REQUEST
     default_code = "query_performance_limit"
@@ -16,11 +11,7 @@ class EndpointQueryTooExpensive(APIException):
 
 
 class EndpointAtCapacity(APIException):
-    """The shared ClickHouse query pool was momentarily at capacity.
-
-    Transient and retryable, but materializing moves the endpoint onto dedicated endpoint
-    compute that isn't affected by shared-pool load — so we recommend it as the durable fix.
-    """
+    """Shared ClickHouse pool momentarily at capacity — transient; materializing gives isolated compute."""
 
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "query_capacity"

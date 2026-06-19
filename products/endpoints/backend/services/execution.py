@@ -94,11 +94,8 @@ LAST_EXECUTED_THROTTLE = timedelta(minutes=30)
 
 ExecutionType = Literal["materialized", "materialized_fallback", "inline", "ducklake", "ducklake_fallback"]
 
-# ClickHouse cost guardrails. These are deterministic, customer-caused query-performance
-# failures (the query won't succeed until its scope shrinks or the endpoint is materialized),
-# not PostHog system faults — so they get their own metric status and an actionable 400
-# (code + remediation) instead of falling through to status="error" and paging on-call.
-# Each maps the wrapped CH exception to a stable client-facing `code` and message.
+# Deterministic, customer-caused ClickHouse cost guardrails → stable client `code` + remediation.
+# Kept out of status="error" so they don't page on-call; surfaced as an actionable 400.
 _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ClickHouseQueryTimeOut: (
         "query_timeout",
@@ -112,8 +109,7 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ),
     ClickHouseQuerySizeExceeded: (
         "query_too_large",
-        # Materialization re-parses the same SQL text, so it doesn't help an oversized query —
-        # simplification is the only fix here, unlike the time/memory guardrails below.
+        # No materialize hint: it re-parses the same SQL, so it can't shrink an oversized query.
         "The query text is too large to execute. Simplify the query. See https://posthog.com/docs/api/endpoints.",
     ),
     ClickHouseEstimatedQueryExecutionTimeTooLong: (
@@ -123,25 +119,21 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ),
 }
 
-# Single source of truth for "customer query-performance problem, not a system fault": the
-# deterministic cost guardrails plus the transient shared-pool capacity error. Used both to
-# skip error-tracking capture and to re-raise past the materialized/ducklake inline fallback.
+# Cost guardrails + transient capacity: customer problems, not faults. Skipped from capture and
+# re-raised past the materialized/ducklake inline fallback.
 _QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (*_QUERY_PERFORMANCE_ERRORS, ClickHouseAtCapacity)
 
 
 def _is_query_guardrail_error(error: BaseException) -> bool:
-    """True for ClickHouse cost-guardrail and capacity errors — customer query-performance
-    problems, not system faults, so they skip error-tracking capture and failure signals."""
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
 
 
 def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
-    """Resolve the client-facing code + message for a cost-guardrail error by isinstance, so a
-    future exception subclass caught by the handler can't KeyError into an unhandled 500."""
+    # isinstance, not dict[type(e)], so a future subclass can't KeyError into a 500.
     for exc_type, code_and_detail in _QUERY_PERFORMANCE_ERRORS.items():
         if isinstance(error, exc_type):
             return code_and_detail
-    raise error  # not a known cost guardrail — let the caller's generic handling take it
+    raise error
 
 
 def _emit_endpoint_failure_signal(
@@ -497,9 +489,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 except ConcurrencyLimitExceeded:
                     raise
                 except Exception as e:
-                    # A query-cost/capacity trip won't be fixed by re-running the (heavier) original
-                    # query inline — and retrying amplifies load exactly when the cluster is saturated.
-                    # Let execute()'s guardrail handlers classify it instead of falling back.
+                    # Don't fall back to a heavier inline retry on a guardrail trip — execute() classifies it.
                     if _is_query_guardrail_error(e):
                         raise
                     # Already logged/captured/signaled inside the materialized path. Serve the
@@ -514,8 +504,7 @@ class EndpointExecutionService(PydanticModelMixin):
                     )
                     execution_type = "ducklake"
                 except Exception as e:
-                    # As with the materialized path: a cost/capacity guardrail trip shouldn't fall
-                    # back to a heavier inline retry — let execute() classify it.
+                    # Same as the materialized path: a guardrail trip shouldn't fall back to inline.
                     if _is_query_guardrail_error(e):
                         raise
                     logger.warning(
@@ -589,7 +578,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 ENDPOINT_EXECUTION_TOTAL.labels(
                     execution_type=execution_type, query_kind=query_kind_metric, status=execution_status
                 ).inc()
-            if execution_status in ("error", "user_error"):
+            if execution_status in ("error", "user_error", "query_performance", "capacity"):
                 log_endpoint_execution(
                     team_id=self.team.pk,
                     endpoint_id=str(endpoint.id),
@@ -786,14 +775,8 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
-            # Query cost/capacity guardrails are customer-caused, not system faults: skip
-            # error-tracking capture and the failure signal, and let execute() classify them.
+            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
             if _is_query_guardrail_error(e):
-                logger.warning(
-                    "Materialized endpoint query hit a performance/capacity limit",
-                    endpoint_name=endpoint.name,
-                    reason=type(e).__name__,
-                )
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -900,14 +883,8 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
-            # Query cost/capacity guardrails are customer-caused, not system faults: skip
-            # error-tracking capture and the failure signal, and let execute() classify them.
+            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
             if _is_query_guardrail_error(e):
-                logger.warning(
-                    "Inline endpoint query hit a performance/capacity limit",
-                    endpoint_name=endpoint.name,
-                    reason=type(e).__name__,
-                )
                 raise
             logger.exception(
                 "Inline endpoint execution failed",
