@@ -175,9 +175,9 @@ export function AlertDefinitionSection({
                         <LemonBanner type="error">{thresholdBoundsFormError}</LemonBanner>
                     ) : null}
                     <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                        {/* Funnels only support the absolute "has value" condition; render it as text
-                            instead of a pointless single-option dropdown. */}
-                        {supportsRelativeConditions ? (
+                        {/* Funnels only ever check the absolute value, and "less than … / more than …"
+                            already says so — omit the redundant condition control entirely. */}
+                        {supportsRelativeConditions && (
                             <Group name={['condition']}>
                                 <LemonField name="type">
                                     <LemonSelect
@@ -200,8 +200,6 @@ export function AlertDefinitionSection({
                                     />
                                 </LemonField>
                             </Group>
-                        ) : (
-                            <div data-attr="alertForm-condition">has value</div>
                         )}
                         <div>less than</div>
                         <LemonField name="lower">
