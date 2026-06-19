@@ -229,66 +229,59 @@ class TestVariableAnalysis(APIBaseTest):
         assert len(var_infos) == 1
         assert var_infos[0].column_chain == ["event"]
 
-    def test_variable_in_or_condition_blocked(self):
-        query = {
-            "kind": "HogQLQuery",
-            "query": "SELECT count() FROM events WHERE event = {variables.event_name} OR event = '$pageview'",
-            "variables": {"var-1": {"code_name": "event_name", "value": "$identify"}},
-        }
-
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
-
-        # Pre-flight analysis must reject so this never reaches (and blows up in) the transform.
-        assert can_materialize is False
-        assert "OR conditions" in reason
-        assert var_infos == []
-
-    def test_variable_in_or_with_multiple_columns_blocked(self):
-        # Reproduction of a real materialization failure: the variable appears in two OR
-        # branches against two different columns, with one branch using ILIKE.
-        query = {
-            "kind": "HogQLQuery",
-            "query": (
+    @parameterized.expand(
+        [
+            # Variable inside an OR can't be lifted into a single materialized key column.
+            (
+                "or_condition",
+                "SELECT count() FROM events WHERE event = {variables.event_name} OR event = '$pageview'",
+                {"var-1": {"code_name": "event_name", "value": "$identify"}},
+                False,
+                "OR conditions",
+                0,
+            ),
+            # Reproduction of a real failure: same variable across two OR branches, two
+            # different columns, one branch using ILIKE.
+            (
+                "or_with_multiple_columns",
                 "SELECT count() FROM events\n"
                 "WHERE (event = '$pageview' AND properties.$current_url ILIKE CONCAT('%/refer?p_ref=', {variables.playeruuid}, '%'))\n"
-                "   OR (event = 'referral-impression' AND properties.referrer_uuid = {variables.playeruuid})"
+                "   OR (event = 'referral-impression' AND properties.referrer_uuid = {variables.playeruuid})",
+                {"var-1": {"code_name": "playeruuid", "value": "191e674e"}},
+                False,
+                "OR conditions",
+                0,
             ),
-            "variables": {"var-1": {"code_name": "playeruuid", "value": "191e674e"}},
-        }
+            # Same variable, two AND'd branches, but two different columns — no single bucket key.
+            (
+                "multiple_columns",
+                "SELECT count() FROM events WHERE properties.a = {variables.v} AND properties.b = {variables.v}",
+                {"var-1": {"code_name": "v", "value": "x"}},
+                False,
+                "multiple columns",
+                0,
+            ),
+            # An OR that doesn't contain the variable must not trip the OR guard.
+            (
+                "or_without_variable_allowed",
+                "SELECT count() FROM events WHERE event = {variables.event_name} AND (properties.a = '1' OR properties.b = '2')",
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+                True,
+                "OK",
+                1,
+            ),
+        ]
+    )
+    def test_or_and_multi_column_variable_analysis(
+        self, _name, query_str, variables, expected_can_materialize, expected_reason, expected_var_count
+    ):
+        query = {"kind": "HogQLQuery", "query": query_str, "variables": variables}
 
         can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
 
-        assert can_materialize is False
-        assert "OR conditions" in reason
-        assert var_infos == []
-
-    def test_variable_compared_against_multiple_columns_blocked(self):
-        # Same variable, two AND'd branches, but two different columns — no single bucket key.
-        query = {
-            "kind": "HogQLQuery",
-            "query": "SELECT count() FROM events WHERE properties.a = {variables.v} AND properties.b = {variables.v}",
-            "variables": {"var-1": {"code_name": "v", "value": "x"}},
-        }
-
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
-
-        assert can_materialize is False
-        assert "multiple columns" in reason
-        assert var_infos == []
-
-    def test_or_condition_without_variable_still_materializes(self):
-        # An OR that doesn't contain the variable must not trip the OR guard.
-        query = {
-            "kind": "HogQLQuery",
-            "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND (properties.a = '1' OR properties.b = '2')",
-            "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
-        }
-
-        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
-
-        assert can_materialize is True
-        assert reason == "OK"
-        assert len(var_infos) == 1
+        assert can_materialize is expected_can_materialize
+        assert expected_reason in reason
+        assert len(var_infos) == expected_var_count
 
     def test_variable_with_parentheses(self):
         query = {
