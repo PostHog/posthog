@@ -209,7 +209,7 @@ impl SinkEvent for WrappedEvent {
         buf
     }
 
-    fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<String> {
+    fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
         let spliced = self.build_spliced_properties(ctx)?;
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
@@ -249,10 +249,10 @@ impl SinkEvent for WrappedEvent {
             historical_migration: ctx.historical_migration,
         };
 
-        let mut buf = String::with_capacity(data.len() + 512);
-        serde_json::to_writer(StringWriter(&mut buf), &ie)
+        let mut buf = Vec::with_capacity(data.len() + 512);
+        serde_json::to_writer(&mut buf, &ie)
             .map_err(|e| anyhow::anyhow!("serializing IngestionEvent: {e:#}"))?;
-        Ok(buf)
+        Ok(bytes::Bytes::from(buf))
     }
 }
 
@@ -1073,7 +1073,7 @@ mod tests {
     ) -> (CapturedEvent, RawEvent) {
         let buf = wrapped.serialize(ctx).expect("serialize failed");
         let captured: CapturedEvent =
-            serde_json::from_str(&buf).expect("v1 output must deserialize as CapturedEvent");
+            serde_json::from_slice(&buf).expect("v1 output must deserialize as CapturedEvent");
         let data: RawEvent =
             serde_json::from_str(&captured.data).expect("data field must deserialize as RawEvent");
         (captured, data)
@@ -1427,7 +1427,7 @@ mod tests {
         assert_eq!(wrapped.event.options.cookieless_mode, Some(false));
         let ctx = serialize_ctx();
         let buf = wrapped.serialize(&ctx).unwrap();
-        let val: Value = serde_json::from_str(&buf).unwrap();
+        let val: Value = serde_json::from_slice(&buf).unwrap();
         assert!(
             val.get("is_cookieless_mode").is_none(),
             "is_cookieless_mode should be absent when false"
@@ -1448,7 +1448,7 @@ mod tests {
         let wrapped = pageview_event();
         let ctx = serialize_ctx();
         let buf = wrapped.serialize(&ctx).unwrap();
-        let val: Value = serde_json::from_str(&buf).unwrap();
+        let val: Value = serde_json::from_slice(&buf).unwrap();
         assert!(
             val.get("historical_migration").is_none(),
             "historical_migration should be absent when false"

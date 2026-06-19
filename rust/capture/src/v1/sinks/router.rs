@@ -5,9 +5,8 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
-use crate::v1::sinks::types::SinkResult;
+use crate::v1::sinks::types::{PreparedEvent, SinkResult};
 use crate::v1::sinks::SinkName;
 
 // ---------------------------------------------------------------------------
@@ -57,12 +56,12 @@ impl Router {
         self.sinks.keys().copied().collect()
     }
 
-    /// Publish a batch of events to the named sink.
+    /// Publish a batch of already-serialized events to the named sink.
     pub async fn publish_batch(
         &self,
         sink: SinkName,
         ctx: &RequestContext,
-        events: &[&(dyn Event + Send + Sync)],
+        events: &[PreparedEvent],
     ) -> Result<Vec<Box<dyn SinkResult>>, RouterError> {
         let target = self
             .sinks
@@ -76,9 +75,11 @@ impl Router {
         &self,
         sink: SinkName,
         ctx: &RequestContext,
-        event: &(dyn Event + Send + Sync),
+        event: &PreparedEvent,
     ) -> Result<Option<Box<dyn SinkResult>>, RouterError> {
-        let results = self.publish_batch(sink, ctx, &[event]).await?;
+        let results = self
+            .publish_batch(sink, ctx, std::slice::from_ref(event))
+            .await?;
         Ok(results.into_iter().next())
     }
 
@@ -129,6 +130,8 @@ mod tests {
 
     // -- Test helpers --------------------------------------------------------
 
+    use crate::v1::test_utils::prepared;
+
     struct FakeEvent {
         parsed_uuid: Uuid,
         publish: bool,
@@ -142,11 +145,6 @@ mod tests {
                 publish: true,
                 destination: Destination::AnalyticsMain,
             }
-        }
-
-        fn with_publish(mut self, p: bool) -> Self {
-            self.publish = p;
-            self
         }
     }
 
@@ -182,8 +180,8 @@ mod tests {
         fn partition_key(&self, _ctx: &RequestContext) -> String {
             format!("key:{}", self.uuid())
         }
-        fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<String> {
-            Ok(r#"{"event":"test"}"#.to_string())
+        fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
+            Ok(bytes::Bytes::from(r#"{"event":"test"}"#.to_string()))
         }
     }
 
@@ -251,7 +249,7 @@ mod tests {
             test_router(SinkName::Msk, &[SinkName::Msk, SinkName::Ws]);
         let ctx = test_ctx();
         let event = FakeEvent::ok("evt-1");
-        let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+        let events = prepared(&[&event], &ctx);
 
         let results = router
             .publish_batch(SinkName::Msk, &ctx, &events)
@@ -266,7 +264,7 @@ mod tests {
         let (router, _handle, _monitor) = test_router(SinkName::Msk, &[SinkName::Msk]);
         let ctx = test_ctx();
         let event = FakeEvent::ok("evt-1");
-        let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+        let events = prepared(&[&event], &ctx);
 
         match router.publish_batch(SinkName::Ws, &ctx, &events).await {
             Err(RouterError::SinkNotFound(SinkName::Ws)) => {}
@@ -280,20 +278,14 @@ mod tests {
         let (router, _handle, _monitor) = test_router(SinkName::Msk, &[SinkName::Msk]);
         let ctx = test_ctx();
         let event = FakeEvent::ok("evt-1");
+        let prepared = prepared(&[&event], &ctx);
 
-        let result = router.publish(SinkName::Msk, &ctx, &event).await.unwrap();
+        let result = router
+            .publish(SinkName::Msk, &ctx, &prepared[0])
+            .await
+            .unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().outcome(), Outcome::Success);
-    }
-
-    #[tokio::test]
-    async fn publish_single_non_publishable_returns_none() {
-        let (router, _handle, _monitor) = test_router(SinkName::Msk, &[SinkName::Msk]);
-        let ctx = test_ctx();
-        let event = FakeEvent::ok("evt-1").with_publish(false);
-
-        let result = router.publish(SinkName::Msk, &ctx, &event).await.unwrap();
-        assert!(result.is_none());
     }
 
     #[tokio::test]
@@ -301,8 +293,9 @@ mod tests {
         let (router, _handle, _monitor) = test_router(SinkName::Msk, &[SinkName::Msk]);
         let ctx = test_ctx();
         let event = FakeEvent::ok("evt-1");
+        let prepared = prepared(&[&event], &ctx);
 
-        match router.publish(SinkName::Ws, &ctx, &event).await {
+        match router.publish(SinkName::Ws, &ctx, &prepared[0]).await {
             Err(RouterError::SinkNotFound(SinkName::Ws)) => {}
             Err(e) => panic!("expected SinkNotFound(Ws), got: {e}"),
             Ok(_) => panic!("expected error, got Ok"),

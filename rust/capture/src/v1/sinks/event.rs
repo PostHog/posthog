@@ -32,6 +32,9 @@ pub trait Event: Send + Sync {
     /// (e.g. force_disable_person_processing).
     fn partition_key(&self, ctx: &RequestContext) -> String;
 
-    /// Serialize the event payload and return the JSON string.
-    fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<String>;
+    /// Serialize the event payload and return the raw bytes. `Bytes` (not
+    /// `String`) so non-UTF-8 / binary payloads (e.g. replay) share this
+    /// contract, and so a serialized payload can be cheaply cloned across
+    /// multiple sinks (dual-write) without re-encoding.
+    fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes>;
 }
