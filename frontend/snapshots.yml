@@ -588,6 +588,10 @@ snapshots:
         hash: v1.k794b7964.586cbc343561fe2ea416c4e8a15661d80f0dc0e6602c4c4505fb763a960e3fec.wnr2iqA9493GIdPtZgO3pqa1uiD9pZcM3L01W8_FZ-Q
     components-hogcharts-defaulttooltip--total-excludes-overlay--light:
         hash: v1.k794b7964.cf566924008a871da770d7d0a0b7a2ac6748823639d3d60ca60344770f581a2a.7s92rB7AHoeq-uQd_tSJGFVCn3cU-LQeOQVJ2qyvLWo
+    components-hogcharts-legend--built-in-toggle--dark:
+        hash: v1.k794b7964.a44913b0e0cdf88b5d0d8960560fa4ce5a663f0b187cdcc5a723d1bb9b653fc6.pxcAORXTtyj4dK4h_9PUe9keV7tagKmaBvwS56KoeXI
+    components-hogcharts-legend--built-in-toggle--light:
+        hash: v1.k794b7964.dc8065b867dd309ca1c05935745e283b13d2fd7ebb7ddde80c9b5e8c24ee6cec.BzRyo-huuWL4HvNyXrykyXbCBuFTjeQKpECqODhn7AE
     components-hogcharts-legend--horizontal--dark:
         hash: v1.k794b7964.748c8221979ca1984c3ef06b0a2d5016e683810a2530a2b7549ff2994484d32d.WlgOW_onzflesCUfetduXiySjbl4uF8oTLxdKf4xYso
     components-hogcharts-legend--horizontal--light:
@@ -2336,6 +2340,10 @@ snapshots:
         hash: v1.k794b7964.ed8dcfd0398a52a184600b34416183c0e4f7db42860db1fed3e3631b31819a9c.VemuVUNUEgJsYOIWX8UgRIlBSIs9GeBXCSJsTV8nzAg
     insights-funnelbarhorizontalchart--default-narrow--light:
         hash: v1.k794b7964.b6543758ca04b2e970af5d54a370ba18ced44e9ae8fc75814f19392942db7abc.y9qjx5SS8j1iMTyUqdHLGqjEZuGfzS23ao2GcioBRUc
+    insights-funnelbarhorizontalchart--funnel-top-to-bottom-compare--dark:
+        hash: v1.k794b7964.72d237b21ff6966313ce6117b09181395d56a21f3826cd06eb7de95d118389d4.aTEfL9HGvWY3WO-TKr-bs8nvdEuVWauwCh3BWg4n7iU
+    insights-funnelbarhorizontalchart--funnel-top-to-bottom-compare--light:
+        hash: v1.k794b7964.8faec9e7852253456408ac542e54813dca156da131c8a9a3f3be2abce804e8c5.H71T2F5dlR2cNdBQ2EhRysiy-c0VzNWUiiaHDxHC7Co
     insights-funnelcorrelationtable--default--dark:
         hash: v1.k794b7964.0c70fac4deda9be64c8b0c0d06eb0149e9d11176c31ab5861f6657fa80714836.YqZL0Grf9CN71TbXgR_pGO23EfnukP5X-Doi0-Xy48A
     insights-funnelcorrelationtable--default--light:
