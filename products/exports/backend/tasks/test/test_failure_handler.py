@@ -30,6 +30,7 @@ class TestIsUserQueryErrorType(TestCase):
             ("CHQueryErrorUnknownTable", True),
             ("ExcelColumnLimitExceeded", True),
             ("InvalidExportContext", True),
+            ("ValidationError", True),  # DRF validation of the user's query (e.g. one-step funnel export)
             # Non-user errors - should return False
             ("TimeoutError", False),
             ("ValueError", False),
@@ -62,6 +63,7 @@ class TestClassifyFailureType(TestCase):
             ("CHQueryErrorUnknownTable", FAILURE_TYPE_USER),
             ("ExcelColumnLimitExceeded", FAILURE_TYPE_USER),
             ("InvalidExportContext", FAILURE_TYPE_USER),
+            ("ValidationError", FAILURE_TYPE_USER),
             # System errors (from EXCEPTIONS_TO_RETRY)
             ("CHQueryErrorS3Error", FAILURE_TYPE_SYSTEM),
             ("CHQueryErrorTooManySimultaneousQueries", FAILURE_TYPE_SYSTEM),
