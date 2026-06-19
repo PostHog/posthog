@@ -1,31 +1,14 @@
 #!/usr/bin/env bash
-# Bring up the external Go ai-gateway (github.com/PostHog/ai-gateway) in
-# OPEN mode for local dev, so the agent-runner can route model calls
-# through it (anonymous principal, no per-request resolver). Idempotent
-# apart from another anonymous-team ledger topup.
-#
-# What it does:
-#   1. Verifies the sibling clone exists and has a .env.
-#   2. Brings up the gateway's deps (postgres + valkey) via docker compose.
-#      NOTE: the gateway's compose.yaml ships ONLY deps; the gateway and
-#      billing binaries run from source, not as compose services.
-#   3. Backgrounds a seeder that waits for /readyz, then tops up the
-#      anonymous-principal ledger (team_id = 0) so AI_GATEWAY_AUTH_MODE=open
-#      requests pass admission. Without it the gateway 402s on every call.
-#   4. Runs the gateway binary in the foreground (mprocs manages it).
-#
-# Open mode is forced here regardless of the clone's .env, since this entry
-# exists for agent-runner routing. For the resolver / real-phs-token flow
-# (auth + billing testing) see the gateway repo's docs/local-resolver-dev.md.
-#
-# Pair with `AGENT_USE_AI_GATEWAY=true` on agent-runner so the runner routes
-# through http://localhost:8080/v1. With the flag off the runner uses direct
-# providers (ANTHROPIC_API_KEY / OPENAI_API_KEY) and this entry is unused.
+# Run the external Go ai-gateway (github.com/PostHog/ai-gateway) in OPEN mode
+# for agent-runner routing: anonymous principal, deps via docker compose (its
+# compose.yaml ships deps only; the binary runs from source), team_id=0 ledger
+# seeded after /readyz so open-mode requests pass admission. Open mode is forced
+# regardless of the clone's .env; for the resolver flow see the gateway repo's
+# docs/local-resolver-dev.md. Pairs with AGENT_USE_AI_GATEWAY=true on agent-runner.
 
 set -euo pipefail
 
-# Default to the sibling clone next to this posthog checkout
-# (e.g. ~/Code/posthog/ai-gateway alongside ~/Code/posthog/posthog).
+# Default clone path: sibling of this posthog checkout; override AI_GATEWAY_REPO.
 POSTHOG_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 AI_GATEWAY_REPO="${AI_GATEWAY_REPO:-$(dirname "$POSTHOG_ROOT")/ai-gateway}"
 TOPUP_USD="${AI_GATEWAY_DEV_TOPUP_USD:-100.00}"
@@ -68,9 +51,8 @@ set +o allexport
 echo "[start-ai-gateway] bringing up gateway deps (postgres + valkey)"
 docker compose up -d --wait
 
-# Seed the anonymous-team ledger once the gateway serves /readyz. Migrations
-# run on boot, so the table exists only after it's up; the 5-min budget covers
-# a cold `go run` compile plus the first catalog warm-up.
+# Seed the team_id=0 ledger once /readyz passes; migrations create the table
+# on boot. The 5-min budget covers a cold `go run` compile plus catalog warm-up.
 (
     for _ in $(seq 1 150); do
         if curl -sf "http://localhost:${GATEWAY_PORT}/readyz" >/dev/null 2>&1; then
@@ -90,9 +72,8 @@ docker compose up -d --wait
 ) &
 
 echo "[start-ai-gateway] running gateway (open mode) on http://localhost:${GATEWAY_PORT}"
-# Force open mode and the gateway's own valkey/postgres over the clone's .env,
-# STUB flags included (an offline clone's STUB_DISPATCH=true would otherwise
-# serve canned completions in open mode).
+# Force open mode + own valkey/postgres over the clone's .env, STUB flags
+# included (else an offline clone's STUB_DISPATCH=true serves canned output).
 exec env \
     AI_GATEWAY_AUTH_MODE=open \
     AI_GATEWAY_LISTEN_ADDR=":${GATEWAY_PORT}" \
