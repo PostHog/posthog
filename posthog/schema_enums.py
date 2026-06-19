@@ -1790,6 +1790,7 @@ class ExternalDataSourceType(StrEnum):
     AHREFS = "Ahrefs"
     LIGHTFIELD = "Lightfield"
     APPSTACK = "Appstack"
+    RAZORPAY = "Razorpay"
     CUSTOM = "Custom"
 
 

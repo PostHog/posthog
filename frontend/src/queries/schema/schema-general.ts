@@ -6870,6 +6870,7 @@ export const externalDataSources = [
     'Ahrefs',
     'Lightfield',
     'Appstack',
+    'Razorpay',
     'Custom',
 ] as const
 
