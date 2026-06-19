@@ -335,6 +335,80 @@ describe('sandboxStreamLogic', () => {
             expect(assistantItems[1].complete).toEqual(false)
             expect(assistantItems[0].id).not.toEqual(assistantItems[1].id)
         })
+
+        it('finalizes the streamed message when chunks carry a messageId but the finalize omits it', async () => {
+            // The live wire often streams `agent_message_chunk`s with a messageId but closes the turn
+            // with an `agent_message` that has none. The finalize must close the in-flight bubble, not
+            // append a second one with the same text.
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({
+                    sessionUpdate: 'agent_message_chunk',
+                    messageId: 'm1',
+                    content: { text: "I'll query. " },
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'agent_message_chunk',
+                    messageId: 'm1',
+                    content: { text: 'Loading tools.' },
+                }),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: "I'll query. Loading tools." } }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistantItems).toHaveLength(1)
+            expect(assistantItems[0].text).toEqual("I'll query. Loading tools.")
+            expect(assistantItems[0].complete).toEqual(true)
+        })
+
+        it('finalizes the streamed message when chunks omit the messageId but the finalize carries it', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: "I'll query. " } }),
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'Loading tools.' } }),
+                sessionUpdate({
+                    sessionUpdate: 'agent_message',
+                    messageId: 'm1',
+                    content: { text: "I'll query. Loading tools." },
+                }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistantItems).toHaveLength(1)
+            expect(assistantItems[0].text).toEqual("I'll query. Loading tools.")
+            expect(assistantItems[0].complete).toEqual(true)
+        })
+
+        it('does not let an id-less finalize reach back across a turn separator', async () => {
+            // A finalize with no matching buffer falls back to the in-flight message, but must not
+            // close a still-open bubble from a previous turn.
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({
+                    sessionUpdate: 'agent_message_chunk',
+                    messageId: 'm1',
+                    content: { text: 'First turn' },
+                }),
+                notification('_posthog/turn_complete', {}),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Second turn' } }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistantItems.map((item) => item.text)).toEqual(['First turn', 'Second turn'])
+            // The first turn's bubble stayed open (never finalized); the second turn's finalize made
+            // its own complete bubble rather than closing the first.
+            expect(assistantItems[0].complete).toEqual(false)
+            expect(assistantItems[1].complete).toEqual(true)
+        })
     })
 
     describe('agent thought buffering', () => {
@@ -1385,6 +1459,92 @@ describe('sandboxStreamLogic', () => {
 
             expect(logic.values.currentRunStatus).toEqual('completed')
             expect(MockStream.connections.length).toEqual(0)
+        })
+    })
+
+    describe('terminal history reconcile (§5)', () => {
+        it('fills a content-keyed frame the live stream gapped, without re-applying keyless frames', async () => {
+            // The live stream delivered the tool call and its completion, but the finalized agent
+            // message was XADD'd to Redis in the bootstrap→connect seam and missed by `?start=latest`.
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1-0')
+            await MockStream.latest().emitMessage(
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't1',
+                    toolName: 'exec',
+                    status: 'in_progress',
+                }),
+                '2-0'
+            )
+            await MockStream.latest().emitMessage(
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 't1',
+                    status: 'completed',
+                    content: [{ type: 'text', text: 'done' }],
+                }),
+                '3-0'
+            )
+
+            // The finalized S3 log carries everything: the gapped agent message and a gapped,
+            // never-resolved permission request from mid-run.
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/run_started', {}) as any,
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 't1',
+                    toolName: 'exec',
+                    status: 'in_progress',
+                }) as any,
+                sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 't1',
+                    status: 'completed',
+                    content: [{ type: 'text', text: 'done' }],
+                }) as any,
+                notification('_posthog/permission_request', {
+                    requestId: 'perm-gap',
+                    toolCall: { toolCallId: 't1', rawInput: {} },
+                    options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+                }) as any,
+                sessionUpdate({
+                    sessionUpdate: 'agent_message',
+                    messageId: 'm1',
+                    content: { text: 'final answer' },
+                }) as any,
+            ])
+
+            // Terminal → the reconcile re-reads S3 and folds the gapped content-keyed frame in.
+            logic.actions.handleTerminalStatus({ status: 'completed' })
+            await flushPromises()
+
+            // The gapped finalized message is now rendered, exactly once.
+            const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistantItems.map((item) => item.text)).toEqual(['final answer'])
+
+            // The tool call already seen live isn't duplicated, and its keyless `tool_call_update` is
+            // skipped by the reconcile — so its content blocks aren't re-applied (no double-fold).
+            const toolItems = logic.values.threadItems.filter((item) => item.type === 'tool_invocation')
+            expect(toolItems).toHaveLength(1)
+            const invocation = logic.values.toolInvocations.get('t1')
+            expect(invocation?.status).toEqual('completed')
+            expect(invocation?.contentBlocks).toEqual([{ type: 'text', text: 'done' }])
+
+            // The gapped permission request is NOT resurfaced — a terminal run can't accept approvals.
+            expect(logic.values.pendingPermissionRequest).toBeNull()
+        })
+
+        it('does not reconcile a run surfaced read-only from history (S3 was just fetched)', async () => {
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            // One fetch on bootstrap, none on the read-only terminal path.
+            expect(logsSpy).toHaveBeenCalledTimes(1)
         })
     })
 

@@ -522,7 +522,9 @@ function frameContentKey(notification: StoredLogEntry['notification']): string |
                 return `tool_call:${toolCallId}`
             }
             if (update.sessionUpdate === 'agent_message' && typeof update.messageId === 'string' && update.messageId) {
-                return `msg:${update.messageId}`
+                // Suffix with the sessionUpdate so the key stays distinct if a future change ever
+                // content-keys another messageId-bearing update (e.g. a chunk) by the same id.
+                return `msg:${update.messageId}:${update.sessionUpdate}`
             }
         }
     }
@@ -611,7 +613,24 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     }
 
     const finalizeMessage = (id: string, text: string): void => {
-        const idx = findLastBufferIndex(items, id, 'assistant_message', true)
+        let idx = findLastBufferIndex(items, id, 'assistant_message', true)
+        if (idx === -1) {
+            // The wire isn't consistent about carrying `messageId` across a message's chunks and its
+            // closing `agent_message` (the chunks often have one, the finalize doesn't, or vice
+            // versa), so an id-keyed lookup can miss the buffer the chunks opened. Fall back to the
+            // message still being streamed — the last open assistant buffer in the current turn —
+            // and close that, rather than appending a second bubble with the same text. Bounded at
+            // the turn separator so a finalize never reaches back into a prior turn.
+            for (let i = items.length - 1; i >= 0; i--) {
+                if (items[i].type === 'turn_separator') {
+                    break
+                }
+                if (items[i].type === 'assistant_message' && !items[i].complete) {
+                    idx = i
+                    break
+                }
+            }
+        }
         if (idx === -1) {
             items.push({ id, type: 'assistant_message', text, complete: true })
             return
@@ -922,6 +941,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         ingestLogEntry: (key: string, entry: StoredLogEntry, source: FrameSource) => ({ key, entry, source }),
         /** Records whether the bootstrapped run is a resume run, so the projection can drop its synthetic resume prompt. */
         markBootstrapResumeRun: (value: boolean) => ({ value }),
+        /**
+         * After a streamed run terminates, re-read the finalized `logs/` (S3) copy and fill any
+         * content-keyed frame the live stream gapped (the bootstrap→connect seam). Idempotent — no-op
+         * for frames already folded.
+         */
+        reconcileTerminalHistory: (taskId: string, runId: string) => ({ taskId, runId }),
         /**
          * Surface a permission request. `replayedFromHistory` marks requests re-derived from the
          * `logs/` bootstrap — they restore card state but don't re-fire telemetry (the event
@@ -1333,6 +1358,40 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // Non-terminal: open SSE from the latest point, deduping against the replayed history.
             actions.openSseForRun({ taskId, runId, startLatest: true })
         },
+        reconcileTerminalHistory: async ({ taskId, runId }) => {
+            // The live stream resumes via `?start=latest` after the S3 bootstrap, so a frame XADD'd to
+            // Redis in the seam between the snapshot read and the connect cutoff can be missed by both
+            // (a gap, not a dup — no live re-broadcast recovers it). Once the run terminates the S3 log
+            // is final, so re-read it and re-ingest the *content-keyed* frames as 'replay': they carry
+            // a stable key identical across S3 and the live stream, so a frame already folded is an
+            // idempotent no-op and a gapped one (e.g. a finalized agent message that never streamed) is
+            // filled. Keyless-repeating frames (tool_call_update, status, …) are deliberately skipped —
+            // their S3 occurrence key can't be matched to the live `event_id` key, so re-ingesting them
+            // would land the same logical frame under two keys and double the accumulate-folds. Closing
+            // that keyless gap needs a stable per-frame `seq` stamped into both copies (the backend
+            // follow-up), not this frontend-only pass. Best-effort: a failed re-fetch leaves the thread
+            // exactly as the live stream left it.
+            let entries: unknown[]
+            try {
+                entries = await api.tasks.runs.getLogEntries(taskId, runId)
+            } catch {
+                return
+            }
+            entries
+                .map(normalizeNotificationEntry)
+                .filter((entry): entry is StoredLogEntry => entry !== null)
+                .filter((entry) => {
+                    // Skip the permission lifecycle: a terminal run can't accept approvals, and
+                    // re-routing a gapped request here would resurface a card the terminal-status
+                    // reducer just cleared.
+                    const method = entry.notification.method
+                    if (method === '_posthog/permission_request' || method === '_posthog/permission_resolved') {
+                        return false
+                    }
+                    return frameContentKey(entry.notification) !== null
+                })
+                .forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+        },
         openSseForRun: ({ taskId, runId, startLatest }) => {
             const projectId = values.currentProjectId
             if (projectId === null) {
@@ -1421,8 +1480,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         lastEventId: cache.lastEventId as string | undefined,
                         startLatest,
                     })
-                } catch {
-                    if (!signal.aborted) {
+                } catch (error) {
+                    if (signal.aborted) {
+                        return
+                    }
+                    // A fetch (unlike a native EventSource) exposes the HTTP status. Surface a
+                    // permanently-failed open (e.g. 404 — the backing run is gone) as a terminal
+                    // stream error instead of looping the reconnect logic forever; treat a transient
+                    // status or a network-level reject as a drop and let the recovery loop retry.
+                    const status = (error as { status?: number })?.status
+                    const mapped = status !== undefined ? mapHttpStatusToStreamError(status) : undefined
+                    if (mapped && !mapped.retryable) {
+                        actions.handleStreamError(mapped)
+                    } else {
                         actions.sseDropped()
                     }
                     return
@@ -1675,9 +1745,17 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
 
             // A run that already terminated in a prior session is surfaced read-only on reopen —
             // the reducers still record the terminal status, but re-emitting telemetry on every
-            // page load would inflate termination counts.
+            // page load would inflate termination counts. Its `logs/` copy was also just fetched by
+            // bootstrap, so there is nothing to reconcile.
             if (replayedFromHistory) {
                 return
+            }
+
+            // A run we were streaming just terminated → its S3 log is now final. Reconcile against it
+            // to fill any content-keyed frame the live stream gapped in the bootstrap→connect seam.
+            const terminatedRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            if (terminatedRun) {
+                actions.reconcileTerminalHistory(terminatedRun.taskId, terminatedRun.runId)
             }
 
             // Crash/failure affordance: a failed run carrying an error_message otherwise just blanks
