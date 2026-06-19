@@ -545,8 +545,7 @@ class TestArgMaxNonNullableSimplification(ClickhouseTestMixin, APIBaseTest):
             placeholders={"pid": ast.Constant(value=person.uuid)},
             modifiers=self._modifiers(),
         )
-        # The latest version unset the property -> NULL must win. If the wrap were dropped, ClickHouse
-        # argMax would skip the NULL and return the stale earlier value instead.
+        # The latest version unset the property, so NULL must win; a dropped wrap would make argMax skip the NULL and return the stale earlier value.
         assert response.results[0][0] is None
         assert response.results[0][1] == "keep"
         # The nullable read (JSON extract or materialized column) stays wrapped.

@@ -63,8 +63,7 @@ class _ArgMaxTupleSimplifier(CloningVisitor):
         inner_type = _constant_type(inner, self.context)
         if inner_type is None or isinstance(inner_type, ast.UnknownType) or inner_type.nullable:
             return node
-        # Carry every field off the original argMax (params, distinct, FILTER, etc.); argmax_select sets
-        # none today, but a future caller's clause would otherwise be silently dropped.
+        # Carry every field off the original argMax (params, distinct, FILTER, etc.) so a future caller's clause is not silently dropped; argmax_select sets none today.
         return ast.Call(
             name="argMax",
             args=[inner, argmax.args[1]],
