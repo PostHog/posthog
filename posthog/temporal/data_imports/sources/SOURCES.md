@@ -490,6 +490,7 @@ doesn't conflict with concurrent PRs.
 - nebius_ai
 - neon
 - netsuite
+- new_relic
 - new_york_times
 - news_api
 - newsdata
