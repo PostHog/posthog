@@ -208,7 +208,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     def get_inlines(self, request, obj=None):
         # Inlines other apps registered for Organization, so a product can show a panel on
         # this page without core importing it. See posthog.admin.inline_registry.
-        return [*self.inlines, *extra_inlines_for(Organization)]
+        return [*super().get_inlines(request, obj), *extra_inlines_for(Organization)]
 
     def members_count(self, organization: Organization):
         return organization.members.count()

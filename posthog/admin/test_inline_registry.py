@@ -1,4 +1,15 @@
+import pytest
+
+from posthog.admin import inline_registry
 from posthog.admin.inline_registry import extra_inlines_for, register_admin_inline
+
+
+@pytest.fixture(autouse=True)
+def _restore_registry():
+    saved = {model: list(inlines) for model, inlines in inline_registry._extra_inlines.items()}
+    yield
+    inline_registry._extra_inlines.clear()
+    inline_registry._extra_inlines.update(saved)
 
 
 def test_register_admin_inline_is_idempotent():
