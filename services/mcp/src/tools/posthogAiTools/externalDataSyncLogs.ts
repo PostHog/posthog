@@ -4,10 +4,13 @@ import type { Context, ToolBase } from '@/tools/types'
 
 import { invokeMcpTool } from './invokeTool'
 
+// PostHog ids are UUIDTs whose version/variant nibbles don't follow RFC 4122, so `z.uuid()`
+// (which enforces those nibbles in Zod 4) rejects valid ids — e.g. a `0` version nibble. Use
+// `z.guid()`, which accepts any 8-4-4-4-12 hex string.
 const schema = z.object({
-    schema_id: z.uuid().describe('UUID of the external data schema (table) to get sync logs for.'),
+    schema_id: z.guid().describe('UUID of the external data schema (table) to get sync logs for.'),
     job_id: z
-        .uuid()
+        .guid()
         .optional()
         .describe(
             'Optional workflow_run_id to filter logs for a specific sync job. Get this from external-data-sources-jobs.'
