@@ -635,6 +635,27 @@ exports: PostgresTable = PostgresTable(
     },
 )
 
+# The project's virtual file tree (posthog_filesystem). Channels are folders and
+# tasks/canvases are filed under them by `path`; `surface` separates products
+# (e.g. "web" vs "desktop"). Scoped to a channel via startsWith(path, ...).
+file_system: PostgresTable = PostgresTable(
+    name="file_system",
+    postgres_table_name="posthog_filesystem",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "path": StringDatabaseField(name="path"),
+        "depth": IntegerDatabaseField(name="depth", nullable=True),
+        "type": StringDatabaseField(name="type"),
+        "ref": StringDatabaseField(name="ref", nullable=True),
+        "href": StringDatabaseField(name="href", nullable=True),
+        "meta": StringJSONDatabaseField(name="meta", nullable=True),
+        "surface": StringDatabaseField(name="surface", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+    },
+)
+
 activity_logs: PostgresTable = PostgresTable(
     name="activity_logs",
     postgres_table_name="posthog_activitylog",
@@ -1287,6 +1308,7 @@ class SystemTables(TableNode):
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
+        "file_system": TableNode(name="file_system", table=file_system),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
         "hog_flows": TableNode(name="hog_flows", table=hog_flows),
