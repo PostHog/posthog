@@ -1556,6 +1556,98 @@ describe('Workflows E2E (email queue)', () => {
         }, 10000)
     })
 
+    it('does not emit duplicate Resuming / Executing / pause logs for the email-queue routing reschedule', async () => {
+        // Email steps reschedule themselves once to switch onto the dedicated email queue
+        // (see HogFunctionHandler.execute in actions/hog_function.ts). That second dequeue
+        // continues the *same* action and would otherwise re-emit "Resuming workflow execution
+        // at Email", "Executing action Email", and a "Workflow will pause until <basically
+        // now>" line — leaking the internal queue routing into customer-visible logs.
+        //
+        // The fix tags the action state with `routingOnlyReschedule: true` on the rescheduling
+        // dequeue and consumes it on the next dequeue to suppress those three lines. This test
+        // is the regression guard: trigger → email → exit should produce exactly one trigger
+        // log, one "Executing action [Action:email_1]" line, one "Email sent" line, and no
+        // routing-flavored pause / resume noise.
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Routing-reschedule log test',
+                                        text: 'Test text',
+                                        html: '<p>Test html</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        // Wait for the workflow to terminate so all logs from both dequeues have been produced.
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const terminal = jobs.filter(
+                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+            )
+            expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 15000)
+
+        // Collect every log entry produced by this hogflow run from the Kafka topic.
+        const logMessages = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+            .map((m: any) => m.value.message as string)
+
+        // Sanity check: the test wired up correctly (email actually sent).
+        expect(logMessages.some((msg) => msg.includes('Email sent to recipient@example.com'))).toBe(true)
+
+        // The email action's "Executing action" debug log must fire EXACTLY ONCE despite the
+        // two dequeues it takes to switch queues. Anchor on the action id ('email_1') so we
+        // don't accidentally also match the trigger or exit action's lines.
+        const executingEmailLogs = logMessages.filter((msg) => msg === 'Executing action [Action:email_1]')
+        expect(executingEmailLogs).toHaveLength(1)
+
+        // The "Resuming workflow execution at" log fires at most once per dequeue — and the
+        // routing-continuation dequeue should be silent. So we should never see a Resuming
+        // line anchored on the email action (the first dequeue Starts at the trigger, not the
+        // email step).
+        const resumingEmailLogs = logMessages.filter(
+            (msg) => msg.includes('Resuming workflow execution at') && msg.includes('[Action:email_1]')
+        )
+        expect(resumingEmailLogs).toHaveLength(0)
+
+        // No "Workflow will pause until" lines either — the only pause in this workflow is the
+        // sub-millisecond routing reschedule, which the suppression should hide. Real pauses
+        // (delays, wait_until_condition, SES throttle retries) still log normally; they're
+        // covered by other tests in this file and aren't exercised here.
+        const pauseLogs = logMessages.filter((msg) => msg.startsWith('Workflow will pause until'))
+        expect(pauseLogs).toHaveLength(0)
+    })
+
     it('re-routes between hogflow and email queues across email → fetch → email', async () => {
         // Exercises the full ping-pong:
         //   hogflow worker → email queue (email_1) → email worker sends → routes back to hogflow

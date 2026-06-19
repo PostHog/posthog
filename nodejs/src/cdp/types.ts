@@ -345,6 +345,13 @@ export type HogFlowInvocationContext = {
         eventMatchedEventUuid?: string
         // Paired with the UUID to build the event link in the logs view; never displayed.
         eventMatchedEventTimestamp?: string
+        // Set by hog-function action handler when it returns `finished: false` without an
+        // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
+        // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
+        // continue the same action. Read and cleared at the top of the next execute() so the
+        // routing transition doesn't surface as a redundant "Resuming..." / "Workflow will
+        // pause until..." pair in customer-visible workflow logs.
+        routingOnlyReschedule?: boolean
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.

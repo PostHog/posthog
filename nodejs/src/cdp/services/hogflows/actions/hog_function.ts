@@ -58,6 +58,16 @@ export class HogFunctionHandler implements ActionHandler {
             result.invocation.queue = functionResult.invocation.queue
             result.invocation.queueParameters = functionResult.invocation.queueParameters
             result.invocation.queueMetadata = functionResult.invocation.queueMetadata
+            // When the hog function returned without an explicit `queueScheduledAt`, this
+            // reschedule is just to move the job onto its dedicated queue (e.g. 'email' for
+            // SES rate-limit gating) and the next dequeue will continue executing the same
+            // action. Tag the action state so the executor can suppress the redundant
+            // "Resuming..." / "Workflow will pause until..." pair on the next dequeue —
+            // those would otherwise leak the internal queue routing as a customer-visible
+            // workflow transition.
+            if (!functionResult.invocation.queueScheduledAt) {
+                result.invocation.state.currentAction!.routingOnlyReschedule = true
+            }
             return {
                 scheduledAt: functionResult.invocation.queueScheduledAt ?? DateTime.now(),
             }
