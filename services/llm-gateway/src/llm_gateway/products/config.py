@@ -32,6 +32,9 @@ TWIG_US_APP_ID = POSTHOG_CODE_US_APP_ID
 TWIG_EU_APP_ID = POSTHOG_CODE_EU_APP_ID
 WIZARD_US_APP_ID = "019a0c79-b69d-0000-f31b-b41345208c9d"
 WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
+POSTHOG_AI_US_APP_ID = "019edb18-9cc2-0000-8dac-e5fa0320639b"
+POSTHOG_AI_EU_APP_ID = "019edb1b-1689-0000-670d-913902c44e12"
+POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
 
 # Shared by `posthog_code` and `slack_app` — the agent that runs in the sandbox
 # is the same code regardless of where the task was initiated, so the model
@@ -157,6 +160,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         billable=False,
     ),
+    "posthog_ai": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_AI_US_APP_ID, POSTHOG_AI_EU_APP_ID, POSTHOG_AI_DEV_APP_ID}),
+        allowed_models=None,  # any model
+        allow_api_keys=True,
+        billable=True,
+    ),
 }
 
 
@@ -219,7 +228,8 @@ def check_product_access(
     Check if request is authorized for product.
     Returns (allowed, error_message).
     """
-    config = get_product_config(product)
+    resolved_product = resolve_product_alias(product)
+    config = PRODUCTS.get(resolved_product)
     if config is None:
         return False, f"Unknown product: {product}"
 
