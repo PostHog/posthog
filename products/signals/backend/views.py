@@ -187,9 +187,41 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "task"
     queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
 
+    def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
+        return (
+            source_product == SignalSourceConfig.SourceProduct.SIGNALS_SCOUT
+            and source_type == SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE
+        )
+
+    def _config_team_id(self, source_product: str | None, source_type: str | None) -> int:
+        # The scout source config is a project-level singleton: the scout fleet canonicalizes
+        # child environments to the parent team, and the emit preflight gates on the parent
+        # team's row (see scout_harness/views.py `_canonical_team_id` and tools/emit.py). Writing
+        # it to the canonical team keeps the inbox toggle and the emit gate on the same row from
+        # any environment. All other sources stay environment-scoped.
+        if self._is_scout_source(source_product, source_type):
+            return self.team.parent_team_id or self.team_id
+        return self.team_id
+
+    def _filter_queryset_by_parents_lookups(self, queryset):
+        # Mirror of `_config_team_id` on the read side: surface the scout row from the canonical
+        # (parent) team while every other source stays scoped to the URL environment, so the
+        # toggle reads and updates the same project-level row the emit gate checks.
+        canonical_team_id = self.team.parent_team_id or self.team_id
+        scout_source = Q(
+            source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+            source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+        )
+        return queryset.filter(
+            (Q(team_id=self.team_id) & ~scout_source) | (Q(team_id=canonical_team_id) & scout_source)
+        )
+
     def perform_create(self, serializer):
+        team_id = self._config_team_id(
+            serializer.validated_data.get("source_product"), serializer.validated_data.get("source_type")
+        )
         try:
-            instance = serializer.save(team_id=self.team_id, created_by=self.request.user)
+            instance = serializer.save(team_id=team_id, created_by=self.request.user)
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}

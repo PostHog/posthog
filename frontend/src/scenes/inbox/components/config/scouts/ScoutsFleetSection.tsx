@@ -128,10 +128,13 @@ function ScoutsSourceGate(): JSX.Element {
             </div>
             <span className="flex-1" />
             <LemonSwitch
+                aria-label="Surface scout findings in your inbox"
                 checked={enabled}
                 onChange={() => toggleScoutsSource()}
                 loading={isScoutsSourceToggling}
-                disabledReason={initialLoading ? 'Loading…' : undefined}
+                disabledReason={
+                    initialLoading || (!isScoutsSourceToggling && sourceConfigs === null) ? 'Loading…' : undefined
+                }
             />
         </div>
     )
