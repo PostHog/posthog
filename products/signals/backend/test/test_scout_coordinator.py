@@ -21,6 +21,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.skill_loader import DREAMING_SKILL_NAME
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     DEFAULT_ENROLLED_TEAM_IDS,
     SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID,
@@ -619,8 +620,11 @@ async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
     config_names = await database_sync_to_async(
         lambda: set(SignalScoutConfig.all_teams.filter(team=ateam).values_list("skill_name", flat=True))
     )()
-    assert config_names == seeded
-    assert {p.skill_name for p in planned} == seeded
+    # The dreaming scout is seeded as a canonical skill but is owned by the dedicated nightly
+    # dreaming coordinator — the scout coordinator excludes it from auto-registration/dispatch.
+    expected = seeded - {DREAMING_SKILL_NAME}
+    assert config_names == expected
+    assert {p.skill_name for p in planned} == expected
 
 
 @pytest.mark.asyncio

@@ -331,6 +331,70 @@ See `backend/scout_harness/AGENTS.md` for the harness internals (runner, prompt
 assembly, scratchpad + profile + run-history reads, lazy seed) and
 `skills/AGENTS.md` for the scout fleet convention.
 
+### `DreamingCoordinatorWorkflow` (`run-dreaming-coordinator`) — the Dreaming Agent
+
+Nightly coordinator for the **Dreaming Agent**, a core, mandatory, always-enabled scout.
+Like human dreaming, it runs once per night to organize the day's information and regenerate
+the project's PostHog setup. Driven by a Temporal Schedule in
+`backend/temporal/dreaming/schedule.py` — a `ScheduleCalendarSpec` at **08:00 UTC** (a
+low-traffic hour) with `ScheduleOverlapPolicy.SKIP`. Registered in
+`posthog/temporal/schedule.py`'s `schedules` list.
+
+Defined in `backend/temporal/dreaming/coordinator.py`.
+
+**Flow:**
+
+1. `fetch_due_dreaming_runs_activity` enrolls every signals-enabled team via the same
+   `signals-scout` flag payload allowlist the scout coordinator uses (`_enrolled_team_ids`
+   / `_participating_teams`). For each enrolled team it calls `force_enable_dreaming`
+   (`backend/temporal/dreaming/enrollment.py`), which reuses a `SignalScoutConfig` row keyed
+   on the `signals-scout-dreaming` skill purely as the per-team scheduling + `last_run_at`
+   ledger, and **reasserts `enabled=True` on every tick** — so the dreaming scout can never
+   be turned opt-in (the "mandatory" guarantee).
+2. Teams are sorted most-overdue-first and bounded at `MAX_DREAMING_RUNS_PER_TICK` (500 —
+   a safety bound; nightly + one run per team means it's rarely approached).
+3. Each due team becomes a child `RunDreamingWorkflow` started with
+   `ParentClosePolicy.ABANDON` and a deterministic workflow ID per `(team_id, tick_id)`.
+   `last_run_at` is stamped (via `stamp_dreaming_runs_activity`) only after dispatch, so a
+   fan-out failure re-dispatches the next night rather than silently skipping a team.
+
+### `RunDreamingWorkflow` (`run-dreaming`)
+
+Child workflow per team. Defined in `backend/temporal/dreaming/workflow.py`. Runs two
+independent, individually fault-tolerant phases:
+
+1. **Instrumentation-gap cleanup** (`instrumentation_cleanup_activity`,
+   `start_to_close_timeout=20m`, single attempt because it performs GitHub writes). Resolves
+   the team's GitHub repo (reusing `resolve_team_github_integration`), lists PRs merged since
+   the previous dreaming run (`since` defaults to 24h ago), fetches each PR's diff, and runs
+   the pure heuristics in `instrumentation_gaps.py` to detect MISSING product-analytics,
+   error-tracking, and LLM-observability instrumentation. Findings are consolidated into ONE
+   **singleton "dreaming cleanup" PR** (`cleanup_pr.py`): guarded by the GitHub label
+   `dreaming-cleanup` (plus a body marker as backup), it UPDATES an existing open labelled PR
+   in place rather than ever opening a second one. Diffs are fetched and discarded inside the
+   activity — only a small result summary crosses the activity boundary, respecting the
+   ~2 MiB payload limit.
+2. **Project briefing** (`generate_and_deliver_briefing_activity`,
+   `start_to_close_timeout=10m`). Gathers context (scout skills + recent inbox reports;
+   profile/memory slots reserved), generates **exactly three** crisp, Silicon-Valley-coded
+   items via the signals LLM (`briefing.py`, with a deterministic three-item fallback), and
+   delivers them to the inbox (a dedicated `SignalReport`, one live briefing per team) and the
+   team's Slack channel (`delivery.py`).
+
+**Deferred (clearly-marked TODOs in the code):**
+
+- `TODO(memory)` — memory-store integration (built in a separate worktree). The briefing
+  context builder and run docstring leave hooks where the dreaming run would read/update
+  memory.
+- `TODO(daily-grouping)` — daily duplicate-issue grouping by root cause across the last 24h,
+  reusing the signals grouping step on a daily cadence. Designed as a sibling activity
+  (embedding + LLM heavy, needs ClickHouse and its own cost/timeout envelope), not inline in
+  the run; see the design note in `backend/temporal/dreaming/run.py`.
+
+The canonical skill is `skills/signals-scout-dreaming/SKILL.md` — discovered + seeded by the
+same `sync_canonical_skills` path as the rest of the fleet, but force-enabled by the dreaming
+coordinator so it's always on.
+
 ---
 
 ## Django Models (Postgres)
