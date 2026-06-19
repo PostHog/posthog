@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import {
     dataWarehouseCheckDatabaseNameRetrieve,
     dataWarehouseDeprovisionCreate,
+    dataWarehouseEnableBackfillCreate,
     dataWarehouseProvisionCreate,
     dataWarehouseResetPasswordCreate,
     dataWarehouseWarehouseStatusRetrieve,
@@ -44,6 +45,9 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         checkDatabaseName: (name: string) => ({ name }),
         setDatabaseNameAvailable: (available: boolean | null) => ({ available }),
         setDatabaseNameChecking: (checking: boolean) => ({ checking }),
+        setEventsTableName: (name: string) => ({ name }),
+        enableBackfill: (params: { eventsTableName: string }) => params,
+        enableBackfillComplete: (suffix: string | null) => ({ suffix }),
     }),
 
     loaders({
@@ -129,6 +133,26 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 resetPasswordComplete: () => false,
             },
         ],
+        eventsTableName: [
+            '',
+            {
+                setEventsTableName: (_, { name }) => name,
+            },
+        ],
+        isEnablingBackfill: [
+            false,
+            {
+                enableBackfill: () => true,
+                enableBackfillComplete: () => false,
+            },
+        ],
+        backfillEventsTableSuffix: [
+            null as string | null,
+            {
+                enableBackfillComplete: (state, { suffix }) => suffix ?? state,
+                deprovisionWarehouse: () => null,
+            },
+        ],
     }),
 
     selectors({
@@ -163,6 +187,9 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             (s) => [s.retryDatabaseName],
             (retryDatabaseName): boolean => !!retryDatabaseName && WAREHOUSE_NAME_REGEX.test(retryDatabaseName),
         ],
+        // The backend normalizes the events table name into a safe identifier, so the only
+        // client-side requirement is a non-empty value.
+        isValidEventsTableName: [(s) => [s.eventsTableName], (name): boolean => name.trim().length > 0],
     }),
 
     listeners(({ actions, values }) => {
@@ -217,6 +244,19 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                     }
                 }
                 actions.provisionWarehouseComplete()
+            },
+
+            enableBackfill: async ({ eventsTableName }) => {
+                try {
+                    const result = await dataWarehouseEnableBackfillCreate(currentProjectId(), {
+                        events_table_name: eventsTableName,
+                    })
+                    lemonToast.success('Warehouse backfill enabled for this project')
+                    actions.enableBackfillComplete(result.events_table_suffix ?? null)
+                } catch (e: any) {
+                    lemonToast.error(`Failed to enable backfill: ${e.detail || e.message || 'Unknown error'}`)
+                    actions.enableBackfillComplete(null)
+                }
             },
 
             resetPassword: async () => {
@@ -278,6 +318,11 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         )
         if (persistedDatabaseName) {
             actions.setLastRequestedDatabaseName(persistedDatabaseName)
+        }
+        // Prefill the events table name with the project name; the backend normalizes it.
+        const projectName = teamLogic.values.currentTeam?.name
+        if (projectName) {
+            actions.setEventsTableName(projectName)
         }
         actions.loadWarehouseStatus()
     }),

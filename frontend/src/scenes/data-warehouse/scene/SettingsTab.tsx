@@ -99,9 +99,20 @@ export function SettingsTab(): JSX.Element {
         retryDatabaseName,
         initialPassword,
         isResettingPassword,
+        eventsTableName,
+        isValidEventsTableName,
+        isEnablingBackfill,
+        backfillEventsTableSuffix,
     } = useValues(warehouseProvisioningLogic)
-    const { provisionWarehouse, deprovisionWarehouse, setDatabaseName, clearInitialPassword, resetPassword } =
-        useActions(warehouseProvisioningLogic)
+    const {
+        provisionWarehouse,
+        deprovisionWarehouse,
+        setDatabaseName,
+        clearInitialPassword,
+        resetPassword,
+        setEventsTableName,
+        enableBackfill,
+    } = useActions(warehouseProvisioningLogic)
     const deprovisionRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -255,6 +266,46 @@ export function SettingsTab(): JSX.Element {
 
                     {isReady && warehouseStatus?.connection && (
                         <ConnectionDetails connection={warehouseStatus.connection} />
+                    )}
+
+                    {isReady && (
+                        <div className="border rounded p-4 space-y-3">
+                            <h3 className="mb-0">Events table for this project</h3>
+                            <p className="text-muted text-xs mb-0">
+                                Each project writes its events into its own table in the shared warehouse so they don't
+                                merge. Choose a name for this project's events table — it's normalized to a safe
+                                identifier (e.g. <code>events_&lt;name&gt;</code>).
+                            </p>
+                            {backfillEventsTableSuffix ? (
+                                <LemonBanner type="success">
+                                    Backfill enabled. This project writes to{' '}
+                                    <code>events_{backfillEventsTableSuffix}</code>.
+                                </LemonBanner>
+                            ) : (
+                                <div className="flex items-end gap-2">
+                                    <div className="flex-1">
+                                        <LemonLabel>Events table name</LemonLabel>
+                                        <LemonInput
+                                            value={eventsTableName}
+                                            onChange={setEventsTableName}
+                                            placeholder="my-project"
+                                            fullWidth
+                                        />
+                                    </div>
+                                    <LemonButton
+                                        type="primary"
+                                        loading={isEnablingBackfill}
+                                        disabledReason={
+                                            !isValidEventsTableName ? 'Enter an events table name' : undefined
+                                        }
+                                        onClick={() => enableBackfill({ eventsTableName })}
+                                        data-attr="enable-warehouse-backfill"
+                                    >
+                                        Enable backfill
+                                    </LemonButton>
+                                </div>
+                            )}
+                        </div>
                     )}
 
                     <div className="flex gap-2">
