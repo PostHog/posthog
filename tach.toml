@@ -761,13 +761,10 @@ from = [
     "products.mcp_store",
 ]
 
-# legal_documents is not fully sealed, so it stays out of the canonical alternation above.
-# posthog/urls registers its pandadoc webhook (presentation.webhook), and core's
-# OrganizationAdmin currently lists its LegalDocumentInline (a Django inline must be named in
-# its parent admin's `inlines`, and the parent lives in core). That admin coupling is
-# removable, not permanent — core can add a get_inlines registration hook so the product
-# registers its own inline (tracked as a follow-up). Until then backend:contract-check stays
-# off for this product.
+# legal_documents has a non-standard public surface, so it gets a dedicated block rather than
+# joining the canonical alternation above: posthog/urls registers its pandadoc webhook
+# (presentation.webhook), and core's OrganizationAdmin lists its LegalDocumentInline (admin
+# block below — a Django inline must be named in its parent admin's `inlines`).
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
