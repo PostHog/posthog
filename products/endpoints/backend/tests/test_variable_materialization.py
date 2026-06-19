@@ -10,6 +10,8 @@ from posthog.hogql.parser import parse_select
 
 from products.endpoints.backend.materialization_transforms import (
     DownstreamCTEShape,
+    MaterializableVariable,
+    MaterializationNotSupportedError,
     _build_cte_read_graph,
     _classify_downstream_cte,
     _downstream_ctes,
@@ -236,9 +238,57 @@ class TestVariableAnalysis(APIBaseTest):
 
         can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
 
-        if can_materialize and var_infos:
-            with pytest.raises(ValueError, match="OR conditions not supported"):
-                transform_query_for_materialization(query, var_infos, self.team)
+        # Pre-flight analysis must reject so this never reaches (and blows up in) the transform.
+        assert can_materialize is False
+        assert "OR conditions" in reason
+        assert var_infos == []
+
+    def test_variable_in_or_with_multiple_columns_blocked(self):
+        # Reproduction of a real materialization failure: the variable appears in two OR
+        # branches against two different columns, with one branch using ILIKE.
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT count() FROM events\n"
+                "WHERE (event = '$pageview' AND properties.$current_url ILIKE CONCAT('%/refer?p_ref=', {variables.playeruuid}, '%'))\n"
+                "   OR (event = 'referral-impression' AND properties.referrer_uuid = {variables.playeruuid})"
+            ),
+            "variables": {"var-1": {"code_name": "playeruuid", "value": "191e674e"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert "OR conditions" in reason
+        assert var_infos == []
+
+    def test_variable_compared_against_multiple_columns_blocked(self):
+        # Same variable, two AND'd branches, but two different columns — no single bucket key.
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE properties.a = {variables.v} AND properties.b = {variables.v}",
+            "variables": {"var-1": {"code_name": "v", "value": "x"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert "multiple columns" in reason
+        assert var_infos == []
+
+    def test_or_condition_without_variable_still_materializes(self):
+        # An OR that doesn't contain the variable must not trip the OR guard.
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM events WHERE event = {variables.event_name} AND (properties.a = '1' OR properties.b = '2')",
+            "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is True
+        assert reason == "OK"
+        assert len(var_infos) == 1
 
     def test_variable_with_parentheses(self):
         query = {
@@ -1229,10 +1279,18 @@ class TestQueryTransformation(APIBaseTest):
             },
         }
 
-        _, _, var_infos = analyze_variables_for_materialization(query)
-        assert len(var_infos) >= 1
+        # Analysis now rejects OR up-front, so feed the transform a hand-built var_info to
+        # confirm the transform itself still guards against OR as a backstop.
+        var_infos = [
+            MaterializableVariable(
+                variable_id="var-123",
+                code_name="event_name",
+                column_chain=["event"],
+                column_expression="event",
+            )
+        ]
 
-        with pytest.raises(ValueError, match="OR conditions not supported"):
+        with pytest.raises(MaterializationNotSupportedError, match="OR conditions not supported"):
             transform_query_for_materialization(query, var_infos, self.team)
 
     def test_transform_preserves_specific_columns_in_select(self):
@@ -1831,9 +1889,9 @@ class TestCTEVariableAnalysis(APIBaseTest):
 
         can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
 
-        if can_materialize and var_infos:
-            with pytest.raises(ValueError, match="OR conditions not supported"):
-                transform_query_for_materialization(query, var_infos, self.team)
+        assert can_materialize is False
+        assert "OR conditions" in reason
+        assert var_infos == []
 
     def test_two_ctes_one_variable_each_different_vars_allowed(self):
         query = {
