@@ -913,7 +913,7 @@ class TestGetPersonByPkOrUuid(SimpleTestCase):
         result = get_person_by_pk_or_uuid(1, "550e8400-e29b-41d4-a716-446655440000")
 
         assert result == mock_person
-        mock_get_by_uuid.assert_called_once_with(1, "550e8400-e29b-41d4-a716-446655440000")
+        mock_get_by_uuid.assert_called_once_with(1, "550e8400-e29b-41d4-a716-446655440000", distinct_id_limit=None)
 
     @patch("posthog.models.person.util.get_person_by_id")
     def test_routes_int_key_to_get_person_by_id(self, mock_get_by_id):
@@ -923,7 +923,7 @@ class TestGetPersonByPkOrUuid(SimpleTestCase):
         result = get_person_by_pk_or_uuid(1, "42")
 
         assert result == mock_person
-        mock_get_by_id.assert_called_once_with(1, 42)
+        mock_get_by_id.assert_called_once_with(1, 42, distinct_id_limit=None)
 
     def test_returns_none_for_invalid_key(self):
         result = get_person_by_pk_or_uuid(1, "not-a-uuid-or-int")

@@ -103,11 +103,12 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(organization.name, "Hedgehogs United, LLC")
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
-        mock_capture.assert_called_once()
-        self.assertEqual("user signed up", mock_capture.call_args.kwargs["event"])
-        self.assertEqual(user.distinct_id, mock_capture.call_args.kwargs["distinct_id"])
+        signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
+        self.assertEqual(len(signup_calls), 1)
+        signup_call = signup_calls[0]
+        self.assertEqual(user.distinct_id, signup_call.kwargs["distinct_id"])
         # Assert that key properties were set properly
-        event_props = mock_capture.call_args.kwargs["properties"]
+        event_props = signup_call.kwargs["properties"]
         self.assertEqual(event_props["is_first_user"], True)
         self.assertEqual(event_props["is_organization_first_user"], True)
         self.assertEqual(event_props["new_onboarding_enabled"], False)
@@ -140,8 +141,9 @@ class TestSignupAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        mock_capture.assert_called_once()
-        event_props = mock_capture.call_args.kwargs["properties"]
+        signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
+        self.assertEqual(len(signup_calls), 1)
+        event_props = signup_calls[0].kwargs["properties"]
         self.assertEqual(event_props["referral_source"], "ChatGPT recommended it")
         self.assertEqual(event_props["referral_source_ai_prompt"], "What is the best product analytics tool?")
         self.assertEqual(event_props["$set"]["referral_source"], "ChatGPT recommended it")
@@ -440,11 +442,12 @@ class TestSignupAPI(APIBaseTest):
         self.assertTrue(user.is_staff)  # True because this is the first user in the instance
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
-        mock_capture.assert_called_once()
-        self.assertEqual(user.distinct_id, mock_capture.call_args.kwargs["distinct_id"])
-        self.assertEqual("user signed up", mock_capture.call_args.kwargs["event"])
+        signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
+        self.assertEqual(len(signup_calls), 1)
+        signup_call = signup_calls[0]
+        self.assertEqual(user.distinct_id, signup_call.kwargs["distinct_id"])
         # Assert that key properties were set properly
-        event_props = mock_capture.call_args.kwargs["properties"]
+        event_props = signup_call.kwargs["properties"]
         self.assertEqual(event_props["is_first_user"], True)
         self.assertEqual(event_props["is_organization_first_user"], True)
         self.assertEqual(event_props["new_onboarding_enabled"], False)
@@ -600,7 +603,11 @@ class TestSignupAPI(APIBaseTest):
                 "attr": "password",
             }, [password, res.json()]
 
-    def test_default_dashboard_is_created_on_signup(self):
+    @mock.patch(
+        "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
+        return_value="test",
+    )
+    def test_default_dashboard_is_created_on_signup(self, _mock_variant):
         """
         Tests that the default web app dashboard is created on signup.
         Note: This feature is currently behind a feature flag.
@@ -637,12 +644,13 @@ class TestSignupAPI(APIBaseTest):
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.tiles.count(), 6)
-        self.assertEqual(dashboard.name, "My App Dashboard")
+        self.assertEqual(dashboard.tiles.count(), 16)
+        self.assertEqual(dashboard.name, "Your starter dashboard")
         self.assertEqual(
             dashboard.description,
-            "A starter view of how people use your app: how many visit, whether they come back, "
-            "where traffic comes from, and how they move through your pages.",
+            "How people use your app at a glance: traffic, retention, where visitors come from, and "
+            "whether they take action. Built from automatically captured events, so it works on day one. "
+            "Swap in your own events to make it yours.",
         )
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 

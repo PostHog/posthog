@@ -70,6 +70,17 @@ class SharingConfiguration(models.Model):
     password_required = models.BooleanField(default=False)
 
     @classmethod
+    def shareable_resource_fields(cls) -> frozenset[str]:
+        """The FK fields that point at a shareable resource - every relation except the team tenant FK.
+
+        The sharing API cross-checks this against its per-resource edit-permission registry at import
+        time, so a newly added shareable resource cannot ship without an explicit access-control decision.
+        """
+        return frozenset(
+            field.name for field in cls._meta.fields if field.is_relation and field.many_to_one and field.name != "team"
+        )
+
+    @classmethod
     def _resource_lookup(
         cls,
         *,

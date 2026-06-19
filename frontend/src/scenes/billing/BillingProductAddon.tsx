@@ -5,7 +5,7 @@ import { ReactNode, useRef } from 'react'
 import { IconCheckCircle, IconInfo } from '@posthog/icons'
 import { LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { humanFriendlyCurrency } from 'lib/utils'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { getProductIcon } from 'scenes/onboarding/utils'
 
 import { BillingProductV2AddonType } from '~/types'

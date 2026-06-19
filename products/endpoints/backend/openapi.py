@@ -3,6 +3,7 @@ from django.conf import settings
 from rest_framework.request import Request
 
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.services.strategies import InsightEndpointStrategy
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {
@@ -245,10 +246,6 @@ def _get_single_breakdown_property(breakdown_filter: dict) -> str | None:
     return None
 
 
-# Query types that support user-configurable breakdown filtering
-BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "RetentionQuery"}
-
-
 def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) -> dict | None:
     """Build schema for variables based on query type and materialization state."""
     query_kind = query.get("kind")
@@ -284,7 +281,8 @@ def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) ->
                 else:
                     required.append(code_name)
     else:
-        if query_kind in BREAKDOWN_SUPPORTED_QUERY_TYPES:
+        # Insight queries - only include breakdown for supported query types
+        if query_kind in InsightEndpointStrategy.BREAKDOWN_SUPPORTED_QUERY_TYPES:
             breakdown_filter = query.get("breakdownFilter") or {}
             breakdown = _get_single_breakdown_property(breakdown_filter)
             if breakdown:

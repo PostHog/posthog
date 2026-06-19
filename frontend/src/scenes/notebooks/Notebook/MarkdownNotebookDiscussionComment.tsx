@@ -12,7 +12,7 @@ import {
 } from 'lib/components/MarkdownNotebook/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { userLogic } from 'scenes/userLogic'
 
 /**

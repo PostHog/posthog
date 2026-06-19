@@ -20,6 +20,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
+from psycopg.pq import TransactionStatus
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -40,6 +41,7 @@ from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
 from posthog.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
+    ValidatedRowFilter,
     compute_projected_columns,
     project_arrow_columns,
 )
@@ -50,6 +52,10 @@ from posthog.temporal.data_imports.sources.common.sql.implementation import (
 )
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace, resolve_source_location
+from posthog.temporal.data_imports.sources.common.sql.predicates_psycopg import (
+    and_join,
+    render_psycopg_row_filter_conditions,
+)
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -66,9 +72,25 @@ __all__ = [
 # cert paths are intentionally pointed at non-existent files so psycopg
 # uses the system default verification without picking up an unintended
 # client cert.
+#
+# TCP keepalives bound a *post-connect* socket stall. `connect_timeout` only
+# covers establishing the connection — once connected, a query blocks in
+# psycopg's `wait_c` for as long as the socket stays open with no response.
+# If the Redshift peer goes away mid-query (cluster pause/resize, network
+# drop), that wait would otherwise hang until the Temporal activity hits its
+# `start_to_close_timeout` and cancels the worker thread, surfacing a
+# misleading `CancelledError` and burning the whole activity budget. With
+# keepalives a dead peer is detected in ~30-60s and raised as a fast,
+# retryable `OperationalError` instead. These only fire when the peer stops
+# responding, so they never interrupt a healthy long-running streaming sync.
 _REDSHIFT_CONNECT_OPTS: dict[str, Any] = {
     "sslmode": "require",
     "connect_timeout": 15,
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 3,
+    "tcp_user_timeout": 60000,  # 60s: force-close if sent data stays unacked
     "sslrootcert": "/tmp/no.txt",
     "sslcert": "/tmp/no.txt",
     "sslkey": "/tmp/no.txt",
@@ -160,8 +182,12 @@ def _build_query(
     add_sampling: Optional[bool] = False,
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> sql.Composed:
     select_clause = _redshift_select_clause(enabled_columns, primary_keys, incremental_field)
+    # Row filters apply only to the real data path; sampling/row-count queries stay unfiltered
+    # (an over-estimate is harmless).
+    row_filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
 
     if not should_use_incremental_field:
         if add_sampling:
@@ -169,15 +195,14 @@ def _build_query(
             query = sql.SQL("SELECT {cols} FROM {table} WHERE random() < 0.01").format(
                 cols=select_clause, table=sql.Identifier(schema, table_name)
             )
-        else:
-            query = sql.SQL("SELECT {cols} FROM {table}").format(
-                cols=select_clause, table=sql.Identifier(schema, table_name)
-            )
-
-        if add_sampling:
             query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
             return sql.SQL(query_with_limit).format()
 
+        query = sql.SQL("SELECT {cols} FROM {table}").format(
+            cols=select_clause, table=sql.Identifier(schema, table_name)
+        )
+        if row_filter_conditions:
+            query = query + sql.SQL(" WHERE ") + and_join(row_filter_conditions)
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -200,28 +225,30 @@ def _build_query(
             op=operator,
             last_value=sql.Literal(db_incremental_field_last_value),
         )
-    else:
-        query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
-            cols=select_clause,
-            schema=sql.Identifier(schema),
-            table=sql.Identifier(table_name),
-            incremental_field=sql.Identifier(incremental_field),
-            op=operator,
-            last_value=sql.Literal(db_incremental_field_last_value),
-        )
-
-    if add_sampling:
         query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
         return sql.SQL(query_with_limit).format()
-    else:
-        query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
-        return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
+
+    query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+        cols=select_clause,
+        schema=sql.Identifier(schema),
+        table=sql.Identifier(table_name),
+        incremental_field=sql.Identifier(incremental_field),
+        op=operator,
+        last_value=sql.Literal(db_incremental_field_last_value),
+    )
+    if row_filter_conditions:
+        query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
+    query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
+    return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
     try:
+        # Debug-only, best-effort: Redshift can't EXPLAIN queries against leader-node-only system
+        # views such as `svv_table_info` (they fail with `UndefinedColumn: column "t" does not
+        # exist in t`), so swallow failures rather than reporting an expected, non-actionable error.
         query_with_explain = sql.SQL("EXPLAIN {}").format(query)
         cursor.execute(query_with_explain)
         rows = cursor.fetchall()
@@ -231,8 +258,16 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
                 explain_result += f"\n{col}"
         logger.debug(f"EXPLAIN result: {explain_result}")
     except Exception as e:
-        capture_exception(e)
         logger.debug(f"EXPLAIN raised an exception: {e}")
+        # A failed EXPLAIN aborts the surrounding transaction, and Redshift has no savepoints to
+        # scope it. Roll back the aborted transaction so the caller's real query — which runs on
+        # the same connection right after this probe — isn't killed by `InFailedSqlTransaction`.
+        # Every caller runs read-only discovery queries, so there is no pending work to lose.
+        try:
+            if cursor.connection.info.transaction_status == TransactionStatus.INERROR:
+                cursor.connection.rollback()
+        except Exception:
+            pass
 
 
 class RedshiftColumn(Column):
@@ -730,6 +765,15 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         except psycopg.errors.QueryCanceled:
             raise
         except Exception as e:
+            # A Redshift system-requested query abort (error code 1020, "system requested abort")
+            # is the cluster's WLM/QMR cancelling the query — the same transient, non-actionable
+            # class as `QueryCanceled`, which psycopg surfaces here as `InternalError_` rather than
+            # `QueryCanceled`. The duplicate-PK check is best-effort (the caller defaults to no
+            # duplicates), so skip gracefully instead of reporting an expected, non-actionable error
+            # to error tracking. Mirrors the graceful-skip probes elsewhere in this driver.
+            if "system requested abort" in str(e):
+                logger.debug(f"has_duplicate_primary_keys: query aborted by Redshift, skipping check: {e}")
+                return False
             capture_exception(e)
             return False
 
@@ -851,6 +895,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             result = cursor.fetchone()
         except psycopg.errors.QueryCanceled:
             raise
+        except psycopg.errors.InsufficientPrivilege as e:
+            # Some Redshift roles aren't granted access to the `svv_table_info` system view. That's
+            # a customer permission-config issue, not an actionable bug — table stats are optional
+            # (we fall back to no partitioning), so skip gracefully without reporting the expected,
+            # non-actionable error to error tracking. Mirrors `_explain_query`/`get_row_counts`.
+            logger.debug(f"fetch_table_stats: no access to svv_table_info, returning None: {e}")
+            return None
         except Exception as e:
             capture_exception(e)
             logger.debug(f"fetch_table_stats: returning None due to error: {e}")
@@ -882,6 +933,10 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         already bound — no separate `inner_query_args` is interpolated
         here, mirroring how the rest of the Redshift driver builds
         queries.
+
+        Best-effort only: Redshift rejects the `pg_column_size(t)` whole-row reference, so this
+        currently returns None on every table and the caller falls back to the default chunk size.
+        Failures are swallowed rather than reported — see the except block below.
         """
         try:
             query = sql.SQL("""
@@ -903,8 +958,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         except psycopg.errors.QueryCanceled:
             raise
         except Exception as e:
+            # Best-effort sampling: any failure falls back to the default chunk size, so it must not
+            # be reported to error tracking. Redshift has no portable whole-row size — `pg_column_size(t)`
+            # (like Postgres' `octet_length(t::text)`) relies on a composite whole-row reference that
+            # Redshift rejects with `UndefinedColumn: column "t" does not exist in t`, so this fails on
+            # every table. Mirrors the sibling Postgres `_get_table_chunk_size` and `_explain_query` here,
+            # both of which treat this as expected, non-actionable noise.
             logger.debug(f"fetch_average_row_size: Error: {e}", exc_info=e)
-            capture_exception(e)
             return None
 
     # ------------------------------------------------------------------
@@ -938,8 +998,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
         enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
 
         with self.connect(config) as connection:
+            # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
+            # that fails — a permission error, an EXPLAIN the cluster rejects, a cancelled COUNT(*) —
+            # otherwise leaves the shared transaction aborted (INERROR), and every probe after it
+            # raises `InFailedSqlTransaction` until a rollback. Mirrors the postgres source.
+            connection.autocommit = True
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
                 full_table = self.get_table_metadata(cursor, schema, table_name, logger)
@@ -985,6 +1051,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug("Getting table chunk size...")
                     if chunk_size_override is not None:
@@ -1039,6 +1106,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug(f"Redshift query: {query.as_string()}")
 

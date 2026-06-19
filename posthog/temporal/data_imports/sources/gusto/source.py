@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class GustoSource(SimpleSource[GustoSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GUSTO,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Gusto",
             iconPath="/static/services/gusto.png",
             fields=cast(list[FieldType], []),

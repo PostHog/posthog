@@ -407,8 +407,14 @@ export function isInsightQueryWithBreakdown(
 
 export function isInsightQueryWithCompare(
     node?: Record<string, any> | null
-): node is TrendsQuery | StickinessQuery | WebStatsTableQuery | WebOverviewQuery {
-    return isTrendsQuery(node) || isStickinessQuery(node) || isWebStatsTableQuery(node) || isWebOverviewQuery(node)
+): node is TrendsQuery | StickinessQuery | WebStatsTableQuery | WebOverviewQuery | FunnelsQuery {
+    return (
+        isTrendsQuery(node) ||
+        isStickinessQuery(node) ||
+        isWebStatsTableQuery(node) ||
+        isWebOverviewQuery(node) ||
+        isFunnelsQuery(node)
+    )
 }
 
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {

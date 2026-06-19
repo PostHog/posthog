@@ -38,6 +38,7 @@ import {
     ListStorage,
     QuickFilterItem,
     META_GROUP_TYPES,
+    OPEN_AS_SELF_ON_REOPEN,
     SelectedProperties,
     SimpleOption,
     SkeletonItem,
@@ -52,9 +53,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, isString, objectsEqual, pluralize, toParams } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import { isString } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+import { toParams } from 'lib/utils/url'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
@@ -1037,6 +1041,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.SpanAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                             attribute_type: 'span_attribute',
+                            search_values: 'true',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
@@ -1055,6 +1060,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.SpanResourceAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                             attribute_type: 'span_resource_attribute',
+                            search_values: 'true',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
@@ -1659,13 +1665,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 if (explicitActiveTab && groupTypes.includes(explicitActiveTab)) {
                     return explicitActiveTab
                 }
-                // If there's an existing filter type (e.g., SQL expression being edited),
-                // use that instead of defaulting to SuggestedFilters
-                if (propsGroupType && groupTypes.includes(propsGroupType)) {
+                // Config/edit flows have no simple category "value" to verify on the All
+                // surface — reopen them on their own tab: a SQL/HogQL expression lands in its
+                // editor, a data-warehouse selection in its table/column picker.
+                if (
+                    propsGroupType &&
+                    OPEN_AS_SELF_ON_REOPEN.has(propsGroupType) &&
+                    groupTypes.includes(propsGroupType)
+                ) {
                     return propsGroupType
                 }
+                // Otherwise lead with the All (Suggested filters) surface so reopening on an
+                // existing selection still shows recents/pinned + a cross-category search,
+                // rather than jumping to the selected item's category.
                 if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
                     return TaxonomicFilterGroupType.SuggestedFilters
+                }
+                if (propsGroupType && groupTypes.includes(propsGroupType)) {
+                    return propsGroupType
                 }
                 return groupTypes.find((t) => !metaGroupTypes.has(t)) ?? groupTypes[0]
             },
@@ -2008,6 +2025,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         infiniteListResultsReceived: async ({ groupType, results }, breakpoint) => {
+            // Search-latency telemetry: one event per settled remote search on the
+            // active tab. `loadDurationMs` is set only for the offset-0 page (see
+            // infiniteListLogic), so pagination and local-only groups don't fire,
+            // and the value is the real fetch wall-clock — this runs when the
+            // results actually land, so there's no debounce race to wait out.
+            if (
+                groupType === values.activeTab &&
+                values.searchQuery &&
+                typeof results?.loadDurationMs === 'number' &&
+                results.searchQuery === values.searchQuery
+            ) {
+                posthog.capture('taxonomic filter search latency', {
+                    surface: legacyTaxonomicSurface(
+                        values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+                    ),
+                    groupType,
+                    searchQuery: values.searchQuery,
+                    time_to_see_data_ms: results.loadDurationMs,
+                    resultCount: results.count,
+                })
+            }
+
             if (groupType && !values.metaGroupTypes.has(groupType)) {
                 const subLogic = values.infiniteListLogics[groupType]
                 if (subLogic?.isMounted()) {

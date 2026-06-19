@@ -3,7 +3,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { LogEntryLevel } from '~/types'
 
-import { groupLogs, LogEntry, toAbsoluteClickhouseTimestamp } from './logsViewerLogic'
+import {
+    buildGroupedLogsQuery,
+    groupLogs,
+    LogEntry,
+    LogEntryParams,
+    toAbsoluteClickhouseTimestamp,
+} from './logsViewerLogic'
 
 const makeEntry = (instanceId: string, timestamp: string, level: LogEntryLevel = 'INFO'): LogEntry => ({
     instanceId,
@@ -153,6 +159,46 @@ describe('logsViewerLogic', () => {
             const groups = groupLogs(entries)
 
             expect(groups.map((g) => g.instanceId)).toEqual(['c', 'b', 'a'])
+        })
+    })
+
+    describe('buildGroupedLogsQuery', () => {
+        const makeParams = (overrides: Partial<LogEntryParams> = {}): LogEntryParams => ({
+            sourceType: 'hog_flow',
+            sourceId: 'batch-job-id',
+            levels: ['INFO', 'ERROR'],
+            searchGroups: [],
+            order: 'DESC',
+            ...overrides,
+        })
+
+        it.each([
+            {
+                description: 'paginates the group subquery with the requested limit',
+                args: [10, 20],
+                expected: 'LIMIT 10',
+            },
+            { description: 'offsets the group subquery to the requested page', args: [10, 20], expected: 'OFFSET 20' },
+            { description: 'defaults to offset 0', args: [10], expected: 'OFFSET 0' },
+            {
+                description: 'orders groups with a stable instance_id tiebreaker so offset pages do not skip or repeat',
+                args: [10],
+                expected: 'ORDER BY max(timestamp) DESC, instance_id DESC',
+            },
+        ] as { description: string; args: [number, number?]; expected: string }[])(
+            '$description',
+            ({ args, expected }) => {
+                expect(buildGroupedLogsQuery(makeParams(), ...args)).toContain(expected)
+            }
+        )
+
+        it('pages by offset alone, without introducing a timestamp cursor', () => {
+            // A batch fires every instance within the same millisecond, so successive pages must differ ONLY by
+            // the offset — never by a `timestamp < cursor` boundary, which would hide the remaining groups.
+            const firstPage = buildGroupedLogsQuery(makeParams(), 10, 0)
+            const secondPage = buildGroupedLogsQuery(makeParams(), 10, 10)
+
+            expect(firstPage.replace('OFFSET 0', 'OFFSET 10')).toEqual(secondPage)
         })
     })
 })

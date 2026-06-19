@@ -19,6 +19,8 @@ APIScopeObject = Literal[
     "access_control",
     "account",
     "activity_log",
+    "agents",
+    "agent_approvals",
     "alert",
     "annotation",
     "approvals",
@@ -70,6 +72,7 @@ APIScopeObject = Literal[
     "llm_skill",
     "logs",
     "marketing_analytics",
+    "mcp_analytics",
     "metrics",
     "notebook",
     "organization",
@@ -142,9 +145,13 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 # OAuth metadata. Used for alpha / not-yet-public products where a user can
 # manually paste the scope into a PAT but where we don't want OAuth-based
 # clients (the consent screen, MCP, third-party apps) to discover it.
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"metrics", "wizard_session"})
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_session"})
 
-PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
+# llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
+# ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
+PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
+    ("endpoint", "read"),
+]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
 # assignment for OAuthApplications).
@@ -267,11 +274,36 @@ def filter_to_unprivileged_scopes(scopes: Iterable[object]) -> list[str]:
     return result
 
 
+# Sentinel element in `OAuthApplication.scopes` meaning "the `UNPRIVILEGED_SCOPES`
+# default *plus* the other listed scopes" — lets an app ride the broad default and add
+# a few explicit (e.g. privileged) extras without enumerating the whole set, and keeps
+# auto-tracking unprivileged scopes added later. Starts with `@` so it can never collide
+# with a real `obj:action` scope. Not grantable itself: it's stripped from the resolved
+# ceiling, and `filter_to_unprivileged_scopes` drops it so a self-registering app can't
+# inject it to widen its own ceiling.
+DEFAULT_CEILING_SENTINEL = "@default"
+
+
+def resolve_ceiling(app_scopes: Iterable[str]) -> frozenset[str] | None:
+    """An app's explicit scope ceiling, or `None` when it has none (empty `scopes`,
+    which falls back to the `UNPRIVILEGED_SCOPES` default). A `@default` sentinel
+    expands to `UNPRIVILEGED_SCOPES` unioned with the other listed scopes; without it,
+    a non-empty ceiling stays an exhaustive allow-list. Entries are stripped so a
+    fat-fingered `" @default"` still resolves (real scopes never have whitespace)."""
+    app = {s.strip() for s in (app_scopes or [])}
+    app.discard("")
+    if not app:
+        return None
+    if DEFAULT_CEILING_SENTINEL in app:
+        return frozenset(UNPRIVILEGED_SCOPES | (app - {DEFAULT_CEILING_SENTINEL}))
+    return frozenset(app)
+
+
 def effective_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
     """The scope set a request resolves against: the explicit `app_scopes` ceiling,
     or the broad `UNPRIVILEGED_SCOPES` default when the app has none."""
-    app = frozenset(app_scopes or [])
-    return app if app else UNPRIVILEGED_SCOPES
+    ceiling = resolve_ceiling(app_scopes)
+    return ceiling if ceiling is not None else UNPRIVILEGED_SCOPES
 
 
 def scopes_within_ceiling(
@@ -289,6 +321,8 @@ def scopes_within_ceiling(
     - OIDC + introspection (`ALWAYS_ALLOWED_SCOPES`) are always granted.
     - An explicit `app_scopes` ceiling is an exhaustive allow-list: anything
       outside it is rejected, including `*`.
+    - A `@default` sentinel in `app_scopes` resolves to `UNPRIVILEGED_SCOPES` plus
+      the other listed scopes (see `resolve_ceiling`).
     - An empty `app_scopes` falls back to the broad `UNPRIVILEGED_SCOPES` default.
 
     `allow_wildcard_under_empty_ceiling` is the only resolution difference between
@@ -297,12 +331,12 @@ def scopes_within_ceiling(
     (the default) since it never granted wildcard, so an unseeded ceiling must not
     silently become one.
     """
-    app = frozenset(app_scopes or [])
+    ceiling = resolve_ceiling(app_scopes)
     to_check = set(requested) - ALWAYS_ALLOWED_SCOPES
     if not to_check:
         return True
-    if app:
-        return "*" not in to_check and to_check.issubset(app)
+    if ceiling is not None:
+        return "*" not in to_check and to_check.issubset(ceiling)
     allowed = UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else UNPRIVILEGED_SCOPES
     return to_check.issubset(allowed)
 
@@ -320,13 +354,13 @@ def scopes_outside_ceiling(
 
     Returns a sorted list, empty when every requested scope is grantable.
     """
-    app = frozenset(app_scopes or [])
+    ceiling = resolve_ceiling(app_scopes)
     to_check = set(requested) - ALWAYS_ALLOWED_SCOPES
     if not to_check:
         return []
-    if app:
+    if ceiling is not None:
         # `*` is never grantable under an explicit ceiling, even if listed.
-        return sorted(s for s in to_check if s == "*" or s not in app)
+        return sorted(s for s in to_check if s == "*" or s not in ceiling)
     allowed = UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else UNPRIVILEGED_SCOPES
     return sorted(to_check - allowed)
 
@@ -346,15 +380,15 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
       caller should reject with `invalid_grant` and force re-authorization).
     """
     original_list = list(original)
-    app = set(app_scopes or [])
-    if not app:
+    ceiling = resolve_ceiling(app_scopes)
+    if ceiling is None:
         return original_list
 
     original_set = set(original_list)
     if "*" in original_set:
         return original_list
 
-    narrowed = (original_set & app) | (original_set & ALWAYS_ALLOWED_SCOPES)
+    narrowed = (original_set & ceiling) | (original_set & ALWAYS_ALLOWED_SCOPES)
     if not narrowed:
         return None
     return sorted(narrowed)

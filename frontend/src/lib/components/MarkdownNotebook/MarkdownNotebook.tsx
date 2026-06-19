@@ -41,7 +41,9 @@ import {
 import {
     MarkdownNotebookTextSurface,
     areNotebookDocumentsEqual,
+    collapseAdjacentEmptyPromptNodes,
     ensureEditableNotebookDocument,
+    getAskAIInlineNotebookQuery,
     getAskAISelectionQuery,
     getClipboardMarkdown,
     getHistoryRestoreSelection,
@@ -160,6 +162,7 @@ import {
     parseMarkdownNotebook,
     serializeMarkdownNotebook,
 } from './markdown'
+import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
 import {
     NotebookOperation,
     applyNotebookOperations,
@@ -213,6 +216,7 @@ export type MarkdownNotebookProps = {
     value: string
     onChange?: (value: string) => void
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
+    isAskAIDisabled?: boolean
     createAIChatId?: () => string
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
@@ -228,6 +232,7 @@ export type MarkdownNotebookProps = {
     /** Reports the local caret whenever it moves; null when the selection leaves the notebook. */
     onCaretChange?: (position: MarkdownNotebookCaretPosition | null) => void
     initialInsertMenu?: { nodeIndex?: number; query?: string }
+    focusAIPromptRequest?: number
     placeholder?: string
     className?: string
     autoFocus?: boolean
@@ -239,11 +244,13 @@ export type MarkdownNotebookAskAIRequest = {
     chatId: string
     query: string
     source: 'slash' | 'selection'
-    chatNodeId: string
-    chatMarker: string
+    responseNodeId: string
+    responseNodeIndex: number
+    responseMarker: string
     markdown: string
-    markdownWithChat: string
+    markdownWithResponse: string
     selectedMarkdown?: string
+    selectedRefId?: string
 }
 
 type CommitDocumentOptions = {
@@ -305,6 +312,26 @@ function createNotebookRefId(): string {
     return Math.random().toString(36).slice(2, 10)
 }
 
+function getAIWritingPlaceholderNodeIds(nodes: NotebookBlockNode[]): Set<string> {
+    const nodeIds = new Set<string>()
+    for (const node of nodes) {
+        if (node.type === 'paragraph' && getInlineText(node.children) === NOTEBOOK_AI_WRITING_PLACEHOLDER) {
+            nodeIds.add(node.id)
+        }
+    }
+    return nodeIds
+}
+
+function getLatestEmptyAIPromptNodeId(nodes: NotebookBlockNode[]): string | null {
+    for (let index = nodes.length - 1; index >= 0; index--) {
+        const node = nodes[index]
+        if (node && isPromptComponentNode(node) && !(getNotebookStringProp(node.props.question) ?? '').trim()) {
+            return node.id
+        }
+    }
+    return null
+}
+
 /** A debug recording session: JSONL entries downloaded as a .log file on stop. */
 type NotebookDebugLog = {
     startedAt: number
@@ -360,6 +387,7 @@ export function MarkdownNotebook({
     value,
     onChange,
     onAskAI,
+    isAskAIDisabled = false,
     createAIChatId = createDefaultAIChatId,
     mode = 'edit',
     registry,
@@ -371,6 +399,7 @@ export function MarkdownNotebook({
     remoteCarets,
     onCaretChange,
     initialInsertMenu,
+    focusAIPromptRequest,
     placeholder = 'Start writing...',
     className,
     autoFocus = false,
@@ -723,7 +752,7 @@ export function MarkdownNotebook({
         const reconciledDocument = ensureEditableNotebookDocument(
             reconcileNotebookDocuments(previousDocument, parseMarkdownNotebook(value)).document
         )
-        // An external value change (artifact apply, restore, agent edit) rebases the undo
+        // An external value change (artifact apply, restore, AI edit) rebases the undo
         // history over the incoming operations instead of clearing it, so CMD+Z keeps
         // reverting only this user's edits.
         rebaseHistoryThroughDocumentChange(previousDocument, reconciledDocument)
@@ -2306,24 +2335,54 @@ export function MarkdownNotebook({
     )
 
     const openAIPrompt = useCallback(
-        (nodeId: string, options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string }): void => {
+        (
+            nodeId: string,
+            options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string; selectedRefId?: string }
+        ): void => {
+            if (isAskAIDisabled || documentRef.current.nodes.some(isPromptComponentNode)) {
+                return
+            }
+
             onInteractionStateChange?.(true)
-            updateNode(nodeId, (currentNode) => {
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            let didUpdate = false
+            const nextNodes = nodes.flatMap((currentNode): NotebookBlockNode[] => {
+                if (didUpdate || currentNode.id !== nodeId) {
+                    return [currentNode]
+                }
+                didUpdate = true
                 if (!isTextBlockNode(currentNode) && currentNode.type !== 'component') {
-                    return currentNode
+                    return [currentNode]
                 }
                 const promptProps: NotebookComponentProps = { question: '' }
                 if (options?.source === 'selection') {
                     promptProps.source = 'selection'
                     promptProps.selectedMarkdown = options.selectedMarkdown ?? ''
+                    if (options.selectedRefId) {
+                        promptProps.ref = options.selectedRefId
+                    }
                 }
-                return {
-                    id: currentNode.id,
-                    type: 'component',
-                    tagName: 'Prompt',
-                    props: promptProps,
-                }
+                return [
+                    {
+                        id: currentNode.id,
+                        type: 'component',
+                        tagName: 'Prompt',
+                        props: promptProps,
+                    },
+                ]
             })
+            if (didUpdate) {
+                commitDocument({
+                    ...currentDocument,
+                    nodes: collapseAdjacentEmptyPromptNodes(nextNodes, nodeId),
+                })
+            } else {
+                commitDocument({
+                    ...currentDocument,
+                    nodes: nextNodes,
+                })
+            }
             setInsertMenu({
                 nodeId,
                 query: '',
@@ -2331,9 +2390,10 @@ export function MarkdownNotebook({
                 mode: 'ai',
                 source: options?.source ?? 'slash',
                 selectedMarkdown: options?.selectedMarkdown,
+                selectedRefId: options?.selectedRefId,
             })
         },
-        [onInteractionStateChange, updateNode]
+        [commitDocument, isAskAIDisabled, onInteractionStateChange]
     )
 
     const updateAIPromptQuery = (nodeId: string, query: string): void => {
@@ -2346,6 +2406,12 @@ export function MarkdownNotebook({
     }
 
     const renderedNodes = getRenderedNodes()
+    const aiWritingPlaceholderNodeIds = useMemo(() => getAIWritingPlaceholderNodeIds(document.nodes), [document.nodes])
+    const isAskAIInsertionDisabled = isAskAIDisabled || document.nodes.some(isPromptComponentNode)
+    const focusAIPromptNodeId = useMemo(
+        () => (focusAIPromptRequest === undefined ? null : getLatestEmptyAIPromptNodeId(document.nodes)),
+        [document.nodes, focusAIPromptRequest]
+    )
     const showInsertBoundaries = mode === 'edit' && document.nodes.length > 0
     const placeholderNodeId = hasNotebookContent(renderedNodes) ? null : renderedNodes[0]?.id
     const insertCommands = useMemo(
@@ -2368,9 +2434,10 @@ export function MarkdownNotebook({
                 (nodeId) => {
                     restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                 },
-                onAskAI ? openAIPrompt : undefined
+                onAskAI ? openAIPrompt : undefined,
+                isAskAIInsertionDisabled
             ),
-        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt]
+        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt, isAskAIInsertionDisabled]
     )
 
     function getRenderedNodes(): NotebookBlockNode[] {
@@ -2381,7 +2448,14 @@ export function MarkdownNotebook({
     }
 
     useEffect(() => {
-        const componentNodeIds = new Set(document.nodes.flatMap((node) => (node.type === 'component' ? [node.id] : [])))
+        const componentNodeIds = new Set(
+            document.nodes.flatMap((node): string[] => {
+                if (node.type !== 'component') {
+                    return []
+                }
+                return [node.id]
+            })
+        )
         const initializedComponentPanelNodeIds = initializedComponentPanelNodeIdsRef.current
         if (initializedComponentPanelNodeIds === null) {
             initializedComponentPanelNodeIdsRef.current = componentNodeIds
@@ -3155,7 +3229,7 @@ export function MarkdownNotebook({
     }
 
     const askAIAboutSelection = (): void => {
-        if (!floatingToolbar || !onAskAI) {
+        if (!floatingToolbar || !onAskAI || isAskAIInsertionDisabled) {
             return
         }
 
@@ -3166,10 +3240,20 @@ export function MarkdownNotebook({
 
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const textRangesByNodeId = new Map(floatingToolbar.textRanges.map((entry) => [entry.node.id, entry]))
+        const listItemRangesByNodeId = new Map<string, FloatingToolbarListItemRange[]>()
+        floatingToolbar.listItemRanges.forEach((entry) => {
+            listItemRangesByNodeId.set(entry.node.id, [...(listItemRangesByNodeId.get(entry.node.id) ?? []), entry])
+        })
+        const refId =
+            floatingToolbar.textRanges.length + floatingToolbar.listItemRanges.length > 0
+                ? createNotebookRefId()
+                : undefined
         // Insert the prompt after the last selected block in document order.
         const selectedNodeIds = new Set(
             [
                 ...floatingToolbar.textRanges.map(({ node }) => node.id),
+                ...floatingToolbar.codeRanges.map(({ node }) => node.id),
                 ...floatingToolbar.listItemRanges.map(({ node }) => node.id),
             ].filter(Boolean)
         )
@@ -3190,12 +3274,43 @@ export function MarkdownNotebook({
                 question: '',
                 source: 'selection',
                 selectedMarkdown,
+                ...(refId ? { ref: refId } : {}),
             },
         }
         onInteractionStateChange?.(true)
+        const nextNodes = nodes.flatMap((node, index): NotebookBlockNode[] => {
+            let updatedNode = node
+            const textRange = textRangesByNodeId.get(node.id)
+            const listItemRanges = listItemRangesByNodeId.get(node.id)
+            if (refId && textRange && isTextBlockNode(node)) {
+                updatedNode = { ...node, children: setInlineRefMark(node.children, textRange.range, refId) }
+            } else if (refId && listItemRanges && node.type === 'list') {
+                updatedNode = {
+                    ...node,
+                    items: node.items.map((item, itemIndex) => {
+                        const itemRange = listItemRanges.find((entry) => entry.itemIndex === itemIndex)
+                        return itemRange
+                            ? { ...item, children: setInlineRefMark(item.children, itemRange.range, refId) }
+                            : item
+                    }),
+                }
+            }
+            return index === targetNodeIndex ? [updatedNode, promptNode] : [updatedNode]
+        })
+        if (refId) {
+            restoreSelectionRef.current = {
+                textRanges: [
+                    ...floatingToolbar.textRanges.map(({ range }) => range),
+                    ...floatingToolbar.listItemRanges.map(({ itemIndex, range }) => ({
+                        ...range,
+                        listItemIndex: itemIndex,
+                    })),
+                ],
+            }
+        }
         commitDocument({
             ...currentDocument,
-            nodes: nodes.flatMap((node, index) => (index === targetNodeIndex ? [node, promptNode] : [node])),
+            nodes: collapseAdjacentEmptyPromptNodes(nextNodes, promptNode.id),
         })
 
         floatingToolbarPositionLockRef.current = null
@@ -3207,6 +3322,7 @@ export function MarkdownNotebook({
             mode: 'ai',
             source: 'selection',
             selectedMarkdown,
+            selectedRefId: refId,
         })
     }
 
@@ -3293,6 +3409,21 @@ export function MarkdownNotebook({
         window.setTimeout(() => element.classList.remove('MarkdownNotebook__component-shell--comment-flash'), 1600)
     }
 
+    const focusDiscussionCommentComposer = (nodeId: string): void => {
+        window.setTimeout(() => {
+            const element = blockRefs.current[nodeId]
+            const textarea = element?.querySelector(
+                '[data-attr="notebook-discussion-comment-input"] textarea, textarea[data-attr="notebook-discussion-comment-input"]'
+            )
+            if (textarea instanceof HTMLTextAreaElement) {
+                textarea.focus()
+                textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+                return
+            }
+            element?.focus()
+        }, 0)
+    }
+
     const handleCanvasClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
         const refElement = event.target instanceof Element ? event.target.closest('[data-notebook-ref]') : null
         const refId = refElement?.getAttribute('data-notebook-ref')
@@ -3311,13 +3442,23 @@ export function MarkdownNotebook({
             return
         }
 
+        const insertIndex = Math.max(targetIndex, 1)
+        const existingCommentNode = nodes[insertIndex - 1]
+        if (
+            existingCommentNode &&
+            isDiscussionCommentNode(existingCommentNode) &&
+            !getDiscussionCommentRefId(existingCommentNode)
+        ) {
+            focusDiscussionCommentComposer(existingCommentNode.id)
+            return
+        }
+
         const commentNode: NotebookComponentBlockNode = {
             id: makeEmptyParagraph(`comment-${nodeId}`).id,
             type: 'component',
             tagName: 'Comment',
             props: { replies: [] },
         }
-        const insertIndex = Math.max(targetIndex, 1)
         markNotebookNodeFreshlyInserted(commentNode.id)
         commitDocument({
             ...currentDocument,
@@ -4497,6 +4638,9 @@ export function MarkdownNotebook({
             }
             return false
         }
+        if (selectedCommand.disabled) {
+            return true
+        }
 
         selectedCommand.run(nodeId)
         if (selectedCommand.closeOnRun === false) {
@@ -4537,42 +4681,53 @@ export function MarkdownNotebook({
             return false
         }
 
-        const chatId = createAIChatId()
-        const nextDocument: NotebookDocument = {
-            ...currentDocument,
-            nodes: nodes.map((currentNode): NotebookBlockNode => {
-                if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
-                    return currentNode
-                }
-                return {
-                    id: currentNode.id,
-                    type: 'component',
-                    tagName: 'Chat',
-                    props: {
-                        id: chatId,
-                    },
-                }
-            }),
+        let responseNodeIndex = -1
+        const nodesWithResponse = nodes.map((currentNode, index): NotebookBlockNode => {
+            if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
+                return currentNode
+            }
+            responseNodeIndex = index
+            return {
+                id: currentNode.id,
+                type: 'paragraph',
+                children: plainTextToInlineNodes(NOTEBOOK_AI_WRITING_PLACEHOLDER),
+            }
+        })
+        if (responseNodeIndex === -1) {
+            console.error('Prompt node not found for AI submission')
+            return false
         }
+
+        const chatId = createAIChatId()
+        const nextDocument: NotebookDocument = { ...currentDocument, nodes: nodesWithResponse }
         commitDocument(nextDocument)
         clearInsertMenu()
-        const markdown = serializeMarkdownNotebook(nextDocument)
-        const chatMarker = `<Chat id="${chatId}" />`
+        const markdownWithResponse = serializeMarkdownNotebook(nextDocument)
+        const responseMarker = NOTEBOOK_AI_WRITING_PLACEHOLDER
         const source = activeAIPromptMenu?.source ?? getPromptSource(currentPromptNode?.props.source)
         const selectedMarkdown =
             activeAIPromptMenu?.selectedMarkdown ?? getNotebookStringProp(currentPromptNode?.props.selectedMarkdown)
+        const selectedRefId = activeAIPromptMenu?.selectedRefId ?? getNotebookStringProp(currentPromptNode?.props.ref)
         onAskAI({
             chatId,
             query:
                 source === 'selection' && selectedMarkdown
-                    ? getAskAISelectionQuery(selectedMarkdown, query, chatId)
-                    : query,
+                    ? getAskAISelectionQuery(
+                          selectedMarkdown,
+                          query,
+                          responseMarker,
+                          selectedRefId,
+                          markdownWithResponse
+                      )
+                    : getAskAIInlineNotebookQuery(query, responseMarker, markdownWithResponse),
             source,
-            chatNodeId: nodeId,
-            chatMarker,
-            markdown,
-            markdownWithChat: markdown,
+            responseNodeId: nodeId,
+            responseNodeIndex,
+            responseMarker,
+            markdown: markdownWithResponse,
+            markdownWithResponse,
             selectedMarkdown,
+            selectedRefId,
         })
         return true
     }
@@ -4818,6 +4973,27 @@ export function MarkdownNotebook({
         )
     }
 
+    const renderDebugToolbar = (): JSX.Element | null => {
+        if (!showDebug) {
+            return null
+        }
+
+        return (
+            <div className="MarkdownNotebook__debug-toolbar" contentEditable={false}>
+                <LemonButton
+                    size="small"
+                    icon={<IconCode />}
+                    active={isDebugOpen}
+                    tooltip="Edit markdown source"
+                    aria-label="Edit markdown source"
+                    aria-controls={debugDrawerId}
+                    aria-expanded={isDebugOpen}
+                    onClick={() => setIsDebugOpen((isOpen) => !isOpen)}
+                />
+            </div>
+        )
+    }
+
     const renderNotebookRow = (node: NotebookBlockNode, index: number): JSX.Element => {
         const isTitleRow = index === 0
         const isInsertMenuOpen = insertMenu?.nodeId === node.id
@@ -4849,6 +5025,7 @@ export function MarkdownNotebook({
                 className={clsx(
                     'MarkdownNotebook__row',
                     isInsertMenuOpen && 'MarkdownNotebook__row--insert-menu-open',
+                    isAIPromptOpen && 'MarkdownNotebook__row--ai-prompt',
                     isDiscussionCommentNode(node) && 'MarkdownNotebook__row--margin-comment',
                     draggingNodeId === node.id && 'MarkdownNotebook__row--dragging'
                 )}
@@ -5003,6 +5180,11 @@ export function MarkdownNotebook({
                     isInsertMenuOpen,
                     insertMenuMode,
                     hasInvalidInsertMenuQuery,
+                    isAIWritingPlaceholder: aiWritingPlaceholderNodeIds.has(node.id),
+                    aiPromptFocusRequest:
+                        focusAIPromptNodeId === node.id && focusAIPromptRequest !== undefined
+                            ? focusAIPromptRequest
+                            : undefined,
                     submitInsertMenuSelection: (queryOverride) =>
                         submitInsertMenuSelectionForNode(node.id, queryOverride),
                     submitAIPrompt: (queryOverride) => submitAIPromptForNode(node.id, queryOverride),
@@ -5025,11 +5207,14 @@ export function MarkdownNotebook({
         )
     }
 
+    const firstTextGroupKey = renderedNodeGroups.find((group) => group.type === 'text')?.key
+
     return (
         <div
             className={clsx(
                 'MarkdownNotebook',
                 isDebugOpen && 'MarkdownNotebook--debug-open',
+                mode === 'edit' && 'MarkdownNotebook--edit',
                 hasDiscussionComments &&
                     (fitsCommentGutter ? 'MarkdownNotebook--comments-margin' : 'MarkdownNotebook--comments-inline'),
                 className
@@ -5043,20 +5228,6 @@ export function MarkdownNotebook({
         >
             <div className="MarkdownNotebook__debug-layout">
                 <div className="MarkdownNotebook__main" ref={mainRef} onMouseDown={handleMainMouseDown}>
-                    {showDebug ? (
-                        <div className="MarkdownNotebook__debug-toolbar">
-                            <LemonButton
-                                size="small"
-                                icon={<IconCode />}
-                                active={isDebugOpen}
-                                tooltip="Edit markdown source"
-                                aria-label="Edit markdown source"
-                                aria-controls={debugDrawerId}
-                                aria-expanded={isDebugOpen}
-                                onClick={() => setIsDebugOpen((isOpen) => !isOpen)}
-                            />
-                        </div>
-                    ) : null}
                     {document.errors.length ? (
                         <div className="MarkdownNotebook__parse-errors">
                             {document.errors.map((error) => (
@@ -5096,7 +5267,15 @@ export function MarkdownNotebook({
 
                                 return (
                                     <Fragment key={group.key}>
-                                        <div className="MarkdownNotebook__text-group">
+                                        <div
+                                            className={clsx(
+                                                'MarkdownNotebook__text-group',
+                                                group.key === firstTextGroupKey &&
+                                                    showDebug &&
+                                                    'MarkdownNotebook__text-group--with-debug-toolbar'
+                                            )}
+                                        >
+                                            {group.key === firstTextGroupKey ? renderDebugToolbar() : null}
                                             {chunks.map((chunk) => {
                                                 const chunkLastIndex = chunk.items[chunk.items.length - 1].index
                                                 const rows = chunk.items.map(({ node, index }) => (
@@ -5173,6 +5352,7 @@ export function MarkdownNotebook({
                             setBlockStyle={setSelectedBlockStyle}
                             copySelection={copyFloatingToolbarSelection}
                             askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
+                            isAskAIDisabled={isAskAIInsertionDisabled}
                             startInlineCommentAtSelection={
                                 canStartInlineCommentAtSelection() ? startInlineCommentAtSelection : undefined
                             }

@@ -1318,3 +1318,98 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
             )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
+
+
+class TestEarlyAccessFeatureScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest):
+    # Enforcement (raise 403) is gated behind a rollout flag; force it on for this class.
+    CREATE_PAYLOAD = {
+        "name": "Scope enforcement feature",
+        "description": "x",
+        "stage": "concept",
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+        self.auth_headers = {"authorization": f"Bearer {self.value}"}
+        enforce_patcher = patch(
+            "products.feature_flags.backend.api.feature_flag._is_enforce_feature_flag_write_scope_enabled",
+            return_value=True,
+        )
+        enforce_patcher.start()
+        self.addCleanup(enforce_patcher.stop)
+
+    def _create_feature(self, **extra):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={**self.CREATE_PAYLOAD, **extra},
+            format="json",
+            headers=self.auth_headers,
+        )
+
+    def _create_feature_as_admin(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        feature_id = self._create_feature().json()["id"]
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+        return feature_id
+
+    @parameterized.expand(
+        [
+            ("eaf_write_only", ["early_access_feature:write"], status.HTTP_403_FORBIDDEN),
+            ("with_feature_flag_write", ["early_access_feature:write", "feature_flag:write"], status.HTTP_201_CREATED),
+            ("wildcard", ["*"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_scope_matrix(self, _name, scopes, expected_status):
+        self.key.scopes = scopes
+        self.key.save()
+        response = self._create_feature()
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "feature_flag:write" in response.json()["detail"]
+
+    def test_update_stage_change_is_denied(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            data={"stage": "beta"},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_update_without_stage_change_is_allowed(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            data={"description": "updated"},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_create_linking_existing_flag_without_mutation_is_allowed(self):
+        # Linking an existing flag at a non-active stage writes no flag row, so it is not gated.
+        flag = FeatureFlag.objects.create(team=self.team, key="eaf-link-only", created_by=self.user)
+        response = self._create_feature(feature_flag_id=flag.id, stage="concept")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_destroy_is_denied(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_session_auth_is_allowed(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data=self.CREATE_PAYLOAD,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()

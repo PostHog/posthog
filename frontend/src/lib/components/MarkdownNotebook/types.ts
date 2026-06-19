@@ -121,6 +121,7 @@ export type NotebookTextSelectionRange = {
 export type NotebookComponentRenderProps = {
     node: NotebookComponentBlockNode
     mode: NotebookMode
+    notebookMode?: NotebookMode
     updateProps: (props: Partial<NotebookComponentProps>) => void
     deleteNode: () => void
 }

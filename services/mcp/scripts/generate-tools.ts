@@ -57,6 +57,13 @@ interface OpenApiParam {
      * codegen widens these into z.union([z.string(), z.record(...)]).
      */
     'x-accepts-stringified-json'?: boolean
+    /**
+     * OpenAPI serialization hints. drf-spectacular emits `style: form` +
+     * `explode: false` for django-filter comma-separated filters (BaseInFilter),
+     * which expect `?type=a,b` on the wire.
+     */
+    style?: string
+    explode?: boolean
 }
 
 interface OpenApiSchema {
@@ -227,6 +234,32 @@ function resolveSchema(spec: OpenApiSpec, schemaOrRef: OpenApiSchema | { $ref: s
         return spec.components?.schemas?.[schemaName]
     }
     return schemaOrRef as OpenApiSchema
+}
+
+const CSV_SCALAR_ITEM_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
+
+/**
+ * django-filter comma-separated filters (BaseInFilter) are emitted by
+ * drf-spectacular as array query params with `style: form` + `explode: false`,
+ * meaning `?type=a,b` on the wire. ApiClient.request() JSON-stringifies arrays
+ * for json.loads()-style backends, which DRF would read as one literal value
+ * (`type IN ('["a","b"]')`) and silently match nothing — so the handler must
+ * comma-join these before they reach the client. Only scalar-item arrays
+ * qualify; object/$ref-item arrays stay on the JSON path.
+ */
+function isCommaSeparatedQueryParam(p: OpenApiParam): boolean {
+    if (p.explode !== false || (p.style ?? 'form') !== 'form' || p['x-accepts-stringified-json']) {
+        return false
+    }
+    if (p.schema?.type !== 'array' || !p.schema.items) {
+        return false
+    }
+    const items = p.schema.items
+    if ('$ref' in items && items.$ref) {
+        return false
+    }
+    const itemType = (items as OpenApiSchema).type
+    return typeof itemType === 'string' && CSV_SCALAR_ITEM_TYPES.has(itemType)
 }
 
 /**
@@ -417,6 +450,12 @@ interface SchemaComposition {
     schemaExpr: string
     pathParamNames: string[]
     queryParamNames: string[]
+    /**
+     * Query params that must be comma-joined on the wire (OpenAPI
+     * `explode: false`, i.e. django-filter comma-separated filters) instead of
+     * JSON-stringified by ApiClient.request().
+     */
+    csvQueryParamNames: Set<string>
     bodyFieldNames: string[]
     /**
      * Body fields that only appear in some variants of a union (anyOf/oneOf) body schema.
@@ -442,6 +481,7 @@ function composeToolSchema(
     const schemaParts: string[] = []
     const pathParamNames: string[] = []
     const queryParamNames: string[] = []
+    const csvQueryParamNames = new Set<string>()
     const bodyFieldNames: string[] = []
     const variantSpecificBodyFieldNames = new Set<string>()
     /**
@@ -515,6 +555,13 @@ function composeToolSchema(
             }
             for (const p of usefulQueryParams) {
                 queryParamNames.push(p.name)
+                // param_overrides with input_schema / schema_ref / cast replace or
+                // reshape the param type, so the array-join can't be assumed.
+                const override = config.param_overrides?.[p.name]
+                const schemaReplaced = !!(override && (override.input_schema || override.schema_ref || override.cast))
+                if (!schemaReplaced && isCommaSeparatedQueryParam(p)) {
+                    csvQueryParamNames.add(p.name)
+                }
                 if (!p.required) {
                     optionalParamNames.add(p.name)
                 }
@@ -740,6 +787,7 @@ function composeToolSchema(
         schemaExpr,
         pathParamNames,
         queryParamNames,
+        csvQueryParamNames,
         bodyFieldNames,
         variantSpecificBodyFieldNames,
         renamedFields,
@@ -979,7 +1027,17 @@ function generateToolCode(
     }
     if (hasQuery) {
         const queryAssignments = composition.queryParamNames
-            .map((qn) => `                ${qn}: params.${qn},`)
+            .map((qn) => {
+                // explode: false params are comma-joined here because
+                // ApiClient.request() JSON-stringifies raw arrays (the
+                // json.loads()-style contract), which DRF CSV filters can't parse.
+                // Callers may pass either the array shape or a single string, so
+                // only join when it's actually an array; an empty array is omitted.
+                if (composition.csvQueryParamNames.has(qn)) {
+                    return `                ${qn}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
+                }
+                return `                ${qn}: params.${qn},`
+            })
             .join('\n')
         handlerBody += `            query: {\n${queryAssignments}\n            },\n`
     }
@@ -1608,6 +1666,11 @@ function generateDefinitionsJson(
             const baseDescription = resolveDescription(toolConfig, yamlDir, opDescription)
             const baseTitle = toolConfig.title || resolved.operation.summary || name
             const baseSummary = toolConfig.title || opDescription.split('.')[0] || name
+            // Per-tool feature_flag wins; otherwise inherit the category-level
+            // gate (lets one line gate a whole not-yet-GA product).
+            const featureFlag = toolConfig.feature_flag ?? category.feature_flag
+            const featureFlagBehavior = toolConfig.feature_flag_behavior ?? category.feature_flag_behavior
+            const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
 
             if (toolConfig.confirmed_action) {
                 // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
@@ -1632,13 +1695,9 @@ function generateDefinitionsJson(
                         readOnlyHint: true,
                     },
                     ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
-                    ...(toolConfig.feature_flag_behavior
-                        ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
-                        : {}),
-                    ...(toolConfig.feature_flag_variant
-                        ? { feature_flag_variant: toolConfig.feature_flag_variant }
-                        : {}),
+                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
                 definitions[`${name}-execute`] = {
@@ -1659,13 +1718,9 @@ function generateDefinitionsJson(
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
                     ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
-                    ...(toolConfig.feature_flag_behavior
-                        ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
-                        : {}),
-                    ...(toolConfig.feature_flag_variant
-                        ? { feature_flag_variant: toolConfig.feature_flag_variant }
-                        : {}),
+                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
             } else {
@@ -1683,13 +1738,9 @@ function generateDefinitionsJson(
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
                     ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
-                    ...(toolConfig.feature_flag_behavior
-                        ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
-                        : {}),
-                    ...(toolConfig.feature_flag_variant
-                        ? { feature_flag_variant: toolConfig.feature_flag_variant }
-                        : {}),
+                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
             }

@@ -10,7 +10,7 @@ import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'
 
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { percentage } from 'lib/utils'
+import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'

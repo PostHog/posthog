@@ -3,6 +3,7 @@ use rdkafka::ClientConfig;
 use tracing::info;
 
 use crate::kafka_config::ConsumerConfigBuilder;
+use crate::routing::RoutingStrategy;
 
 /// Configuration for the ingestion consumer.
 ///
@@ -139,6 +140,12 @@ pub struct Config {
     #[envconfig(default = "")]
     pub internal_api_secret: String,
 
+    /// How unpinned routing keys are assigned to workers: `binpack` (default,
+    /// least-loaded — accurate for the co-located sidecar) or `p2c`
+    /// (power-of-two-choices — herd-resistant for a shared worker pool).
+    #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
+    pub routing_strategy: RoutingStrategy,
+
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).
     #[envconfig(default = "5000")]
@@ -273,6 +280,10 @@ impl Config {
             info!(key = %key, value = %value, "Applying KAFKA_CONSUMER_ env override");
             builder = builder.set(key, value);
         }
+
+        // After all overrides: if KAFKA_CONSUMER_GROUP_PROTOCOL=consumer selected the
+        // KIP-848 protocol, drop the classic-only keys librdkafka would reject.
+        builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
     }

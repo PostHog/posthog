@@ -11,7 +11,9 @@ import sys
 import time as _time
 import shutil
 import platform
+import functools
 import importlib
+import importlib.metadata
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -33,6 +35,15 @@ from hogli.manifest import (
 from hogli.validate import auto_update_manifest, find_missing_manifest_entries, find_orphan_manifest_entries
 
 _DEFAULT_HELP = "Developer CLI framework with YAML-based command definitions."
+
+# Sentinel inherited by subprocesses so nested hogli invocations (composite
+# steps, prechecks, process managers re-running hogli) can be told apart in
+# telemetry. is_nested means "descends from a hogli process tree" -- a human
+# typing hogli inside a shell that hogli spawned (flox:activate, sandbox)
+# counts as nested too. Captured at import, before this process sets the
+# sentinel for its own children.
+_NESTED_INVOCATION_VAR = "HOGLI_NESTED_INVOCATION"
+_IS_NESTED = _NESTED_INVOCATION_VAR in os.environ
 
 
 class CategorizedGroup(click.Group):
@@ -80,7 +91,10 @@ class CategorizedGroup(click.Group):
             raise
         finally:
             _fire_telemetry(ctx, exit_code)
-            telemetry.flush()
+            try:
+                telemetry.flush()
+            except Exception:
+                pass
             _fire_post_command_hooks(ctx.invoked_subcommand, exit_code)
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
@@ -179,8 +193,9 @@ def _auto_update_manifest() -> None:
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - YAML-driven developer CLI."""
-    # Skip env loading during shell completion — completion fires this
-    # callback for every Tab press and doesn't need the env populated.
+    # Defensive: skip env loading in resilient-parsing (completion) contexts.
+    # click builds those contexts without invoking callbacks, so this guard is
+    # belt-and-braces, not load-bearing.
     if not ctx.resilient_parsing:
         _apply_env_config(ctx.invoked_subcommand)
     # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
@@ -189,18 +204,69 @@ def cli(ctx: click.Context) -> None:
     if ctx.invoked_subcommand not in {"meta:check", "help"} and not in_git_hook:
         _auto_update_manifest()
         # telemetry:on still shows the notice (it arms tracking by setting
-        # first_run_notice_shown); only off/status suppress it. This set is
-        # intentionally narrower than _TELEMETRY_META_COMMANDS below.
+        # first_run_notice_shown); only off/status suppress it.
         if ctx.invoked_subcommand not in {"telemetry:off", "telemetry:status"}:
             telemetry.show_first_run_notice_if_needed()
 
-    # Fire early so long-running commands (e.g. hogli start) are always counted
-    # even if the process is killed without a clean exit. Gated identically to
-    # command_completed so the two events form matched pairs.
-    if _should_track(ctx.invoked_subcommand):
-        telemetry.track(
-            "command_started", {"command": ctx.invoked_subcommand, **_env_properties(ctx.invoked_subcommand)}
-        )
+    # Set before the send thread spawns below: mutating the environment while
+    # another thread sits in C-level getenv (resolver, OpenSSL) is undefined
+    # behavior on POSIX.
+    os.environ[_NESTED_INVOCATION_VAR] = "1"
+
+    # Fire early so long-running commands (e.g. hogli start) are counted even
+    # on a hard kill (see flush_async). The gate decision is stashed so
+    # command_completed reuses it: evaluating it again at command end could
+    # disagree (config flipped mid-run) and unpair the events.
+    ctx.meta["hogli.telemetry_active"] = _telemetry_active(ctx.invoked_subcommand)
+    if ctx.meta["hogli.telemetry_active"]:
+        try:
+            telemetry.track(
+                "command_started", {"command": ctx.invoked_subcommand, **_env_properties(ctx.invoked_subcommand)}
+            )
+            telemetry.flush_async()
+        except Exception:
+            pass
+
+
+@cli.command(name="telemetry:on", help="Enable anonymous usage telemetry")
+def telemetry_on() -> None:
+    telemetry.set_enabled(True)
+    click.echo("Telemetry enabled. Thank you for helping improve hogli!")
+
+
+@cli.command(name="telemetry:off", help="Disable anonymous usage telemetry")
+def telemetry_off() -> None:
+    telemetry.set_enabled(False)
+    click.echo("Telemetry disabled.")
+
+
+@cli.command(name="telemetry:status", help="Show current telemetry settings")
+def telemetry_status() -> None:
+    enabled = telemetry.is_enabled()
+    config_path = telemetry.get_config_path()
+
+    if enabled and not telemetry.is_active():
+        # Enabled but the first-run notice flag never persisted (fresh or
+        # read-only HOME): nothing sends until the notice is shown.
+        click.echo("Telemetry: enabled (pending first-run notice -- shown on your next tracked command)")
+    else:
+        click.echo(f"Telemetry: {'enabled' if enabled else 'disabled'}")
+
+    # Show which mechanism controls the state
+    if telemetry.is_ci():
+        click.echo("Controlled by: CI environment detected")
+    elif os.environ.get("POSTHOG_TELEMETRY_OPT_OUT") == "1":
+        click.echo("Controlled by: POSTHOG_TELEMETRY_OPT_OUT=1")
+    elif os.environ.get("DO_NOT_TRACK") == "1":
+        click.echo("Controlled by: DO_NOT_TRACK=1")
+    else:
+        click.echo("Controlled by: config file")
+
+    if enabled:
+        click.echo(f"Anonymous ID: {telemetry.get_anonymous_id()}")
+    else:
+        click.echo("Anonymous ID: (not generated -- telemetry disabled)")
+    click.echo(f"Config path: {config_path}")
 
 
 @cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
@@ -282,6 +348,11 @@ _WRAP_FILE_PLACEHOLDER = "{file}"
 # Built-in commands whose contract is "forward the resolved env" (e.g.
 # `hogli run`). Manifest commands opt in via `needs_secrets: true`.
 _BUILTIN_COMMANDS_NEEDING_SECRETS = frozenset({"run"})
+
+# False until `main()` flips it (the only path the `hogli` script and
+# `python -m hogli` both take). The secret-wrap re-exec is gated on it; see
+# `_maybe_reexec_via_wrap` for why embedded callers must not execvp.
+_is_process_entrypoint = False
 
 
 def _load_env_file(
@@ -372,8 +443,7 @@ def _command_needs_secrets(invoked_subcommand: str | None, manifest: Manifest) -
         return False
     if invoked_subcommand in _BUILTIN_COMMANDS_NEEDING_SECRETS:
         return True
-    cmd_config = manifest.get_command_config(invoked_subcommand) or {}
-    return bool(cmd_config.get("needs_secrets"))
+    return manifest.command_flag(invoked_subcommand, "needs_secrets")
 
 
 def _maybe_reexec_via_wrap(secrets: dict[str, Any], env_files: list[Path]) -> None:
@@ -381,7 +451,14 @@ def _maybe_reexec_via_wrap(secrets: dict[str, Any], env_files: list[Path]) -> No
 
     Returns normally if no re-exec is needed (caller falls through to direct
     file loading). Otherwise replaces the current process via ``os.execvp``.
+
+    Only ever re-execs when hogli owns the process (``_is_process_entrypoint``).
+    Embedded in-process callers (CliRunner tests, library use) fall through to
+    direct file loading so execvp can't replace and kill the host process.
     """
+    if not _is_process_entrypoint:
+        return
+
     secrets_file: Path = secrets["file"]
     marker: str = secrets["marker"]
     wrap: list[str] | None = secrets["wrap"]
@@ -514,6 +591,14 @@ _register_script_commands()
 _load_boot_modules()
 
 
+@functools.cache
+def _hogli_version() -> str | None:
+    try:
+        return importlib.metadata.version("hogli")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
 def _env_properties(command: str | None = None) -> dict[str, Any]:
     """Static environment properties shared across telemetry events."""
     props: dict[str, Any] = {
@@ -521,7 +606,9 @@ def _env_properties(command: str | None = None) -> dict[str, Any]:
         "os": platform.system(),
         "arch": platform.machine(),
         "python_version": platform.python_version(),
+        "hogli_version": _hogli_version(),
         "is_ci": telemetry.is_ci(),
+        "is_nested": _IS_NESTED,
     }
     for hook in telemetry_property_hooks:
         try:
@@ -531,19 +618,39 @@ def _env_properties(command: str | None = None) -> dict[str, Any]:
     return props
 
 
-# Telemetry commands manage telemetry itself; tracking them would pollute the
-# dataset with self-referential noise, so they emit no command events.
-_TELEMETRY_META_COMMANDS = frozenset({"telemetry:on", "telemetry:off", "telemetry:status"})
+# Core builtins exempt from telemetry: the telemetry:* management commands
+# would pollute the dataset with self-referential noise, and `run`
+# exec-replaces the process (os.execvp), so its started/completed events could
+# never pair. Mirrors _BUILTIN_COMMANDS_NEEDING_SECRETS -- manifest-declared
+# commands opt out the same way via `untracked: true` (e.g. exec-style devbox
+# commands), so consumer command names stay out of core.
+_UNTRACKED_BUILTINS = frozenset({"telemetry:on", "telemetry:off", "telemetry:status", "run"})
 
 
 def _should_track(command: str | None) -> bool:
     """Whether a subcommand should emit command_started / command_completed.
 
     Requires a real subcommand (so bare ``hogli`` / ``--help`` don't fire a
-    completed event with no matching started event) and excludes the telemetry
-    management commands.
+    completed event with no matching started event), excludes the untracked
+    core builtins, and honors a manifest-level ``untracked: true``.
     """
-    return bool(command) and command not in _TELEMETRY_META_COMMANDS
+    if not command or command in _UNTRACKED_BUILTINS:
+        return False
+    return not get_manifest().command_flag(command, "untracked")
+
+
+def _telemetry_active(command: str | None) -> bool:
+    """Gate for command_started / command_completed -- identical for both so
+    the events pair under stable config.
+
+    Checked before property computation: the property hooks fork subprocesses,
+    which inactive paths (CI, opt-outs, unconfigured HOMEs) shouldn't pay for.
+    Never raises -- telemetry must not break commands.
+    """
+    try:
+        return _should_track(command) and telemetry.is_active()
+    except Exception:
+        return False
 
 
 def _outcome(exit_code: int) -> str:
@@ -561,7 +668,9 @@ def _outcome(exit_code: int) -> str:
 def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
     """Send a command_completed telemetry event. Never raises."""
     command = ctx.invoked_subcommand
-    if not _should_track(command):
+    # Reuse the gate decision made at command start (fail closed if the group
+    # callback never ran) so started/completed pair even if config flips mid-run.
+    if not ctx.meta.get("hogli.telemetry_active", False):
         return
     try:
         start_time: float = ctx.meta.get("hogli.start_time", 0.0)
@@ -594,7 +703,9 @@ def _fire_post_command_hooks(command: str | None, exit_code: int) -> None:
 
 
 def main() -> None:
-    """Main entry point."""
+    """Main entry point — the only path allowed to re-exec via the secret wrap."""
+    global _is_process_entrypoint
+    _is_process_entrypoint = True
     cli()
 
 
