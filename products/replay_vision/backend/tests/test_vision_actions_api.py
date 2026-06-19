@@ -88,6 +88,17 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["count"], 1)
 
+    def test_actions_flag_off_hides_endpoint(self) -> None:
+        # `replay-vision-actions` gates the sub-feature even when product-level `replay-vision` is on.
+        def _flags(flag_key: str, *args: Any, **kwargs: Any) -> bool:
+            return flag_key != "replay-vision-actions"
+
+        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", side_effect=_flags):
+            list_resp = self.client.get(self.actions_url)
+            create_resp = self.client.post(self.actions_url, data=self._create_payload(), format="json")
+        self.assertEqual(list_resp.status_code, 404, list_resp.content)
+        self.assertEqual(create_resp.status_code, 404, create_resp.content)
+
     def test_retrieve(self) -> None:
         created = self.client.post(self.actions_url, data=self._create_payload(), format="json").json()
         resp = self.client.get(f"{self.actions_url}{created['id']}/")
