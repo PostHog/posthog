@@ -20985,6 +20985,64 @@ export namespace Schemas {
     }
 
     /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `complete` - Complete
+     * * `failed` - Failed
+     */
+    export type ExportedRecordingStatusEnum = typeof ExportedRecordingStatusEnum[keyof typeof ExportedRecordingStatusEnum];
+
+
+    export const ExportedRecordingStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Complete: 'complete',
+      Failed: 'failed',
+    } as const;
+
+    export interface ExportedRecording {
+      /** Unique identifier for this export job. */
+      readonly id: string;
+      /** The `$session_id` of the recording being exported. */
+      readonly session_id: string;
+      /** Human-provided justification for the export, kept for audit purposes. */
+      readonly reason: string;
+      /** Lifecycle status of the export: pending, running, complete, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `complete` - Complete
+       * * `failed` - Failed */
+      readonly status: ExportedRecordingStatusEnum;
+      /**
+         * Storage location of the exported data once the job completes; null until status is complete.
+         * @nullable
+         */
+      readonly export_location: string | null;
+      /**
+         * Failure detail when status is failed; null otherwise.
+         * @nullable
+         */
+      readonly error_message: string | null;
+      /** When the export was requested. */
+      readonly created_at: string;
+      /** The user who triggered the export. */
+      readonly created_by: UserBasic;
+      /** True when the export is older than 7 days and its downloadable data may have been purged. */
+      readonly is_expired: boolean;
+    }
+
+    export interface ExportedRecordingCreate {
+      /**
+         * The `$session_id` of the recording to export.
+         * @maxLength 200
+         */
+      session_id: string;
+      /** Why this recording is being exported. Recorded for audit purposes. */
+      reason: string;
+    }
+
+    /**
      * @nullable
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
@@ -29659,6 +29717,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ExportedAsset[];
+    }
+
+    export interface PaginatedExportedRecordingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ExportedRecording[];
     }
 
     export interface PaginatedExternalDataSchemaList {
@@ -60927,6 +60994,17 @@ export namespace Schemas {
     };
 
     export type SessionGroupSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SessionRecordingExportsListParams = {
     /**
      * Number of results to return per page.
      */
