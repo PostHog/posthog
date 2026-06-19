@@ -21,6 +21,7 @@ APIScopeObject = Literal[
     "activity_log",
     "agents",
     "agent_approvals",
+    "agent_memory",
     "alert",
     "annotation",
     "approvals",

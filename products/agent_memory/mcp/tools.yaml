@@ -1,0 +1,86 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Agent memory
+feature: agent_memory
+url_prefix: /agent_memory
+ui_apps: {}
+tools:
+    memory-list:
+        operation: agent_memory_list
+        enabled: true
+        scopes:
+            - agent_memory:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List memory files
+        description: >
+            List the files in this project's shared agent-memory tree — a set of markdown files every PostHog agent
+            (signals scouts, scouts, Slack-kicked-off agents) reads and edits. Returns metadata only (path, version,
+            size, last writer), not file bodies; follow up with `memory-read` to fetch a file's content. The tree
+            always includes `project.md` (top-level project memory), `users/<slug>.md` (one per human), and
+            `scouts/<skill_name>/scratchpad.md` (per-scout scratchpads). Pass `prefix` to filter to a subtree, e.g.
+            `users/` or `scouts/`.
+        response:
+            include:
+                - path
+                - version
+                - size_bytes
+                - updated_by_run
+                - updated_at
+    memory-read:
+        operation: agent_memory_read_retrieve
+        enabled: true
+        scopes:
+            - agent_memory:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read a memory file
+        description: >
+            Read a single file from this project's shared agent-memory tree by its `path` (e.g. `project.md`,
+            `users/jane-doe.md`, `scouts/signals-scout-errors/scratchpad.md`). Returns the full markdown `content`
+            plus its `version` — keep that version and pass it as `expected_version` on `memory-write` so a concurrent
+            edit by another agent is detected instead of silently overwritten. Returns 404 if no file exists at that
+            path.
+    memory-write:
+        operation: agent_memory_write_create
+        enabled: true
+        scopes:
+            - agent_memory:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Write a memory file
+        description: >
+            Write a whole file to the shared agent-memory tree using optimistic concurrency (compare-and-set). Omit
+            `expected_version` to create a new file; to update an existing one, first `memory-read` it and pass back the
+            `version` you read as `expected_version`. If the stored version no longer matches (another agent wrote in
+            between), the call returns 409 — re-read, merge your change onto the current content, and retry. This
+            replaces the file's entire content, so prefer `memory-append` when you only want to add or update one
+            section without risking clobbering concurrent edits.
+    memory-append:
+        operation: agent_memory_append_create
+        enabled: true
+        scopes:
+            - agent_memory:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Append or update a memory section
+        description: >
+            The preferred way for an agent to record something in the shared memory tree. Atomically appends a markdown
+            section (`## {heading}` + `body`) to the file at `path`, creating the file if needed. If a section with the
+            same heading already exists, its body is replaced in place; otherwise the section is appended to the end.
+            Because it only touches one section under a row lock, two agents editing different sections of the same file
+            never clobber each other — so this never returns a version conflict. Use it for durable notes, learnings, and
+            per-section updates; use `memory-write` only when you genuinely need to rewrite a whole file.

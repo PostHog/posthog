@@ -60,6 +60,7 @@ PRODUCTS_APPS = [
     "products.cdp.backend.apps.CdpConfig",
     "products.posthog_ai.backend.apps.PosthogAiConfig",
     "products.signals.backend.apps.SignalsConfig",
+    "products.agent_memory.backend.apps.AgentMemoryConfig",
     "products.visual_review.backend.apps.VisualReviewConfig",
     "products.replay_vision.backend.apps.ReplayVisionConfig",
     "products.mcp_store.backend.apps.McpStoreConfig",
