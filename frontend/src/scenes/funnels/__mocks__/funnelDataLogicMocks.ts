@@ -306,6 +306,36 @@ export const funnelResultTimeToConvertWithoutConversions: FunnelAPIResponse = {
 }
 
 // 1. Add step "Pageview"
+// 2. Select graph type "Time to convert"
+// 3. Toggle "Compare to previous"
+// Both periods carry the same bin boundaries (shared bins); only the counts differ.
+export const funnelResultTimeToConvertCompare: FunnelAPIResponse = {
+    result: [
+        {
+            compare_label: 'current',
+            bins: [
+                [4.0, 74],
+                [73591.0, 24],
+                [147178.0, 10],
+            ],
+            average_conversion_time: 86456.76,
+        },
+        {
+            compare_label: 'previous',
+            bins: [
+                [4.0, 52],
+                [73591.0, 31],
+                [147178.0, 17],
+            ],
+            average_conversion_time: 91230.5,
+        },
+    ] as any,
+    timezone: 'UTC',
+    last_refresh: '2023-02-22T17:32:24.245364Z',
+    is_cached: false,
+}
+
+// 1. Add step "Pageview"
 // 2. Select graph type "Trends"
 export const funnelResultTrends = {
     result: [
@@ -416,6 +446,74 @@ export const funnelResultTrendsCompareWithBreakdown = {
     timezone: 'UTC',
     last_refresh: '2023-03-03T18:55:57.840129Z',
     is_cached: false,
+}
+
+// 1. Add steps "sign up" -> "buy"
+// 2. Toggle "Compare to previous" (default STEPS viz, no breakdown)
+// The runner returns a flat list of step dicts for both periods, each tagged with compare_label:
+// [step0_current, step1_current, step0_previous, step1_previous].
+export const funnelResultStepsCompare: FunnelAPIResponse = {
+    result: [
+        {
+            action_id: 'sign up',
+            name: 'sign up',
+            custom_name: null,
+            order: 0,
+            people: [],
+            count: 200,
+            type: 'events',
+            average_conversion_time: null,
+            median_conversion_time: null,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'current',
+        },
+        {
+            action_id: 'buy',
+            name: 'buy',
+            custom_name: null,
+            order: 1,
+            people: [],
+            count: 100,
+            type: 'events',
+            average_conversion_time: 3600,
+            median_conversion_time: 1800,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'current',
+        },
+        {
+            action_id: 'sign up',
+            name: 'sign up',
+            custom_name: null,
+            order: 0,
+            people: [],
+            count: 150,
+            type: 'events',
+            average_conversion_time: null,
+            median_conversion_time: null,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'previous',
+        },
+        {
+            action_id: 'buy',
+            name: 'buy',
+            custom_name: null,
+            order: 1,
+            people: [],
+            count: 60,
+            type: 'events',
+            average_conversion_time: 4200,
+            median_conversion_time: 2100,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'previous',
+        },
+    ],
+    timezone: 'UTC',
+    last_refresh: '2023-02-22T08:24:07.710763Z',
+    is_cached: true,
 }
 
 // 1. Add step "Pageview"

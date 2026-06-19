@@ -3,12 +3,11 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isKeyOf } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { isKeyOf } from 'lib/utils/guards'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -24,7 +23,6 @@ import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
 import type { onboardingLogicType } from './onboardingLogicType'
 import { resolveOnboardingFlowVariant } from './onboardingVariants'
-import { postOnboardingModalLogic } from './postOnboardingModalLogic'
 import { appendSharedTrailingSteps } from './sharedSteps'
 import { onboardingProviderRegistry } from './stepProviderRegistry'
 import { INSTALL_DEDUP_KEYS, type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
@@ -58,8 +56,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['modalMode'],
             featureFlagLogic,
             ['featureFlags', 'receivedFeatureFlags'],
-            postOnboardingModalLogic,
-            ['modalShown'],
         ],
         actions: [
             billingLogic,
@@ -70,8 +66,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['openSidePanel'],
             globalSetupLogic,
             ['openGlobalSetup'],
-            postOnboardingModalLogic,
-            ['openPostOnboardingModal'],
         ],
     })),
     actions({
@@ -91,20 +85,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
         goToPreviousStep: true,
         setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
         skipOnboarding: true,
-        setAwaitingPostOnboardingModal: (awaiting: boolean) => ({ awaiting }),
         // Distinct from `setProductKey(null)`: navigating to `/onboarding` (the product
         // selection page) should not trigger the invalid-key redirect-to-home path.
         clearProductKey: true,
         setIsCompleting: (isCompleting: boolean) => ({ isCompleting }),
     }),
     reducers(() => ({
-        isAwaitingPostOnboardingModal: [
-            false,
-            {
-                setAwaitingPostOnboardingModal: (_, { awaiting }) => awaiting,
-                resetOnboardingFlowState: () => false,
-            },
-        ],
         // True between dispatching `completeOnboarding` and the resulting team PATCH
         // settling. Guards against double-fires from button double-clicks, re-renders,
         // and the post-billing `?success=true` round-trip.
@@ -571,7 +557,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             for (const productKey of visitedProducts) {
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
             }
-            actions.setAwaitingPostOnboardingModal(true)
             const completedMap: Record<string, boolean> = { ...values.currentTeam?.has_completed_onboarding_for }
             for (const productKey of visitedProducts) {
                 completedMap[productKey] = true
@@ -586,24 +571,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
             router.actions.push(values.onCompleteOnboardingRedirectUrl)
         },
         updateCurrentTeamSuccess: (val) => {
-            // Only react to the completion PATCH. Without this the listener would fire
-            // for *any* `updateCurrentTeam` (e.g. `setTeamPropertiesForProduct` toggles)
-            // while `isAwaitingPostOnboardingModal` happened to be true, mis-attributing
-            // unrelated success to onboarding completion.
             const isCompletionPatch =
                 values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]
             if (!isCompletionPatch) {
                 return
-            }
-            if (values.isAwaitingPostOnboardingModal && values.productKey) {
-                actions.setAwaitingPostOnboardingModal(false)
-                const isVariant =
-                    values.receivedFeatureFlags &&
-                    values.featureFlags[FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT] === 'test'
-
-                if (isVariant && !values.modalShown) {
-                    actions.openPostOnboardingModal(values.productKey)
-                }
             }
             actions.setIsCompleting(false)
         },
@@ -615,12 +586,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]
             if (!isCompletionPatch) {
                 return
-            }
-            if (values.isAwaitingPostOnboardingModal) {
-                actions.setAwaitingPostOnboardingModal(false)
-                lemonToast.error(
-                    "We couldn't finish onboarding. Click Finish to try again, or contact support if the problem persists."
-                )
             }
             actions.setIsCompleting(false)
         },

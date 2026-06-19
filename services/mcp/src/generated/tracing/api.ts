@@ -234,6 +234,8 @@ export const tracingSpansAttributesRetrieveQueryLimitMax = 100
 
 export const tracingSpansAttributesRetrieveQueryOffsetMin = 0
 
+export const tracingSpansAttributesRetrieveQuerySearchValuesDefault = false
+
 export const TracingSpansAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
     attribute_type: zod
         .enum(['span_attribute', 'span_resource_attribute'])
@@ -253,6 +255,12 @@ export const TracingSpansAttributesRetrieveQueryParams = /* @__PURE__ */ zod.obj
         .optional()
         .describe('Pagination offset (default: 0).'),
     search: zod.string().min(1).optional().describe('Search filter for attribute names.'),
+    search_values: zod
+        .boolean()
+        .default(tracingSpansAttributesRetrieveQuerySearchValuesDefault)
+        .describe(
+            'When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.'
+        ),
 })
 
 export const TracingSpansCountCreateParams = /* @__PURE__ */ zod.object({
@@ -348,11 +356,6 @@ export const TracingSpansDurationHistogramCreateParams = /* @__PURE__ */ zod.obj
 })
 
 export const tracingSpansDurationHistogramCreateBodyQueryOneFilterGroupDefault = []
-export const tracingSpansDurationHistogramCreateBodyQueryOneLimitDefault = 100
-export const tracingSpansDurationHistogramCreateBodyQueryOneOffsetMin = 0
-
-export const tracingSpansDurationHistogramCreateBodyQueryOneRootSpansDefault = true
-export const tracingSpansDurationHistogramCreateBodyQueryOneExcludeAttributesDefault = false
 
 export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -378,20 +381,6 @@ export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.objec
                 .optional()
                 .describe(
                     'Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.'
-                ),
-            orderBy: zod
-                .enum(['timestamp', 'duration'])
-                .describe('* `timestamp` - timestamp\n* `duration` - duration')
-                .optional()
-                .describe(
-                    "Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.\n\n* `timestamp` - timestamp\n* `duration` - duration"
-                ),
-            orderDirection: zod
-                .enum(['ASC', 'DESC'])
-                .describe('* `ASC` - ASC\n* `DESC` - DESC')
-                .optional()
-                .describe(
-                    'Order direction. Defaults to DESC (e.g. timestamp+DESC = newest first, duration+DESC = slowest first).\n\n* `ASC` - ASC\n* `DESC` - DESC'
                 ),
             filterGroup: zod
                 .array(
@@ -438,33 +427,8 @@ export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.objec
                 )
                 .default(tracingSpansDurationHistogramCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters for the query.'),
-            traceId: zod.string().optional().describe('Filter to a specific trace ID (hex string).'),
-            limit: zod
-                .number()
-                .default(tracingSpansDurationHistogramCreateBodyQueryOneLimitDefault)
-                .describe('Max results (1-1000). Defaults to 100.'),
-            after: zod
-                .string()
-                .optional()
-                .describe('Keyset pagination cursor from a previous timestamp-ordered response.'),
-            offset: zod
-                .number()
-                .min(tracingSpansDurationHistogramCreateBodyQueryOneOffsetMin)
-                .optional()
-                .describe('Pagination offset, used when ordering by a column (e.g. duration). Defaults to 0.'),
-            rootSpans: zod
-                .boolean()
-                .default(tracingSpansDurationHistogramCreateBodyQueryOneRootSpansDefault)
-                .describe('Filter to root spans only. Defaults to true.'),
-            prefetchSpans: zod.number().optional().describe('Number of child spans to prefetch per trace (1-100).'),
-            excludeAttributes: zod
-                .boolean()
-                .default(tracingSpansDurationHistogramCreateBodyQueryOneExcludeAttributesDefault)
-                .describe(
-                    'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
-                ),
         })
-        .describe('The tracing spans query to execute.'),
+        .describe('The sparkline / duration-histogram query to execute.'),
 })
 
 export const TracingSpansQueryCreateParams = /* @__PURE__ */ zod.object({
@@ -480,6 +444,7 @@ export const tracingSpansQueryCreateBodyQueryOneLimitDefault = 100
 export const tracingSpansQueryCreateBodyQueryOneOffsetMin = 0
 
 export const tracingSpansQueryCreateBodyQueryOneRootSpansDefault = true
+export const tracingSpansQueryCreateBodyQueryOneFlatSpansDefault = false
 export const tracingSpansQueryCreateBodyQueryOneExcludeAttributesDefault = false
 
 export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
@@ -584,6 +549,12 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .default(tracingSpansQueryCreateBodyQueryOneRootSpansDefault)
                 .describe('Filter to root spans only. Defaults to true.'),
+            flatSpans: zod
+                .boolean()
+                .default(tracingSpansQueryCreateBodyQueryOneFlatSpansDefault)
+                .describe(
+                    'Return the matching spans themselves, one row per span (root and child), instead of collapsing to traces. Use this to search by a child-span attribute (e.g. code.filepath) without the whole-trace grouping. Distinct from rootSpans. Defaults to false.'
+                ),
             prefetchSpans: zod.number().optional().describe('Number of child spans to prefetch per trace (1-100).'),
             excludeAttributes: zod
                 .boolean()
@@ -617,11 +588,6 @@ export const TracingSpansSparklineCreateParams = /* @__PURE__ */ zod.object({
 })
 
 export const tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault = []
-export const tracingSpansSparklineCreateBodyQueryOneLimitDefault = 100
-export const tracingSpansSparklineCreateBodyQueryOneOffsetMin = 0
-
-export const tracingSpansSparklineCreateBodyQueryOneRootSpansDefault = true
-export const tracingSpansSparklineCreateBodyQueryOneExcludeAttributesDefault = false
 
 export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -647,20 +613,6 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.'
-                ),
-            orderBy: zod
-                .enum(['timestamp', 'duration'])
-                .describe('* `timestamp` - timestamp\n* `duration` - duration')
-                .optional()
-                .describe(
-                    "Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.\n\n* `timestamp` - timestamp\n* `duration` - duration"
-                ),
-            orderDirection: zod
-                .enum(['ASC', 'DESC'])
-                .describe('* `ASC` - ASC\n* `DESC` - DESC')
-                .optional()
-                .describe(
-                    'Order direction. Defaults to DESC (e.g. timestamp+DESC = newest first, duration+DESC = slowest first).\n\n* `ASC` - ASC\n* `DESC` - DESC'
                 ),
             filterGroup: zod
                 .array(
@@ -707,33 +659,8 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters for the query.'),
-            traceId: zod.string().optional().describe('Filter to a specific trace ID (hex string).'),
-            limit: zod
-                .number()
-                .default(tracingSpansSparklineCreateBodyQueryOneLimitDefault)
-                .describe('Max results (1-1000). Defaults to 100.'),
-            after: zod
-                .string()
-                .optional()
-                .describe('Keyset pagination cursor from a previous timestamp-ordered response.'),
-            offset: zod
-                .number()
-                .min(tracingSpansSparklineCreateBodyQueryOneOffsetMin)
-                .optional()
-                .describe('Pagination offset, used when ordering by a column (e.g. duration). Defaults to 0.'),
-            rootSpans: zod
-                .boolean()
-                .default(tracingSpansSparklineCreateBodyQueryOneRootSpansDefault)
-                .describe('Filter to root spans only. Defaults to true.'),
-            prefetchSpans: zod.number().optional().describe('Number of child spans to prefetch per trace (1-100).'),
-            excludeAttributes: zod
-                .boolean()
-                .default(tracingSpansSparklineCreateBodyQueryOneExcludeAttributesDefault)
-                .describe(
-                    'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
-                ),
         })
-        .describe('The tracing spans query to execute.'),
+        .describe('The sparkline / duration-histogram query to execute.'),
 })
 
 export const tracingSpansTraceCreatePathTraceIdRegExp = new RegExp('^[a-zA-Z0-9]+$')
@@ -748,6 +675,7 @@ export const TracingSpansTraceCreateParams = /* @__PURE__ */ zod.object({
 })
 
 export const tracingSpansTraceCreateBodyExcludeAttributesDefault = false
+export const tracingSpansTraceCreateBodyOffsetMin = 0
 
 export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
     dateRange: zod
@@ -770,6 +698,13 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
         .default(tracingSpansTraceCreateBodyExcludeAttributesDefault)
         .describe(
             'Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.'
+        ),
+    offset: zod
+        .number()
+        .min(tracingSpansTraceCreateBodyOffsetMin)
+        .optional()
+        .describe(
+            "Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0."
         ),
 })
 

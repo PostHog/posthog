@@ -7,7 +7,7 @@ import React, { useState } from 'react'
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
 import { PropertyKey, getCoreFilterDefinition } from '~/taxonomy/helpers'

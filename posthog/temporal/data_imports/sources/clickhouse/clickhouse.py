@@ -728,15 +728,30 @@ _DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
     "max_memory_usage": 1_000_000_000,
 }
 
-# ClickHouse error names raised when the bounded probe exhausts one of its own
-# budgets (`max_memory_usage` → MEMORY_LIMIT_EXCEEDED, `max_execution_time` →
-# TIMEOUT_EXCEEDED). `optimize_aggregation_in_order` keeps the GROUP BY
-# streaming, but on large/slow (e.g. S3-backed) source tables the scan can
-# still hit these caps before `read_overflow_mode='break'` truncates on rows.
-# When that happens the probe behaves exactly as designed — fall back to
-# "assume duplicates" — so it's an expected outcome, not an error worth
-# reporting to error tracking.
-_DUPLICATE_PK_PROBE_BUDGET_ERRORS: tuple[str, ...] = ("MEMORY_LIMIT_EXCEEDED", "TIMEOUT_EXCEEDED")
+# Substrings of probe errors that are expected environment limits or designed
+# fallbacks rather than bugs on our side. In every case we fall back to append
+# mode, so capturing them only adds error-tracking noise:
+#   - "is unknown or readonly": clickhouse-connect validates session settings
+#     client-side and refuses any the server reports as readonly or unknown
+#     ("Setting <x> is unknown or readonly"), routine on managed offerings
+#     (ClickHouse Cloud) and readonly user profiles.
+#   - MEMORY_LIMIT_EXCEEDED / TIMEOUT_EXCEEDED: the bounded probe exhausted one
+#     of its own budgets (`max_memory_usage` / `max_execution_time`).
+#     `optimize_aggregation_in_order` keeps the GROUP BY streaming, but on
+#     large/slow (e.g. S3-backed) source tables the scan can still hit these
+#     caps before `read_overflow_mode='break'` truncates on rows — the probe
+#     behaving exactly as designed. Some managed servers also enforce a memory
+#     cap below our `max_memory_usage`, surfacing the same way.
+_EXPECTED_PROBE_FAILURE_SUBSTRINGS: tuple[str, ...] = (
+    "is unknown or readonly",
+    "MEMORY_LIMIT_EXCEEDED",
+    "TIMEOUT_EXCEEDED",
+)
+
+
+def _is_expected_probe_failure(message: str) -> bool:
+    """Whether a duplicate-PK probe failure is an expected environment limit or designed fallback."""
+    return any(substring in message for substring in _EXPECTED_PROBE_FAILURE_SUBSTRINGS)
 
 
 def _has_duplicate_primary_keys(
@@ -781,10 +796,12 @@ def _has_duplicate_primary_keys(
         logger.warning(
             f"_has_duplicate_primary_keys: assuming duplicates exist (probe failed for {database}.{table_name}): {e}"
         )
-        # Exhausting the probe's own memory/time budget is the designed fallback
-        # on large source tables, not an exceptional condition — don't flood
-        # error tracking with it. Capture only genuinely unexpected errors.
-        if not any(name in str(e) for name in _DUPLICATE_PK_PROBE_BUDGET_ERRORS):
+        # Only report genuinely unexpected probe failures. Exhausting the
+        # probe's own memory/time budget is the designed fallback on large
+        # source tables, and managed/readonly ClickHouse servers routinely
+        # reject our tuning settings — expected outcomes the append-mode
+        # fallback already handles, so capturing them only adds noise.
+        if not _is_expected_probe_failure(str(e)):
             capture_exception(e)
         return True
 

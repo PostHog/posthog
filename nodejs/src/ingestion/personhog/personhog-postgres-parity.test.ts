@@ -22,6 +22,8 @@ import { PersonHogClient } from './client'
 
 jest.mock('../../utils/logger')
 
+const TEST_TIMESTAMP = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
+
 const textEncoder = new TextEncoder()
 
 function jsonBytes(obj: unknown): Uint8Array {
@@ -379,8 +381,8 @@ describe('PersonHog ↔ Postgres parity', () => {
 
         describe('fetchGroupTypesByTeamIds', () => {
             it('team with multiple group types produces identical output', async () => {
-                await postgresRepo.insertGroupType(teamId, projectId, 'company', 0)
-                await postgresRepo.insertGroupType(teamId, projectId, 'organization', 1)
+                await postgresRepo.insertGroupType(teamId, projectId, 'company', 0, TEST_TIMESTAMP)
+                await postgresRepo.insertGroupType(teamId, projectId, 'organization', 1, TEST_TIMESTAMP)
 
                 const fromPostgres = await postgresRepo.fetchGroupTypesByTeamIds([teamId])
 
@@ -425,7 +427,7 @@ describe('PersonHog ↔ Postgres parity', () => {
                 const teamId2 = 10 as TeamId
                 await insertTestTeam(teamId2)
 
-                await postgresRepo.insertGroupType(teamId, projectId, 'company', 0)
+                await postgresRepo.insertGroupType(teamId, projectId, 'company', 0, TEST_TIMESTAMP)
                 // teamId2 has no group types
 
                 const fromPostgres = await postgresRepo.fetchGroupTypesByTeamIds([teamId, teamId2])
@@ -465,7 +467,7 @@ describe('PersonHog ↔ Postgres parity', () => {
 
         describe('fetchGroupTypesByProjectIds', () => {
             it('project with group types produces identical output', async () => {
-                await postgresRepo.insertGroupType(teamId, projectId, 'workspace', 0)
+                await postgresRepo.insertGroupType(teamId, projectId, 'workspace', 0, TEST_TIMESTAMP)
 
                 const fromPostgres = await postgresRepo.fetchGroupTypesByProjectIds([projectId])
 

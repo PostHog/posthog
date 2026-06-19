@@ -589,6 +589,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: personhog-router
+        ports:
+            - '50052:50052'
         depends_on:
             personhog-replica:
                 condition: service_started

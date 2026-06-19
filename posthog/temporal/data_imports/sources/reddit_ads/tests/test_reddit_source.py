@@ -114,6 +114,8 @@ class TestRedditAdsSource:
         "observed_error",
         [
             "401 Client Error: Unauthorized for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
+            # A 403 is a permission/auth failure (access revoked) and must not be retried.
+            "403 Client Error: Forbidden for url: https://ads-api.reddit.com/api/v3/ad_accounts/09663b71-f301-484f-9b15-8d0e6fe69124/reports?page.size=100",
             "404 Client Error: Not Found for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
             "ValueError: Integration not found: 154683",
         ],

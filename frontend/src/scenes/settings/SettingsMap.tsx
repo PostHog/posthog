@@ -19,6 +19,7 @@ import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSuppor
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
+import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -89,7 +90,6 @@ import { FeaturePreviewsComingSoon, FeaturePreviewsSettings } from './environmen
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
-import { GithubIntegration, LinearIntegration } from './environment/Integrations'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { JsSnippetVersionPin } from './environment/JsSnippetVersionPin'
@@ -118,7 +118,6 @@ import {
     ReplayNetworkHeadersPayloads,
 } from './environment/SessionRecordingSettings'
 import { SessionSummariesSettings } from './environment/SessionSummariesSettings'
-import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import {
@@ -161,6 +160,7 @@ import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { PersonalIntegrations } from './user/PersonalIntegrations'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
+import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -1442,7 +1442,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Integrate with Slack to subscribe to insights or dashboards for regular reports to channels of your choice.',
                 docsUrl: 'https://posthog.com/docs/webhooks/slack',
-                component: <SlackIntegration />,
+                component: <Slack.SettingsSection />,
                 keywords: ['slack', 'channel', 'notification', 'subscribe', 'report'],
             },
             {
@@ -1450,7 +1450,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'GitHub integration',
                 description: 'Connect GitHub to link issues and pull requests with PostHog insights.',
                 docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
-                component: <GithubIntegration />,
+                component: <GitHub.SettingsSection />,
                 keywords: ['github', 'git', 'repository', 'issue', 'pr'],
             },
             {
@@ -1458,7 +1458,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Linear integration',
                 description: 'Connect Linear to create and link issues directly from PostHog.',
                 docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
-                component: <LinearIntegration />,
+                component: <Linear.SettingsSection />,
                 keywords: ['linear', 'issue', 'project management', 'task'],
             },
             {
@@ -1742,10 +1742,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-security',
                 title: 'Security',
-                description:
-                    'Configure organization-wide security policies including public sharing, session timeouts, and password requirements.',
+                description: 'Configure organization-wide security policies.',
                 component: <OrganizationSecuritySettings />,
-                keywords: ['password', 'session', 'timeout', 'compliance', 'sharing', 'public'],
+                keywords: ['compliance', 'sharing', 'public'],
             },
             {
                 id: 'organization-personal-api-keys',
@@ -1969,6 +1968,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Your personal GitHub integrations for repo access, code attribution, and pull request authorship. You can connect multiple GitHub accounts or organizations.',
                 component: <PersonalIntegrations />,
                 keywords: ['github', 'integration', 'repos', 'identity', 'link', 'code', 'personal'],
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-reminders',
+        title: 'Reminders',
+        settings: [
+            {
+                id: 'reminders',
+                title: 'Reminders',
+                description: 'Schedule one-off or recurring nudges that notify you in-app when they are due.',
+                component: <Reminders />,
+                keywords: ['reminder', 'notification', 'schedule', 'recurring', 'cron'],
             },
         ],
     },

@@ -10,6 +10,7 @@ import {
     ExperimentSavedMetricsPartialUpdateParams,
     ExperimentSavedMetricsRetrieveParams,
     ExperimentsArchiveCreateParams,
+    ExperimentsCalculateRunningTimeCreateBody,
     ExperimentsCopyToProjectCreateBody,
     ExperimentsCopyToProjectCreateParams,
     ExperimentsCreateBody,
@@ -54,6 +55,47 @@ const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostH
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
     })
+
+const ExperimentCalculateRunningTimeSchema = ExperimentsCalculateRunningTimeCreateBody
+
+const experimentCalculateRunningTime = (): ToolBase<
+    typeof ExperimentCalculateRunningTimeSchema,
+    Schemas.RunningTimeCalculationResult
+> => ({
+    name: 'experiment-calculate-running-time',
+    schema: ExperimentCalculateRunningTimeSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentCalculateRunningTimeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.metric_type !== undefined) {
+            body['metric_type'] = params.metric_type
+        }
+        if (params.minimum_detectable_effect !== undefined) {
+            body['minimum_detectable_effect'] = params.minimum_detectable_effect
+        }
+        if (params.number_of_variants !== undefined) {
+            body['number_of_variants'] = params.number_of_variants
+        }
+        if (params.exposure_rate_per_day !== undefined) {
+            body['exposure_rate_per_day'] = params.exposure_rate_per_day
+        }
+        if (params.baseline_value !== undefined) {
+            body['baseline_value'] = params.baseline_value
+        }
+        if (params.variance !== undefined) {
+            body['variance'] = params.variance
+        }
+        if (params.baseline_stats !== undefined) {
+            body['baseline_stats'] = params.baseline_stats
+        }
+        const result = await context.api.request<Schemas.RunningTimeCalculationResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/calculate_running_time/`,
+            body,
+        })
+        return result
+    },
+})
 
 const ExperimentCopyToProjectSchema = ExperimentsCopyToProjectCreateParams.omit({ project_id: true })
     .extend(ExperimentsCopyToProjectCreateBody.shape)
@@ -106,6 +148,7 @@ const experimentCopyToProject = (): ToolBase<typeof ExperimentCopyToProjectSchem
 const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     start_date: true,
     end_date: true,
+    running_time_calculation: true,
     secondary_metrics: true,
     saved_metrics_ids: true,
     filters: true,
@@ -234,6 +277,9 @@ const experimentDuplicate = (): ToolBase<typeof ExperimentDuplicateSchema, unkno
         }
         if (params.parameters !== undefined) {
             body['parameters'] = params.parameters
+        }
+        if (params.running_time_calculation !== undefined) {
+            body['running_time_calculation'] = params.running_time_calculation
         }
         if (params.secondary_metrics !== undefined) {
             body['secondary_metrics'] = params.secondary_metrics
@@ -383,7 +429,6 @@ const ExperimentListSchema = ExperimentsListQueryParams.extend({
     ),
     limit: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['offset']).optional(),
-    created_by_id: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['created_by_id']).optional(),
     feature_flag_id: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['feature_flag_id']).optional(),
 })
 
@@ -723,6 +768,7 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             start_date: true,
             end_date: true,
             feature_flag_key: true,
+            running_time_calculation: true,
             secondary_metrics: true,
             saved_metrics_ids: true,
             filters: true,
@@ -811,6 +857,7 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-archive': experimentArchive,
+    'experiment-calculate-running-time': experimentCalculateRunningTime,
     'experiment-copy-to-project': experimentCopyToProject,
     'experiment-create': experimentCreate,
     'experiment-delete': experimentDelete,
