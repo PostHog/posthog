@@ -218,7 +218,7 @@ proceed. So a session waiting on a stale approval looks like a
 its log, not a `failed` one.
 
 **Evidence:** the approval's expiry comes from the tool's
-`approval_policy`. Default approval TTL is 24h. (This concierge's
+`approval_policy`. Default approval TTL is 24h. (This Agent Builder's
 own promote / archive gated tools use a 15-minute / `900000`ms TTL.)
 Compare the `queued` approval's timestamp against now.
 

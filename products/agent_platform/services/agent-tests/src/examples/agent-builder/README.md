@@ -1,4 +1,4 @@
-# Agent concierge — the meta-agent for the platform
+# Agent Builder — the meta-agent for the platform
 
 The "explain, debug, edit" assistant for every agent on the
 PostHog agent platform. One deployment, three surfaces (PostHog Code
@@ -29,7 +29,7 @@ the registry.
 ### The fleet audit
 
 When the user asks for a fleet-wide sweep ("audit my agents" / "what's
-underperforming?"), the concierge sweeps every agent in the team,
+underperforming?"), the Agent Builder sweeps every agent in the team,
 mines each one's recent sessions for failures / anomalies / degraded
 behaviour, diagnoses root causes, and for each concrete fix branches
 a **draft** revision with the change applied (validated, never frozen
@@ -42,15 +42,15 @@ freeze / promote / archive / delete, leaving the validated drafts for
 the user to review and promote themselves. See
 [`skills/auditing-the-fleet/SKILL.md`](skills/auditing-the-fleet/SKILL.md).
 
-For each mode, the concierge calls the same `agent-applications-*`
+For each mode, the Agent Builder calls the same `agent-applications-*`
 native tools that the authoring AI uses,
 acting under the connected user's principal so every write shows
-up in the activity log as **the user**, not as the concierge.
+up in the activity log as **the user**, not as the Agent Builder.
 
 ## Bundle layout
 
 ```text
-agent-concierge/
+agent-builder/
 ├── README.md                            # this file
 ├── spec.json                            # triggers, tools, mcps, skills
 ├── agent.md                             # short system prompt; defers to skills
@@ -85,7 +85,7 @@ agent-concierge/
 ## Auth model
 
 Auth is configured **per trigger** — there is no top-level
-`spec.auth`. Each of the concierge's triggers sets
+`spec.auth`. Each of the Agent Builder's triggers sets
 `auth.modes: [posthog, posthog_internal]` (an array), so both entry
 points map to the same effective auth:
 
@@ -97,7 +97,7 @@ points map to the same effective auth:
    config. The runner resolves the PAT to a principal once at
    session start, threads it through identically.
 
-The concierge holds no fallback credential.
+The Agent Builder holds no fallback credential.
 
 ## Platform pieces it relies on (all shipped)
 
@@ -107,7 +107,7 @@ These are platform-side, not bundle-side — and they're in place:
    accepts `kind: "client"`; the bundle's `focus_*`, `toast`, and
    `set_secret` entries parse and validate.
 2. **Runtime MCP support** — the runner opens the clients declared in
-   `spec.mcps` at session start. (The concierge declares none —
+   `spec.mcps` at session start. (The Agent Builder declares none —
    `spec.mcps` is empty — because its authoring surface is native, not
    a remote MCP server.)
 3. **OAuth principal threading** — the session principal threads
@@ -115,14 +115,14 @@ These are platform-side, not bundle-side — and they're in place:
 4. **The native authoring tools** — `@posthog/agent-applications-*`
    are native in-process tools resolved through the tool registry
    (not a separate MCP server), including the draft-edit + validate
-   verbs the concierge uses.
+   verbs the Agent Builder uses.
 
 ## Deploying
 
 Through the authoring MCP (preferred — same as other example bundles):
 
 ```text
-agent-applications-create slug=agent-concierge name="Agent concierge"
+agent-applications-create slug=agent-builder name="Agent Builder"
 agent-applications-revisions-create application_id=<id>
 # write bundle resources via the granular per-resource tools:
 #   agent-applications-revisions-agent-md-update / -skills-update / -tools-update
@@ -132,7 +132,7 @@ agent-applications-revisions-freeze-create revision_id=<rid>
 agent-applications-revisions-promote-create revision_id=<rid>
 ```
 
-The concierge lives in **PostHog's primary org** so it's
+The Agent Builder lives in **PostHog's primary org** so it's
 available to every team via the standard MCP / chat ingress. Each
 trigger's `auth.modes: [posthog, posthog_internal]` means it's not
 callable as a random external bot — only PostHog Code's signed
@@ -141,12 +141,12 @@ session-principal token (`posthog_internal`) + verified user PATs
 
 ## Regression test
 
-[`services/agent-tests/src/cases/example-agent-concierge.test.ts`](../../cases/example-agent-concierge.test.ts)
+[`services/agent-tests/src/cases/example-agent-builder.test.ts`](../../cases/example-agent-builder.test.ts)
 loads the bundle from disk and asserts:
 
 - Every `spec.skills[].path` exists in the bundle
 - `agent.md` is present and non-trivial
-- `spec.mcps` is empty (the concierge authors via native tools only —
+- `spec.mcps` is empty (the Agent Builder authors via native tools only —
   no external MCP server in the write path) **and** every declared
   native tool id resolves in the native catalog (`listNativeTools()`)
 - Both `chat` and `mcp` triggers are declared
@@ -163,10 +163,10 @@ tool responses.)
 Run with:
 
 ```bash
-pnpm --filter @posthog/agent-tests test cases/example-agent-concierge
+pnpm --filter @posthog/agent-tests test cases/example-agent-builder
 ```
 
-## Extending the concierge
+## Extending the Agent Builder
 
 Two ways:
 

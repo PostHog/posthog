@@ -198,4 +198,4 @@ Common asks:
   noise is already out.
 - **Skip confirm-promote:** the user wakes up to "wait what's
   live?". This is the single biggest trust-breaker for the
-  concierge — DO NOT skip.
+  Agent Builder — DO NOT skip.
