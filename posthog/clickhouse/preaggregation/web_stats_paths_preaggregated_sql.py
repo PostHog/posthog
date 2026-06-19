@@ -129,6 +129,14 @@ def TRUNCATE_WEB_STATS_PATHS_PREAGGREGATED_TABLE_SQL():
 #      aggregate in parallel — instead of pinning the whole job to one shard. See
 #      the "shard by breakdown_value" note in lazy_computation/CONSISTENCY.md.
 #
+# Read-side requirements (for the follow-up wiring — the layout only makes these
+# possible, it does not enable them):
+#   a. Filter by `time_window_start` range so the primary index range-skips.
+#      `job_id` is now last in the sort key, so `job_id IN (...)` no longer prunes
+#      — keep it only as a freshness post-filter, not the range selector.
+#   b. `SET optimize_distributed_group_by_sharding_key = 1` on the read to get the
+#      shard-local short-circuit (a query-level setting, not part of the DDL).
+#
 # Partitioning/TTL stay on `expires_at` so short-TTL recomputes still drop in
 # whole parts (read locality must not reintroduce stale-recompute scans).
 TABLE_PATHKEY_BASE_NAME = "web_stats_paths_preaggregated_pathkey"
