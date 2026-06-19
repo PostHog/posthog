@@ -440,10 +440,16 @@ func TestMatchesPropertyFilters(t *testing.T) {
 			want:    true,
 		},
 		{
-			name:    "not_regex with invalid pattern matches",
+			name:    "not_regex with invalid pattern fails closed",
 			props:   map[string]interface{}{"$current_url": "anything"},
 			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpNotRegex, []string{`(`})},
-			want:    true,
+			want:    false,
+		},
+		{
+			name:    "not_regex with invalid pattern and missing property fails closed",
+			props:   map[string]interface{}{},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpNotRegex, []string{`(`})},
+			want:    false,
 		},
 		{
 			name:    "gt numeric match",

@@ -53,6 +53,8 @@ func NewCompiledPropertyFilter(key, operator string, values []string) CompiledPr
 		for i, v := range values {
 			if re, err := regexp.Compile(v); err == nil {
 				f.regexes[i] = re
+			} else {
+				log.Printf("WARNING: ignoring invalid regex in %s filter for key=%s value=%q: %v", operator, key, v, err)
 			}
 		}
 	case OpGreaterThan, OpGreaterEqual, OpLessThan, OpLessEqual:
@@ -218,6 +220,15 @@ func matchesPropertyFilters(props map[string]interface{}, filters []CompiledProp
 	return true
 }
 
+func (f *CompiledPropertyFilter) hasValidRegex() bool {
+	for _, re := range f.regexes {
+		if re != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (f *CompiledPropertyFilter) matches(props map[string]interface{}) bool {
 	raw, present := props[f.Key]
 
@@ -226,6 +237,10 @@ func (f *CompiledPropertyFilter) matches(props map[string]interface{}) bool {
 		return present
 	case OpIsNotSet:
 		return !present
+	}
+
+	if (f.Operator == OpRegex || f.Operator == OpNotRegex) && !f.hasValidRegex() {
+		return false
 	}
 
 	if !present {

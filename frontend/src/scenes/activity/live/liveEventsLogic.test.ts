@@ -83,74 +83,71 @@ describe('liveEventsLogic', () => {
     })
 
     describe('stream URL property filters', () => {
-        it('emits legacy property= params and drops non-exact operators with the flag off', () => {
-            setRichFiltersFlag(false)
-            logic.actions.setFilters({
+        it.each([
+            {
+                label: 'emits legacy property= params and drops non-exact operators',
                 properties: [
                     eventFilter('$current_url', PropertyOperator.Exact, 'https://app.posthog.com'),
                     eventFilter('$browser', PropertyOperator.IContains, 'chrome'),
                 ],
-            })
+                expectedProperty: ['$current_url=https://app.posthog.com'],
+            },
+            {
+                label: 'expands a multi-value exact filter into repeated legacy params',
+                properties: [eventFilter('$browser', PropertyOperator.Exact, ['Chrome', 'Firefox'])],
+                expectedProperty: ['$browser=Chrome', '$browser=Firefox'],
+            },
+        ])('with the flag off, $label', ({ properties, expectedProperty }) => {
+            setRichFiltersFlag(false)
+            logic.actions.setFilters({ properties })
 
             const url = lastStreamUrl()
-            expect(url.searchParams.getAll('property')).toEqual(['$current_url=https://app.posthog.com'])
+            expect(url.searchParams.getAll('property')).toEqual(expectedProperty)
             expect(url.searchParams.has('properties')).toBe(false)
         })
 
-        it('expands a multi-value exact filter into repeated legacy params with the flag off', () => {
-            setRichFiltersFlag(false)
-            logic.actions.setFilters({
-                properties: [eventFilter('$browser', PropertyOperator.Exact, ['Chrome', 'Firefox'])],
-            })
-
-            expect(lastStreamUrl().searchParams.getAll('property')).toEqual(['$browser=Chrome', '$browser=Firefox'])
-        })
-
-        it('emits a single JSON properties param with the flag on', () => {
-            setRichFiltersFlag(true)
-            logic.actions.setFilters({
+        it.each([
+            {
+                label: 'emits a single JSON properties param',
                 properties: [
                     eventFilter('$current_url', PropertyOperator.IContains, 'checkout'),
                     eventFilter('$browser', PropertyOperator.Exact, ['Chrome', 'Firefox']),
                     eventFilter('amount', PropertyOperator.GreaterThan, 100),
                     eventFilter('$referrer', PropertyOperator.IsSet),
                 ],
-            })
-
-            const url = lastStreamUrl()
-            expect(url.searchParams.has('property')).toBe(false)
-            expect(JSON.parse(url.searchParams.get('properties')!)).toEqual([
-                { key: '$current_url', operator: 'icontains', value: 'checkout' },
-                { key: '$browser', operator: 'exact', value: ['Chrome', 'Firefox'] },
-                { key: 'amount', operator: 'gt', value: 100 },
-                { key: '$referrer', operator: 'is_set' },
-            ])
-        })
-
-        it('skips null values, empty arrays, and unsupported operators with the flag on', () => {
-            setRichFiltersFlag(true)
-            logic.actions.setFilters({
+                expectedProperties: [
+                    { key: '$current_url', operator: 'icontains', value: 'checkout' },
+                    { key: '$browser', operator: 'exact', value: ['Chrome', 'Firefox'] },
+                    { key: 'amount', operator: 'gt', value: 100 },
+                    { key: '$referrer', operator: 'is_set' },
+                ],
+            },
+            {
+                label: 'skips null values, empty arrays, and unsupported operators',
                 properties: [
                     eventFilter('$current_url', PropertyOperator.Exact, null),
                     eventFilter('$browser', PropertyOperator.Exact, []),
                     eventFilter('$pathname', PropertyOperator.Between, '5'),
                     eventFilter('$os', PropertyOperator.IContains, 'mac'),
                 ],
-            })
+                expectedProperties: [{ key: '$os', operator: 'icontains', value: 'mac' }],
+            },
+            {
+                label: 'omits the properties param entirely when nothing is eligible',
+                properties: [eventFilter('$current_url', PropertyOperator.Exact, null)],
+                expectedProperties: null,
+            },
+        ])('with the flag on, $label', ({ properties, expectedProperties }) => {
+            setRichFiltersFlag(true)
+            logic.actions.setFilters({ properties })
 
             const url = lastStreamUrl()
-            expect(JSON.parse(url.searchParams.get('properties')!)).toEqual([
-                { key: '$os', operator: 'icontains', value: 'mac' },
-            ])
-        })
-
-        it('omits the properties param entirely when nothing is eligible with the flag on', () => {
-            setRichFiltersFlag(true)
-            logic.actions.setFilters({
-                properties: [eventFilter('$current_url', PropertyOperator.Exact, null)],
-            })
-
-            expect(lastStreamUrl().searchParams.has('properties')).toBe(false)
+            expect(url.searchParams.has('property')).toBe(false)
+            if (expectedProperties === null) {
+                expect(url.searchParams.has('properties')).toBe(false)
+            } else {
+                expect(JSON.parse(url.searchParams.get('properties')!)).toEqual(expectedProperties)
+            }
         })
     })
 })
