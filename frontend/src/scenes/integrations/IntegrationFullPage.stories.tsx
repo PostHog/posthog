@@ -1,11 +1,8 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
-import { useEffect } from 'react'
 
-import { TeamMembershipLevel } from 'lib/constants'
-import { teamLogic } from 'scenes/teamLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -46,22 +43,37 @@ export const Connected: Story = {
     decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [mockIntegration] } } })],
 }
 
+const memberTeam = { ...MOCK_DEFAULT_TEAM, effective_membership_level: OrganizationMembershipLevel.Member }
+const memberOrganization = {
+    ...MOCK_DEFAULT_ORGANIZATION,
+    membership_level: OrganizationMembershipLevel.Member,
+    teams: [memberTeam],
+}
+
 // Below project-admin level: the connect button is replaced by the "request access" flow.
-// `useRestrictedArea` reads the level from teamLogic's currentTeam, which Storybook seeds from
-// the (admin-level) app context and never refetches — so we override it directly rather than
-// mocking the environments endpoint, which teamLogic never hits.
+// `useRestrictedArea` reads the team's `effective_membership_level`, which teamLogic seeds from
+// `getAppContext().current_team` (not an API call) — so we lower it in the app context here.
+// `beforeEach` runs before Kea mounts teamLogic; the cleanup restores it for other stories.
+// organizationLogic still fetches the org, so we mock that to Member too.
 export const NoPermission: Story = {
-    decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [] } } })],
-    render: () => {
-        const { loadCurrentTeamSuccess } = useActions(teamLogic)
-
-        useEffect(() => {
-            loadCurrentTeamSuccess({
-                ...MOCK_DEFAULT_TEAM,
-                effective_membership_level: TeamMembershipLevel.Member,
-            })
-        }, [loadCurrentTeamSuccess])
-
-        return <IntegrationFullPage definition={Slack} SettingsSection={Slack.SettingsSection} />
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:id/integrations': { results: [] },
+                '/api/organizations/@current/': memberOrganization,
+            },
+        }),
+    ],
+    beforeEach: () => {
+        const appContext = window.POSTHOG_APP_CONTEXT
+        const originalTeam = appContext?.current_team
+        if (appContext) {
+            appContext.current_team = memberTeam
+        }
+        return () => {
+            if (appContext) {
+                appContext.current_team = originalTeam ?? null
+            }
+        }
     },
 }
