@@ -33,6 +33,8 @@ from django.utils import timezone
 import structlog
 
 if TYPE_CHECKING:
+    from slack_sdk.errors import SlackApiError
+
     from posthog.models.integration import Integration
 
 logger = structlog.get_logger(__name__)
@@ -63,60 +65,38 @@ def _cache_key(integration_id: int) -> str:
     return f"slack_app:auth_state:v1:{integration_id}"
 
 
-def _deserialize(raw: object) -> SlackIntegrationAuthState | None:
-    """Tolerate cache entries written by older code versions — drop them rather
-    than blow up the resolver if the shape ever drifts."""
-    if not isinstance(raw, dict):
-        return None
-    try:
-        return SlackIntegrationAuthState(
-            ok=bool(raw["ok"]),
-            bot_user_id=raw["bot_user_id"],
-            error_code=raw["error_code"],
-            checked_at=raw["checked_at"],
-        )
-    except (KeyError, TypeError, ValueError):
-        return None
-
-
-def _serialize(state: SlackIntegrationAuthState) -> dict[str, object]:
-    return {
-        "ok": state.ok,
-        "bot_user_id": state.bot_user_id,
-        "error_code": state.error_code,
-        "checked_at": state.checked_at,
-    }
-
-
 def get_cached_auth_state(integration_id: int) -> SlackIntegrationAuthState | None:
-    """Return the cached verdict, or ``None`` on miss / malformed entry. Cheap."""
-    return _deserialize(cache.get(_cache_key(integration_id)))
+    """Return the cached verdict, or ``None`` on miss. Cheap.
+
+    Django's cache backend pickles the dataclass directly; ``isinstance`` guards
+    a value of an unexpected shape (e.g. a future schema migration that hasn't
+    drained the cache) by treating it as a miss instead of crashing the resolver.
+    """
+    raw = cache.get(_cache_key(integration_id))
+    return raw if isinstance(raw, SlackIntegrationAuthState) else None
 
 
 def write_auth_state_ok(integration_id: int, bot_user_id: str | None) -> None:
-    """Mark the install healthy. Called from every successful Slack call that
-    has proof the token works — both opportunistic refreshes (e.g. a successful
-    ``users.info``) and explicit checks (``auth.test``).
+    """Mark the install healthy. Called from the resolver's eager ``auth.test``
+    on cache miss; not from per-mention call sites (``get_slack_email_for_user``
+    et al), which leave positive verdicts to the resolver to keep the cache
+    truthful about what the live token can actually do.
     """
-    state = SlackIntegrationAuthState(
-        ok=True,
-        bot_user_id=bot_user_id,
-        error_code=None,
-        checked_at=timezone.now(),
+    cache.set(
+        _cache_key(integration_id),
+        SlackIntegrationAuthState(ok=True, bot_user_id=bot_user_id, error_code=None, checked_at=timezone.now()),
+        timeout=SLACK_AUTH_STATE_CACHE_TTL_SECONDS,
     )
-    cache.set(_cache_key(integration_id), _serialize(state), timeout=SLACK_AUTH_STATE_CACHE_TTL_SECONDS)
 
 
 def write_auth_state_broken(integration_id: int, error_code: str) -> None:
-    """Mark the install broken. Callers should only invoke this for
-    **auth-class** Slack error codes — see the module docstring."""
-    state = SlackIntegrationAuthState(
-        ok=False,
-        bot_user_id=None,
-        error_code=error_code,
-        checked_at=timezone.now(),
+    """Mark the install broken. Callers should only invoke this for auth-class
+    Slack error codes — see ``SLACK_AUTH_FAILURE_CODES``."""
+    cache.set(
+        _cache_key(integration_id),
+        SlackIntegrationAuthState(ok=False, bot_user_id=None, error_code=error_code, checked_at=timezone.now()),
+        timeout=SLACK_AUTH_STATE_CACHE_TTL_SECONDS,
     )
-    cache.set(_cache_key(integration_id), _serialize(state), timeout=SLACK_AUTH_STATE_CACHE_TTL_SECONDS)
     logger.warning(
         "slack_app_auth_state_marked_broken",
         integration_id=integration_id,
@@ -132,6 +112,81 @@ def invalidate_auth_state(integration_id: int) -> None:
     logger.info("slack_app_auth_state_invalidated", integration_id=integration_id)
 
 
+def classify_slack_api_error(exc: "SlackApiError") -> tuple[str | None, bool]:
+    """Return ``(error_code, is_token_broken)``. Centralizes the
+    ``exc.response.get("error") + membership check`` dance so every call site
+    (resolver eager-check, ``get_slack_email_for_user``, ``get_cached_bot_user_id``)
+    decides "demote this install" against the same rule. ``error_code`` is
+    ``None`` when Slack didn't attach a recognizable error to the exception.
+    """
+    error_code = exc.response.get("error") if exc.response else None
+    if not isinstance(error_code, str):
+        return None, False
+    return error_code, error_code in SLACK_AUTH_FAILURE_CODES
+
+
+def _resolve_one_candidate_state(
+    candidate: "Integration", slack_user_id: str | None
+) -> SlackIntegrationAuthState | None:
+    """Return the auth-state verdict for ``candidate``, populating the cache via
+    ``auth.test`` on miss. Returns ``None`` when the verdict is unknown
+    (transient failure, non-auth-class Slack error) so the caller can preserve
+    today's pre-cache ordering for that install.
+    """
+    cached = get_cached_auth_state(candidate.id)
+    if cached is not None:
+        return cached
+
+    # Inline-imported so the module's pure cache primitives stay importable
+    # without pulling in the Slack SDK + ORM (facade re-export, test fixtures).
+    from slack_sdk.errors import SlackApiError  # noqa: PLC0415
+
+    from posthog.models.integration import SlackIntegration  # noqa: PLC0415
+
+    try:
+        response = SlackIntegration(candidate).client.auth_test()
+    except SlackApiError as exc:
+        error_code, token_broken = classify_slack_api_error(exc)
+        if token_broken and error_code is not None:
+            write_auth_state_broken(candidate.id, error_code)
+            logger.warning(
+                "slack_app_auth_test_token_broken",
+                integration_id=candidate.id,
+                slack_team_id=candidate.integration_id,
+                slack_user_id=slack_user_id,
+                error_code=error_code,
+            )
+            return get_cached_auth_state(candidate.id)
+        # Non-auth-class Slack error: don't pollute the cache; leave the
+        # candidate "unknown" so the resolver keeps it in the running.
+        logger.warning(
+            "slack_app_auth_test_non_auth_error",
+            integration_id=candidate.id,
+            slack_team_id=candidate.integration_id,
+            slack_user_id=slack_user_id,
+            error_code=error_code,
+        )
+        return None
+    except Exception:
+        # Transient (network blip, Slack 5xx): refusing to brick the workspace
+        # for the full TTL on a one-off failure is intentional.
+        logger.warning(
+            "slack_app_auth_test_transient_failure",
+            integration_id=candidate.id,
+            slack_team_id=candidate.integration_id,
+            slack_user_id=slack_user_id,
+            exc_info=True,
+        )
+        return None
+
+    bot_user_id = response.get("user_id")
+    write_auth_state_ok(
+        candidate.id,
+        bot_user_id if isinstance(bot_user_id, str) and bot_user_id else None,
+    )
+    return get_cached_auth_state(candidate.id)
+
+
 def check_integrations_auth_and_filter(
     candidates: list["Integration"],
     *,
@@ -142,17 +197,17 @@ def check_integrations_auth_and_filter(
 
     Single entry point for the resolver: for every candidate the function
     consults the cache, runs ``auth.test`` on miss (populating the cache with
-    the result), and then ranks the list:
+    the result), and ranks the list in one pass:
 
     - **healthy** (cached ``ok=true``) — sorted by ``checked_at`` DESC so a
       freshly-reconnected install lands ahead of one that's been healthy for
       hours.
-    - **unknown** (cache miss survived eager populate because ``auth.test``
+    - **unknown** (cache miss survived the eager populate because ``auth.test``
       transiently errored — Slack 5xx, network blip) — kept in the middle.
     - **broken** (cached ``ok=false``) — demoted to the end, **never dropped**.
       Refusing to strand the workspace on stale negative cache: if every
-      candidate is broken, the resolver still tries them and the success-path
-      hook in ``get_slack_email_for_user`` flips the cache back to healthy.
+      candidate is broken, the resolver still tries them and the next
+      successful ``auth.test`` (after the 6h TTL) flips the cache back.
 
     Slack ``auth.test`` is Tier 4 (100+/min/workspace) so the per-mention cost
     is fine even for orgs with many installs on the same workspace. Concurrent
@@ -164,65 +219,14 @@ def check_integrations_auth_and_filter(
     report to the exact install + token state without grepping through three
     files of upstream context.
     """
-    # Inline-imported so this module stays cheap for callers that only need
-    # the cache primitives (the facade re-export, test fixtures). The Slack
-    # SDK + Integration ORM are the heavy part.
-    from slack_sdk.errors import SlackApiError  # noqa: PLC0415
-
-    from posthog.models.integration import SlackIntegration  # noqa: PLC0415
-
     if not candidates:
         return candidates
-
-    for candidate in candidates:
-        if get_cached_auth_state(candidate.id) is not None:
-            continue
-        try:
-            response = SlackIntegration(candidate).client.auth_test()
-        except SlackApiError as exc:
-            error_code = exc.response.get("error") if exc.response else None
-            if isinstance(error_code, str) and error_code in SLACK_AUTH_FAILURE_CODES:
-                write_auth_state_broken(candidate.id, error_code)
-                logger.warning(
-                    "slack_app_auth_test_token_broken",
-                    integration_id=candidate.id,
-                    slack_team_id=candidate.integration_id,
-                    slack_user_id=slack_user_id,
-                    error_code=error_code,
-                )
-            else:
-                # Non-auth-class Slack errors say nothing about token validity;
-                # leave the cache untouched so the next call can repopulate.
-                logger.warning(
-                    "slack_app_auth_test_non_auth_error",
-                    integration_id=candidate.id,
-                    slack_team_id=candidate.integration_id,
-                    slack_user_id=slack_user_id,
-                    error_code=error_code,
-                )
-            continue
-        except Exception:
-            # Transient network / Slack 5xx — refusing to brick the workspace
-            # for the full TTL on a one-off failure is intentional.
-            logger.warning(
-                "slack_app_auth_test_transient_failure",
-                integration_id=candidate.id,
-                slack_team_id=candidate.integration_id,
-                slack_user_id=slack_user_id,
-                exc_info=True,
-            )
-            continue
-        bot_user_id = response.get("user_id")
-        write_auth_state_ok(
-            candidate.id,
-            bot_user_id if isinstance(bot_user_id, str) and bot_user_id else None,
-        )
 
     healthy: list[tuple[Integration, datetime]] = []
     unknown: list[Integration] = []
     broken: list[Integration] = []
     for candidate in candidates:
-        state = get_cached_auth_state(candidate.id)
+        state = _resolve_one_candidate_state(candidate, slack_user_id)
         if state is None:
             unknown.append(candidate)
         elif state.ok:

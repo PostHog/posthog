@@ -966,10 +966,21 @@ class OauthIntegration:
             # reconnect mints a new bot token, so any stale ``ok=false`` row
             # from the previous token would silently demote this install for
             # the remaining cache TTL. Inline-imported to keep the slack_app
-            # module off the core django.setup() path.
-            from products.slack_app.backend.facade.api import invalidate_slack_integration_auth_state  # noqa: PLC0415
+            # module off the core django.setup() path; wrapped so a broken
+            # slack_app build can't take down OAuth completion for every
+            # integration kind.
+            try:
+                from products.slack_app.backend.facade.api import (  # noqa: PLC0415
+                    invalidate_slack_integration_auth_state,
+                )
 
-            invalidate_slack_integration_auth_state(integration.id)
+                invalidate_slack_integration_auth_state(integration.id)
+            except Exception:
+                logger.warning(
+                    "slack_app_auth_state_invalidation_on_oauth_failed",
+                    integration_id=integration.id,
+                    exc_info=True,
+                )
 
         return integration
 

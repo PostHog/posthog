@@ -7,7 +7,6 @@ from django.utils import timezone
 
 from products.slack_app.backend.services.slack_auth import (
     SLACK_AUTH_STATE_CACHE_TTL_SECONDS,
-    SlackIntegrationAuthState,
     get_cached_auth_state,
     invalidate_auth_state,
     write_auth_state_broken,
@@ -106,20 +105,10 @@ class TestSlackAuthState:
         assert one is not None and one.ok is True and one.bot_user_id == "U_ONE"
         assert two is not None and two.ok is False and two.error_code == "invalid_auth"
 
-    def test_dataclass_is_frozen(self):
-        # Defensive: callers should never mutate cached state in place. Read
-        # the metadata directly to avoid running into ty's read-only
-        # property check on the assignment site.
-        import dataclasses
-
-        assert dataclasses.is_dataclass(SlackIntegrationAuthState)
-        params = getattr(SlackIntegrationAuthState, "__dataclass_params__", None)
-        assert params is not None
-        assert params.frozen is True
-
     def test_garbage_in_cache_is_ignored(self):
-        # If a future code version writes a different shape, we should treat
-        # it as a cache miss rather than crash the resolver.
+        # If a future code version writes a different shape (or older code
+        # wrote a dict literal here), we should treat it as a cache miss
+        # rather than crash the resolver.
         from products.slack_app.backend.services.slack_auth import _cache_key
 
         cache.set(_cache_key(77), {"unexpected": "shape"}, timeout=60)

@@ -446,15 +446,15 @@ class TestLoadIntegrationsAuthStateFilter:
         # Mock ``auth.test`` to a healthy response by default; individual tests
         # override ``side_effect`` / ``return_value`` to simulate the failure
         # they care about. Without the mock, ``load_integrations`` would try
-        # to hit the real Slack API every time the cache is cold.
-        webclient_patch = patch("posthog.models.integration.WebClient")
-        mock_webclient_class = webclient_patch.start()
-        mock_client = MagicMock()
-        mock_webclient_class.return_value = mock_client
-        mock_client.auth_test.return_value = {"user_id": "U_BOT"}
-        self.mock_auth_test = mock_client.auth_test
-        yield
-        webclient_patch.stop()
+        # to hit the real Slack API every time the cache is cold. Context
+        # manager so a failure inside ``yield`` still cleans up (manual
+        # ``start()/stop()`` would leak the patch into sibling tests).
+        with patch("posthog.models.integration.WebClient") as mock_webclient_class:
+            mock_client = MagicMock()
+            mock_webclient_class.return_value = mock_client
+            mock_client.auth_test.return_value = {"user_id": "U_BOT"}
+            self.mock_auth_test = mock_client.auth_test
+            yield
         cache.clear()
 
     def _mk_integration(self, team: Team) -> Integration:
@@ -531,28 +531,22 @@ class TestLoadIntegrationsAuthStateFilter:
         from django.core.cache import cache as django_cache
         from django.utils import timezone
 
-        from products.slack_app.backend.services.slack_auth import SLACK_AUTH_STATE_CACHE_TTL_SECONDS, _cache_key
+        from products.slack_app.backend.services.slack_auth import (
+            SLACK_AUTH_STATE_CACHE_TTL_SECONDS,
+            SlackIntegrationAuthState,
+            _cache_key,
+        )
 
         an_hour_ago = timezone.now() - timedelta(hours=1)
         for integration in (self.integration_old, self.integration_mid):
             django_cache.set(
                 _cache_key(integration.id),
-                {
-                    "ok": True,
-                    "bot_user_id": "U_BOT",
-                    "error_code": None,
-                    "checked_at": an_hour_ago,
-                },
+                SlackIntegrationAuthState(ok=True, bot_user_id="U_BOT", error_code=None, checked_at=an_hour_ago),
                 timeout=SLACK_AUTH_STATE_CACHE_TTL_SECONDS,
             )
         django_cache.set(
             _cache_key(self.integration_new.id),
-            {
-                "ok": True,
-                "bot_user_id": "U_BOT",
-                "error_code": None,
-                "checked_at": timezone.now(),
-            },
+            SlackIntegrationAuthState(ok=True, bot_user_id="U_BOT", error_code=None, checked_at=timezone.now()),
             timeout=SLACK_AUTH_STATE_CACHE_TTL_SECONDS,
         )
 

@@ -154,7 +154,12 @@ class TestAuthStateSideEffects:
         cache.clear()
 
     @patch("posthog.models.integration.WebClient")
-    def test_success_writes_ok_state(self, mock_webclient_class, integration):
+    def test_success_does_not_touch_auth_state(self, mock_webclient_class, integration):
+        # The positive cache verdict is owned by the resolver's eager
+        # ``auth.test`` layer. A successful ``users.info`` can hit the DB cache
+        # (``SlackUserProfileCache``) without touching Slack at all, so it
+        # proves nothing about the live token — letting it refresh the cache
+        # would defeat the negative-cache mechanism the PR exists to provide.
         from products.slack_app.backend.services.slack_auth import get_cached_auth_state
 
         mock_client = MagicMock()
@@ -165,12 +170,7 @@ class TestAuthStateSideEffects:
 
         get_slack_email_for_user(integration, "U1")
 
-        state = get_cached_auth_state(integration.id)
-        assert state is not None
-        assert state.ok is True
-        # ``users.info`` doesn't expose the bot user id; ``get_cached_bot_user_id``
-        # fills it in on the next ``auth.test`` call.
-        assert state.bot_user_id is None
+        assert get_cached_auth_state(integration.id) is None
 
     @pytest.mark.parametrize(
         "error_code",

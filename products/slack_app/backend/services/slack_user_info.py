@@ -30,7 +30,7 @@ from posthog.models.integration import Integration, SlackIntegration
 
 from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_auth import (
-    SLACK_AUTH_FAILURE_CODES,
+    classify_slack_api_error,
     get_cached_auth_state,
     write_auth_state_broken,
     write_auth_state_ok,
@@ -214,36 +214,31 @@ def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) ->
     """Return the bot's Slack user id for ``integration``, populating the
     shared auth-state cache as a side effect.
 
-    Three terminal paths:
+    Terminal paths:
 
-    1. **Cache hit, healthy** — return the cached ``bot_user_id``. Cheap, no
-       Slack call.
-    2. **Cache hit, broken** — known dead token; return ``None`` without
-       attempting ``auth.test``. Caller treats this the same as an API failure.
-    3. **Cache miss** — run ``auth.test``. On success, refresh the cache as
-       ``ok=true`` (carrying the new bot_user_id). On an auth-class
-       ``SlackApiError``, mark the cache ``ok=false`` so subsequent mentions
-       skip this install for the TTL. Transient/network errors leave the
-       cache alone — a Slack 5xx shouldn't brick the workspace for 6 hours.
+    - **Cache hit, healthy with bot_user_id** — return it. No Slack call.
+    - **Cache hit, broken** — known dead token; return ``None`` without
+      attempting ``auth.test``. Caller treats this the same as an API failure.
+    - **Cache miss or healthy-without-bot-id** — run ``auth.test``. On success,
+      refresh the cache as ``ok=true`` carrying the bot user id. On an
+      auth-class ``SlackApiError``, mark the cache ``ok=false`` so subsequent
+      mentions skip this install for the TTL. Transient/network errors leave
+      the cache alone — a Slack 5xx shouldn't brick the workspace for 6 hours.
     """
     cached = get_cached_auth_state(integration.id)
     if cached is not None:
         if cached.ok and cached.bot_user_id is not None:
             return cached.bot_user_id
         if not cached.ok:
-            # Known broken — don't pay for the round-trip; let the caller treat
-            # this the same way an API failure would.
             return None
-        # ``ok=True`` without ``bot_user_id`` means a non-auth.test call earlier
-        # proved the token works (e.g. a successful ``users.info``). Fall
-        # through to ``auth.test`` so we can fill in the bot user id; the
-        # success branch below refreshes the cache entry with it.
+        # ``ok=True`` without ``bot_user_id`` is rare (auth.test returned ok
+        # without a user_id field). Fall through to ``auth.test`` and refill.
 
     try:
         response = slack.client.auth_test()
     except SlackApiError as exc:
-        error_code = exc.response.get("error") if exc.response else None
-        if isinstance(error_code, str) and error_code in SLACK_AUTH_FAILURE_CODES:
+        error_code, token_broken = classify_slack_api_error(exc)
+        if token_broken and error_code is not None:
             write_auth_state_broken(integration.id, error_code)
         logger.warning(
             "slack_app_bot_user_id_lookup_failed",

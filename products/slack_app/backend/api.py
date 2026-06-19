@@ -1258,14 +1258,6 @@ def _notify_missing_slack_scopes(
     _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
-# Slack ``users.info`` error codes that mean the stored bot token can no longer talk to
-# Slack on this workspace's behalf. Surfaced as ``token_broken=True`` on the failure log
-# so support can distinguish "needs reconnect" from other API failures at a glance.
-_SLACK_AUTH_FAILURE_CODES = frozenset(
-    {"token_revoked", "invalid_auth", "not_authed", "account_inactive", "token_expired"}
-)
-
-
 def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str) -> str | None:
     """Best-effort lookup of the Slack user's email via ``users.info``, cache-first then
     a fresh hit on miss. Returns ``None`` when Slack doesn't expose an email for the
@@ -1275,20 +1267,21 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
     still be diagnosed from logs alone — historically the failure modes collapsed
     onto a downstream ``user_not_found`` warning that hid the actual cause.
 
-    As a side effect, every termination updates the shared auth-state cache
-    (``slack_auth``): a successful ``users.info`` flips it to ``ok=true`` so the
-    resolver can prefer this install in future probe picks, and an auth-class
-    ``SlackApiError`` flips it to ``ok=false`` so the resolver demotes this
-    install instead of pinning every mention to a dead token.
+    Auth-class ``SlackApiError`` outcomes flip the shared ``slack_auth`` cache to
+    ``ok=false`` so the resolver demotes this install on subsequent mentions
+    rather than pinning every one to a dead token. The success path deliberately
+    does NOT write ``ok=true``: the cache lives in the resolver's ``auth.test``
+    layer, and a DB-cache hit (``SlackUserProfileCache``) proves nothing about
+    the live token. Letting the resolver own the positive verdict keeps the
+    cache truthful.
     """
-    from products.slack_app.backend.services.slack_auth import write_auth_state_broken, write_auth_state_ok
+    from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES, write_auth_state_broken
 
     slack_client = SlackIntegration(probe_integration)
     try:
         user_info = get_slack_user_info(slack_client, probe_integration, slack_user_id)
         slack_email = user_info.get("user", {}).get("profile", {}).get("email")
         if slack_email:
-            write_auth_state_ok(probe_integration.id, bot_user_id=None)
             return slack_email
 
         fresh = normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
@@ -1300,7 +1293,6 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
             )
             return None
 
-        write_auth_state_ok(probe_integration.id, bot_user_id=None)
         persist_slack_user_info(probe_integration, slack_user_id, fresh)
         slack_email = fresh.get("user", {}).get("profile", {}).get("email")
         if not slack_email:
@@ -1314,7 +1306,7 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
         return slack_email
     except SlackApiError as exc:
         error_code = exc.response.get("error") if exc.response else None
-        token_broken = isinstance(error_code, str) and error_code in _SLACK_AUTH_FAILURE_CODES
+        token_broken = isinstance(error_code, str) and error_code in SLACK_AUTH_FAILURE_CODES
         if token_broken and isinstance(error_code, str):
             write_auth_state_broken(probe_integration.id, error_code)
         logger.warning(
