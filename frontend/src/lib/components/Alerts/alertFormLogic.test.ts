@@ -695,6 +695,13 @@ describe('alertFormLogic', () => {
                 { status: 'ok', values: [value(null, 40, false)], isBreakdown: false, hasBounds: true },
             ],
             [
+                'upper bound breached flags the value',
+                { result: steps(100, 40) },
+                FROM_START,
+                { upper: 30 },
+                { status: 'ok', values: [value(null, 40, true)], isBreakdown: false, hasBounds: true },
+            ],
+            [
                 'from_previous divides by the prior step',
                 { result: steps(100, 50, 10) },
                 { type: 'FunnelsAlertConfig', metric: 'conversion_from_previous', funnel_step: 2 },
