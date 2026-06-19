@@ -224,6 +224,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
+        requires_ai_consent: true
         list: true
         title: Sync scout configs
         description: >
