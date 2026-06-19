@@ -864,6 +864,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 self.team.pk,
                 query=hogql_query,
                 organization_id=str(self.team.organization_id),
+                team=self.team,
             )
             response_data: dict = {
                 "results": result.results,

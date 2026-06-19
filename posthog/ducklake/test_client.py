@@ -86,7 +86,7 @@ class TestExecuteDuckLakeQuery:
         query = HogQLQuery(query="SELECT count() FROM events")
         result = execute_ducklake_query(1, query=query)
 
-        mock_compile.assert_called_once_with(1, query)
+        mock_compile.assert_called_once_with(1, query, team=None)
         assert result.sql == "SELECT count(*) FROM events"
         assert result.hogql == "SELECT count() FROM events"
         assert result.results == [[42]]
