@@ -1,4 +1,5 @@
 from drf_spectacular.generators import SchemaGenerator
+from rest_framework import serializers
 
 from products.dashboards.backend.api.test.dashboard_openapi_test_helpers import (
     dashboard_patch_runtime_openapi_field_names,
@@ -49,7 +50,9 @@ class TestDashboardPatchOpenApiContract:
             "PatchedDashboardOpenApiSerializer must document the writable 'filters' field so the dashboard-update "
             "MCP tool can set dashboard-level date/property filters."
         )
-        filters_fields = frozenset(openapi_fields["filters"].fields.keys())
+        filters_field = openapi_fields["filters"]
+        assert isinstance(filters_field, serializers.Serializer)
+        filters_fields = frozenset(filters_field.fields.keys())
         assert {"date_from", "date_to", "properties"}.issubset(filters_fields), (
             f"Dashboard filters schema must expose date_from/date_to/properties. Got: {sorted(filters_fields)}."
         )
