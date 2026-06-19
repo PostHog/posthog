@@ -100,22 +100,22 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ClickHouseQueryTimeOut: (
         "query_timeout",
         "This query exceeded the execution time limit. Narrow its scope (e.g. a smaller date range) "
-        "or materialize the endpoint for dedicated compute. See https://posthog.com/docs/api/endpoints.",
+        "or materialize the endpoint for dedicated compute.",
     ),
     ClickHouseQueryMemoryLimitExceeded: (
         "query_memory_limit",
         "This query exceeded the memory limit. Narrow its scope (e.g. a smaller date range) "
-        "or materialize the endpoint. See https://posthog.com/docs/api/endpoints.",
+        "or materialize the endpoint.",
     ),
     ClickHouseQuerySizeExceeded: (
         "query_too_large",
         # No materialize hint: it re-parses the same SQL, so it can't shrink an oversized query.
-        "The query text is too large to execute. Simplify the query. See https://posthog.com/docs/api/endpoints.",
+        "The query text is too large to execute. Simplify the query.",
     ),
     ClickHouseEstimatedQueryExecutionTimeTooLong: (
         "query_estimated_too_slow",
         "This query is estimated to run too long. Reduce its scope by narrowing the time range "
-        "or materialize the endpoint. See https://posthog.com/docs/api/endpoints.",
+        "or materialize the endpoint.",
     ),
 }
 
