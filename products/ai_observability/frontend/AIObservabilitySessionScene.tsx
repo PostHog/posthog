@@ -145,7 +145,7 @@ function SessionSceneWrapper(): JSX.Element {
     }
 
     return (
-        <div className="relative flex flex-col gap-4">
+        <div className="relative flex flex-col gap-4 max-w-300">
             <SceneBreadcrumbBackButton />
             {heroTitle && <h1 className="text-2xl font-semibold leading-tight m-0 break-words">{heroTitle}</h1>}
             <header className="flex items-start justify-between gap-3 flex-wrap">
