@@ -12,6 +12,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
+    UniversalFilterValue,
 } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
@@ -443,6 +444,54 @@ describe('sessionRecordingsPlaylistLogic', () => {
                             ],
                         },
                     },
+                })
+            })
+        })
+
+        describe('matchingEventsMatchType', () => {
+            const visitedPageFilter: UniversalFilterValue = {
+                type: PropertyFilterType.Recording,
+                key: 'visited_page',
+                value: 'https://posthog.com',
+                operator: PropertyOperator.Exact,
+            }
+            const eventFilter = {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+                name: '$pageview',
+            } as unknown as UniversalFilterValue
+
+            const setFilterValues = (values: UniversalFilterValue[]): void => {
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: FilterLogicalOperator.And, values }],
+                    },
+                })
+            }
+
+            it('is none when only a visited_page filter is present', async () => {
+                await expectLogic(logic, () => setFilterValues([visitedPageFilter])).toMatchValues({
+                    matchingEventsMatchType: { matchType: 'none' },
+                })
+            })
+
+            it('routes to backend when a visited_page filter accompanies an event filter', async () => {
+                await expectLogic(logic, () => setFilterValues([visitedPageFilter, eventFilter])).toMatchValues({
+                    matchingEventsMatchType: expect.objectContaining({ matchType: 'backend' }),
+                })
+            })
+
+            it('matches by name for a simple event filter', async () => {
+                await expectLogic(logic, () => setFilterValues([eventFilter])).toMatchValues({
+                    matchingEventsMatchType: { matchType: 'name', eventNames: ['$pageview'] },
+                })
+            })
+
+            it('is none when no event, action, or event-property filter is present', async () => {
+                await expectLogic(logic, () => setFilterValues([])).toMatchValues({
+                    matchingEventsMatchType: { matchType: 'none' },
                 })
             })
         })

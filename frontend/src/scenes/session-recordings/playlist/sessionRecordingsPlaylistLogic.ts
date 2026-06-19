@@ -1239,12 +1239,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     .filter(Boolean) as string[]
                 const hasSimpleEventsFilters = !!simpleEventsFilters.length
 
-                if (hasActions || hasVisitedPageFilter) {
-                    return { matchType: 'backend', filters }
+                // The matching_events endpoint can only match on event, action, or event-property
+                // filters. A `visited_page` filter is serialized as a recording-level property (matched
+                // against the recording's URLs, not events), so on its own there is nothing to match and
+                // the backend rejects the query with a 400. Only route to the backend when there is also
+                // an event/action/event-property filter present.
+                if (!hasEvents && !hasEventsProperties && !hasActions) {
+                    return { matchType: 'none' }
                 }
 
-                if (!hasEvents && !hasEventsProperties) {
-                    return { matchType: 'none' }
+                if (hasActions || hasVisitedPageFilter) {
+                    return { matchType: 'backend', filters }
                 }
 
                 if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === eventFilters.length) {
