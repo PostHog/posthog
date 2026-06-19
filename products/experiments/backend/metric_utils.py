@@ -145,24 +145,6 @@ def _update_action_names(obj: Any, actions_by_id: dict[int, str]) -> None:
             _update_action_names(item, actions_by_id)
 
 
-def resolve_action_names(metrics: list[dict[str, Any] | None], team: Team) -> dict[int, str]:
-    """Resolve {action_id: name} for every ActionsNode across many metric queries in one query.
-
-    Lets callers serializing a page of experiments batch action-name resolution instead of
-    issuing a separate query per metric. Pass the result into ``refresh_action_names_in_metric``.
-    Returns an empty map (no query) when no actions are referenced.
-    """
-    action_ids: set[int] = set()
-    for metric in metrics:
-        if metric:
-            _collect_action_ids(metric, action_ids)
-
-    if not action_ids:
-        return {}
-
-    return {action.id: action.name for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)}
-
-
 def _collect_event_names_and_action_ids(obj: Any, event_names: set[str], action_ids: set[int]) -> None:
     """Recursively collect EventsNode event names and ActionsNode IDs from a metric query."""
     if isinstance(obj, dict):

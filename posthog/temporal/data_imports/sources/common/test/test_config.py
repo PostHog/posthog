@@ -462,6 +462,30 @@ def test_to_config_scalar_under_nested_config_key(
     assert cfg.account_id == expected_account_id
 
 
+@pytest.mark.parametrize("bad_input", ["not a mapping", '{"key_file": {}}', b"bytes", 5, ["a", "b"], None])
+def test_from_dict_with_non_mapping_raises_clear_error(bad_input):
+    """A non-mapping input must raise an actionable error, not the opaque builtin `TypeError`.
+
+    Stored config can come back as a non-mapping (e.g. a double-encoded string from an
+    `EncryptedJSONField`). Indexing into it deep inside `to_config` raised
+    `TypeError: string indices must be integers`, which is impossible to triage from the
+    source alone. `from_dict` must reject it up front with the config class name in the message.
+    """
+
+    @config.config
+    class KeyFileConfig:
+        project_id: str
+        private_key: str
+
+    @config.config
+    class SourceConfig(config.Config):
+        key_file: KeyFileConfig
+        dataset_id: str
+
+    with pytest.raises(TypeError, match="Cannot build 'SourceConfig'"):
+        SourceConfig.from_dict(bad_input)
+
+
 def test_validate_dict():
     @config.config
     class TestConfig(config.Config):
