@@ -1,5 +1,4 @@
 import typing
-import dataclasses
 
 import pytest
 
@@ -487,6 +486,25 @@ def test_from_dict_with_non_mapping_raises_clear_error(bad_input):
         SourceConfig.from_dict(bad_input)
 
 
+@config.config
+class _SecretFieldConfig(config.Config):
+    password: str | None = None
+    passphrase: str | None = None
+    secret_key: str | None = None
+    client_secret: str | None = None
+    api_key: str | None = None
+    access_token: str | None = None
+    refresh_token: str | None = None
+    private_key: str | None = None
+    client_certificate: str | None = None
+    client_private_key: str | None = None
+    server_client_root_ca: str | None = None
+    connection_string: str | None = None
+    manifest_json: str | None = None
+    authorization_header: str | None = None
+    signing_secret: str | None = None
+
+
 @pytest.mark.parametrize(
     "field_name",
     [
@@ -508,8 +526,8 @@ def test_from_dict_with_non_mapping_raises_clear_error(bad_input):
     ],
 )
 def test_repr_redacts_secret_fields(field_name):
-    cls = config.config(dataclasses.make_dataclass("Secretful", [(field_name, str)], bases=(config.Config,)))
-    cfg = cls(**{field_name: "super-secret-value"})
+    cfg = _SecretFieldConfig()
+    setattr(cfg, field_name, "super-secret-value")
 
     rendered = repr(cfg)
     assert "super-secret-value" not in rendered
