@@ -155,50 +155,6 @@ def resolve_from_candidates(
     return ResolutionResult(integration=None, source="needs_picker", candidates=accessible)
 
 
-def _filter_by_auth_state(candidates: list[Integration]) -> list[Integration]:
-    """Skip candidates whose cached auth verdict says the bot token is dead.
-
-    The order returned here drives ``candidates[0]`` (the probe pick) downstream.
-    We push known-broken installs to the end rather than dropping them outright
-    so a stale negative cache can never starve a workspace of every candidate —
-    the resolver will still try them last, the call will succeed, and the
-    success-path write will flip the cache back to ``ok=true``.
-
-    Within the kept set, we prefer cached-healthy installs (freshest verdict
-    first) over unknown ones — that surfaces a freshly-reconnected install
-    ahead of an older install whose health we haven't validated since deploy.
-    """
-    if not candidates:
-        return candidates
-
-    from datetime import datetime
-
-    from products.slack_app.backend.services.slack_auth import get_cached_auth_state
-
-    healthy: list[tuple[Integration, datetime]] = []
-    unknown: list[Integration] = []
-    broken: list[Integration] = []
-    for candidate in candidates:
-        state = get_cached_auth_state(candidate.id)
-        if state is None:
-            unknown.append(candidate)
-        elif state.ok:
-            healthy.append((candidate, state.checked_at))
-        else:
-            broken.append(candidate)
-
-    healthy.sort(key=lambda pair: pair[1], reverse=True)  # freshest verdict first
-    reordered = [c for c, _ in healthy] + unknown + broken
-    if broken:
-        logger.info(
-            "slack_app_load_integrations_filtered",
-            broken_integration_ids=[c.id for c in broken],
-            healthy_integration_ids=[c.id for c, _ in healthy],
-            unknown_integration_ids=[c.id for c in unknown],
-        )
-    return reordered
-
-
 def load_integrations(
     *,
     slack_team_id: str,
@@ -212,12 +168,14 @@ def load_integrations(
     the routing resolver against them. Thin wrapper around
     ``resolve_from_candidates`` that owns the candidate query.
     """
+    from products.slack_app.backend.services.slack_auth import check_integrations_auth_and_filter
+
     candidates = list(
         Integration.objects.filter(kind__in=kinds, integration_id=slack_team_id)
         .select_related("team", "team__organization", "created_by")
         .order_by("id")
     )
-    candidates = _filter_by_auth_state(candidates)
+    candidates = check_integrations_auth_and_filter(candidates, slack_user_id=slack_user_id or None)
     return resolve_from_candidates(
         candidates,
         slack_team_id=slack_team_id,

@@ -418,17 +418,19 @@ class TestResolveIntegration:
 
 
 class TestLoadIntegrationsAuthStateFilter:
-    """Covers the cached-auth-state pre-filter in ``load_integrations``.
+    """Covers the eager auth-check + cache-driven ordering in ``load_integrations``.
 
-    The scenario mirrors Zendesk #60619: an org has three Slack rows for the
+    Scenario mirrors a real customer case: an org has three Slack rows for the
     same workspace, one of them has a revoked bot token, the resolver used to
-    pick that one as ``candidates[0]`` and silently broke every mention. With
-    the cache populated, the broken install is demoted so a healthy probe is
-    picked first.
+    pick that one as ``candidates[0]`` and silently broke every mention. The
+    consolidated ``check_integrations_auth_and_filter`` ranks the healthy ones
+    first so the dead probe never makes it to index 0.
     """
 
     @pytest.fixture(autouse=True)
     def setup(self, db):
+        from unittest.mock import MagicMock, patch
+
         from django.core.cache import cache
 
         cache.clear()
@@ -441,7 +443,18 @@ class TestLoadIntegrationsAuthStateFilter:
         self.integration_old = self._mk_integration(self.team_old)
         self.integration_mid = self._mk_integration(self.team_mid)
         self.integration_new = self._mk_integration(self.team_new)
+        # Mock ``auth.test`` to a healthy response by default; individual tests
+        # override ``side_effect`` / ``return_value`` to simulate the failure
+        # they care about. Without the mock, ``load_integrations`` would try
+        # to hit the real Slack API every time the cache is cold.
+        webclient_patch = patch("posthog.models.integration.WebClient")
+        mock_webclient_class = webclient_patch.start()
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.auth_test.return_value = {"user_id": "U_BOT"}
+        self.mock_auth_test = mock_client.auth_test
         yield
+        webclient_patch.stop()
         cache.clear()
 
     def _mk_integration(self, team: Team) -> Integration:
@@ -455,54 +468,100 @@ class TestLoadIntegrationsAuthStateFilter:
     def _candidate_ids(self, result_candidates: list[Integration]) -> list[int]:
         return [c.id for c in result_candidates]
 
-    def test_cold_cache_preserves_pk_ascending(self):
-        # Empty cache → fall back to today's behavior so we don't regress
-        # mentions during the first deploy hours or after a Redis flush.
-        result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
-        assert self._candidate_ids(result.candidates) == [
-            self.integration_old.id,
-            self.integration_mid.id,
-            self.integration_new.id,
-        ]
-
-    def test_broken_candidate_demoted_to_end(self):
-        # Old install's token is dead — should land last, but stay in the
-        # list so a stale negative verdict can't strand the workspace.
-        from products.slack_app.backend.services.slack_auth import write_auth_state_broken
-
-        write_auth_state_broken(self.integration_old.id, error_code="invalid_auth")
+    def test_cold_cache_runs_auth_test_per_candidate_and_caches_verdict(self):
+        from products.slack_app.backend.services.slack_auth import get_cached_auth_state
 
         result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
 
-        assert self._candidate_ids(result.candidates) == [
+        # auth.test fired once per candidate — eager populate is the point of
+        # the new design.
+        assert self.mock_auth_test.call_count == 3
+        # All three are returned (just possibly in different timestamp order).
+        assert {c.id for c in result.candidates} == {
+            self.integration_old.id,
             self.integration_mid.id,
             self.integration_new.id,
-            self.integration_old.id,
-        ]
+        }
+        # Cache now carries a healthy verdict for each, including the bot user id.
+        for integration in (self.integration_old, self.integration_mid, self.integration_new):
+            state = get_cached_auth_state(integration.id)
+            assert state is not None
+            assert state.ok is True
+            assert state.bot_user_id == "U_BOT"
 
-    def test_healthy_freshest_wins_over_unknown(self):
-        # ``new`` was confirmed healthy most recently — surface it ahead of
-        # the older PKs whose verdict we haven't seen yet. Matches the
-        # "Hubert just reconnected Production" scenario.
+    def test_warm_cache_skips_auth_test(self):
         from products.slack_app.backend.services.slack_auth import write_auth_state_ok
 
-        write_auth_state_ok(self.integration_new.id, bot_user_id="U_NEW")
+        write_auth_state_ok(self.integration_old.id, bot_user_id="U_BOT")
+        write_auth_state_ok(self.integration_mid.id, bot_user_id="U_BOT")
+        write_auth_state_ok(self.integration_new.id, bot_user_id="U_BOT")
+
+        load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
+
+        assert self.mock_auth_test.call_count == 0
+
+    def test_invalid_auth_demotes_install_to_end(self):
+        from slack_sdk.errors import SlackApiError
+
+        # ``old`` install fails auth.test with invalid_auth — exactly the
+        # production case for the original ticket. ``mid`` and ``new`` succeed
+        # so the resolver should rank them ahead.
+        healthy_response = {"user_id": "U_BOT"}
+        self.mock_auth_test.side_effect = [
+            SlackApiError("invalid_auth", response={"ok": False, "error": "invalid_auth"}),
+            healthy_response,
+            healthy_response,
+        ]
+
+        result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
+
+        # ``mid`` and ``new`` both auth.tested successfully; ``new`` was the
+        # second call so its ``checked_at`` is fractionally later. The sort by
+        # ``checked_at`` DESC puts ``new`` first. ``old`` is broken and demoted.
+        ids = self._candidate_ids(result.candidates)
+        assert ids[-1] == self.integration_old.id
+        assert set(ids[:2]) == {self.integration_mid.id, self.integration_new.id}
+
+    def test_freshest_healthy_wins_over_warm_older_entry(self):
+        # ``new`` was confirmed healthy most recently; ``old`` and ``mid``
+        # were checked an hour ago. Matches the "customer just reconnected
+        # one of three installs" scenario.
+        from datetime import timedelta
+
+        from django.core.cache import cache as django_cache
+        from django.utils import timezone
+
+        from products.slack_app.backend.services.slack_auth import SLACK_AUTH_STATE_CACHE_TTL_SECONDS, _cache_key
+
+        an_hour_ago = timezone.now() - timedelta(hours=1)
+        for integration in (self.integration_old, self.integration_mid):
+            django_cache.set(
+                _cache_key(integration.id),
+                {
+                    "ok": True,
+                    "bot_user_id": "U_BOT",
+                    "error_code": None,
+                    "checked_at": an_hour_ago,
+                },
+                timeout=SLACK_AUTH_STATE_CACHE_TTL_SECONDS,
+            )
+        django_cache.set(
+            _cache_key(self.integration_new.id),
+            {
+                "ok": True,
+                "bot_user_id": "U_BOT",
+                "error_code": None,
+                "checked_at": timezone.now(),
+            },
+            timeout=SLACK_AUTH_STATE_CACHE_TTL_SECONDS,
+        )
 
         result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
 
         assert result.candidates[0].id == self.integration_new.id
-        # ``old`` / ``mid`` are unknown; keep PK ascending behind the healthy
-        # one so today's tie-breaker stays predictable.
-        assert self._candidate_ids(result.candidates)[1:] == [
-            self.integration_old.id,
-            self.integration_mid.id,
-        ]
+        assert self.mock_auth_test.call_count == 0  # all cached, no API calls
 
     def test_all_broken_returns_full_list_so_workspace_self_heals(self):
-        # If every cache entry is ``ok=false`` (e.g. a transient outage was
-        # misclassified as auth-class earlier) we must NOT strand the
-        # workspace. Return them all; a real call that now succeeds will
-        # flip the cache back to healthy via the success-path write hook.
         from products.slack_app.backend.services.slack_auth import write_auth_state_broken
 
         write_auth_state_broken(self.integration_old.id, error_code="invalid_auth")
@@ -511,8 +570,30 @@ class TestLoadIntegrationsAuthStateFilter:
 
         result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
 
+        # All three returned despite cache saying every one is broken — refusing
+        # to strand the workspace; the success-path write hook will flip the
+        # cache back if the call now succeeds.
         assert {c.id for c in result.candidates} == {
             self.integration_old.id,
             self.integration_mid.id,
             self.integration_new.id,
         }
+
+    def test_transient_auth_test_error_keeps_candidate_in_unknown_bucket(self):
+        # Network blip / Slack 5xx must not brick the workspace by writing a
+        # negative verdict. The unknown candidate stays in the list, neither
+        # demoted nor promoted.
+        from products.slack_app.backend.services.slack_auth import get_cached_auth_state
+
+        self.mock_auth_test.side_effect = RuntimeError("boom")
+
+        result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
+
+        assert {c.id for c in result.candidates} == {
+            self.integration_old.id,
+            self.integration_mid.id,
+            self.integration_new.id,
+        }
+        # Cache untouched — the next mention will retry instead of inheriting
+        # a 6-hour-old negative verdict.
+        assert get_cached_auth_state(self.integration_old.id) is None

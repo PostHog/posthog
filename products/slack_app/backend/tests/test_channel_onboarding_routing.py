@@ -46,6 +46,17 @@ class TestMemberJoinedChannelRouting(TestCase):
             config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-test"},
         )
+        # ``load_integrations`` now eagerly calls ``auth.test`` on cache miss.
+        # These tests patch ``products.slack_app.backend.api.SlackIntegration``
+        # but the resolver imports SlackIntegration from
+        # ``posthog.models.integration`` directly, so the patch doesn't catch
+        # the resolver's call. Pre-populate the cache with ``ok=true`` so the
+        # resolver short-circuits; ``bot_user_id=None`` keeps
+        # ``get_cached_bot_user_id`` falling through to the (mocked)
+        # ``auth.test`` call the onboarding flow expects.
+        from products.slack_app.backend.services.slack_auth import write_auth_state_ok
+
+        write_auth_state_ok(self.integration.id, bot_user_id=None)
 
     def _request(self):
         return self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")

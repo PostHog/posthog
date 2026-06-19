@@ -30,6 +30,7 @@ from posthog.models.integration import Integration, SlackIntegration
 
 from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_auth import (
+    SLACK_AUTH_FAILURE_CODES,
     get_cached_auth_state,
     write_auth_state_broken,
     write_auth_state_ok,
@@ -38,12 +39,6 @@ from products.slack_app.backend.services.slack_auth import (
 logger = structlog.get_logger(__name__)
 
 SLACK_USER_PROFILE_TTL = timedelta(hours=1)
-
-# Auth-class Slack error codes (see ``api._SLACK_AUTH_FAILURE_CODES``). Kept
-# in sync here to avoid an import cycle with ``api.py``.
-_SLACK_AUTH_FAILURE_CODES = frozenset(
-    {"token_revoked", "invalid_auth", "not_authed", "account_inactive", "token_expired"}
-)
 
 
 def _format_slack_user_info_payload(
@@ -248,7 +243,7 @@ def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) ->
         response = slack.client.auth_test()
     except SlackApiError as exc:
         error_code = exc.response.get("error") if exc.response else None
-        if isinstance(error_code, str) and error_code in _SLACK_AUTH_FAILURE_CODES:
+        if isinstance(error_code, str) and error_code in SLACK_AUTH_FAILURE_CODES:
             write_auth_state_broken(integration.id, error_code)
         logger.warning(
             "slack_app_bot_user_id_lookup_failed",
