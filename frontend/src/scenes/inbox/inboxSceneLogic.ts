@@ -268,10 +268,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
         },
         [urls.inbox(':tab')]: ({ tab }: { tab?: string }) => {
-            // A bare report deep-link `/inbox/<reportId>` (a single non-tab, non-scout segment) carries
-            // no tab context, and a report's kind isn't known until it loads. Canonicalize it to the
-            // reports tab — `/inbox/reports/<reportId>` renders both plain reports and PR reports — and
-            // let that route's handler open it.
+            // A bare report deep-link `/inbox/<reportId>`  redirected to report form
             if (tab && !isInboxTabKey(tab) && tab !== 'scouts') {
                 router.actions.replace(
                     urls.inboxReport('reports', tab),
