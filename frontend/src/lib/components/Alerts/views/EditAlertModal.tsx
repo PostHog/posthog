@@ -13,12 +13,14 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate } from 'lib/utils/datetime'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
+import { containsHogQLQuery } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
@@ -33,6 +35,7 @@ import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
 import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
+import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
 
@@ -75,12 +78,17 @@ export function EditAlertModal({
         interval: trendInterval,
     } = useValues(trendsLogic)
 
+    const { query } = useValues(insightVizDataLogic(insightLogicProps ?? { dashboardItemId: insightShortId }))
+
+    const insightAlertKind: 'hogql' | 'trends' = containsHogQLQuery(query) ? 'hogql' : 'trends'
+
     const formLogicProps = {
         alert,
         insightId,
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
+        insightAlertKind,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -91,6 +99,10 @@ export function EditAlertModal({
         simulationResultLoading,
         simulationDateFrom,
         thresholdBoundsFormError,
+        hogqlAlertPreview,
+        hogqlResultColumns,
+        hogqlValueColumnOptions,
+        hogqlLabelColumnOptions,
     } = useValues(formLogic)
     const {
         deleteAlert,
@@ -136,12 +148,27 @@ export function EditAlertModal({
     const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
     const nextPlannedEvaluationStale = useMemo(
         () =>
-            isNextPlannedEvaluationStale(creatingNewAlert, alert, {
-                calculation_interval: alertForm.calculation_interval,
-                schedule_restriction: alertForm.schedule_restriction,
-                skip_weekend: alertForm.skip_weekend,
-                config: alertForm.config,
-            }),
+            isNextPlannedEvaluationStale(
+                creatingNewAlert,
+                alert
+                    ? {
+                          calculation_interval: alert.calculation_interval,
+                          schedule_restriction: alert.schedule_restriction,
+                          skip_weekend: alert.skip_weekend,
+                          config: supportsOngoingInterval(alert.config)
+                              ? { check_ongoing_interval: alert.config.check_ongoing_interval }
+                              : null,
+                      }
+                    : null,
+                {
+                    calculation_interval: alertForm.calculation_interval,
+                    schedule_restriction: alertForm.schedule_restriction,
+                    skip_weekend: alertForm.skip_weekend,
+                    config: supportsOngoingInterval(alertForm.config)
+                        ? { check_ongoing_interval: alertForm.config.check_ongoing_interval }
+                        : null,
+                }
+            ),
         [
             alert,
             alertForm.calculation_interval,
@@ -154,7 +181,11 @@ export function EditAlertModal({
 
     const enabledAdvancedOptionsCount = useMemo(() => {
         let n = 0
-        if (can_check_ongoing_interval && alertForm.config.check_ongoing_interval) {
+        if (
+            can_check_ongoing_interval &&
+            supportsOngoingInterval(alertForm.config) &&
+            alertForm.config.check_ongoing_interval
+        ) {
             n += 1
         }
         if (
@@ -170,7 +201,7 @@ export function EditAlertModal({
         return n
     }, [
         alertForm.calculation_interval,
-        alertForm.config.check_ongoing_interval,
+        alertForm.config,
         alertForm.schedule_restriction?.blocked_windows?.length,
         alertForm.skip_weekend,
         can_check_ongoing_interval,
@@ -232,7 +263,13 @@ export function EditAlertModal({
                                         isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                                         alertSeries={alertSeries}
                                         formulaNodes={formulaNodes}
-                                        anomalyDetectionEnabled={anomalyDetectionEnabled}
+                                        hogqlPreview={hogqlAlertPreview}
+                                        hogqlColumns={hogqlResultColumns}
+                                        hogqlValueColumnOptions={hogqlValueColumnOptions}
+                                        hogqlLabelColumnOptions={hogqlLabelColumnOptions}
+                                        anomalyDetectionEnabled={
+                                            anomalyDetectionEnabled && supportsAnomalyDetection(alertForm.config)
+                                        }
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
                                         simulationResultLoading={simulationResultLoading}

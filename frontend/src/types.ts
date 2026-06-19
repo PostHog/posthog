@@ -2558,7 +2558,7 @@ export interface DashboardTemplateListParams {
     is_featured?: boolean
 }
 
-export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag' | 'organization'
 
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
@@ -2623,6 +2623,13 @@ export type DashboardTemplateStoredTile =
     | DashboardTemplateStoredButtonTile
     | DashboardTemplateStoredWidgetTile
 
+/** Project-specific references embedded in a template's tiles that may not resolve in another project. */
+export interface NonPortableReferences {
+    actions: number
+    cohorts: number
+    warehouse_tables: string[]
+}
+
 export interface DashboardTemplateType {
     id: string
     team_id?: number
@@ -2641,6 +2648,8 @@ export interface DashboardTemplateType {
     is_featured?: boolean
     /** Soft delete; API allows PATCH for staff undo (restore). */
     deleted?: boolean
+    /** Read-only. Project-specific references in tiles (actions, cohorts, warehouse tables) that may not resolve in another project. */
+    non_portable_references?: NonPortableReferences
 }
 
 export interface MonacoMarker {
@@ -5292,6 +5301,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'postgresql',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -6302,11 +6312,12 @@ export type BatchExportServiceS3Compatible = {
 
 export type BatchExportServicePostgres = {
     type: 'Postgres'
+    integration?: number
     config: {
-        user: string
-        password: string
-        host: string
-        port: number
+        user?: string
+        password?: string
+        host?: string
+        port?: number
         database: string
         schema: string
         table_name: string
