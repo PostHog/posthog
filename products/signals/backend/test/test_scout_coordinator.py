@@ -20,6 +20,7 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     DEFAULT_ENROLLED_TEAM_IDS,
@@ -251,6 +252,26 @@ async def test_non_scout_skills_are_ignored(ateam):
     assert await _run_activity() == []
     count = await database_sync_to_async(SignalScoutConfig.all_teams.filter(team=ateam).count)()
     assert count == 0
+
+
+@pytest.mark.django_db
+def test_register_missing_configs_stamps_scout_category():
+    # The "author a skill, get it on the Scouts tab" path: auto-registration stamps the server-owned
+    # `category` so a custom scout authored via the skills API surfaces in the skills UI.
+    org = Organization.objects.create(name="cat-stamp-org", is_ai_data_processing_approved=True)
+    team = Team.objects.create(organization=org, name="cat-stamp-team")
+    with team_scope(team.id, canonical=True):
+        scout = _create_skill(team, "signals-scout-custom")
+        helper = _create_skill(team, "custom-helper")
+        assert scout.category == ""
+
+        register_missing_configs(team.id)
+
+        scout.refresh_from_db()
+        helper.refresh_from_db()
+        assert scout.category == "scout"
+        # Non-scout skills are left untouched.
+        assert helper.category == ""
 
 
 @pytest.mark.asyncio
