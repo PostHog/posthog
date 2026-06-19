@@ -67,7 +67,6 @@ export function Settings({
         selectedSectionId,
         selectedLevel,
         selectedSettingId,
-        selectedSetting,
         settings,
         isCompactNavigationOpen,
         searchTerm,
