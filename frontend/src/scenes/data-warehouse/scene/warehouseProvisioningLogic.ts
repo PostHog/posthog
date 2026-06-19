@@ -5,6 +5,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { Region } from '~/types'
+
 import {
     dataWarehouseCheckDatabaseNameRetrieve,
     dataWarehouseDeprovisionCreate,
@@ -13,8 +15,6 @@ import {
     dataWarehouseWarehouseStatusRetrieve,
 } from 'products/data_warehouse/frontend/generated/api'
 import type { WarehouseStatusResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
-
-import { Region } from '~/types'
 
 import type { warehouseProvisioningLogicType } from './warehouseProvisioningLogicType'
 
