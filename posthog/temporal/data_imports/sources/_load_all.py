@@ -451,6 +451,7 @@ from .qualtrics.source import QualtricsSource
 from .quickbooks.source import QuickBooksSource
 from .railz.source import RailzSource
 from .ramp.source import RampSource
+from .razorpay.source import RazorpaySource
 from .rd_station_marketing.source import RDStationMarketingSource
 from .recharge.source import RechargeSource
 from .recreation.source import RecreationSource

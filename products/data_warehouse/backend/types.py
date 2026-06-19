@@ -669,6 +669,7 @@ class ExternalDataSourceType(models.TextChoices):
     AHREFS = "Ahrefs", "Ahrefs"
     LIGHTFIELD = "Lightfield", "Lightfield"
     APPSTACK = "Appstack", "Appstack"
+    RAZORPAY = "Razorpay", "Razorpay"
     CUSTOM = "Custom", "Custom"
 
 

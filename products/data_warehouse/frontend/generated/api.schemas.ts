@@ -1394,6 +1394,7 @@ export interface CredentialApi {
  * * `Ahrefs` - Ahrefs
  * * `Lightfield` - Lightfield
  * * `Appstack` - Appstack
+ * * `Razorpay` - Razorpay
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -2027,6 +2028,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Ahrefs: 'Ahrefs',
     Lightfield: 'Lightfield',
     Appstack: 'Appstack',
+    Razorpay: 'Razorpay',
     Custom: 'Custom',
 } as const
 
