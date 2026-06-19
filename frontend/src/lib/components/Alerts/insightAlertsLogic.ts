@@ -47,6 +47,18 @@ export const areAlertsSupportedForInsight = (
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
 }
 
+// List only the insight types this account can actually alert on — naming a flag-gated type the
+// user doesn't have would disclose an unreleased feature. Shared by the alerts button and the
+// manage-alerts modal so their "not supported" copy stays in sync as kinds/flags change.
+const alertableInsightTypesLabel = (options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean }): string =>
+    ['trends', options.hogqlAlertsEnabled && 'SQL', options.funnelAlertsEnabled && 'funnel'].filter(Boolean).join(', ')
+
+export const alertsUnsupportedReason = (options: {
+    hogqlAlertsEnabled?: boolean
+    funnelAlertsEnabled?: boolean
+}): string =>
+    `Alerts are only available for ${alertableInsightTypesLabel(options)} insights. Change the insight representation to add alerts.`
+
 /** Map absolute-threshold alerts to chart goal lines (shared by trends and SQL charts). */
 export function alertsToThresholdGoalLines(alerts: AlertType[]): GoalLine[] {
     return alerts.flatMap((alert) => {
