@@ -60,10 +60,12 @@ function getDisplayedColumnTitle(
     return label || title || columnName
 }
 
-// Compares two cells from the same column so the table can be sorted by clicking a
-// header, the way trends tables and the SQL editor results tab already can. Numbers
-// sort numerically, everything else falls back to a numeric-aware string compare, and
-// empty cells sort to the bottom of an ascending sort.
+function isDateColumn(type: ColumnScalar | undefined): boolean {
+    return type === 'DATE' || type === 'DATETIME'
+}
+
+// Numbers sort numerically, dates chronologically by epoch, everything else by a
+// numeric-aware string compare, and empty cells sort to the bottom of an ascending sort.
 export function compareTableCells(a: TableDataCell<any> | undefined, b: TableDataCell<any> | undefined): number {
     const aValue = a?.value
     const bValue = b?.value
@@ -79,9 +81,9 @@ export function compareTableCells(a: TableDataCell<any> | undefined, b: TableDat
     if (typeof aValue === 'number' && typeof bValue === 'number') {
         return aValue - bValue
     }
-    // Date/datetime columns compare on parsed epoch ms, so values with different formats or
-    // timezones sort chronologically rather than lexicographically.
-    if (isDateColumn(a?.type) && isDateColumn(b?.type)) {
+    // Parse dates to epoch ms so values with different formats or timezones sort
+    // chronologically rather than lexicographically.
+    if (isDateColumn(a.type) && isDateColumn(b.type)) {
         const aTime = dayjs(aValue as string | number | Date).valueOf()
         const bTime = dayjs(bValue as string | number | Date).valueOf()
         if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
@@ -90,8 +92,6 @@ export function compareTableCells(a: TableDataCell<any> | undefined, b: TableDat
     }
     return String(aValue).localeCompare(String(bValue), undefined, { numeric: true })
 }
-
-const isDateColumn = (type: ColumnScalar | undefined): boolean => type === 'DATE' || type === 'DATETIME'
 
 // Plain-text representation of a cell, used as the hover title so clipped content is
 // still visible on hover. The full value stays in the DOM (CSS ellipsis only), so
