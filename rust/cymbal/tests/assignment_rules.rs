@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use cymbal::{
-    assignment_rules::{AssignmentRule, NewAssignment},
+    modes::processing::rules::assignment::{AssignmentRule, NewAssignment},
     config::Config,
     fingerprinting::Fingerprint,
     issue_resolution::{process_assignment, Issue, IssueStatus},

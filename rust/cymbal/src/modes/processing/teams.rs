@@ -5,9 +5,9 @@ use moka::sync::{Cache, CacheBuilder};
 use tracing::warn;
 
 use crate::{
-    assignment_rules::AssignmentRule, config::Config, error::UnhandledError,
-    fingerprinting::grouping_rules::GroupingRule, metric_consts::ANCILLARY_CACHE,
-    spike_config::SpikeDetectionConfig, suppression_rules::SuppressionRule,
+    modes::processing::rules::assignment::AssignmentRule, config::Config, error::UnhandledError,
+    modes::processing::rules::grouping::GroupingRule, metric_consts::ANCILLARY_CACHE,
+    modes::processing::rules::spike::SpikeDetectionConfig, modes::processing::rules::suppression::SuppressionRule,
 };
 
 #[derive(Clone)]

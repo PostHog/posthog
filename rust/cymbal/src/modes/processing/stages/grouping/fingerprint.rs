@@ -2,8 +2,9 @@ use sha2::{Digest, Sha512};
 
 use crate::{
     error::UnhandledError,
-    fingerprinting::{grouping_rules::evaluate_grouping_rules, Fingerprint, FingerprintRecordPart},
+    fingerprinting::{Fingerprint, FingerprintRecordPart},
     metric_consts::FINGERPRINT_GENERATOR_OPERATOR,
+    modes::processing::rules::grouping::evaluate_grouping_rules,
     stages::{grouping::GroupingStage, pipeline::HandledError},
     types::{
         exception_properties::ExceptionProperties,

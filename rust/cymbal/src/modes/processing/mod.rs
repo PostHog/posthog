@@ -11,16 +11,14 @@ use crate::config::Config;
 use crate::server::start_server;
 
 pub mod app_context;
-pub mod assignment_rules;
 pub mod fingerprinting;
 pub mod issue_resolution;
-pub mod posthog_utils;
+pub mod analytics;
+pub mod rules;
 pub mod router;
 pub mod server;
 pub mod signals;
-pub mod spike_config;
 pub mod stages;
-pub mod suppression_rules;
 pub mod teams;
 pub mod tokenizer;
 

@@ -16,7 +16,7 @@ use crate::metric_consts::{
     SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
     SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
 };
-use crate::spike_config::SpikeDetectionConfig;
+use crate::modes::processing::rules::spike::SpikeDetectionConfig;
 use crate::types::OutputErrProps;
 
 const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;

@@ -9,7 +9,7 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::{
-    assignment_rules::NewAssignment,
+    modes::processing::rules::assignment::NewAssignment,
     error::UnhandledError,
     metric_consts::{
         CUSTOM_GROUPED_EVENTS, GROUPING_RULES_DISABLED, GROUPING_RULES_FOUND,

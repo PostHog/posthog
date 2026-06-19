@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
+use crate::modes::processing::rules::assignment::{try_assignment_rules, Assignee, Assignment};
 use crate::teams::TeamManager;
 use crate::types::{FingerprintedErrProps, OutputErrProps};
 use crate::{
     app_context::AppContext, error::UnhandledError, metric_consts::ISSUE_REOPENED,
-    posthog_utils::capture_issue_reopened,
+    analytics::capture_issue_reopened,
 };
 
 #[derive(Debug, Clone)]
@@ -534,7 +534,7 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
-    use crate::{assignment_rules::Assignee, sanitize_string};
+    use crate::{modes::processing::rules::assignment::Assignee, sanitize_string};
 
     #[test]
     fn it_replaces_null_characters() {

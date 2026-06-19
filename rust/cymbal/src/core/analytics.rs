@@ -1,5 +1,5 @@
 //! PostHog analytics capture for the shared symbolication kernel (symbol-set
-//! lifecycle). Issue-lifecycle captures live in `crate::posthog_utils`.
+//! lifecycle). Issue-lifecycle captures live in `crate::modes::processing::analytics`.
 
 use posthog_rs::Event;
 use tracing::error;

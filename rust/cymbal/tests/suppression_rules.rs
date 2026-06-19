@@ -1,4 +1,4 @@
-use cymbal::{config::Config, suppression_rules::SuppressionRule, teams::TeamManager};
+use cymbal::{config::Config, modes::processing::rules::suppression::SuppressionRule, teams::TeamManager};
 use serde_json::{json, Value as JsonValue};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;

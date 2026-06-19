@@ -2,17 +2,16 @@ use std::sync::Arc;
 
 use crate::{
     app_context::AppContext,
-    assignment_rules::NewAssignment,
+    modes::processing::rules::assignment::NewAssignment,
     error::UnhandledError,
     types::{ExceptionList, RawErrProps},
 };
 use common_types::TeamId;
-use grouping_rules::{try_grouping_rules, GroupingRule};
+use crate::modes::processing::rules::grouping::{try_grouping_rules, GroupingRule};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use uuid::Uuid;
 
-pub mod grouping_rules;
 
 pub async fn resolve_fingerprint(
     ctx: &Arc<AppContext>,
