@@ -188,6 +188,8 @@ class DreamingCoordinatorWorkflow:
                 started += 1
             else:
                 skipped += 1
+            # Both started and skipped runs are stamped: a skip means the deterministic
+            # per-tick child id already exists, so the child for this team is already running.
             dispatched.append(run)
 
         await workflow.execute_activity(

@@ -2792,8 +2792,10 @@ class GitHubIntegration(GitHubIntegrationBase):
                         }
                     )
             # `updated` desc isn't strictly `merged_at` desc, but once a full page's updates
-            # all predate the window the remaining pages can't contain newer merges.
-            if all((pr.get("updated_at") or "") < since_iso for pr in page_prs):
+            # all predate the window the remaining pages can't contain newer merges. A PR with
+            # a missing `updated_at` is treated as in-window so it never triggers an early stop.
+            page_updates = [pr.get("updated_at") for pr in page_prs]
+            if all(updated_at and updated_at < since_iso for updated_at in page_updates):
                 break
         merged.sort(key=lambda pr: pr["merged_at"], reverse=True)
         return {"success": True, "pull_requests": merged}
