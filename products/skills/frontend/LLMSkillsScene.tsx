@@ -34,7 +34,6 @@ import {
     DEFAULT_SKILLS_TAB_KEY,
     SKILLS_GROUP_LIMIT,
     SKILLS_PER_PAGE,
-    SKILL_CATEGORY_TABS,
     SkillGroupNode,
     SkillGroupTree,
     llmSkillsLogic,
@@ -441,6 +440,7 @@ export function LLMSkillsScene(): JSX.Element {
         activeTabKey,
         activeCategory,
         activeTabDescription,
+        visibleCategoryTabs,
     } = useValues(llmSkillsLogic)
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
@@ -526,14 +526,16 @@ export function LLMSkillsScene(): JSX.Element {
                 }
             />
 
-            <LemonTabs
-                activeKey={activeTabKey}
-                onChange={(key) => router.actions.push(skillTabUrl(key))}
-                tabs={[
-                    { key: DEFAULT_SKILLS_TAB_KEY, label: 'Skills' },
-                    ...SKILL_CATEGORY_TABS.map((tab) => ({ key: tab.key, label: tab.label })),
-                ]}
-            />
+            {visibleCategoryTabs.length > 0 && (
+                <LemonTabs
+                    activeKey={activeTabKey}
+                    onChange={(key) => router.actions.push(skillTabUrl(key))}
+                    tabs={[
+                        { key: DEFAULT_SKILLS_TAB_KEY, label: 'Skills' },
+                        ...visibleCategoryTabs.map((tab) => ({ key: tab.key, label: tab.label })),
+                    ]}
+                />
+            )}
 
             <div className="space-y-4">
                 <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">

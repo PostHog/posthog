@@ -238,6 +238,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             debounce,
         }),
         loadSkills: (debounce: boolean = true) => ({ debounce }),
+        loadCategoryCounts: true,
         setActiveTab: (tabKey: string) => ({ tabKey }),
         deleteSkill: (skillName: string) => ({ skillName }),
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
@@ -351,6 +352,27 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 },
             },
         ],
+        // Per-category skill counts, used to decide which category tabs to show. Loaded once on
+        // mount (and after a delete) with a cheap limit=1 probe per category — we only read `count`.
+        categoryCounts: [
+            {} as Record<string, number>,
+            {
+                loadCategoryCounts: async () => {
+                    const teamId = String(ApiConfig.getCurrentTeamId())
+                    const entries = await Promise.all(
+                        SKILL_CATEGORY_TABS.map(async (tab) => {
+                            const { count } = await llmSkillsList(teamId, {
+                                category: tab.category,
+                                limit: 1,
+                                offset: 0,
+                            })
+                            return [tab.category, count] as const
+                        })
+                    )
+                    return Object.fromEntries(entries)
+                },
+            },
+        ],
     })),
 
     selectors({
@@ -367,6 +389,17 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         activeTabDescription: [
             (s) => [s.activeTabKey],
             (activeTabKey: string): string => skillTabDescription(activeTabKey),
+        ],
+
+        // A category tab is shown only once the team has at least one skill in that category.
+        // The active tab is always kept visible so direct navigation to /skills/<key> (or deleting
+        // the last skill while viewing the tab) doesn't strand the user on a tab that isn't listed.
+        visibleCategoryTabs: [
+            (s) => [s.categoryCounts, s.activeTabKey],
+            (categoryCounts: Record<string, number>, activeTabKey: string): SkillCategoryTab[] =>
+                SKILL_CATEGORY_TABS.filter(
+                    (tab) => (categoryCounts[tab.category] ?? 0) > 0 || tab.key === activeTabKey
+                ),
         ],
 
         count: [(s) => [s.skills], (skills: PaginatedLLMSkillListListApi) => skills.count],
@@ -460,6 +493,8 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 await llmSkillsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), skillName)
                 lemonToast.info(`${skillName || 'Skill'} has been archived.`)
                 await asyncActions.loadSkills(false)
+                // Archiving may have removed the last skill in a category — refresh tab visibility.
+                actions.loadCategoryCounts()
             } catch (e) {
                 console.error('Failed to archive skill', e)
                 lemonToast.error('Failed to archive skill')
@@ -595,5 +630,6 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadSkills()
+        actions.loadCategoryCounts()
     }),
 ])
