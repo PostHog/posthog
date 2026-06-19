@@ -1,4 +1,6 @@
-import { ChartSettings } from '~/queries/schema/schema-general'
+import { type TrendLineConfig } from '@posthog/quill-charts'
+
+import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
@@ -7,11 +9,17 @@ import { LineGraphProps } from './LineGraph'
 import {
     AREA_FILL_OPACITY,
     MAX_SERIES,
+    type SqlLineYSeries,
+    barLayoutForDisplay,
+    buildBarChartConfig,
     buildLineChartConfig,
     buildSeries,
+    buildTrendLineConfigs,
+    canRenderSqlBarGraph,
     canRenderSqlLineGraph,
     capYSeriesData,
     exceedsMaxSeries,
+    formatSqlSeriesValue,
 } from './sqlLineGraphAdapter'
 
 const numericColumn = (name: string, dataIndex: number): AxisSeries<number | null>['column'] => ({
@@ -57,14 +65,71 @@ describe('sqlLineGraphAdapter', () => {
             expect(canRenderSqlLineGraph(baseProps({ yData }))).toBe(false)
         })
 
-        it('falls back when any series has a trend line', () => {
+        it.each([
+            ['line graph', ChartDisplayType.ActionsLineGraph],
+            ['area graph', ChartDisplayType.ActionsAreaGraph],
+        ])('renders trend-line series natively rather than falling back for a %s', (_name, visualizationType) => {
             const yData = [ySeries('a', [1], { display: { trendLine: true } })]
-            expect(canRenderSqlLineGraph(baseProps({ yData }))).toBe(false)
+            expect(canRenderSqlLineGraph(baseProps({ visualizationType, yData }))).toBe(true)
         })
 
         it('falls back when any series targets the right y-axis', () => {
             const yData = [ySeries('a', [1], { display: { yAxisPosition: 'right' } })]
             expect(canRenderSqlLineGraph(baseProps({ yData }))).toBe(false)
+        })
+    })
+
+    describe('canRenderSqlBarGraph', () => {
+        it.each([
+            ['line graph', ChartDisplayType.ActionsLineGraph, false],
+            ['area graph', ChartDisplayType.ActionsAreaGraph, false],
+            ['bar graph', ChartDisplayType.ActionsBar, true],
+            ['stacked bar graph', ChartDisplayType.ActionsStackedBar, true],
+        ])('returns %s support correctly for %s', (_name, visualizationType, expected) => {
+            expect(canRenderSqlBarGraph(baseProps({ visualizationType }))).toBe(expected)
+        })
+
+        it.each([
+            ['line', 'line' as const],
+            ['area', 'area' as const],
+        ])('falls back when any series overrides display to %s (mixed combo chart)', (_name, displayType) => {
+            const yData = [ySeries('a', [1]), ySeries('b', [2], { display: { displayType } })]
+            expect(canRenderSqlBarGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
+                false
+            )
+        })
+
+        // Trend lines force the legacy fallback on the bar path because quill's
+        // TimeSeriesBarChart has no trend-line support — keep this until it does.
+        it.each([
+            ['a plain series', [ySeries('a', [1], { display: { trendLine: true } })]],
+            ['a breakdown series', [breakdownSeries('chrome', [1], { display: { trendLine: true } })]],
+        ])('falls back when %s has a trend line', (_name, yData) => {
+            expect(canRenderSqlBarGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
+                false
+            )
+        })
+
+        it('falls back when any series targets the right y-axis', () => {
+            const yData = [ySeries('a', [1], { display: { yAxisPosition: 'right' } })]
+            expect(canRenderSqlBarGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
+                false
+            )
+        })
+    })
+
+    describe('barLayoutForDisplay', () => {
+        it.each([
+            ['grouped bars for a bar graph', ChartDisplayType.ActionsBar, {}, 'grouped'],
+            ['stacked bars for a stacked bar graph', ChartDisplayType.ActionsStackedBar, {}, 'stacked'],
+            [
+                'percent bars when stackBars100 is on for a stacked bar graph',
+                ChartDisplayType.ActionsStackedBar,
+                { stackBars100: true },
+                'percent',
+            ],
+        ])('returns %s', (_name, visualizationType, chartSettings, expected) => {
+            expect(barLayoutForDisplay(visualizationType, chartSettings as ChartSettings)).toBe(expected)
         })
     })
 
@@ -137,6 +202,78 @@ describe('sqlLineGraphAdapter', () => {
             const [series] = buildSeries([breakdownSeries('chrome', [1])], ChartDisplayType.ActionsLineGraph)
             expect(series.key).toBe('chrome')
         })
+
+        it('threads each series settings through meta for the tooltip', () => {
+            const usd: AxisSeries<number | null>['settings'] = { formatting: { prefix: '$' } }
+            const [withSettings, plain] = buildSeries(
+                [ySeries('revenue', [1], usd), ySeries('count', [2])],
+                ChartDisplayType.ActionsLineGraph
+            )
+            expect(withSettings.meta).toEqual({ settings: usd })
+            expect(plain.meta).toEqual({ settings: {} })
+        })
+    })
+
+    describe('buildTrendLineConfigs', () => {
+        it.each<[string, SqlLineYSeries[] | null | undefined, TrendLineConfig[]]>([
+            [
+                'one linear config per opting-in series, keyed by original index',
+                [
+                    ySeries('a', [1], { display: { trendLine: true } }),
+                    ySeries('b', [2]),
+                    ySeries('c', [3], { display: { trendLine: true } }),
+                ],
+                [
+                    { seriesKey: 'a-0', kind: 'linear' },
+                    { seriesKey: 'c-2', kind: 'linear' },
+                ],
+            ],
+            ['none when no series opts in', [ySeries('a', [1]), ySeries('b', [2])], []],
+            ['none for missing data', undefined, []],
+            ['none for null data', null, []],
+            [
+                'breakdown trend lines keyed by breakdown value',
+                [breakdownSeries('chrome', [1], { display: { trendLine: true } })],
+                [{ seriesKey: 'chrome', kind: 'linear' }],
+            ],
+        ])('builds %s', (_name, ySeriesData, expected) => {
+            expect(buildTrendLineConfigs(ySeriesData)).toEqual(expected)
+        })
+
+        it('keys each trend line to the series buildSeries assigns', () => {
+            const yData = [
+                ySeries('a', [1]),
+                ySeries('b', [2], { display: { trendLine: true } }),
+                breakdownSeries('chrome', [3], { display: { trendLine: true } }),
+            ]
+            const seriesKeys = buildSeries(yData, ChartDisplayType.ActionsLineGraph).map((s) => s.key)
+            const trendLineKeys = buildTrendLineConfigs(yData).map((t) => t.seriesKey)
+            // Both derive from getSeriesKey on the same array, so the trend lines are the opt-in subset.
+            expect(seriesKeys).toEqual(['a-0', 'b-1', 'chrome'])
+            expect(trendLineKeys).toEqual(['b-1', 'chrome'])
+        })
+
+        it('uses array-position indexing, so keys stay aligned with buildSeries however the cap slices', () => {
+            const yData = [
+                ySeries('a', [1]),
+                ySeries('b', [2], { display: { trendLine: true } }),
+                ySeries('c', [3]),
+                ySeries('d', [4], { display: { trendLine: true } }),
+            ]
+            const seriesKeys = buildSeries(yData, ChartDisplayType.ActionsLineGraph).map((s) => s.key)
+            const trendLineKeys = buildTrendLineConfigs(yData).map((t) => t.seriesKey)
+            expect(trendLineKeys).toEqual([seriesKeys[1], seriesKeys[3]])
+        })
+    })
+
+    describe('formatSqlSeriesValue', () => {
+        it('applies the column settings and stringifies the result', () => {
+            expect(formatSqlSeriesValue(1200, { formatting: { prefix: '$' } })).toBe('$1200')
+        })
+
+        it('falls back to the raw value when formatting yields null', () => {
+            expect(formatSqlSeriesValue(NaN)).toBe('NaN')
+        })
     })
 
     describe('buildLineChartConfig', () => {
@@ -170,6 +307,67 @@ describe('sqlLineGraphAdapter', () => {
         it('defaults to a linear scale with grid shown', () => {
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC' })
             expect(config.yAxis).toMatchObject({ scale: 'linear', showGrid: true })
+        })
+
+        it.each([
+            ['shows', true, true],
+            ['hides', false, false],
+            ['hides by default', undefined, false],
+        ])('%s the built-in legend from showLegend', (_name, showLegend, expected) => {
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: { showLegend }, timezone: 'UTC' })
+            expect(config.legend).toEqual({ show: expected, position: 'top', interactive: true })
+        })
+
+        it('wires goalLines through schemaGoalLinesToConfigs', () => {
+            const goalLines: GoalLine[] = [{ label: 'Target', value: 100 }]
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', goalLines })
+            expect(config.goalLines).toHaveLength(1)
+            expect(config.goalLines?.[0]).toMatchObject({ value: 100, label: 'Target' })
+        })
+
+        it.each<[string, SqlLineYSeries[], TrendLineConfig[]]>([
+            [
+                'wires trend lines from series that opt in, keyed to match buildSeries',
+                [ySeries('a', [1, 2], { display: { trendLine: true } }), ySeries('b', [3, 4])],
+                [{ seriesKey: 'a-0', kind: 'linear' }],
+            ],
+            ['omits trend lines when no series opts in', [ySeries('a', [1, 2]), ySeries('b', [3, 4])], []],
+        ])('%s', (_name, ySeriesData, expected) => {
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', ySeriesData })
+            expect(config.trendLines).toEqual(expected)
+        })
+    })
+
+    describe('buildBarChartConfig', () => {
+        const dateXData: AxisSeries<string> = {
+            column: { name: 'day', type: { name: 'DATE', isNumerical: false }, label: 'day', dataIndex: 0 },
+            data: ['2024-01-01', '2024-01-02'],
+        }
+
+        it('forces a linear y-axis scale for percent-stacked bars', () => {
+            const chartSettings: ChartSettings = {
+                stackBars100: true,
+                leftYAxisSettings: { scale: 'logarithmic' },
+            }
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings,
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsStackedBar,
+            })
+            expect(config.yAxis?.scale).toBe('linear')
+        })
+
+        it('never emits trend lines (quill bar charts have no trend-line support)', () => {
+            const ySeriesData = [ySeries('a', [1, 2], { display: { trendLine: true } })]
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+                ySeriesData,
+            })
+            expect('trendLines' in config).toBe(false)
         })
     })
 })

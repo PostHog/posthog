@@ -3997,6 +3997,101 @@
   ) ENGINE = Distributed('ops', 'posthog_test', 'sharded_query_log_archive') 
   '''
 # ---
+# name: test_create_table_query[query_log_archive_buffer]
+  '''
+  CREATE TABLE IF NOT EXISTS query_log_archive_buffer (
+  
+      hostname                              LowCardinality(String),
+      user                                  LowCardinality(String),
+      query_id                              String,
+      initial_query_id                      String,
+      is_initial_query                      UInt8,
+      type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
+  
+      event_date                            Date,
+      event_time                            DateTime,
+      event_time_microseconds               DateTime64(6),
+      query_start_time                      DateTime,
+      query_start_time_microseconds         DateTime64(6),
+      query_duration_ms                     UInt64,
+  
+      read_rows                             UInt64,
+      read_bytes                            UInt64,
+      written_rows                          UInt64,
+      written_bytes                         UInt64,
+      result_rows                           UInt64,
+      result_bytes                          UInt64,
+      memory_usage                          UInt64,
+      peak_threads_usage                    UInt64,
+  
+      current_database                      LowCardinality(String),
+      query                                 String,
+      formatted_query                       String,
+      normalized_query_hash                 UInt64,
+      query_kind                            LowCardinality(String),
+  
+      exception_code                        Int32,
+      exception                             String,
+      stack_trace                           String,
+  
+      team_id                               Int64,
+      log_comment                           JSON(
+          max_dynamic_paths = 256,
+          team_id Int64,
+          user_id Int64,
+          org_id String,
+          session_id String,
+          access_method LowCardinality(String),
+          api_key_label String,
+          api_key_mask String,
+          workflow LowCardinality(String),
+          kind LowCardinality(String),
+          id String,
+          route_id String,
+          query_type LowCardinality(String),
+          product LowCardinality(String),
+          chargeable Bool,
+          name String,
+          request_name String,
+          client_query_id String,
+          is_impersonated Bool,
+          dashboard_id Int64,
+          insight_id Int64,
+          cohort_id Int64,
+          batch_export_id String,
+          experiment_id Int64,
+          experiment_feature_flag_key String,
+          alert_config_id String,
+          feature LowCardinality(String),
+          table_id String,
+          warehouse_query Bool,
+          person_on_events_mode LowCardinality(String),
+          service_name String,
+          workload LowCardinality(String),
+          `temporal.workflow_namespace` String,
+          `temporal.workflow_type` String,
+          `temporal.workflow_id` String,
+          `temporal.workflow_run_id` String,
+          `temporal.activity_type` String,
+          `temporal.activity_id` String,
+          `temporal.attempt` Int64,
+          `dagster.job_name` String,
+          `dagster.run_id` String,
+          `dagster.tags.owner` String,
+          SKIP user_email,
+          SKIP query_settings,
+          SKIP timings,
+          SKIP `filter`,
+          SKIP hogql_features,
+          SKIP http_referer,
+          SKIP http_user_agent,
+          SKIP http_request_id,
+          SKIP cache_key
+      ),
+      ProfileEvents                         Map(String, UInt64)
+  ) ENGINE = Buffer('posthog_test', 'sharded_query_log_archive', 16, 10, 60, 10000, 1000000, 10000000, 100000000) 
+  '''
+# ---
 # name: test_create_table_query[raw_error_tracking_fingerprint_issue_state]
   '''
   
@@ -7758,7 +7853,7 @@
           SKIP cache_key
       ),
       ProfileEvents                         Map(String, UInt64)
-  ) ENGINE = Distributed('ops', 'posthog_test', 'sharded_query_log_archive') 
+  ) ENGINE = Distributed('ops', 'posthog_test', 'query_log_archive_buffer') 
   '''
 # ---
 # name: test_create_table_query[writable_raw_sessions]
@@ -9000,6 +9095,101 @@
   SETTINGS
       index_granularity = 8192
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[query_log_archive_buffer]
+  '''
+  CREATE TABLE IF NOT EXISTS query_log_archive_buffer (
+  
+      hostname                              LowCardinality(String),
+      user                                  LowCardinality(String),
+      query_id                              String,
+      initial_query_id                      String,
+      is_initial_query                      UInt8,
+      type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
+  
+      event_date                            Date,
+      event_time                            DateTime,
+      event_time_microseconds               DateTime64(6),
+      query_start_time                      DateTime,
+      query_start_time_microseconds         DateTime64(6),
+      query_duration_ms                     UInt64,
+  
+      read_rows                             UInt64,
+      read_bytes                            UInt64,
+      written_rows                          UInt64,
+      written_bytes                         UInt64,
+      result_rows                           UInt64,
+      result_bytes                          UInt64,
+      memory_usage                          UInt64,
+      peak_threads_usage                    UInt64,
+  
+      current_database                      LowCardinality(String),
+      query                                 String,
+      formatted_query                       String,
+      normalized_query_hash                 UInt64,
+      query_kind                            LowCardinality(String),
+  
+      exception_code                        Int32,
+      exception                             String,
+      stack_trace                           String,
+  
+      team_id                               Int64,
+      log_comment                           JSON(
+          max_dynamic_paths = 256,
+          team_id Int64,
+          user_id Int64,
+          org_id String,
+          session_id String,
+          access_method LowCardinality(String),
+          api_key_label String,
+          api_key_mask String,
+          workflow LowCardinality(String),
+          kind LowCardinality(String),
+          id String,
+          route_id String,
+          query_type LowCardinality(String),
+          product LowCardinality(String),
+          chargeable Bool,
+          name String,
+          request_name String,
+          client_query_id String,
+          is_impersonated Bool,
+          dashboard_id Int64,
+          insight_id Int64,
+          cohort_id Int64,
+          batch_export_id String,
+          experiment_id Int64,
+          experiment_feature_flag_key String,
+          alert_config_id String,
+          feature LowCardinality(String),
+          table_id String,
+          warehouse_query Bool,
+          person_on_events_mode LowCardinality(String),
+          service_name String,
+          workload LowCardinality(String),
+          `temporal.workflow_namespace` String,
+          `temporal.workflow_type` String,
+          `temporal.workflow_id` String,
+          `temporal.workflow_run_id` String,
+          `temporal.activity_type` String,
+          `temporal.activity_id` String,
+          `temporal.attempt` Int64,
+          `dagster.job_name` String,
+          `dagster.run_id` String,
+          `dagster.tags.owner` String,
+          SKIP user_email,
+          SKIP query_settings,
+          SKIP timings,
+          SKIP `filter`,
+          SKIP hogql_features,
+          SKIP http_referer,
+          SKIP http_user_agent,
+          SKIP http_request_id,
+          SKIP cache_key
+      ),
+      ProfileEvents                         Map(String, UInt64)
+  ) ENGINE = Buffer('posthog_test', 'sharded_query_log_archive', 16, 10, 60, 10000, 1000000, 10000000, 100000000) 
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[raw_error_tracking_fingerprint_issue_state]
