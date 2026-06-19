@@ -115,7 +115,7 @@ export class RequestStateResolver {
         // the rendering prompt section on it (like `mcp-feedback-tool`).
         const allFlagKeys = [...toolFlagKeys, RENDER_UI_FEATURE_FLAG]
 
-        const flagAnalyticsContext = await reqCtx.getAnalyticsContextSafe(context)
+        const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
         const [allFlags, _apiKey, distinctId] = await Promise.all([

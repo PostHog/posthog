@@ -292,6 +292,11 @@ class AppsFlyerSourceConfig(config.Config):
 
 
 @config.config
+class AppstackSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class ApptivoSourceConfig(config.Config):
     pass
 
@@ -1685,6 +1690,11 @@ class LeverSourceConfig(config.Config):
 
 
 @config.config
+class LightfieldSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class LightspeedRetailSourceConfig(config.Config):
     domain_prefix: str
     api_token: str
@@ -1947,6 +1957,11 @@ class NavanSourceConfig(config.Config):
 
 @config.config
 class NebiusAISourceConfig(config.Config):
+    pass
+
+
+@config.config
+class NeonSourceConfig(config.Config):
     pass
 
 
@@ -2454,6 +2469,11 @@ class RampSourceConfig(config.Config):
     client_id: str
     client_secret: str
     environment: Literal["production", "sandbox"] = config.value(default="production")
+
+
+@config.config
+class RazorpaySourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3472,6 +3492,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.APPFOLLOW: AppfollowSourceConfig,
         ExternalDataSourceType.APPLESEARCHADS: AppleSearchAdsSourceConfig,
         ExternalDataSourceType.APPSFLYER: AppsFlyerSourceConfig,
+        ExternalDataSourceType.APPSTACK: AppstackSourceConfig,
         ExternalDataSourceType.APPTIVO: ApptivoSourceConfig,
         ExternalDataSourceType.ASANA: AsanaSourceConfig,
         ExternalDataSourceType.ASHBY: AshbySourceConfig,
@@ -3736,6 +3757,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
         ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
         ExternalDataSourceType.LEVER: LeverSourceConfig,
+        ExternalDataSourceType.LIGHTFIELD: LightfieldSourceConfig,
         ExternalDataSourceType.LIGHTSPEEDRETAIL: LightspeedRetailSourceConfig,
         ExternalDataSourceType.LINEAR: LinearSourceConfig,
         ExternalDataSourceType.LINKEDINADS: LinkedinAdsSourceConfig,
@@ -3784,6 +3806,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NASA: NasaSourceConfig,
         ExternalDataSourceType.NAVAN: NavanSourceConfig,
         ExternalDataSourceType.NEBIUSAI: NebiusAISourceConfig,
+        ExternalDataSourceType.NEON: NeonSourceConfig,
         ExternalDataSourceType.NETSUITE: NetSuiteSourceConfig,
         ExternalDataSourceType.NEWYORKTIMES: NewYorkTimesSourceConfig,
         ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
@@ -3881,6 +3904,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.RKICOVID: RKICovidSourceConfig,
         ExternalDataSourceType.RAILZ: RailzSourceConfig,
         ExternalDataSourceType.RAMP: RampSourceConfig,
+        ExternalDataSourceType.RAZORPAY: RazorpaySourceConfig,
         ExternalDataSourceType.RECHARGE: RechargeSourceConfig,
         ExternalDataSourceType.RECREATION: RecreationSourceConfig,
         ExternalDataSourceType.RECRUITEE: RecruiteeSourceConfig,

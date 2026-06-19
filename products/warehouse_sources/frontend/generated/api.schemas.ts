@@ -13,6 +13,7 @@
  * * `append` - append
  * * `webhook` - webhook
  * * `cdc` - cdc
+ * * `xmin` - xmin
  */
 export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
 
@@ -22,6 +23,7 @@ export const SyncTypeEnumApi = {
     Append: 'append',
     Webhook: 'webhook',
     Cdc: 'cdc',
+    Xmin: 'xmin',
 } as const
 
 /**
@@ -31,6 +33,7 @@ export const SyncTypeEnumApi = {
  * * `date` - date
  * * `timestamp` - timestamp
  * * `objectid` - objectid
+ * * `xid` - xid
  */
 export type IncrementalFieldTypeEnumApi = (typeof IncrementalFieldTypeEnumApi)[keyof typeof IncrementalFieldTypeEnumApi]
 
@@ -41,6 +44,7 @@ export const IncrementalFieldTypeEnumApi = {
     Date: 'date',
     Timestamp: 'timestamp',
     Objectid: 'objectid',
+    Xid: 'xid',
 } as const
 
 /**
@@ -134,13 +138,14 @@ export interface ExternalDataSchemaApi {
     readonly incremental: boolean
     /** @nullable */
     readonly status: string | null
-    /** Sync strategy: incremental, full_refresh, append, or cdc.
+    /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
      *
      * * `full_refresh` - full_refresh
      * * `incremental` - incremental
      * * `append` - append
      * * `webhook` - webhook
-     * * `cdc` - cdc */
+     * * `cdc` - cdc
+     * * `xmin` - xmin */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
@@ -154,8 +159,16 @@ export interface ExternalDataSchemaApi {
      * * `datetime` - datetime
      * * `date` - date
      * * `timestamp` - timestamp
-     * * `objectid` - objectid */
+     * * `objectid` - objectid
+     * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
+    /**
+     * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
+     * @minimum 0
+     * @maximum 5184000
+     * @nullable
+     */
+    incremental_field_lookback_seconds?: number | null
     /** How often to sync.
      *
      * * `never` - never
@@ -265,13 +278,14 @@ export interface PatchedExternalDataSchemaApi {
     readonly incremental?: boolean
     /** @nullable */
     readonly status?: string | null
-    /** Sync strategy: incremental, full_refresh, append, or cdc.
+    /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
      *
      * * `full_refresh` - full_refresh
      * * `incremental` - incremental
      * * `append` - append
      * * `webhook` - webhook
-     * * `cdc` - cdc */
+     * * `cdc` - cdc
+     * * `xmin` - xmin */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
@@ -285,8 +299,16 @@ export interface PatchedExternalDataSchemaApi {
      * * `datetime` - datetime
      * * `date` - date
      * * `timestamp` - timestamp
-     * * `objectid` - objectid */
+     * * `objectid` - objectid
+     * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
+    /**
+     * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
+     * @minimum 0
+     * @maximum 5184000
+     * @nullable
+     */
+    incremental_field_lookback_seconds?: number | null
     /** How often to sync.
      *
      * * `never` - never
@@ -977,6 +999,10 @@ export const CreatedViaEnumApi = {
  * * `Streamlabs` - Streamlabs
  * * `Datorama` - Datorama
  * * `Ahrefs` - Ahrefs
+ * * `Lightfield` - Lightfield
+ * * `Appstack` - Appstack
+ * * `Razorpay` - Razorpay
+ * * `Neon` - Neon
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -1608,6 +1634,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Streamlabs: 'Streamlabs',
     Datorama: 'Datorama',
     Ahrefs: 'Ahrefs',
+    Lightfield: 'Lightfield',
+    Appstack: 'Appstack',
+    Razorpay: 'Razorpay',
+    Neon: 'Neon',
     Custom: 'Custom',
 } as const
 
@@ -1673,6 +1703,8 @@ export interface ExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method: AccessMethodEnumApi
+    /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -2336,6 +2368,10 @@ export interface ExternalDataSourceCreateApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
+     * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
+     * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -2363,6 +2399,8 @@ export interface ExternalDataSourceCreateApi {
      * * `api` - api
      * * `mcp` - mcp */
     created_via?: CreatedViaEnumApi
+    /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
 }
 
 export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
@@ -2398,6 +2436,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method?: AccessMethodEnumApi
+    /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -2432,13 +2472,14 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
     id: string
     /** Whether the schema should be queryable/synced. */
     should_sync?: boolean
-    /** Requested sync mode for the schema.
+    /** Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).
      *
      * * `full_refresh` - full_refresh
      * * `incremental` - incremental
      * * `append` - append
      * * `webhook` - webhook
-     * * `cdc` - cdc */
+     * * `cdc` - cdc
+     * * `xmin` - xmin */
     sync_type?: SyncTypeEnumApi | null
     /**
      * Incremental cursor field for incremental or append syncs.
@@ -3164,6 +3205,10 @@ export interface DatabaseSchemaRequestApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
+     * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
+     * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
@@ -3801,6 +3846,10 @@ export interface SourceSetupApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
+     * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
+     * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -3817,6 +3866,8 @@ export interface SourceSetupApi {
      * @nullable
      */
     description?: string | null
+    /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
 }
 
 export interface SourceSetupWebhookApi {
@@ -4476,6 +4527,10 @@ export interface SourceCredentialCreateApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
+     * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
+     * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */

@@ -1,15 +1,17 @@
 import json
 
+from django.db import IntegrityError, transaction
+
 from drf_spectacular.utils import extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.exceptions import Conflict
 from posthog.models import OrganizationMembership
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
-from products.customer_analytics.backend.models.account import AccountProperties
 from products.notebooks.backend.models import Notebook
 
 _ACCOUNT_ASSIGNMENT_SCHEMA = {
@@ -194,33 +196,51 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     def validate_properties(self, value):
         if value is None:
             return {}
-
         if not isinstance(value, dict):
             raise serializers.ValidationError("properties must be a JSON object.")
-
         try:
             json.dumps(value)
         except (TypeError, ValueError):
             raise serializers.ValidationError("properties must be JSON-serializable.")
-
-        try:
-            AccountProperties.model_validate(value)
-        except PydanticValidationError as exc:
-            raise serializers.ValidationError(_format_pydantic_errors(exc))
-
         return value
 
     def create(self, validated_data):
-        from django.db import IntegrityError
-
-        from posthog.exceptions import Conflict
-
-        validated_data["created_by"] = self.context["request"].user
-        validated_data["team_id"] = self.context["team_id"]
+        properties = validated_data.pop("_properties", {})
+        validated_data.pop("tags", None)
         try:
-            return super().create(validated_data)
+            with transaction.atomic():
+                account = Account.objects.create_account(
+                    team=self.context["get_team"](),
+                    created_by=self.context["request"].user,
+                    name=validated_data["name"],
+                    external_id=validated_data.get("external_id"),
+                    properties=properties,
+                )
+                self._attempt_set_tags(self.initial_data.get("tags"), account)
+        except PydanticValidationError as exc:
+            raise serializers.ValidationError({"properties": _format_pydantic_errors(exc)})
         except IntegrityError:
             raise Conflict("An account with this external_id already exists for this team.")
+        return account
+
+    def update(self, instance, validated_data):
+        update_kwargs: dict = {}
+        if "name" in validated_data:
+            update_kwargs["name"] = validated_data["name"]
+        if "external_id" in validated_data:
+            update_kwargs["external_id"] = validated_data["external_id"]
+        if "_properties" in validated_data:
+            update_kwargs["properties"] = validated_data["_properties"]
+
+        try:
+            with transaction.atomic():
+                account = Account.objects.update_account(instance, **update_kwargs)
+                self._attempt_set_tags(self.initial_data.get("tags"), account)
+        except PydanticValidationError as exc:
+            raise serializers.ValidationError({"properties": _format_pydantic_errors(exc)})
+        except IntegrityError:
+            raise Conflict("An account with this external_id already exists for this team.")
+        return account
 
 
 def _format_pydantic_errors(exc: PydanticValidationError) -> list[str]:

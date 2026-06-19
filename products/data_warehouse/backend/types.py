@@ -12,6 +12,8 @@ class IncrementalFieldType(StrEnum):
     Timestamp = "timestamp"
     # MongoDB specific
     ObjectID = "objectid"
+    # Postgres xmin system column — synthetic cursor, never in information_schema
+    XID = "xid"
 
 
 class IncrementalField(typing.TypedDict, total=False):
@@ -665,6 +667,10 @@ class ExternalDataSourceType(models.TextChoices):
     STREAMLABS = "Streamlabs", "Streamlabs"
     DATORAMA = "Datorama", "Datorama"
     AHREFS = "Ahrefs", "Ahrefs"
+    LIGHTFIELD = "Lightfield", "Lightfield"
+    APPSTACK = "Appstack", "Appstack"
+    RAZORPAY = "Razorpay", "Razorpay"
+    NEON = "Neon", "Neon"
     CUSTOM = "Custom", "Custom"
 
 

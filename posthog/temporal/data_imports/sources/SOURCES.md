@@ -256,6 +256,7 @@ doesn't conflict with concurrent PRs.
 - appfigures
 - appfollow
 - apple_search_ads
+- appstack
 - apptivo
 - assemblyai
 - auth0
@@ -453,6 +454,7 @@ doesn't conflict with concurrent PRs.
 - lemlist
 - less_annoying_crm
 - lever
+- lightfield
 - linkedin_pages
 - linkrunner
 - linnworks
@@ -486,6 +488,7 @@ doesn't conflict with concurrent PRs.
 - nasa
 - navan
 - nebius_ai
+- neon
 - netsuite
 - new_york_times
 - news_api
@@ -560,6 +563,7 @@ doesn't conflict with concurrent PRs.
 - qualtrics
 - quickbooks
 - railz
+- razorpay
 - rd_station_marketing
 - recreation
 - recruitee

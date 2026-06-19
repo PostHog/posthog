@@ -50,7 +50,11 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutRun,
 )
-from products.signals.backend.scout_harness.config_registry import enabled_scout_count, register_missing_configs
+from products.signals.backend.scout_harness.config_registry import (
+    enabled_scout_count,
+    ensure_scout_category,
+    register_missing_configs,
+)
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
     canonical_skill_names,
@@ -815,6 +819,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError(
                 {"skill_name": "No skill with this name exists on this project. Author the skill first."}
             )
+        # Explicit registration of a scout — stamp the skill's server-owned category so it shows on
+        # the skills UI's Scouts tab immediately, without waiting for the next coordinator reconcile.
+        ensure_scout_category(team_id, skill_name=skill_name)
         tunables = {key: value for key, value in serializer.validated_data.items() if key != "skill_name"}
         # The per-team cap only gates net-new enables: a fresh row defaulting (or set) to
         # enabled, or an upsert flipping a disabled row on. Tuning an already-enabled scout
