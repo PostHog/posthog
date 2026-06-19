@@ -37,8 +37,9 @@ will throw away.
 ## Phase 1 — discover
 
 ```text
-@posthog/agent-applications-native-tools-list                → built-in tool catalog
-agent-applications-list                  → existing agents (clone target?)
+@posthog/agent-applications-spec-schema       → authoritative spec shape (call before you design)
+@posthog/agent-applications-native-tools-list → built-in tool catalog
+agent-applications-list                       → existing agents (clone target?)
 ```
 
 If the user describes something close to an existing agent,
@@ -51,6 +52,10 @@ templates) — these are designed but not yet shipped. Don't
 reference them until they exist.
 
 ## Phase 2 — design the spec
+
+Call `@posthog/agent-applications-spec-schema` first — it returns the
+authoritative shape for every field below. Decide the _values_ here; let
+the schema settle the _structure_.
 
 Sketch the spec in your head / out loud with the user, BEFORE
 calling any create endpoint. Cover:
@@ -70,16 +75,13 @@ calling any create endpoint. Cover:
 - **`integrations[]`** — list any team-wide OAuth integrations
   (e.g. `"slack"`).
 - **`secrets[]`** — list any per-application keys the agent's tools
-  read (e.g. `"STRIPE_API_KEY"`). **Don't** list trigger-required
-  keys like `SLACK_SIGNING_SECRET` here — those come from the
-  platform-wide `TRIGGER_REQUIRED_SECRETS` registry, not the spec.
-  See `skills/secrets-and-integrations` → "Trigger-required secrets".
+  read (e.g. `"STRIPE_API_KEY"`). Trigger-required keys are handled
+  separately — see the note after this list.
 - **`limits`** — usually defaults are fine. Tighten if the user
   needs a hard cost cap.
-- **`auth`** — per-trigger (`triggers[].auth.modes`). For chat/mcp
-  triggers, almost always `posthog` or `posthog_internal`. For webhook
-  triggers, usually `shared_secret`. `public` is unsafe unless the
-  agent is genuinely B2C.
+- **`auth`** — for chat/mcp triggers, almost always `posthog` or
+  `posthog_internal`; webhook usually `shared_secret`. `public` is
+  unsafe unless the agent is genuinely B2C.
 - **`reasoning`** — start unset (provider default). Bump to
   `medium` if the agent reasons hard; `high` if it does long
   triage; rarely `xhigh`.
@@ -87,67 +89,29 @@ calling any create endpoint. Cover:
 Show the proposed spec to the user before creating. They will
 catch things you missed.
 
-### Worked example — known-good minimal spec
+### Get the shape from the tool, not from memory
 
-Copy this and edit; **don't invent shapes** for `auth` / tool refs /
-limits. The validator's error messages are vague ("not valid under
-any of the given schemas") and the field defaults are unintuitive —
-trial-and-error costs 5-10 turns per session. This is what passes
-on the first try.
+`@posthog/agent-applications-spec-schema` is the authoritative source
+for `spec` structure — every field, enum, default, and the
+discriminated unions for `triggers[]` (auth lives per-trigger),
+`tools[]` (`native` vs `custom` vs `client`), and `secrets[]`
+(bare string vs `{name, allowed_hosts}`). Match it instead of
+hand-copying shapes from memory or another agent; guessing the shape
+is what used to cost 5-10 trial-and-error turns per session. Pair it
+with `@posthog/agent-applications-native-tools-list` for valid native
+tool ids (the validator rejects unknown ones).
 
-```json
-{
-  "model": "anthropic/claude-sonnet-4-6",
-  "triggers": [
-    {
-      "type": "chat",
-      "config": { "allow_restart": true },
-      "auth": { "modes": [{ "type": "posthog", "scopes": ["agent:read"] }] }
-    }
-  ],
-  "tools": [
-    { "kind": "native", "id": "@posthog/http-request" },
-    { "kind": "custom", "id": "my-tool", "path": "tools/my-tool" }
-  ],
-  "skills": [{ "id": "my-skill", "path": "skills/my-skill.md", "description": "When to load it." }],
-  "secrets": ["MY_API_KEY"],
-  "integrations": [],
-  "limits": { "max_turns": 40, "max_tool_calls": 80, "max_wall_seconds": 600 },
-  "entrypoint": "agent.md"
-}
-```
+Two facts the schema can't give you, because they aren't part of the
+spec:
 
-Field gotchas the model gets wrong every time:
-
-- **`auth`** is per-trigger: `triggers[].auth` is
-  `{"modes": [{"type": "<mode>"}]}`, NOT `{"mode": "..."}`,
-  NOT `{"kind": "..."}`, NOT `"none"`. There is no top-level
-  `spec.auth`. Valid types: `posthog` (with optional `scopes`),
-  `posthog_internal`, `shared_secret` (with `header`), `jwt`
-  (with `issuer_secret_ref`), `public` (with
-  `acknowledge_public_exposure: true`).
-- **Custom tool refs** require `{kind: "custom", id, path}` — all
-  three fields. The `path` points at a directory under the bundle
-  containing `source.ts` + `schema.json`. Without `path` the validator
-  rejects with the same opaque "not valid under any of the given
-  schemas" the model often misreads as a `kind` problem.
-- **Native tool refs** are `{kind: "native", id: "@posthog/foo"}`.
-  Never include a `path` here.
 - **Trigger-required secrets** (`SLACK_SIGNING_SECRET`,
   `SLACK_BOT_TOKEN` for `slack` triggers) are NOT listed in
-  `spec.secrets[]`. They come from the platform registry; the
-  promote endpoint refuses if they're missing from `encrypted_env`.
-- **`entrypoint`** defaults to `"agent.md"` but the validator
-  requires it explicitly on writes. Include it.
-
-For a slack-triggered agent, swap the trigger:
-
-```json
-{ "type": "slack", "config": { "trusted_workspaces": ["T01XXXXXX"] } }
-```
-
-`trusted_workspaces` is required — pass `["*"]` for "any workspace"
-or the literal Slack team id string.
+  `spec.secrets[]`. They come from the platform-wide
+  `TRIGGER_REQUIRED_SECRETS` registry and live in `encrypted_env`;
+  the promote endpoint refuses if they're missing. See
+  `skills/secrets-and-integrations`.
+- **Custom-tool `source.ts` shape** (Phase 5) is the tool's runtime
+  contract, not spec structure — the schema won't describe it.
 
 ## Phase 3 — create
 
