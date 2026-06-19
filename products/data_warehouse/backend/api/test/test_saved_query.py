@@ -627,6 +627,58 @@ class TestSavedQuery(APIBaseTest):
             mock_workflow_exists.assert_called_once_with(saved_query)
             mock_pause_saved_query_schedule.assert_called_once_with(saved_query)
 
+    def test_sync_frequency_is_a_writable_field(self):
+        # Regression: sync_frequency used to be a read-only SerializerMethodField, so it was
+        # marked readOnly in the generated OpenAPI/MCP schemas and silently dropped from writes.
+        from products.data_warehouse.backend.api.saved_query import DataWarehouseSavedQuerySerializer
+
+        field = DataWarehouseSavedQuerySerializer().fields["sync_frequency"]
+        self.assertFalse(field.read_only)
+
+    def test_update_sync_frequency_reflected_in_response(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        saved_query = response.json()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+            {"sync_frequency": "6hour"},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["sync_frequency"], "6hour")
+
+        updated_query = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertEqual(updated_query.sync_frequency_interval, timedelta(hours=6))
+
+    def test_update_sync_frequency_rejects_invalid_value(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        saved_query = response.json()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+            {"sync_frequency": "every_fortnight"},
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
     def test_update_with_types(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/",
