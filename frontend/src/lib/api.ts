@@ -365,17 +365,12 @@ export class ApiConfig {
     private static _currentOrganizationId: OrganizationType['id'] | null = null
     private static _currentProjectId: ProjectType['id'] | null = null
     private static _currentTeamId: TeamType['id'] | null = null
-    private static _currentUserId: UserType['uuid'] | null = null
 
     static getCurrentOrganizationId(): OrganizationType['id'] {
         if (!this._currentOrganizationId) {
             throw new Error('Organization ID is not known.')
         }
         return this._currentOrganizationId
-    }
-
-    static hasCurrentOrganizationId(): boolean {
-        return !!this._currentOrganizationId
     }
 
     static setCurrentOrganizationId(id: OrganizationType['id'] | null): void {
@@ -406,21 +401,6 @@ export class ApiConfig {
 
     static setCurrentProjectId(id: ProjectType['id']): void {
         this._currentProjectId = id
-    }
-
-    static getCurrentUserId(): UserType['uuid'] {
-        if (!this._currentUserId) {
-            throw new Error('User ID is not known.')
-        }
-        return this._currentUserId
-    }
-
-    static hasCurrentUserId(): boolean {
-        return !!this._currentUserId
-    }
-
-    static setCurrentUserId(id: UserType['uuid']): void {
-        this._currentUserId = id
     }
 }
 

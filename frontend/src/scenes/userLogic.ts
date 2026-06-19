@@ -9,7 +9,7 @@ import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/s
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { clearSession, isOAuthMode } from 'lib/oauth/oauthClient'
-import { getAppContext } from 'lib/utils/getAppContext'
+import { getAppContext, setOAuthContextIds } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -294,12 +294,13 @@ export const userLogic = kea<userLogicType>([
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
-                // OAuth mode has no server-rendered app context, so seed ApiConfig from the freshly
-                // loaded remote user. This makes user/team/project/org ids available synchronously
-                // before the first project-scoped URL is built, avoiding "Project ID is not known."
-                // (and the sibling user/org id errors) on bootstrap.
+                // OAuth mode has no server-rendered app context, so seed the current ids from the
+                // freshly loaded remote user. This makes them available synchronously before the first
+                // project-scoped URL is built, avoiding "Project ID is not known." (and the sibling
+                // user/org id errors) on bootstrap. The API layer reads default project/team-id params
+                // from ApiConfig; getAppContext's synchronous getters read the pushed ids (it stays a
+                // leaf module — importing ApiConfig there would create a module-init cycle).
                 if (isOAuthMode()) {
-                    ApiConfig.setCurrentUserId(user.uuid)
                     if (user.team) {
                         ApiConfig.setCurrentTeamId(user.team.id)
                         ApiConfig.setCurrentProjectId(user.team.project_id)
@@ -307,6 +308,11 @@ export const userLogic = kea<userLogicType>([
                     if (user.organization) {
                         ApiConfig.setCurrentOrganizationId(user.organization.id)
                     }
+                    setOAuthContextIds({
+                        teamId: user.team?.id,
+                        organizationId: user.organization?.id,
+                        userId: user.uuid,
+                    })
                 }
 
                 if (posthog) {
