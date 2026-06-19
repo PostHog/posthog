@@ -70,7 +70,7 @@ fn prepare_remote_event(
         Vec::new()
     } else {
         serde_json::to_vec(&serde_json::json!({
-            "apple_debug_images_json": evt.debug_images,
+            "debug_images_json": evt.debug_images,
         }))
         .map_err(UnhandledError::from)?
     };

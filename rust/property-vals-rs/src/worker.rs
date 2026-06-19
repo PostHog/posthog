@@ -66,7 +66,7 @@ pub async fn worker_loop<E, P, F>(
                 handle.report_healthy();
                 flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_TIMER, worker, reduction.max_values_per_key, seen_cache.as_ref()).await;
             }
-            recv = consumer.json_recv::<E>() => {
+            recv = consumer.recv_with(E::decode) => {
                 handle.report_healthy();
                 match recv {
                     Ok((event, offset)) => {

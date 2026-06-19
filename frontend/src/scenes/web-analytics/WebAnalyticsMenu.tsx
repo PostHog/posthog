@@ -74,10 +74,11 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                             <ButtonPrimitive
                                 menuItem
                                 onClick={() => {
-                                    setUseWebAnalyticsPrecompute(!useWebAnalyticsPrecompute)
+                                    // `null` (untouched) is treated as on, so toggling off opts out explicitly.
+                                    setUseWebAnalyticsPrecompute(!(useWebAnalyticsPrecompute ?? true))
                                 }}
                             >
-                                <LemonSwitch checked={useWebAnalyticsPrecompute} size="xsmall" />
+                                <LemonSwitch checked={useWebAnalyticsPrecompute ?? true} size="xsmall" />
                                 Allow precompute
                             </ButtonPrimitive>
                         </Tooltip>

@@ -35,7 +35,7 @@ from products.data_modeling.backend.models.data_modeling_job import DataModeling
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
-from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
+from products.endpoints.backend.services.materialization import prepare_executable_query
 
 LOGGER = get_logger(__name__)
 
@@ -189,6 +189,25 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Mark every column nullable so batch schemas don't diverge across delta commits.
+
+    ClickHouse emits non-nullable columns for expressions, constants, concat()/toString(),
+    and non-Nullable source columns. When such a query spans more than one batch, the first
+    batch's overwrite pins a non-nullable delta schema and the later append routes through
+    delta-rs's DataFusion writer to reconcile schemas. DataFusion lowercases identifiers and
+    then fails to resolve case-sensitive columns, e.g. "No field named userid. ... Did you
+    mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
+    nullable keeps each batch's schema identical to the first overwrite, so the append never
+    triggers that path and camelCase column names survive.
+    """
+    nullable_schema = pa.schema(
+        [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
+        metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
+    )
+    return batch.cast(nullable_schema)
+
+
 def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     """Transform high-precision decimal columns to types supported by Delta Lake."""
     schema = batch.schema
@@ -276,7 +295,7 @@ async def get_query_row_count(
     # Userless materialization context; bypass warehouse HogQL access control so the model query
     # can resolve its source tables/views.
     context.database = await database_sync_to_async_pool(Database.create_for)(
-        team=team, modifiers=context.modifiers, bypass_access_control=True
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
     )
 
     prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
@@ -343,7 +362,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     # Userless materialization context; bypass warehouse HogQL access control so the model query
     # can resolve its source tables/views.
     context.database = await database_sync_to_async_pool(Database.create_for)(
-        team=team, modifiers=context.modifiers, bypass_access_control=True
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
     )
 
     factory = bounded_resolver_factory_for_view(view_name)
@@ -558,6 +577,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         async for batch, ch_types in hogql_table(hogql_query, team, logger):
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
+            batch = _force_nullable(batch)
             if delta_table is None:
                 pa_schema = batch.schema
                 await asyncio.to_thread(

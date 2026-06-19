@@ -12,7 +12,6 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-from posthog.models.cohort.cohort import is_cohort_recalculation_only_save
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -29,6 +28,7 @@ from posthog.utils import absolute_uri
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.plugin import sync_team_inject_web_apps
+from products.cohorts.backend.models.cohort import is_cohort_recalculation_only_save
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -275,7 +275,7 @@ def team_saved(sender, instance: Team, created, **kwargs):
     refresh_affected_hog_functions.delay(team_id=instance.id)
 
 
-@receiver(post_save, sender="posthog.Cohort")
+@receiver(post_save, sender="cohorts.Cohort")
 def cohort_saved(sender, instance, **kwargs):
     if is_cohort_recalculation_only_save(kwargs):
         return

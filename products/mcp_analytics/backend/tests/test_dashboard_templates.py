@@ -12,7 +12,7 @@ def test_mcp_analytics_default_template_includes_oauth_client_pie_chart() -> Non
     source = tile["query"]["source"]
 
     assert tile["name"] == "MCP clients"
-    assert source["series"][0]["event"] == "mcp_initialize"
+    assert source["series"][0]["event"] == "$mcp_initialize"
     assert source["breakdownFilter"] == {
         "breakdown_type": "event",
         "breakdown": "$mcp_client_name",
@@ -35,19 +35,19 @@ def test_mcp_analytics_default_template_includes_users_and_sessions() -> None:
     assert source["series"] == [
         {
             "kind": "EventsNode",
-            "event": "mcp_initialize",
-            "name": "mcp_initialize",
+            "event": "$mcp_initialize",
+            "name": "$mcp_initialize",
             "custom_name": "users",
             "math": "hogql",
             "math_hogql": "count(DISTINCT person_id)",
         },
         {
             "kind": "EventsNode",
-            "event": "mcp_initialize",
-            "name": "mcp_initialize",
+            "event": "$mcp_initialize",
+            "name": "$mcp_initialize",
             "custom_name": "sessions",
             "math": "hogql",
-            "math_hogql": "count(DISTINCT properties.$mcp_session_id)",
+            "math_hogql": "count(DISTINCT properties.$session_id)",
         },
     ]
 
@@ -67,8 +67,8 @@ def test_mcp_analytics_default_template_includes_tool_calls_by_error_status() ->
     assert source["series"] == [
         {
             "kind": "EventsNode",
-            "event": "mcp_tool_call",
-            "name": "mcp_tool_call",
+            "event": "$mcp_tool_call",
+            "name": "$mcp_tool_call",
             "math": "total",
         }
     ]

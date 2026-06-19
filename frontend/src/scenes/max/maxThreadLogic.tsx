@@ -24,7 +24,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
@@ -68,15 +68,16 @@ import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
-import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
+import { EnhancedToolCall, MODE_DEFINITIONS, TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic } from './maxLogic'
+import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
+    findPendingClientToolCall,
     getAgentModeForScene,
     isAssistantMessage,
     isAssistantToolCallMessage,
@@ -102,17 +103,18 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
 }
 
 export interface MaxThreadLogicProps {
-    tabId: string // used to refer back to MaxLogic
+    panelId?: string // identifies the MaxLogic instance backing this panel (scene tab id or side panel)
     conversationId: string
     conversation?: ConversationDetail | null
+    skipInitialLoad?: boolean
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
     key((props) => {
-        if (!props.tabId) {
-            throw new Error('Max thread logic must have a tabId prop')
+        if (!props.panelId) {
+            throw new Error('Max thread logic must have a panelId prop')
         }
-        return `${props.conversationId}-${props.tabId}`
+        return `${props.conversationId}-${props.panelId}`
     }),
 
     path((key) => ['scenes', 'max', 'maxThreadLogic', key]),
@@ -140,11 +142,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
 
-    connect(({ tabId }: MaxThreadLogicProps) => ({
+    connect(({ panelId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
-            maxLogic({ tabId }),
+            maxLogic({ panelId }),
             [
                 'question',
                 'autoRun',
@@ -162,7 +164,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['sceneId'],
         ],
         actions: [
-            maxLogic({ tabId }),
+            maxLogic({ panelId }),
             [
                 'askMax',
                 'setQuestion',
@@ -258,6 +260,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             formAnswers,
         }),
         continueAfterFormDismissal: true,
+        continueWithClientToolResult: (result: Record<string, unknown>, toolCallId: string) => ({ result, toolCallId }),
+        executePendingClientToolCall: true,
         continueAfterApproval: (proposalId: string) => ({ proposalId }),
         continueAfterRejection: (proposalId: string, feedback?: string) => ({
             proposalId,
@@ -417,7 +421,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const newMap = new Map(value)
                     let newValue: string
                     if (isSubagentUpdateEvent(update)) {
-                        const [description, _] = getToolCallDescriptionAndWidget(
+                        const [description, _] = getToolCallDescriptionAndWidgetDef(
                             update.content as unknown as EnhancedToolCall,
                             toolMap
                         )
@@ -1006,7 +1010,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // not just when active. Otherwise a typed turn following a spoken one inherits
             // the earlier <voice_mode> system instruction from conversation history and
             // keeps formatting for speech (no markdown, spelled-out numbers).
-            const handsFree = handsFreeLogic.findMounted({ tabId: props.tabId })
+            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
             const voiceMode = handsFree ? { voice_mode: handsFree.values.isActive } : undefined
             const mergedUiContext =
                 uiContext || voiceMode
@@ -1036,7 +1040,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     agentMode: values.agentMode,
                 })
                 actions.setQuestion('')
-                if (props.tabId === 'sidepanel' && sidePanelStateLogic.isMounted()) {
+                if (props.panelId === SIDE_PANEL_PANEL_ID && sidePanelStateLogic.isMounted()) {
                     sidePanelStateLogic.actions.setSidePanelOptions(null)
                 }
                 return
@@ -1087,7 +1091,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Clear the question
             actions.setQuestion('')
             // Drop #panel=max:… options so reload doesn't re-run auto-send from the hash
-            if (props.tabId === 'sidepanel' && sidePanelStateLogic.isMounted()) {
+            if (props.panelId === SIDE_PANEL_PANEL_ID && sidePanelStateLogic.isMounted()) {
                 sidePanelStateLogic.actions.setSidePanelOptions(null)
             }
             // For a new conversations, set the frontend conversation ID
@@ -1173,7 +1177,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         completeThreadGeneration: () => {
-            const handsFree = handsFreeLogic.findMounted({ tabId: props.tabId })
+            actions.executePendingClientToolCall()
+
+            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
             if (handsFree?.values.isActive) {
                 handsFree.actions.speakAssistantResponse(summariseAssistantThread(values.threadRaw))
             }
@@ -1223,7 +1229,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // payload is an object with doNotUpdateCurrentThread for loadConversationHistory,
             // but it's a string (conversationId) for loadConversation
             const doNotUpdate = typeof payload === 'object' && payload?.doNotUpdateCurrentThread
-            if (doNotUpdate || values.autoRun || values.streamingActive) {
+            if (props.skipInitialLoad || doNotUpdate || values.autoRun || values.streamingActive) {
                 return
             }
             // Don't auto-reconnect if there's a pending form
@@ -1313,6 +1319,73 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     content: null,
                     conversation: values.conversationId,
                     resume_payload: { action: 'dismiss_form' },
+                },
+                0,
+                false // Don't add to thread - no human message to show
+            )
+        },
+        executePendingClientToolCall: async () => {
+            // Guard on streamingActive, not threadLoading: conversationLoading is still true here
+            // because completeThreadGeneration resets the status after dispatching this action
+            if (values.conversationId !== values.activeThreadKey || values.streamingActive) {
+                return
+            }
+            // Include statically-marked tools so a deregistered handler refuses instead of stranding the call
+            const clientToolNames = new Set([
+                ...Object.values(values.toolMap)
+                    .filter((tool) => tool.clientExecution)
+                    .map((tool) => tool.identifier as string),
+                ...Object.entries(TOOL_DEFINITIONS)
+                    .filter(([, definition]) => definition.clientExecuted)
+                    .map(([name]) => name),
+            ])
+            const pending = findPendingClientToolCall(values.threadRaw, clientToolNames)
+            if (!pending) {
+                return
+            }
+            // One attempt per call: a failing resume turn re-fires completeThreadGeneration with
+            // the same dangling call, which would re-run the handler's side effects unboundedly
+            cache.resumedClientToolCallIds ??= new Set<string>()
+            if (cache.resumedClientToolCallIds.has(pending.toolCallId)) {
+                return
+            }
+            cache.resumedClientToolCallIds.add(pending.toolCallId)
+            const handler = values.toolMap[pending.toolName]?.clientExecution
+            let result: Record<string, unknown>
+            if (!handler) {
+                result = {
+                    client_execution_error:
+                        'The PostHog view that executes this tool client-side is no longer open, so the call could not be completed.',
+                }
+            } else {
+                try {
+                    result = (await handler(pending.args)) ?? {}
+                } catch (error) {
+                    result = { client_execution_error: String(error) }
+                }
+            }
+            // A user message during the handler abandons the interrupt server-side — drop the
+            // resume unless the same call is still dangling
+            const stillPending = findPendingClientToolCall(values.threadRaw, clientToolNames)
+            if (
+                values.conversationId !== values.activeThreadKey ||
+                values.streamingActive ||
+                stillPending?.toolCallId !== pending.toolCallId
+            ) {
+                return
+            }
+            actions.continueWithClientToolResult(result, pending.toolCallId)
+        },
+        continueWithClientToolResult: ({ result, toolCallId }) => {
+            actions.streamConversation(
+                {
+                    agent_mode: values.isSandboxMode ? null : values.agentMode,
+                    is_sandbox: values.isSandboxMode || undefined,
+                    content: null,
+                    conversation: values.conversationId,
+                    // Refresh tool context so the resumed generation sees state the handler just changed
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
+                    resume_payload: { action: 'client_tool_result', tool_call_id: toolCallId, result },
                 },
                 0,
                 false // Don't add to thread - no human message to show
@@ -1744,7 +1817,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         cache.lastConversationId = props.conversationId
         for (const l of maxThreadLogic.findAllMounted()) {
             if (l !== logic && l.props.conversationId === props.conversationId) {
-                // We found a logic with the same conversationId, but a different tabId
+                // We found a logic with the same conversationId, but a different panelId
                 if (l.values.conversation) {
                     actions.setConversation(l.values.conversation)
                 }
@@ -1764,7 +1837,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // Check for URL-based mode from side panel options (e.g., #panel=max:mode=research:question)
         // This must be done in maxThreadLogic's afterMount to ensure the correct instance sets the mode
         if (
-            props.tabId === 'sidepanel' &&
+            props.panelId === SIDE_PANEL_PANEL_ID &&
             !values.agentMode &&
             sidePanelStateLogic.isMounted() &&
             sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
@@ -1808,6 +1881,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
+            return
+        }
+
+        if (props.skipInitialLoad) {
             return
         }
 
@@ -1948,12 +2025,12 @@ function enhanceThreadToolCalls(
 
     // Enhance assistant messages with tool call status
     return group.map((message, messageIndex) => {
-        message = { ...message }
         // A message is in the final group if it comes after or is the last human message
         const isFinalGroup = messageIndex >= lastHumanMessageIndex
         if (isAssistantMessage(message) && message.tool_calls && message.tool_calls.length > 0) {
             const isLastPlanningMessage = message.id === lastPlanningMessageId
-            message.tool_calls = message.tool_calls.map<EnhancedToolCall>((toolCall) => {
+            const enhancedMessage = { ...message }
+            enhancedMessage.tool_calls = message.tool_calls.map<EnhancedToolCall>((toolCall) => {
                 const resultMessage = toolCallCompletions.get(toolCall.id)
                 const isCompleted = !!resultMessage
                 // create_form is an interactive tool - it's "completed" once rendered (waiting for user input)
@@ -1977,7 +2054,10 @@ function enhanceThreadToolCalls(
                     result: isAssistantToolCallMessage(resultMessage) ? resultMessage : undefined,
                 }
             })
+            return enhancedMessage
         }
+        // Messages we don't enhance are returned by reference so their identity stays stable
+        // across recomputes — this is what lets React.memo(Message) skip them on each token.
         return message
     })
 }

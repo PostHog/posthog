@@ -12,7 +12,6 @@ from posthog.models import OrganizationMembership
 class TestAccessControlSystemTables(BaseTest):
     """Test resource-level access control for system tables."""
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_org_admin_gets_all_system_tables(self):
         """Org admins should have access to all system tables."""
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -27,7 +26,6 @@ class TestAccessControlSystemTables(BaseTest):
         for table_name in fresh_system.children:
             assert table_name in system_node.children, f"{table_name} missing for admin"
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_regular_user_with_full_access_gets_all_tables(self):
         """Regular users with default full access should see all tables."""
         # Default setup - user has no restrictions
@@ -41,7 +39,6 @@ class TestAccessControlSystemTables(BaseTest):
         system_node = database.tables.children.get("system")
         assert system_node is not None
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_database_without_user_denies_scoped_tables(self):
         """Without user context, scoped tables should be removed and denied (fail-closed)."""
         database = Database.create_for(team=self.team, user=None)
@@ -80,8 +77,20 @@ class TestAccessControlSystemTables(BaseTest):
         assert "cohorts" in system_node.children
         assert "teams" in system_node.children
 
+    def test_bypass_warehouse_access_control_still_applies_system_table_acl(self):
+        """bypass_warehouse_access_control only relaxes warehouse tables/views; scoped system tables
+        still fail closed without a user."""
+        database = Database.create_for(team=self.team, user=None, bypass_warehouse_access_control=True)
 
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+        system_node = database.tables.children.get("system")
+        assert system_node is not None
+        # Scoped system tables stay denied despite the warehouse bypass.
+        assert "dashboards" not in system_node.children
+        assert "system.dashboards" in database._denied_tables
+        # Unscoped tables remain.
+        assert "cohorts" in system_node.children
+
+
 class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""
 
@@ -146,7 +155,6 @@ class TestAccessControlIntegration(BaseTest):
         assert prepared is not None
         return print_prepared_ast(prepared, context=context, dialect="clickhouse")
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_admin_can_query_system_dashboards(self):
         """Admin users should be able to query system.dashboards without restrictions."""
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -166,7 +174,6 @@ class TestAccessControlIntegration(BaseTest):
         assert "id" in sql
         assert "name" in sql
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_query_without_user_fails_on_scoped_table(self):
         """Querying a scoped system table without user should fail with access error."""
         from posthog.hogql.errors import QueryError
@@ -182,19 +189,6 @@ class TestAccessControlIntegration(BaseTest):
             self._compile_select("SELECT id, name FROM system.dashboards", context)
         assert "don't have access" in str(cm.exception)
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-    def test_database_without_user_keeps_all_tables_when_flag_off(self):
-        """When the feature flag is off, no tables are denied even without user."""
-        database = Database.create_for(team=self.team, user=None)
-        assert len(database._denied_tables) == 0
-        # Verify against a fresh SystemTables instance to avoid shared-state issues
-        fresh_system = SystemTables()
-        system_node = database.tables.children.get("system")
-        assert system_node is not None
-        for table_name in fresh_system.children:
-            assert table_name in system_node.children, f"{table_name} missing from system tables when flag is off"
-
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_query_without_user_works_for_unscoped_tables(self):
         """Unscoped system tables should still be queryable without user context."""
         context = HogQLContext(
@@ -337,7 +331,7 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert "denied_table" in database._denied_tables
         assert "allowed_table" in database._denied_tables
 
-    def test_bypass_access_control_skips_warehouse_acl(self):
+    def test_bypass_warehouse_access_control_skips_warehouse_acl(self):
         self._create_ac(
             resource="warehouse_table",
             resource_id=str(self.denied_table.id),
@@ -345,14 +339,14 @@ class TestWarehouseTableAccessControl(BaseTest):
             member=self._membership(),
         )
 
-        database = Database.create_for(team=self.team, user=self.user, bypass_access_control=True)
+        database = Database.create_for(team=self.team, user=self.user, bypass_warehouse_access_control=True)
 
         assert "denied_table" not in database._denied_tables
         assert "allowed_table" not in database._denied_tables
 
-    def test_bypass_access_control_skips_warehouse_acl_without_user(self):
+    def test_bypass_warehouse_access_control_skips_warehouse_acl_without_user(self):
         # The classic background-job case: no user, but the caller explicitly opts in.
-        database = Database.create_for(team=self.team, user=None, bypass_access_control=True)
+        database = Database.create_for(team=self.team, user=None, bypass_warehouse_access_control=True)
 
         assert "denied_table" not in database._denied_tables
         assert "allowed_table" not in database._denied_tables
@@ -480,8 +474,8 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         assert "don't have access" in str(cm.exception)
         assert "denied_warehouse_table" in str(cm.exception)
 
-    def test_execute_hogql_query_bypass_access_control_skips_denial(self):
-        """bypass_access_control opt-in should let the query past the access control gate
+    def test_execute_hogql_query_bypass_warehouse_access_control_skips_denial(self):
+        """bypass_warehouse_access_control opt-in should let the query past the access control gate
         (downstream may still fail because there's no real S3 data, but the
         gate must not block it)."""
         from posthog.hogql.context import HogQLContext
@@ -498,7 +492,9 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
             organization_member=self.membership,
         )
 
-        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, bypass_access_control=True)
+        context = HogQLContext(
+            team_id=self.team.pk, team=self.team, user=self.user, bypass_warehouse_access_control=True
+        )
         try:
             execute_hogql_query(
                 query="SELECT id FROM denied_warehouse_table",
@@ -597,7 +593,7 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert "denied_view" in database._denied_tables
         assert "allowed_view" in database._denied_tables
 
-    def test_bypass_access_control_skips_warehouse_view_acl(self):
+    def test_bypass_warehouse_access_control_skips_warehouse_view_acl(self):
         self._create_ac(
             resource="warehouse_view",
             resource_id=str(self.denied_view.id),
@@ -605,7 +601,63 @@ class TestWarehouseViewAccessControl(BaseTest):
             member=self._membership(),
         )
 
-        database = Database.create_for(team=self.team, user=self.user, bypass_access_control=True)
+        database = Database.create_for(team=self.team, user=self.user, bypass_warehouse_access_control=True)
 
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
+
+    def _materialize(self, view):
+        """Attach a same-named backing DataWarehouseTable to a saved query, mirroring materialization."""
+        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+
+        credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team)
+        backing_table = DataWarehouseTable.objects.create(
+            name=view.name,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=self.team,
+            credential=credential,
+            url_pattern=f"s3://bucket/{view.name}/*",
+            columns={"id": "String"},
+        )
+        view.table = backing_table
+        view.is_materialized = True
+        view.save(update_fields=["table", "is_materialized"])
+        return backing_table
+
+    def test_denied_materialized_view_also_blocks_backing_table(self):
+        # A materialized view's backing table shares the view's name. Denying the view must not leave
+        # the backing table queryable under that name.
+        backing_table = self._materialize(self.denied_view)
+
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "denied_view" in database._denied_tables
+        # The backing table is excluded from the schema build, so the view owns the name and its
+        # denial is authoritative - the name must not resolve to the backing table.
+        assert not database.has_table("denied_view")
+        assert backing_table.name == "denied_view"
+
+        from posthog.hogql.errors import QueryError
+
+        with self.assertRaises(QueryError) as cm:
+            database.get_table("denied_view")
+        assert "don't have access" in str(cm.exception)
+        assert "Unknown" not in str(cm.exception)
+
+    def test_allowed_materialized_view_still_resolves(self):
+        # The backing table is excluded, but the view node still exposes the name (and reads the
+        # materialized data via hogql_definition), so an allowed materialized view stays queryable.
+        self._materialize(self.allowed_view)
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert "allowed_view" not in database._denied_tables
+        assert database.has_table("allowed_view")

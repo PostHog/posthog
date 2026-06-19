@@ -12,7 +12,6 @@ from django.db import IntegrityError, transaction
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
 from posthog.models import (
-    Cohort,
     Group,
     GroupTypeMapping,
     Organization,
@@ -23,6 +22,8 @@ from posthog.models import (
     User,
 )
 from posthog.models.utils import UUIDT, generate_random_token_project
+
+from products.cohorts.backend.models.cohort import Cohort
 
 from .matrix import Matrix
 from .models import SimEvent, SimPerson

@@ -19,10 +19,14 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
     ) {}
 
     async fetchPerson(teamId: number, distinctId: string, callerTag?: string): Promise<InternalPerson | undefined> {
-        const results = await withRetry('PersonHogPersonReadRepository.fetchPerson', () =>
-            timedGrpc(this.clientLabel, 'fetchPerson', () =>
-                this.grpcClient.persons.fetchPersonsByDistinctIds([{ teamId, distinctId }], callerTag)
-            )
+        const method = 'fetchPerson'
+        const results = await withRetry(
+            () =>
+                timedGrpc(this.clientLabel, method, () =>
+                    this.grpcClient.persons.fetchPersonsByDistinctIds([{ teamId, distinctId }], callerTag)
+                ),
+            this.clientLabel,
+            method
         )
         return results.length > 0 ? results[0] : undefined
     }
@@ -31,10 +35,14 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
         teamPersons: { teamId: TeamId; distinctId: string }[],
         callerTag?: string
     ): Promise<InternalPersonWithDistinctId[]> {
-        return withRetry('PersonHogPersonReadRepository.fetchPersonsByDistinctIds', () =>
-            timedGrpc(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
-                this.grpcClient.persons.fetchPersonsByDistinctIds(teamPersons, callerTag)
-            )
+        const method = 'fetchPersonsByDistinctIds'
+        return withRetry(
+            () =>
+                timedGrpc(this.clientLabel, method, () =>
+                    this.grpcClient.persons.fetchPersonsByDistinctIds(teamPersons, callerTag)
+                ),
+            this.clientLabel,
+            method
         )
     }
 
@@ -42,10 +50,14 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
         teamPersons: { teamId: TeamId; personId: string }[],
         callerTag?: string
     ): Promise<InternalPerson[]> {
-        return withRetry('PersonHogPersonReadRepository.fetchPersonsByPersonIds', () =>
-            timedGrpc(this.clientLabel, 'fetchPersonsByPersonIds', () =>
-                this.grpcClient.persons.fetchPersonsByPersonIds(teamPersons, callerTag)
-            )
+        const method = 'fetchPersonsByPersonIds'
+        return withRetry(
+            () =>
+                timedGrpc(this.clientLabel, method, () =>
+                    this.grpcClient.persons.fetchPersonsByPersonIds(teamPersons, callerTag)
+                ),
+            this.clientLabel,
+            method
         )
     }
 
@@ -55,15 +67,19 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
         options?: { limitPerPerson?: number },
         callerTag?: string
     ): Promise<Record<string, string[]>> {
-        return withRetry('PersonHogPersonReadRepository.fetchDistinctIdsForPersons', () =>
-            timedGrpc(this.clientLabel, 'fetchDistinctIdsForPersons', () =>
-                this.grpcClient.persons.getDistinctIdsForPersons(
-                    teamId,
-                    personIntIds,
-                    options?.limitPerPerson,
-                    callerTag
-                )
-            )
+        const method = 'fetchDistinctIdsForPersons'
+        return withRetry(
+            () =>
+                timedGrpc(this.clientLabel, method, () =>
+                    this.grpcClient.persons.getDistinctIdsForPersons(
+                        teamId,
+                        personIntIds,
+                        options?.limitPerPerson,
+                        callerTag
+                    )
+                ),
+            this.clientLabel,
+            method
         )
     }
 }

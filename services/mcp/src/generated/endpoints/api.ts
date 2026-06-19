@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -157,6 +157,61 @@ export const EndpointsDestroyParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+export const EndpointsLogsRetrieveParams = /* @__PURE__ */ zod.object({
+    name: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const endpointsLogsRetrieveQueryLimitDefault = 50
+export const endpointsLogsRetrieveQueryLimitMax = 500
+
+export const EndpointsLogsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    after: zod.iso.datetime({ offset: true }).optional().describe('Only return entries after this ISO 8601 timestamp.'),
+    before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Only return entries before this ISO 8601 timestamp.'),
+    instance_id: zod.string().min(1).optional().describe('Filter logs to a specific execution instance.'),
+    level: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR."
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(endpointsLogsRetrieveQueryLimitMax)
+        .default(endpointsLogsRetrieveQueryLimitDefault)
+        .describe('Maximum number of log entries to return (1-500, default 50).'),
+    search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
+})
+
+/**
+ * Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.
+ */
+export const EndpointsMaterializationPreviewCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EndpointsMaterializationPreviewCreateBody = /* @__PURE__ */ zod.object({
+    version: zod.number().optional(),
+    bucket_overrides: zod
+        .record(zod.string(), zod.string())
+        .nullish()
+        .describe('Per-column bucket function overrides, e.g. {"timestamp": "hour"}'),
 })
 
 /**
@@ -1347,4 +1402,19 @@ export const EndpointsVersionsListQueryParams = /* @__PURE__ */ zod.object({
     is_active: zod.boolean().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Get the most recent execution time per endpoint (endpoint-level). Timestamps are recorded by the run path for personal-API-key calls. For per-version usage, query the query_log table directly.
+ */
+export const EndpointsLastExecutionTimesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const EndpointsLastExecutionTimesCreateBody = /* @__PURE__ */ zod.object({
+    names: zod.array(zod.string()),
 })

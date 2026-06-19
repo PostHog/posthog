@@ -4,6 +4,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 import requests
+from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -71,7 +72,13 @@ def get_rows(
         url = _build_initial_url(config.path)
 
     @retry(
-        retry=retry_if_exception_type((MailerLiteRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        # ChunkedEncodingError is a transient mid-stream connection drop while reading the
+        # response body (e.g. "Connection broken: InvalidChunkLength"). It subclasses
+        # RequestException directly, not ConnectionError, so it must be listed explicitly to be
+        # retried rather than failing the whole import on a single dropped connection.
+        retry=retry_if_exception_type(
+            (MailerLiteRetryableError, requests.ReadTimeout, requests.ConnectionError, ChunkedEncodingError)
+        ),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=1, max=60),
         reraise=True,

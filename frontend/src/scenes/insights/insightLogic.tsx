@@ -23,10 +23,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isEmptyObject, isObject } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
 import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -69,7 +70,7 @@ import {
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { insightDataLogic } from './insightDataLogic'
+import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
@@ -662,12 +663,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
                 } else if (insightNumericId) {
-                    if (props.tabId) {
-                        const mountedInsightSceneLogic = insightSceneLogic.findMounted({ tabId: props.tabId })
-                        mountedInsightSceneLogic?.actions.setInsightMode(
-                            ItemMode.View,
-                            InsightEventSource.InsightHeader
-                        )
+                    if (isInsightSceneInstance(props)) {
+                        insightSceneLogic
+                            .findMounted()
+                            ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                     }
                 } else {
                     router.actions.push(urls.insightView(savedInsight.short_id))

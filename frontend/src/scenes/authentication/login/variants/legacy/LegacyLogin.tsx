@@ -15,8 +15,9 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { Skeleton } from 'lib/ui/quill'
-import { isEmail } from 'lib/utils'
+import { isEmail } from 'lib/utils/url'
 import { AuthShell } from 'scenes/authentication/shared/AuthShell'
+import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
 import RegionSelect from 'scenes/authentication/shared/RegionSelect'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
@@ -168,6 +169,7 @@ export function LegacyLogin(): JSX.Element {
                         </>
                     </LemonBanner>
                 )}
+                {generalError?.code === 'invalid_credentials' && <OtherRegionHint />}
                 {isEmailVerificationSent ? (
                     <div className="deprecated-space-y-4">
                         <div className="flex justify-center">

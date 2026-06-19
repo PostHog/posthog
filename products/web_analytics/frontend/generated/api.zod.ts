@@ -102,6 +102,34 @@ export const SavedPartialUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional().describe('Set true to soft-delete the saved heatmap.'),
 })
 
+/**
+ * Clears a pending celebration for the given track and stage once the client has shown it, so it isn't celebrated again. Idempotent.
+ * @summary Acknowledge an achievement celebration
+ */
+export const webAnalyticsAchievementsAcknowledgeCelebrationBodyStageMax = 5
+
+export const WebAnalyticsAchievementsAcknowledgeCelebrationBody = /* @__PURE__ */ zod.object({
+    track_key: zod.string().describe('Track of the celebration being acknowledged.'),
+    stage: zod
+        .number()
+        .min(1)
+        .max(webAnalyticsAchievementsAcknowledgeCelebrationBodyStageMax)
+        .describe('Stage number being acknowledged, 1-5.'),
+})
+
+/**
+ * Idempotently increments the requesting user's first-party counter for an in-product Web analytics interaction (slicing data, or opening a session recording), which drives the Data Hog and Detective Hog achievement tracks.
+ * @summary Record a Web analytics interaction
+ */
+export const WebAnalyticsAchievementsRecordInteractionBody = /* @__PURE__ */ zod.object({
+    interaction_kind: zod
+        .enum(['data', 'recording'])
+        .describe('\* `data` - data\n\* `recording` - recording')
+        .describe(
+            "Which interaction counter to increment: 'data' (slicing\/filtering the dashboard) or 'recording' (opening a session recording).\n\n\* `data` - data\n\* `recording` - recording"
+        ),
+})
+
 export const webAnalyticsFilterPresetsCreateBodyNameMax = 400
 
 export const WebAnalyticsFilterPresetsCreateBody = /* @__PURE__ */ zod.object({

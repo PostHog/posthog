@@ -1,10 +1,11 @@
 """Slack notifications for signals inbox items.
 
-Each suggested reviewer on a ready report is routed to exactly one Slack channel:
-their own configured channel if they set one (filtered by their min-priority),
-otherwise the team-default channel, otherwise nowhere. Reviewers sharing a channel —
-notably everyone falling back to the team default — get a single post that mentions
-only the reviewers routed there. A report with no resolvable reviewers posts nothing.
+Mirrors the inbox Reports tab's actionability gate: a report notifies only if it's actionable
+(its latest actionability judgment is immediately_actionable or requires_human_input) — READY is
+enforced upstream — and has at least one suggested reviewer that resolves to a destination.
+Each reviewer is routed to one channel: their own configured channel if set (filtered by their
+min-priority), otherwise the team-default channel. Reviewers sharing a channel get a single post
+mentioning only the reviewers routed there. A report with no resolvable reviewer sends nothing.
 All sends are best-effort.
 """
 
@@ -29,10 +30,17 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
+)
+
+# Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
+# report notifies iff its latest actionability judgment is one of these (and it's READY).
+_ACTIONABLE_VALUES = frozenset(
+    {ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value, ActionabilityChoice.REQUIRES_HUMAN_INPUT.value}
 )
 
 logger = logging.getLogger(__name__)
@@ -57,12 +65,13 @@ _PRIORITY_ORDER: tuple[str, ...] = (
     AutonomyPriority.P4,
 )
 
+# Only the two highest priorities get a red, alarming emoji; the rest use a calmer severity gradient.
 _SLACK_PRIORITY_LABELS: dict[str, str] = {
-    AutonomyPriority.P0: "🆘 P0",
-    AutonomyPriority.P1: "‼️ P1",
-    AutonomyPriority.P2: "❗ P2",
-    AutonomyPriority.P3: "⚠️ P3",
-    AutonomyPriority.P4: "👀 P4",
+    AutonomyPriority.P0: "‼️ P0",
+    AutonomyPriority.P1: "❗ P1",
+    AutonomyPriority.P2: "🟠 P2",
+    AutonomyPriority.P3: "🟡 P3",
+    AutonomyPriority.P4: "🔵 P4",
 }
 
 _SOURCE_PRODUCT_LABELS: dict[str, str] = {
@@ -132,6 +141,24 @@ def _latest_priority(report: SignalReport) -> str | None:
     if not isinstance(data, dict):
         return None
     value = data.get("priority")
+    return value if isinstance(value, str) else None
+
+
+def _latest_actionability(report: SignalReport) -> str | None:
+    art = (
+        report.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+        .order_by("-created_at")
+        .first()
+    )
+    if art is None:
+        return None
+    try:
+        data = json.loads(art.content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("actionability")
     return value if isinstance(value, str) else None
 
 
@@ -294,9 +321,9 @@ def _build_message_blocks(
     dismiss_button_value: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
-    header_text = f"📬 {title_line}"
-    if len(header_text) > _SLACK_HEADER_MAX_LEN:
-        header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
+    header_text = (
+        title_line if len(title_line) <= _SLACK_HEADER_MAX_LEN else title_line[: _SLACK_HEADER_MAX_LEN - 3] + "..."
+    )
 
     meta_parts: list[str] = []
     if priority:
@@ -350,8 +377,8 @@ def _build_message_blocks(
     action_elements.append(
         {
             "type": "button",
-            "text": {"type": "plain_text", "text": "Open in PostHog Code", "emoji": True},
-            "url": f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report.id}",
+            "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+            "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
         }
     )
     if dismiss_button_value:
@@ -375,8 +402,159 @@ def _build_message_blocks(
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
-    fallback_text = f"Inbox item{priority_suffix}: {title_line}"
+    fallback_text = f"Inbox item{priority_suffix}: {_escape_mrkdwn(title_line)}"
     return blocks, fallback_text
+
+
+# Bound how many evidence signals we post into a thread so a large report can't flood a channel.
+_MAX_THREAD_SIGNALS = 30
+# Slack section text caps at 3000 chars; leave headroom for the ellipsis.
+_SIGNAL_CONTENT_MAX_LEN = 2900
+
+# Explicit "Product · Signal type" labels, mirroring `signalCardSourceLine` in the canonical Inbox UI
+# (PostHog Code's apps/code/.../detail/SignalCard.tsx). Keep in sync with it.
+_SIGNAL_SOURCE_LINES: dict[tuple[str, str], str] = {
+    ("error_tracking", "issue_created"): "Error tracking · New issue",
+    ("error_tracking", "issue_reopened"): "Error tracking · Issue reopened",
+    ("error_tracking", "issue_spiking"): "Error tracking · Volume spike",
+    ("session_replay", "session_problem"): "Session replay · Session problem",
+    ("session_replay", "session_segment_cluster"): "Session replay · Session segment cluster",
+    ("session_replay", "session_analysis_cluster"): "Session replay · Session analysis cluster",
+    ("llm_analytics", "evaluation"): "AI observability · Evaluation",
+    ("zendesk", "ticket"): "Zendesk · Ticket",
+    ("github", "issue"): "GitHub · Issue",
+    ("linear", "issue"): "Linear · Issue",
+    ("pganalyze", "issue"): "pganalyze · Issue",
+}
+
+
+def _prettify_scout_name(skill_name: str) -> str:
+    """Turn a scout's skill_name (e.g. "signals-scout-error-tracking") into a label (e.g. "Error tracking")."""
+    cleaned = skill_name.removeprefix("signals-scout-").replace("-", " ").replace("_", " ").strip()
+    return cleaned[:1].upper() + cleaned[1:] if cleaned else ""
+
+
+def _signal_source_line(source_product: str, source_type: str, extra: dict | None = None) -> str:
+    """Human-readable "Product · Signal type" line, mirroring `signalCardSourceLine` in the canonical Inbox UI."""
+    explicit = _SIGNAL_SOURCE_LINES.get((source_product, source_type))
+    if explicit is not None:
+        return explicit
+    if source_product == "error_tracking":
+        type_label = source_type.replace("_", " ")
+        return f"Error tracking · {type_label}" if type_label else "Error tracking"
+    if source_product == "signals_scout" and source_type == "cross_source_issue":
+        skill_name = extra.get("skill_name") if isinstance(extra, dict) else None
+        pretty = _prettify_scout_name(skill_name) if isinstance(skill_name, str) else ""
+        return f"Scout · {pretty}" if pretty else "Scout · Cross-source issue"
+    product_label = source_product.replace("_", " ")
+    type_label = source_type.replace("_", " ")
+    return f"{product_label} · {type_label}" if type_label else product_label
+
+
+def _is_safe_http_url(value: object) -> bool:
+    # mrkdwn link injection guard: only plain http(s) URLs without the chars that break `<url|text>`.
+    if not isinstance(value, str):
+        return False
+    if not (value.startswith("http://") or value.startswith("https://")):
+        return False
+    return not any(char in value for char in ("<", ">", "|"))
+
+
+def _signal_detail_parts(source_product: str, extra: dict) -> list[str]:
+    """A compact, source-specific metadata line mirroring the inbox SignalCard footer."""
+    parts: list[str] = []
+    if source_product == "github":
+        number = extra.get("number")
+        if number is not None:
+            parts.append(f"#{_escape_mrkdwn(str(number))}")
+        labels = extra.get("labels")
+        if isinstance(labels, list) and labels:
+            parts.append(", ".join(_escape_mrkdwn(str(label)) for label in labels[:5]))
+        if _is_safe_http_url(extra.get("html_url")):
+            parts.append(f"<{extra['html_url']}|View on GitHub>")
+    elif source_product == "zendesk":
+        if extra.get("priority"):
+            parts.append(f"Priority: {_escape_mrkdwn(str(extra['priority']))}")
+        if extra.get("status"):
+            parts.append(f"Status: {_escape_mrkdwn(str(extra['status']))}")
+        if _is_safe_http_url(extra.get("url")):
+            parts.append(f"<{extra['url']}|Open ticket>")
+    elif source_product == "llm_analytics":
+        if extra.get("model"):
+            parts.append(f"Model: {_escape_mrkdwn(str(extra['model']))}")
+        if extra.get("provider"):
+            parts.append(f"Provider: {_escape_mrkdwn(str(extra['provider']))}")
+        trace_id = extra.get("trace_id")
+        if trace_id:
+            parts.append(f"Trace: `{_escape_mrkdwn(str(trace_id)[:12])}…`")
+    elif source_product == "error_tracking":
+        fingerprint = extra.get("fingerprint")
+        if fingerprint:
+            text = str(fingerprint)
+            short = text if len(text) <= 14 else text[:14] + "…"
+            parts.append(f"Fingerprint: `{_escape_mrkdwn(short)}`")
+    elif source_product == "session_replay":
+        if extra.get("problem_type"):
+            parts.append(f"Problem: {_escape_mrkdwn(str(extra['problem_type']).replace('_', ' '))}")
+    return parts
+
+
+def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
+    """Render one evidence signal as Slack blocks, mirroring an inbox SignalCard."""
+    source_product = str(signal.get("source_product") or "")
+    source_type = str(signal.get("source_type") or "")
+    raw_extra = signal.get("extra")
+    extra = raw_extra if isinstance(raw_extra, dict) else {}
+    try:
+        weight = float(signal.get("weight") or 0.0)
+    except (TypeError, ValueError):
+        weight = 0.0
+
+    source_line = _escape_mrkdwn(_signal_source_line(source_product, source_type, extra))
+    header_line = f"*{source_line}*  ·  Weight: {weight:.1f}"
+    blocks: list[dict] = [{"type": "context", "elements": [{"type": "mrkdwn", "text": header_line}]}]
+
+    content = (signal.get("content") or "").strip()
+    if content:
+        if len(content) > _SIGNAL_CONTENT_MAX_LEN:
+            content = content[: _SIGNAL_CONTENT_MAX_LEN - 1].rstrip() + "…"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _escape_mrkdwn(content)}})
+
+    detail_parts = _signal_detail_parts(source_product, extra)
+    if detail_parts:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "  ·  ".join(detail_parts)}]})
+
+    # Slack parses mrkdwn mentions in `text` (push notifications, search) even with blocks present, so both
+    # the source line (escaped above) and content are escaped here too.
+    fallback = source_line if not content else f"{source_line}: {_escape_mrkdwn(content[:120])}"
+    return blocks, fallback
+
+
+def _post_signal_evidence_thread(
+    slack: SlackIntegration,
+    channel_id: str,
+    thread_ts: str,
+    signals: list[dict],
+) -> None:
+    """Post each evidence signal as a reply in the notification's Slack thread. Best-effort."""
+    for signal in signals[:_MAX_THREAD_SIGNALS]:
+        blocks, text = _build_signal_thread_blocks(signal)
+        try:
+            slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, blocks=blocks, text=text)
+        except Exception:
+            logger.exception("Failed to post signal evidence to inbox notification thread")
+
+    # The overflow note reflects signals intentionally withheld by the cap — not transient post failures.
+    overflow = max(0, len(signals) - _MAX_THREAD_SIGNALS)
+    if overflow > 0:
+        try:
+            slack.client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=f"+{overflow} more {'signal' if overflow == 1 else 'signals'} in PostHog",
+            )
+        except Exception:
+            logger.exception("Failed to post signal evidence overflow note to inbox notification thread")
 
 
 class _ChannelRoute:
@@ -398,10 +576,11 @@ def _build_reviewer_routes(
 ) -> list[_ChannelRoute]:
     """Route each resolvable suggested reviewer to a single destination channel.
 
-    Own channel (filtered by the reviewer's min-priority) if set, else the team
-    default, else nowhere. A reviewer filtered out of their own channel does not fall
-    back to the team channel — that was their choice. Reviewers sharing a destination
-    are grouped so each channel is posted to once, mentioning only its own reviewers.
+    Own channel (filtered by the reviewer's min-priority) if set, else the team default,
+    else nowhere. A reviewer filtered out of their own channel does not fall back to the
+    team channel — that was their choice. Reviewers sharing a destination are grouped so
+    each channel is posted to once, mentioning only its own reviewers. A report whose
+    reviewers don't resolve to a channel sends nothing.
     """
     reviewer_user_ids = _resolve_suggested_reviewer_user_ids(report)
     if not reviewer_user_ids:
@@ -448,8 +627,15 @@ def dispatch_inbox_item_notifications(
     report_id: str,
     team_id: int,
     source_products: list[str] | None = None,
+    signals: list[dict] | None = None,
 ) -> int:
-    """Send Slack notifications for a newly-ready report. Returns count of messages sent.
+    """Send Slack notifications for a newly-ready report.
+
+    Returns the number of top-level notification messages sent (one per destination
+    channel); threaded evidence replies are not included in the count.
+
+    When ``signals`` is provided, each evidence signal is posted as a reply in the
+    notification's thread, mirroring the inbox UI so reviewers can scan it from Slack.
 
     Best-effort: per-destination Slack errors are logged, not raised.
     """
@@ -462,11 +648,17 @@ def dispatch_inbox_item_notifications(
         )
         return 0
 
-    priority = _latest_priority(report)
-    # Don't notify until a priority is persisted — an unprioritised report isn't ready for the inbox.
-    if _priority_rank(priority) is None:
+    # Mirror the inbox Reports tab: notify only for actionable reports (READY is enforced upstream
+    # in the notification activity). Priority is read below for the message label and min-priority
+    # routing, but it's optional now — an actionable report notifies even without a priority.
+    if _latest_actionability(report) not in _ACTIONABLE_VALUES:
+        logger.info(
+            "dispatch_inbox_item_notifications: report not actionable, skipping",
+            extra={"report_id": report_id, "team_id": team_id},
+        )
         return 0
 
+    priority = _latest_priority(report)
     team_integration = _get_team_slack_integration(team_id)
     team_channel = _team_notification_channel(team_id) if team_integration is not None else None
 
@@ -477,6 +669,19 @@ def dispatch_inbox_item_notifications(
         team_channel=team_channel,
     )
     if not routes:
+        # No reviewer resolved to a destination: no suggested reviewers linked to a user, none met
+        # their min-priority, or there's no own/team channel to fall back to. This is the most
+        # common reason an actionable report sends nothing — log the inputs so it's diagnosable.
+        logger.info(
+            "dispatch_inbox_item_notifications: no reviewer routes resolved, skipping",
+            extra={
+                "report_id": report_id,
+                "team_id": team_id,
+                "priority": priority,
+                "has_team_integration": team_integration is not None,
+                "has_team_channel": team_channel is not None,
+            },
+        )
         return 0
 
     sources = source_products or []
@@ -511,8 +716,15 @@ def dispatch_inbox_item_notifications(
                 implementation_pr_url=implementation_pr_url,
                 dismiss_button_value=dismiss_button_value,
             )
-            slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
+            response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
             sent += 1
+            thread_ts = response.get("ts") if hasattr(response, "get") else None
+            if signals and thread_ts:
+                _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
         except Exception:
             logger.exception("Failed to deliver signals inbox-item Slack notification", extra=log_context)
+    logger.info(
+        "dispatch_inbox_item_notifications: complete",
+        extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},
+    )
     return sent

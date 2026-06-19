@@ -51,7 +51,7 @@ def bigquery_config() -> dict[str, str]:
 
 
 @pytest.fixture
-def bigquery_client() -> collections.abc.Generator[bigquery.Client, None, None]:
+def bigquery_client() -> collections.abc.Generator[bigquery.Client]:
     """Manage a bigquery.Client for testing."""
     client = bigquery.Client()
 
@@ -61,7 +61,7 @@ def bigquery_client() -> collections.abc.Generator[bigquery.Client, None, None]:
 
 
 @pytest.fixture
-def bigquery_dataset(bigquery_config, bigquery_client) -> collections.abc.Generator[bigquery.Dataset, None, None]:
+def bigquery_dataset(bigquery_config, bigquery_client) -> collections.abc.Generator[bigquery.Dataset]:
     """Manage a bigquery dataset for testing.
 
     We clean up the dataset after every test. Could be quite time expensive, but guarantees a clean slate.
@@ -93,7 +93,7 @@ def bigquery_table_primary_key(request) -> str:
 @pytest.fixture
 def bigquery_table_integer(
     bigquery_config, bigquery_client, bigquery_dataset, bigquery_table_primary_key
-) -> collections.abc.Generator[bigquery.Table, None, None]:
+) -> collections.abc.Generator[bigquery.Table]:
     """Manage a bigquery table for testing.
 
     We clean up the table after every test. Could be quite time expensive, but guarantees a clean slate.
@@ -129,7 +129,7 @@ def bigquery_table_integer(
 @pytest.fixture
 def bigquery_table_timestamp(
     bigquery_config, bigquery_client, bigquery_dataset, bigquery_table_primary_key
-) -> collections.abc.Generator[bigquery.Table, None, None]:
+) -> collections.abc.Generator[bigquery.Table]:
     """Manage a bigquery table for testing.
 
     We clean up the table after every test. Could be quite time expensive, but guarantees a clean slate.
@@ -172,7 +172,7 @@ def bigquery_table_timestamp(
 @pytest.fixture
 def bigquery_view_integer(
     bigquery_config, bigquery_client, bigquery_dataset, bigquery_table_integer
-) -> collections.abc.Generator[bigquery.Table, None, None]:
+) -> collections.abc.Generator[bigquery.Table]:
     """Manage a BigQuery view for testing.
 
     We clean up the view after every test. Could be quite time expensive, but guarantees a clean slate.

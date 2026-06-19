@@ -14,7 +14,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { pluralize } from 'lib/utils/strings'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
 import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -322,7 +324,13 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
         >
             {annotations.length ? (
                 singleEmoji ? (
-                    <LemonBadge content={singleEmoji} status="data" size="small" active={active && isDateLocked} />
+                    <LemonBadge
+                        content={singleEmoji}
+                        status="data"
+                        size="small"
+                        active={active && isDateLocked}
+                        className="AnnotationsBadge__emoji"
+                    />
                 ) : (
                     <LemonBadge.Number
                         count={annotations.length}

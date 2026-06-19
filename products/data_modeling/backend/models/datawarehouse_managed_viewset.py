@@ -85,7 +85,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         from posthog.hogql.database.database import Database
 
         # Internal managed-view construction (no user); bypass warehouse HogQL access control.
-        database = Database.create_for(self.team.pk, bypass_access_control=True)
+        database = Database.create_for(self.team.pk, bypass_warehouse_access_control=True)
         external_tables_by_view: dict[str, list] = {}
         for view in expected_views:
             temp_sq = DataWarehouseSavedQuery(

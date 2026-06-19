@@ -3,7 +3,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { normalizeMessage, normalizeMessages } from './messageNormalization'
 import { messageSignature } from './messageSignature'
 import { CompatMessage } from './types'
-import { eventLabel, formatAiErrorForDisplay, getToolNamesCalled, readAiInput, readAiOutput } from './utils'
+import { eventLabel, formatAiErrorForDisplay, readAiInput, readAiOutput } from './utils'
 
 // Heuristic mirrors the AI observability skill script `print_summary.py` at
 // `products/ai_observability/skills/exploring-llm-traces/scripts/` — keep in sync.
@@ -94,6 +94,32 @@ export interface SessionTurn {
     errors: SessionTurnError[]
 }
 
+// Returns the tool names invoked across events in chronological order (duplicates preserved)
+export function getToolNamesCalled(events: LLMTraceEvent[]): string[] {
+    const sorted = [...events].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    const names: string[] = []
+    // Pulls from `$ai_span_name` on instrumented `$ai_span` events
+    // and from `tool_calls[].function.name` on normalized `$ai_generation` outputs
+    for (const event of sorted) {
+        if (event.event === '$ai_span') {
+            const spanName = event.properties.$ai_span_name
+            if (typeof spanName === 'string' && spanName) {
+                names.push(spanName)
+            }
+        } else if (event.event === '$ai_generation') {
+            for (const msg of normalizeMessages(event.properties.$ai_output_choices, 'assistant').messages) {
+                for (const tc of msg.tool_calls ?? []) {
+                    const name = tc.function?.name
+                    if (typeof name === 'string' && name) {
+                        names.push(name)
+                    }
+                }
+            }
+        }
+    }
+    return names
+}
+
 function getToolNamesCalledUnique(events: LLMTraceEvent[]): string[] {
     // `Set` insertion order preserves first-appearance
     return Array.from(new Set(getToolNamesCalled(events)))
@@ -178,8 +204,8 @@ export function extractSessionTurns(traces: LLMTrace[], fullTraces: Record<strin
         const rawOutput = readAiOutput(properties)
         const aiTools = properties.$ai_tools
 
-        const inputMessages = normalizeMessages(rawInput, 'user', aiTools)
-        const outputMessages = normalizeMessages(rawOutput, 'assistant')
+        const inputMessages = normalizeMessages(rawInput, 'user', aiTools).messages
+        const outputMessages = normalizeMessages(rawOutput, 'assistant').messages
 
         const newInputs: CompatMessage[] = []
         const msgCountThisTurn = new Map<string, number>()

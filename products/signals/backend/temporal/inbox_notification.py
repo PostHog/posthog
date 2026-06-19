@@ -1,8 +1,9 @@
 """Decides when to send a report's inbox Slack notification.
 
-A report that auto-starts an implementation task waits for the PR to open (so the card can
-carry a "Review PR" button), bounded by a timeout. A report with no auto-start task notifies
-immediately. Posting itself stays in `dispatch_inbox_item_notifications`; this governs timing.
+Every actionable report notifies; the PR is enrichment, not a gate. With an auto-start task we
+wait (bounded by a timeout) for the PR so the card can link it, then notify either way; with no
+task we notify immediately. Actionability is enforced downstream (READY status + persisted
+priority). Posting lives in `dispatch_inbox_item_notifications`; this workflow governs timing.
 """
 
 from __future__ import annotations
@@ -96,7 +97,12 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     # Re-derive source products at send time so a deferred notification reflects the current signals.
     signals = fetch_signals_for_report_sync(team, report_id)
     source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
-    return dispatch_inbox_item_notifications(report_id=report_id, team_id=team_id, source_products=source_products)
+    return dispatch_inbox_item_notifications(
+        report_id=report_id,
+        team_id=team_id,
+        source_products=source_products,
+        signals=signals,
+    )
 
 
 @temporalio.activity.defn
@@ -118,8 +124,14 @@ class SignalReportInboxNotificationWorkflow:
         timeout_seconds = settings.SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS
         poll_seconds = max(1, settings.SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS)
 
+        log_ctx = {"report_id": inputs.report_id, "team_id": inputs.team_id}
+
         state = await self._fetch_state(inputs)
         if state.has_implementation_task and not state.pr_available and not state.task_terminal:
+            workflow.logger.info(
+                "inbox notification: implementation task present, waiting for its PR",
+                extra={**log_ctx, "timeout_seconds": timeout_seconds},
+            )
             elapsed = 0
             while elapsed < timeout_seconds:
                 await workflow.sleep(timedelta(seconds=poll_seconds))
@@ -127,13 +139,44 @@ class SignalReportInboxNotificationWorkflow:
                 state = await self._fetch_state(inputs)
                 if state.pr_available or state.task_terminal:
                     break
+            if state.pr_available:
+                wait_outcome = "pr_opened"
+            elif state.task_terminal:
+                wait_outcome = "task_ended_without_pr"
+            else:
+                wait_outcome = "timed_out_without_pr"
+            workflow.logger.info(
+                "inbox notification: PR wait finished",
+                extra={
+                    **log_ctx,
+                    "outcome": wait_outcome,
+                    "elapsed_seconds": elapsed,
+                    "pr_available": state.pr_available,
+                },
+            )
+        elif not state.has_implementation_task:
+            workflow.logger.info("inbox notification: no implementation task, notifying now", extra=log_ctx)
+        else:
+            workflow.logger.info(
+                "inbox notification: PR already resolved on first check",
+                extra={**log_ctx, "pr_available": state.pr_available},
+            )
 
-        return await workflow.execute_activity(
+        # Transitional shim: keep replaying the now-removed `signals-inbox-skip-any-no-pr` patch so
+        # executions in flight during rollout stay deterministic. Drop once they drain.
+        workflow.deprecate_patch("signals-inbox-skip-any-no-pr")
+
+        sent = await workflow.execute_activity(
             send_report_inbox_notifications_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
+        workflow.logger.info(
+            "inbox notification: dispatch complete",
+            extra={**log_ctx, "messages_sent": sent, "pr_available": state.pr_available},
+        )
+        return sent
 
     async def _fetch_state(self, inputs: InboxNotificationInput) -> InboxNotificationState:
         return await workflow.execute_activity(

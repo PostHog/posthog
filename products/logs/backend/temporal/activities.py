@@ -490,7 +490,7 @@ def _cohort_manifests_from_alerts(
 
     manifests: list[CohortManifest] = []
     for (team_id, _wm, _ep, _cim, projection_eligible, date_to), alert_ids in grouped.items():
-        for chunk in batched(alert_ids, MAX_ALERT_COHORT_SIZE):
+        for chunk in batched(alert_ids, MAX_ALERT_COHORT_SIZE, strict=False):
             manifests.append(
                 CohortManifest(
                     team_id=team_id,

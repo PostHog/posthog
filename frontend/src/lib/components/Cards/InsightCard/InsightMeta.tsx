@@ -16,7 +16,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -26,9 +25,9 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -198,7 +197,9 @@ export function InsightMeta({
             : true
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
+        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
+    })
 
     const canToggleDisplayLabels = isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight
     const canToggleLegend = isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight
@@ -287,8 +288,15 @@ export function InsightMeta({
               ? 'Refreshing...'
               : undefined
 
+    // On compact dashboard tiles the date just mirrors the dashboard's own range unless the
+    // tile overrides it, so suppress the redundant label and only keep it for tile-level overrides.
+    const tileHasOwnDateOverride = tileFiltersOverride?.date_from != null || tileFiltersOverride?.date_to != null
     const topHeadingEl = showCompactHeading ? (
-        <TopHeading {...topHeadingProps} showInsightType={!showCompactTile} />
+        <TopHeading
+            {...topHeadingProps}
+            showInsightType={!showCompactTile}
+            showDate={!showCompactTile || tileHasOwnDateOverride}
+        />
     ) : null
     const popoverTopHeadingEl = showCompactTile ? <TopHeading {...topHeadingProps} /> : undefined
 
@@ -508,25 +516,7 @@ export function InsightMeta({
                                             onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
                                         />
                                         {removeFromDashboard && (
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() =>
-                                                    LemonDialog.open({
-                                                        title: 'Remove from dashboard',
-                                                        description:
-                                                            'Are you sure you want to remove this insight from the dashboard?',
-                                                        primaryButton: {
-                                                            children: 'Remove from dashboard',
-                                                            status: 'danger',
-                                                            onClick: removeFromDashboard,
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                        },
-                                                    })
-                                                }
-                                                fullWidth
-                                            >
+                                            <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
                                                 Remove from dashboard
                                             </LemonButton>
                                         )}
@@ -666,7 +656,7 @@ export function InsightMetaContent({
 }): JSX.Element {
     const titleContent = (
         <>
-            <span className={clsx(infoPopover && 'truncate text-primary')}>
+            <span className={clsx('text-primary', infoPopover && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (

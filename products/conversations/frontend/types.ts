@@ -23,6 +23,8 @@ export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
 export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
+export type TicketTagsMatch = 'any' | 'all'
+
 export interface TicketViewFilters {
     status?: TicketStatus[]
     priority?: TicketPriority[]
@@ -30,6 +32,8 @@ export interface TicketViewFilters {
     sla?: TicketSlaState | 'all'
     assignee?: AssigneeFilterValue
     tags?: string[]
+    tagsMatch?: TicketTagsMatch
+    tagsExclude?: string[]
     dateFrom?: string | null
     dateTo?: string | null
     sorting?: Sorting | null

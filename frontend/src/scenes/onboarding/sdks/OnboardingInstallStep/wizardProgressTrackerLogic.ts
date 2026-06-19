@@ -1,9 +1,13 @@
-import { actions, afterMount, beforeUnmount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
+import { elapsedSecondsFrom } from 'lib/utils/datetime'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
+import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
 import type { wizardProgressTrackerLogicType } from './wizardProgressTrackerLogicType'
 
 export type DisplayState =
@@ -32,6 +36,24 @@ const HEARTBEAT_QUIET_THRESHOLD_MS = 25_000
 const SESSION_CURRENT_THRESHOLD_MS = 10 * 60 * 1000
 
 const WORKFLOW_ID = 'posthog-integration'
+
+// Per-session telemetry guards, deliberately module-scoped rather than on the kea
+// `cache`. The tracker logic unmounts whenever the FAB's `shouldStream` flips false
+// and the install step isn't mounted, and a remount wipes `cache` — so a cache-based
+// guard would let the SSE redeliver a still-in-flight session and re-fire these
+// events. Keying by session_id at module scope makes "once per session" hold across
+// remounts for the whole page load. (A hard reload starts a fresh page session; the
+// reach funnel is read on unique users, so that boundary is acceptable.)
+const reportedDetectedSessions = new Set<string>()
+const reportedFinishedSessions = new Set<string>()
+const reportedDismissedSessions = new Set<string>()
+
+// Test-only: clear the module-level guards so each case starts from a clean slate.
+export function resetWizardSyncTelemetryForTests(): void {
+    reportedDetectedSessions.clear()
+    reportedFinishedSessions.clear()
+    reportedDismissedSessions.clear()
+}
 
 function runPhaseMessage(phase: string): string {
     if (phase === 'completed') {
@@ -78,7 +100,14 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
             ['latestSession', 'connectionStatus', 'lastError'],
         ],
-        actions: [wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }), ['connect', 'disconnect']],
+        actions: [
+            wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
+            ['connect', 'disconnect'],
+            wizardActiveSessionDetectorLogic,
+            ['markActive', 'scheduleMarkInactive'],
+            eventUsageLogic,
+            ['reportWizardSyncSessionDetected', 'reportWizardSyncSessionFinished', 'reportWizardSyncDismissed'],
+        ],
     })),
     actions({
         appendActivity: (text: string) => ({ text, at: Date.now() }),
@@ -162,16 +191,7 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
         ],
         elapsedSeconds: [
             (s) => [s.latestSession, s.now],
-            (latestSession, now): number => {
-                if (!latestSession) {
-                    return 0
-                }
-                const startedAt = new Date(latestSession.started_at).getTime()
-                if (Number.isNaN(startedAt)) {
-                    return 0
-                }
-                return Math.max(0, Math.floor((now - startedAt) / 1000))
-            },
+            (latestSession, now): number => (latestSession ? elapsedSecondsFrom(latestSession.started_at, now) : 0),
         ],
     }),
     subscriptions(({ actions }) => ({
@@ -183,7 +203,7 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 connecting: 'connecting…',
                 open: 'connected, waiting for wizard',
                 closed: 'stream closed',
-                error: 'transport error — reconnecting…',
+                error: 'connection error — reconnecting…',
                 idle: '',
             }
             const text = messages[status as string]
@@ -197,8 +217,37 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             }
             const now = Date.now()
             const updatedAt = new Date(session.updated_at).getTime()
-            if (!Number.isNaN(updatedAt) && now - updatedAt < SESSION_CURRENT_THRESHOLD_MS) {
+            const isFresh = !Number.isNaN(updatedAt) && now - updatedAt < SESSION_CURRENT_THRESHOLD_MS
+            if (isFresh) {
                 actions.markSessionCurrent()
+                // Reach metric: count each live wizard session the sync surfaces, once per
+                // session_id. Gated on freshness so stale terminal rows sitting in the DB —
+                // which never reach the user — don't inflate the funnel.
+                if (!reportedDetectedSessions.has(session.session_id)) {
+                    reportedDetectedSessions.add(session.session_id)
+                    actions.reportWizardSyncSessionDetected({
+                        workflowId: WORKFLOW_ID,
+                        skillId: session.skill_id,
+                        runPhase: session.run_phase,
+                        taskCount: session.tasks.length,
+                    })
+                }
+            }
+            // Keep the global detector in sync so the FAB survives a navigation
+            // away from the install step. Gate on the detector's shared
+            // eligibility predicate (server staleness + lifetime cap + terminal
+            // phase) so the SSE and REST paths agree on when streaming may
+            // continue — a wedged CLI heartbeating `updated_at` past the lifetime
+            // cap stops re-arming markActive, letting teardown actually run. Only
+            // schedule teardown on the eligible → ineligible *transition* so
+            // repeated re-polls don't reset the clock (the detector's
+            // `scheduleMarkInactive` is also idempotent as a belt-and-braces guard).
+            const eligible = isSessionActive(session)
+            const wasEligible = isSessionActive(prev)
+            if (eligible) {
+                actions.markActive()
+            } else if (wasEligible) {
+                actions.scheduleMarkInactive()
             }
             if (!prev) {
                 actions.appendActivity(`session started for ${session.skill_id}`)
@@ -212,6 +261,21 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             }
             if (session.run_phase !== prev.run_phase) {
                 actions.appendActivity(runPhaseMessage(session.run_phase))
+                const isTerminal = session.run_phase === 'completed' || session.run_phase === 'error'
+                // Outcome metric: fire once when a run the user watched live reaches a
+                // terminal phase. Terminal phases are sticky, so this transition is observed
+                // at most once per session — the id guard covers any SSE redelivery.
+                if (isTerminal && !reportedFinishedSessions.has(session.session_id)) {
+                    reportedFinishedSessions.add(session.session_id)
+                    actions.reportWizardSyncSessionFinished({
+                        workflowId: WORKFLOW_ID,
+                        skillId: session.skill_id,
+                        outcome: session.run_phase,
+                        taskCount: session.tasks.length,
+                        completedTaskCount: session.tasks.filter((t) => t.status === 'completed').length,
+                        elapsedSeconds: elapsedSecondsFrom(session.started_at, now),
+                    })
+                }
             }
             const prevTaskKeys = new Set(prev.tasks.map((t) => `${t.id}::${t.status}`))
             for (const task of session.tasks) {
@@ -225,6 +289,29 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             }
         },
     })),
+    listeners(({ values, actions }) => ({
+        dismiss: () => {
+            const sessionId = values.latestSession?.session_id
+            // No session means nothing to attribute the dismissal to, and without a
+            // session_id the once-per-session guard can't hold — bail rather than fire
+            // an unguarded event on every dispatch.
+            if (!sessionId) {
+                return
+            }
+            // Guard against a double-click landing two `dismiss` dispatches before the
+            // FAB re-renders itself away: capture at most once per session.
+            if (reportedDismissedSessions.has(sessionId)) {
+                return
+            }
+            reportedDismissedSessions.add(sessionId)
+            actions.reportWizardSyncDismissed({
+                workflowId: WORKFLOW_ID,
+                skillId: values.latestSession?.skill_id,
+                outcome: values.displayState,
+                elapsedSeconds: values.elapsedSeconds,
+            })
+        },
+    })),
     afterMount(({ actions, cache, values }) => {
         actions.connect()
         actions.appendActivity('opening wizard session stream…')
@@ -234,6 +321,16 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
         }, 'tick')
         cache.disposables.add(() => {
             const id = window.setInterval(() => {
+                // The kea-disposables plugin pauses timers when the tab is hidden and
+                // re-creates them on resume. That re-created interval can fire during a
+                // window where the connected wizardSessionStreamLogic has been torn down
+                // (e.g. the FAB unmounting after a feature-flag re-evaluation). Reading a
+                // value off an unmounted logic throws
+                // `[KEA] Can not find path "...wizardSessionStreamLogic..." in the store.`,
+                // so bail out unless the stream logic is currently mounted.
+                if (!wizardSessionStreamLogic.findMounted({ workflowId: WORKFLOW_ID })) {
+                    return
+                }
                 // Heartbeat: if the log has gone quiet for HEARTBEAT_QUIET_THRESHOLD_MS
                 // while the wizard is still running, append a "still working" line so
                 // the panel never looks frozen.

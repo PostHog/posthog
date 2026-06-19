@@ -1,7 +1,7 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { isNotNil } from 'lib/utils'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { getCurrencySymbol } from 'lib/utils/currency'
+import { isNotNil } from 'lib/utils/guards'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
 
@@ -163,6 +163,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                                 aggregationAxisPostfix:
                                     isCurrency && !currencyIsPrefix ? ` ${currencySymbol}` : undefined,
                             },
+                            tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     },
                     showIntervalSelect: true,

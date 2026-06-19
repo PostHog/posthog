@@ -29,10 +29,10 @@ export const CATEGORY_DETAIL_CONFIG: Partial<Record<HealthIssueCategory, Categor
     },
     sdk: {
         docsUrl: 'https://posthog.com/docs/libraries',
-        deepDiveUrl: urls.sdkDoctor(),
-        deepDiveLabel: 'Open SDK doctor',
+        deepDiveUrl: urls.sdkHealth(),
+        deepDiveLabel: 'Open SDK health',
         guidance: 'Outdated SDKs miss bug fixes and new features. Update to the latest version for best results.',
-        redirectUrl: urls.sdkDoctor(),
+        redirectUrl: urls.sdkHealth(),
     },
     web_analytics: {
         docsUrl: 'https://posthog.com/docs/web-analytics',

@@ -928,6 +928,30 @@ def parser_test_factory(backend: HogQLParserBackend):
                     negated=True,
                 ),
             )
+            # MySQL null-safe equality is sugar for IS NOT DISTINCT FROM
+            self.assertEqual(
+                self._expr("1 <=> 2"),
+                ast.IsDistinctFrom(
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    negated=True,
+                ),
+            )
+
+        def test_mysql_hash_comments(self):
+            self.assertEqual(
+                self._select("select 1 # mysql comment"),
+                ast.SelectQuery(select=[ast.Constant(value=1)]),
+            )
+            self.assertEqual(
+                self._select("select 1 # comment\n, 2"),
+                ast.SelectQuery(select=[ast.Constant(value=1), ast.Constant(value=2)]),
+            )
+            # `#<digit>` stays a positional reference, not a comment
+            self.assertEqual(
+                self._select("select #1"),
+                ast.SelectQuery(select=[ast.PositionalRef(index=1)]),
+            )
 
         def test_null_comparison_operations(self):
             self.assertEqual(
@@ -2822,6 +2846,35 @@ def parser_test_factory(backend: HogQLParserBackend):
                     select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),
                 ),
             )
+
+        @parameterized.expand(
+            [
+                # A non-first CTE whose column-form expression begins with a paren group
+                # followed by an operator tail. The CTE-list disambiguation must look past
+                # the paren group to the top-level `AS <ident>` alias; an early version of
+                # the rust parser stopped at the matching `)` and mis-parsed the remainder
+                # as the enclosing SELECT's paren.
+                ("operator_tail_after_paren_group", "WITH 5 AS a, 2 AS b, (a - b) * 10 AS c SELECT c", ["a", "b", "c"]),
+                ("single_paren_then_operator", "WITH 1 AS a, (a) + 1 AS c SELECT c", ["a", "c"]),
+                ("both_ctes_paren_led", "WITH (a - b) AS c, (c) * 2 AS d SELECT d", ["c", "d"]),
+                ("scalar_subquery_in_expression", "WITH 1 AS a, (SELECT 2) + 1 AS c SELECT c", ["a", "c"]),
+                (
+                    "paren_then_property_access",
+                    "WITH x AS (SELECT 1 AS n), (x.n) * 2 AS y SELECT y FROM x",
+                    ["x", "y"],
+                ),
+                # Disambiguation that must be preserved: an alias directly after the paren
+                # group is still a CTE, and a trailing-comma paren main query (no alias)
+                # must terminate the CTE list rather than be swallowed as a CTE.
+                ("immediate_alias_after_paren", "WITH 1 AS a, (a) AS c SELECT c", ["a", "c"]),
+                ("immediate_alias_after_subquery", "WITH 1 AS a, (SELECT 2) AS c SELECT c", ["a", "c"]),
+                ("trailing_comma_paren_main_query", "WITH 1 AS a, (SELECT 2)", ["a"]),
+            ]
+        )
+        def test_paren_led_cte_disambiguation(self, _name: str, query: str, expected_ctes: list[str]):
+            node = cast(ast.SelectQuery, self._select(query))
+            assert isinstance(node.ctes, dict)
+            self.assertEqual(sorted(node.ctes.keys()), sorted(expected_ctes))
 
         def test_grammar_quirk_invalid_join_type_rejected_on_all_backends(self):
             # `LEFT OUTER SEMI JOIN` passes the rust grammar's per-keyword checks (no rule forbids the combination) but isn't in `VALID_JOIN_TYPES`, so `JoinExpr.__post_init__` raises `ValueError` on every backend. rust-py writes `join_type` post-construction (via `chain_join`), so `PyEmitter::set_field` re-fires `__post_init__` and restores the original exception — surfacing the same `ValueError` the json backends raise from `cls(**kwargs)`.
@@ -7867,6 +7920,39 @@ def parser_test_factory(backend: HogQLParserBackend):
             # Outside a statement boundary (a SELECT column) the invalid FILTER rejects.
             with self.assertRaises(BaseHogQLError):
                 parse_expr("count() filter ()", backend=backend)
+
+        def test_filter_where_body_grammar_parsed_visitor_discarded(self):
+            # cpp's window FILTER (with OVER) grammar-parses the WHERE body but
+            # never visits it, so DATE/TIMESTAMP/INTERVAL string literals and
+            # ColumnTypeExprEnum cast types accept; aggregate FILTER (no OVER)
+            # visits and rejects them. Pin both arms of the cpp/rust boundary.
+            # python is excluded: its visitor visits the window-FILTER body
+            # (diverging from cpp) and has a pre-existing `interval ''` crash
+            # (`text.split(" ")` ValueError), neither of which this rust-parity
+            # test is about.
+            if backend == "python":
+                self.skipTest(
+                    "python visits the window-FILTER body and pre-existing interval-'' crash; cpp/rust are the parity targets"
+                )
+            for query in (
+                "f() FILTER (WHERE date '') OVER w",
+                "f() FILTER (WHERE timestamp '') OVER w",
+                "f() FILTER (WHERE interval '') OVER w",
+                "f() FILTER (WHERE cast(1 as q('a' = 1))) OVER w",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            for query in (
+                "f() FILTER (WHERE date '')",
+                "f() FILTER (WHERE timestamp '')",
+                "f() FILTER (WHERE interval '')",
+                "f() FILTER (WHERE cast(1 as q('a' = 1)))",
+            ):
+                with self.assertRaises(BaseHogQLError, msg=query):
+                    parse_expr(query, backend=backend)
 
         def test_cast_type_enum_vs_param_fallback(self):
             # A cast type `q(...)` is `ColumnTypeExprEnum` only when every entry is a

@@ -148,7 +148,7 @@ def sync_saved_query_to_dag(
 
     # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
     # sees every referenced table/view.
-    database = Database.create_for(team=team, bypass_access_control=True)
+    database = Database.create_for(team=team, bypass_warehouse_access_control=True)
     # clear previous incoming edges, dependencies may have changed
     Edge.objects.filter(team=team, target=target).delete()
 

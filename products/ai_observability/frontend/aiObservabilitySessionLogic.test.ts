@@ -3,7 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -22,10 +22,7 @@ describe('aiObservabilitySessionLogic', () => {
     beforeEach(async () => {
         initKeaTests()
         sceneLogic({ scenes }).mount()
-        sceneLogic.actions.setTabs([
-            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
-        logic = aiObservabilitySessionLogic({ tabId: '1' })
+        logic = aiObservabilitySessionLogic()
         logic.mount()
     })
 

@@ -11,7 +11,7 @@ import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '../../tests/helpers/sql'
@@ -211,7 +211,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
     const testWithTeamIngester = createTestWithTeamIngester()
 
     beforeAll(async () => {
-        await resetKafka()
+        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
         await resetTestDatabase()
         process.env.SITE_URL = 'https://example.com'
     })

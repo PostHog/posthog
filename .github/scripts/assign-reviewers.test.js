@@ -2,10 +2,13 @@ const {
     CONFIG,
     isExcludedFile,
     classifyOwner,
+    teamSlugToLabel,
+    partitionExternalTeams,
     computeOwnerFootprints,
     isSubstantive,
     classifyOwners,
     buildReviewerComment,
+    fileMatchesPattern,
 } = require('./assign-reviewers')
 
 const file = (filename, additions = 0, deletions = 0) => ({
@@ -34,6 +37,29 @@ describe('assign-reviewers', () => {
         })
     })
 
+    describe('fileMatchesPattern', () => {
+        test.each([
+            // a trailing slash is a directory boundary, not a name prefix
+            ['posthog/models/ai/utils.py', 'posthog/models/ai/', true],
+            ['posthog/models/ai/sub/deep.py', 'posthog/models/ai/', true],
+            ['posthog/models/ai_events/event.py', 'posthog/models/ai/', false],
+            ['posthog/models/person/util.py', 'posthog/models/person/', true],
+            ['posthog/models/person_overrides/x.py', 'posthog/models/person/', false],
+            ['posthog/models/personal_api_key.py', 'posthog/models/person/', false],
+            // /** is bounded to the directory, same as a trailing slash
+            ['posthog/models/ai/utils.py', 'posthog/models/ai/**', true],
+            ['posthog/models/ai_events/event.py', 'posthog/models/ai/**', false],
+            // a single star stays within one path segment
+            ['posthog/dags/sessions.py', 'posthog/dags/*.py', true],
+            ['posthog/dags/sub/sessions.py', 'posthog/dags/*.py', false],
+            // exact-file patterns match only that file
+            ['posthog/api/person.py', 'posthog/api/person.py', true],
+            ['posthog/api/person_other.py', 'posthog/api/person.py', false],
+        ])('%s vs %s', (filename, pattern, expected) => {
+            expect(fileMatchesPattern(filename, pattern)).toBe(expected)
+        })
+    })
+
     describe('classifyOwner', () => {
         test.each([
             ['@PostHog/team-surveys', { type: 'team', name: 'team-surveys', owner: '@PostHog/team-surveys' }],
@@ -41,6 +67,35 @@ describe('assign-reviewers', () => {
             ['not-an-owner', null],
         ])('%s', (input, expected) => {
             expect(classifyOwner(input)).toEqual(expected)
+        })
+    })
+
+    describe('teamSlugToLabel', () => {
+        test.each([
+            ['team-product-analytics', 'team/product-analytics'],
+            ['team-infra', 'team/infra'],
+            ['rafaeelaudibert', null],
+            ['', null],
+        ])('%s -> %s', (name, expected) => {
+            expect(teamSlugToLabel(name)).toBe(expected)
+        })
+    })
+
+    describe('partitionExternalTeams', () => {
+        test('labels product-analytics, still requests every other team', () => {
+            const { toLabel, toRequest } = partitionExternalTeams([
+                'team-product-analytics',
+                'team-web-analytics',
+                'team-infra',
+            ])
+            expect(toLabel).toEqual(['team-product-analytics'])
+            expect(toRequest).toEqual(['team-web-analytics', 'team-infra'])
+        })
+
+        test('no product-analytics owner → nothing labelled, all requested', () => {
+            const { toLabel, toRequest } = partitionExternalTeams(['team-web-analytics', 'team-infra'])
+            expect(toLabel).toEqual([])
+            expect(toRequest).toEqual(['team-web-analytics', 'team-infra'])
         })
     })
 

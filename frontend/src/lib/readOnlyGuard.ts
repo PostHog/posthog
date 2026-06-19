@@ -71,6 +71,8 @@ export function isReadOnly(): boolean {
 //      Matches /conversations except the two ticket sub-features (`views` and
 //      `tickets`). Mount-path-agnostic — works under /environments/ or
 //      /projects/ — so the discriminator is the sub-feature, not the prefix.
+//   4. Exports — POST creates a render job (session replay MP4, insight PNG, etc.)
+//      but does not mutate product data; blocking it breaks download workflows.
 const READ_ONLY_ALLOWED_PATTERNS = [
     /\/query(?:\/|$|\?)/, // /api/environments/:team_id/query, /api/environments/:team_id/query/:queryId/log, etc.
     /\/file_system\/log_view(?:\/|$|\?)/, // /api/environments/:team_id/file_system/log_view
@@ -78,6 +80,7 @@ const READ_ONLY_ALLOWED_PATTERNS = [
     /\/insights\/timing(?:\/|$|\?)/, // /api/projects/:team_id/insights/timing — time-to-see-data telemetry fired after every dashboard/insight load
     /\/metalytics(?:\/|$|\?)/, // /api/projects/:team_id/metalytics — side-panel scene view tracking (only accepts metric_name=viewed)
     /\/conversations(?!\/(?:views|tickets))(?:\/|$|\?)/, // /api/.../conversations[/:id[/queue|/append_message|/cancel|...]] — PostHog AI (Max), excluding /conversations/views and /conversations/tickets
+    /\/exports\/?(?:\?|$)/, // /api/.../exports[/] — create export jobs only; detail paths like /exports/:id/ stay blocked
 ]
 
 function isReadDisguisedAsWrite(url: string): boolean {

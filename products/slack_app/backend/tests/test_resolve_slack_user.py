@@ -10,8 +10,9 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.api import SLACK_USER_PROFILE_TTL, lookup_slack_user_id_by_email, resolve_slack_user
+from products.slack_app.backend.api import resolve_slack_user
 from products.slack_app.backend.models import SlackUserProfileCache
+from products.slack_app.backend.services.slack_user_info import SLACK_USER_PROFILE_TTL, lookup_slack_user_id_by_email
 
 
 class TestResolveSlackUser:
@@ -41,6 +42,27 @@ class TestResolveSlackUser:
         assert result is not None
         assert result.user.email == "dev@example.com"
         assert result.slack_email == "dev@example.com"
+
+    @pytest.mark.parametrize(
+        "slack_email",
+        [
+            pytest.param("DEV@example.com", id="uppercase_local_part"),
+            pytest.param("dev@Example.com", id="mixed_case_domain"),
+            pytest.param("DEV@EXAMPLE.COM", id="all_uppercase"),
+        ],
+    )
+    @patch("posthog.models.integration.WebClient")
+    def test_matches_email_case_insensitively(self, mock_webclient_class, slack_email):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.return_value = {"user": {"profile": {"email": slack_email}}}
+
+        slack = SlackIntegration(self.integration)
+        result = resolve_slack_user(slack, self.integration, "U123", "C001", "1234.5678")
+
+        assert result is not None
+        assert result.user.email == "dev@example.com"
+        assert result.slack_email == slack_email
 
     @patch("posthog.models.integration.WebClient")
     def test_missing_email(self, mock_webclient_class):

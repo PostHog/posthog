@@ -29,3 +29,10 @@ class HogQLFix(BaseModel):
         ...,
         description="A single, flat HogQL SELECT statement that addresses the original step intent.",
     )
+
+
+class RelevantEvents(BaseModel):
+    events: list[str] = Field(
+        default_factory=list,
+        description="Event names — copied verbatim from the provided list — relevant to the user's prompt.",
+    )

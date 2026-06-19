@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useId, useMemo } from 'react'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { isOperatorMulti } from 'lib/utils'
+import { isOperatorMulti } from 'lib/utils/operators'
 
 import type { PropertyFilterValue, PropertyOperator } from '~/types'
 
