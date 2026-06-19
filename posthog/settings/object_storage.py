@@ -65,4 +65,16 @@ IDENTITY_MATCHING_S3_REGION = os.getenv("IDENTITY_MATCHING_S3_REGION") or OBJECT
 # Endpoint is set for S3-compatible object storage (local/dev/test); empty on prod, where the
 # cluster reaches the bucket over AWS S3 via its attached IAM role (so no endpoint and no keys
 # — the credential question is owned by infra, mirroring events_backfill_to_duckling).
-IDENTITY_MATCHING_S3_ENDPOINT = os.getenv("IDENTITY_MATCHING_S3_ENDPOINT", OBJECT_STORAGE_ENDPOINT) or None
+#
+# This must be the endpoint the ClickHouse *cluster* can reach, which is not always
+# OBJECT_STORAGE_ENDPOINT: CI points OBJECT_STORAGE_ENDPOINT at `localhost:19000` for the test
+# process, but ClickHouse runs in docker-compose and reaches object storage by its service name
+# (`objectstorage:19000`) — using `localhost` there makes the cluster connect to itself and the
+# s3() call hangs. So in TEST/DEBUG default to the cluster-reachable host (matching the
+# `objectstorage:19000` convention in data_warehouse / web_analytics_s3); on prod it stays empty.
+if TEST or DEBUG:
+    IDENTITY_MATCHING_S3_ENDPOINT: Optional[str] = (
+        os.getenv("IDENTITY_MATCHING_S3_ENDPOINT", "http://objectstorage:19000") or None
+    )
+else:
+    IDENTITY_MATCHING_S3_ENDPOINT = os.getenv("IDENTITY_MATCHING_S3_ENDPOINT", "") or None
