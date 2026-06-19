@@ -121,6 +121,35 @@ def _sanitize_request_data(data: dict[str, Any]) -> dict[str, Any]:
     return {k: _sanitize_request_value(v) for k, v in data.items() if k not in FORBIDDEN_REQUEST_PARAMS}
 
 
+def _report_request_error(
+    e: Exception,
+    status_code: int,
+    provider_config: ProviderConfig,
+    capture_context: dict[str, Any],
+    *,
+    streaming: bool,
+    log_event: str = "llm_request_failed",
+) -> None:
+    # Client-input errors (4xx) are not server faults — they mean the caller sent
+    # something invalid (e.g. an unsupported param for the target model). Return them
+    # cleanly without reporting to error tracking; only capture 5xx as exceptions.
+    if status_code >= 500:
+        capture_exception(e, capture_context)
+        log = logger.exception
+    else:
+        log = logger.warning
+    log(
+        log_event,
+        endpoint=provider_config.endpoint_name,
+        streaming=streaming,
+        status_code=status_code,
+        error_type=type(e).__name__,
+        error_message=getattr(e, "message", str(e)),
+        provider_error_type=getattr(e, "type", None),
+        provider_error_code=getattr(e, "code", None),
+    )
+
+
 async def handle_llm_request(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
@@ -192,17 +221,13 @@ async def handle_llm_request(
         raise
     except Exception as e:
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
-        capture_exception(e, {"provider": provider_config.name, "model": model, "user_id": user.user_id})
         status_code = getattr(e, "status_code", 500)
-        logger.exception(
-            "llm_request_failed",
-            endpoint=provider_config.endpoint_name,
+        _report_request_error(
+            e,
+            status_code,
+            provider_config,
+            {"provider": provider_config.name, "model": model, "user_id": user.user_id},
             streaming=False,
-            status_code=status_code,
-            error_type=type(e).__name__,
-            error_message=getattr(e, "message", str(e)),
-            provider_error_type=getattr(e, "type", None),
-            provider_error_code=getattr(e, "code", None),
         )
         raise HTTPException(
             status_code=status_code,
@@ -260,17 +285,13 @@ async def _handle_streaming_request(
     except Exception as e:
         CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
-        capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
         status_code = getattr(e, "status_code", 500)
-        logger.exception(
-            "llm_request_failed",
-            endpoint=provider_config.endpoint_name,
+        _report_request_error(
+            e,
+            status_code,
+            provider_config,
+            {"provider": provider_config.name, "model": model, "streaming": True},
             streaming=True,
-            status_code=status_code,
-            error_type=type(e).__name__,
-            error_message=getattr(e, "message", str(e)),
-            provider_error_type=getattr(e, "type", None),
-            provider_error_code=getattr(e, "code", None),
         )
         REQUEST_COUNT.labels(
             endpoint=provider_config.endpoint_name,
@@ -326,15 +347,16 @@ async def _handle_streaming_request(
             )
             raise
         except Exception as e:
-            status_code = str(getattr(e, "status_code", 500))
+            status_int = getattr(e, "status_code", 500)
+            status_code = str(status_int)
             PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
-            capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
-            logger.exception(
-                "stream_chunk_failed",
-                endpoint=provider_config.endpoint_name,
-                status_code=status_code,
-                error_type=type(e).__name__,
-                error_message=str(e),
+            _report_request_error(
+                e,
+                status_int,
+                provider_config,
+                {"provider": provider_config.name, "model": model, "streaming": True},
+                streaming=True,
+                log_event="stream_chunk_failed",
             )
             raise
         finally:

@@ -119,6 +119,106 @@ class TestStreamingErrorHandling:
         assert exc_info.value.status_code == error_status
 
 
+class TestErrorTrackingGating:
+    @pytest.fixture
+    def mock_user(self) -> AuthenticatedUser:
+        return AuthenticatedUser(
+            user_id=123,
+            team_id=456,
+            auth_method="personal_api_key",
+            distinct_id="test-distinct-id",
+            scopes=["llm_gateway:read"],
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error_status",
+        [pytest.param(400, id="bad_request"), pytest.param(404, id="not_found"), pytest.param(422, id="unprocessable")],
+    )
+    async def test_client_error_non_streaming_not_captured(
+        self, mock_user: AuthenticatedUser, error_status: int
+    ) -> None:
+        async def failing_llm_call(**kwargs: Any) -> None:
+            raise MockProviderError("reasoning_effort=minimal is not supported", status_code=error_status)
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            with pytest.raises(HTTPException) as exc_info:
+                await handle_llm_request(
+                    request_data={"model": "test", "messages": []},
+                    user=mock_user,
+                    model="test-model",
+                    is_streaming=False,
+                    provider_config=ANTHROPIC_CONFIG,
+                    llm_call=failing_llm_call,
+                )
+
+        assert exc_info.value.status_code == error_status
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error_status",
+        [pytest.param(500, id="internal_error"), pytest.param(503, id="service_unavailable")],
+    )
+    async def test_server_error_non_streaming_is_captured(
+        self, mock_user: AuthenticatedUser, error_status: int
+    ) -> None:
+        async def failing_llm_call(**kwargs: Any) -> None:
+            raise MockProviderError("upstream exploded", status_code=error_status)
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            with pytest.raises(HTTPException) as exc_info:
+                await handle_llm_request(
+                    request_data={"model": "test", "messages": []},
+                    user=mock_user,
+                    model="test-model",
+                    is_streaming=False,
+                    provider_config=ANTHROPIC_CONFIG,
+                    llm_call=failing_llm_call,
+                )
+
+        assert exc_info.value.status_code == error_status
+        mock_capture.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_error_without_status_code_is_captured_as_500(self, mock_user: AuthenticatedUser) -> None:
+        async def failing_llm_call(**kwargs: Any) -> None:
+            raise ValueError("unexpected")
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            with pytest.raises(HTTPException) as exc_info:
+                await handle_llm_request(
+                    request_data={"model": "test", "messages": []},
+                    user=mock_user,
+                    model="test-model",
+                    is_streaming=False,
+                    provider_config=ANTHROPIC_CONFIG,
+                    llm_call=failing_llm_call,
+                )
+
+        assert exc_info.value.status_code == 500
+        mock_capture.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_client_error_streaming_not_captured(self, mock_user: AuthenticatedUser) -> None:
+        async def failing_llm_call(**kwargs: Any) -> None:
+            raise MockProviderError("reasoning_effort=minimal is not supported", status_code=400)
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            with pytest.raises(HTTPException) as exc_info:
+                await handle_llm_request(
+                    request_data={"model": "test", "messages": [], "stream": True},
+                    user=mock_user,
+                    model="test-model",
+                    is_streaming=True,
+                    provider_config=ANTHROPIC_CONFIG,
+                    llm_call=failing_llm_call,
+                )
+
+        assert exc_info.value.status_code == 400
+        mock_capture.assert_not_called()
+
+
 class TestPreStreamErrors:
     @pytest.fixture
     def mock_user(self) -> AuthenticatedUser:
