@@ -2230,7 +2230,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # Partition only by the access-controlled tables this query reads that the user is restricted
         # from - so queries on events, persons and other non-access-controlled tables share one cache
         # entry (incl. userless cache warming).
-        queried_resources = queried_access_controlled_resources(self.query)
+        queried_resources = queried_access_controlled_resources(self.query, self.team)
 
         # Reads no access-controlled table -> skip the access-control preload
         if queried_resources == set():

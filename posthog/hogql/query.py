@@ -29,8 +29,7 @@ from posthog.hogql.constants import (
     get_default_limit_for_context,
 )
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
-from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.schema.duckdb_table_functions import (
     GenerateSeriesTable,
     OpaqueFunctionCallTable,
@@ -43,7 +42,7 @@ from posthog.hogql.direct_connection import (
     validate_direct_mysql_source_config,
     validate_direct_postgres_source_config,
 )
-from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
@@ -379,6 +378,7 @@ class HogQLQueryExecutor:
     connection_id: Optional[str] = None
     send_raw_query: bool = False
     user: Optional[User] = None
+    bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
@@ -387,13 +387,16 @@ class HogQLQueryExecutor:
     class _PreparedExecution:
         sql: str
         context: HogQLContext
-        engine: Literal["clickhouse", "direct_postgres", "direct_mysql"]
+        engine: Literal["clickhouse", "direct_sql"]
 
     @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
             self.context = HogQLContext(
-                team_id=self.team.pk, user=self.user, user_access_control=self.user_access_control
+                team_id=self.team.pk,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
             )
         elif self.context.user_access_control is None:
             self.context.user_access_control = self.user_access_control
@@ -452,6 +455,7 @@ class HogQLQueryExecutor:
                         user_access_control=self.context.user_access_control,
                         modifiers=self.query_modifiers,
                         timings=self.timings,
+                        bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
                     )
                 self.select_query = replace_filters(
                     self.select_query, self.filters, self.team, database=self.context.database
@@ -515,6 +519,7 @@ class HogQLQueryExecutor:
                 modifiers=self.query_modifiers,
                 timings=self.timings,
                 connection_id=self.connection_id,
+                bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
             )
 
         # Reset between executions: the resolver appends per query, and dataclasses.replace below
@@ -612,7 +617,7 @@ class HogQLQueryExecutor:
         direct_source_ids = {
             table_type.table.external_data_source_id
             for table_type in base_table_types
-            if isinstance(table_type.table, (DirectPostgresTable, DirectMySQLTable))
+            if isinstance(table_type.table, DirectSQLTable)
         }
 
         direct_source_id: str | None = None
@@ -629,9 +634,7 @@ class HogQLQueryExecutor:
         if len(direct_source_ids) > 1:
             raise ExposedHogQLError("Direct queries can only reference a single source.")
 
-        has_non_direct_tables = any(
-            not isinstance(table_type.table, (DirectPostgresTable, DirectMySQLTable)) for table_type in base_table_types
-        )
+        has_non_direct_tables = any(not isinstance(table_type.table, DirectSQLTable) for table_type in base_table_types)
         if has_non_direct_tables:
             if self.connection_id is None:
                 return None
@@ -648,7 +651,6 @@ class HogQLQueryExecutor:
 
         source = getattr(self, "_direct_source", None)
         dialect: Literal["postgres", "mysql"] = "mysql" if source is not None and source.is_direct_mysql else "postgres"
-        engine: Literal["direct_postgres", "direct_mysql"] = "direct_mysql" if dialect == "mysql" else "direct_postgres"
 
         direct_context = dataclasses.replace(
             self.context,
@@ -683,7 +685,7 @@ class HogQLQueryExecutor:
         return self._PreparedExecution(
             sql=self.direct_sql,
             context=direct_context,
-            engine=engine,
+            engine="direct_sql",
         )
 
     def _get_select_query_type(self) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
@@ -1070,10 +1072,13 @@ class HogQLQueryExecutor:
             else:
                 prepared_execution = self._prepare_execution()
 
-                if prepared_execution.engine == "direct_postgres":
-                    self._execute_direct_postgres_query()
-                elif prepared_execution.engine == "direct_mysql":
-                    self._execute_direct_mysql_query()
+                if prepared_execution.engine == "direct_sql":
+                    if self.direct_dialect == "mysql":
+                        self._execute_direct_mysql_query()
+                    elif self.direct_dialect == "postgres":
+                        self._execute_direct_postgres_query()
+                    else:
+                        raise InternalHogQLError(f"Unsupported direct SQL dialect: {self.direct_dialect}")
                 elif self.clickhouse_sql is not None:
                     if self.clickhouse_sql == "":
                         self.results = []

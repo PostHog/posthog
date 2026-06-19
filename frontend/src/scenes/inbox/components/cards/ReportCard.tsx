@@ -1,14 +1,14 @@
 import clsx from 'clsx'
 import { router } from 'kea-router'
 
-import { IconArchive, IconPullRequest } from '@posthog/icons'
+import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
 import { InboxFlatListTabKey, SignalReport, SignalReportStatus } from '../../types'
-import { DismissalReasonValue } from '../../utils/dismissalReasons'
+import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -131,12 +131,15 @@ export function ReportCard({
     tabKey = 'reports',
     attached = false,
     onArchive,
+    onRestore,
 }: {
     report: SignalReport
     tabKey?: InboxFlatListTabKey
     attached?: boolean
     onArchive?: (reason: DismissalReasonValue, note: string) => void
+    onRestore?: () => void
 }): JSX.Element {
+    const isArchived = tabKey === 'archived'
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = prUrlParts != null
@@ -152,10 +155,17 @@ export function ReportCard({
 
     const { isArchiving, onArchiveClick } = useReportArchive({ reportId: report.id, cardTitle, onArchive })
 
+    // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
+    const dismissalLabel = isArchived ? dismissalReasonLabel(report.dismissal_reason) : null
+
     // PR cards show repo · source; reports show source · status · actionability.
     const showMeta = hasPr
         ? repoSlug != null || hasSource
-        : hasSource || !isReady || report.actionability != null || report.is_suggested_reviewer === true
+        : hasSource ||
+          !isReady ||
+          report.actionability != null ||
+          report.is_suggested_reviewer === true ||
+          !!dismissalLabel
 
     return (
         <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
@@ -210,6 +220,13 @@ export function ReportCard({
                             {!hasPr && report.actionability && (
                                 <SignalReportActionabilityBadge actionability={report.actionability} />
                             )}
+                            {dismissalLabel && (
+                                <Tooltip title={report.dismissal_note || undefined}>
+                                    <LemonTag size="small" icon={<IconArchive />}>
+                                        {dismissalLabel}
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
                         </div>
                     ) : null}
 
@@ -225,28 +242,47 @@ export function ReportCard({
             </Link>
 
             <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconArchive />}
-                    tooltip="Archive this report"
-                    aria-label="Archive this report"
-                    loading={isArchiving}
-                    onClick={onArchiveClick}
-                >
-                    Archive
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        router.actions.push(detailUrl)
-                    }}
-                >
-                    Review
-                </LemonButton>
+                {isArchived ? (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconUndo />}
+                        tooltip="Restore this report to the inbox"
+                        aria-label="Restore this report to the inbox"
+                        onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            onRestore?.()
+                        }}
+                    >
+                        Restore
+                    </LemonButton>
+                ) : (
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconArchive />}
+                            tooltip="Archive this report"
+                            aria-label="Archive this report"
+                            loading={isArchiving}
+                            onClick={onArchiveClick}
+                        >
+                            Archive
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                router.actions.push(detailUrl)
+                            }}
+                        >
+                            Review
+                        </LemonButton>
+                    </>
+                )}
             </div>
         </div>
     )

@@ -105,25 +105,37 @@ To turn it on:
 
 1. **Clone the sibling repo** at `~/Development/ai-gateway`
    (override with `AI_GATEWAY_REPO`).
-2. **Create `~/Development/ai-gateway/.env`** with provider keys:
+2. **Add provider keys** to `~/Development/ai-gateway/.env`:
 
    ```bash
-   AI_GATEWAY_AUTH_MODE=open
    AI_GATEWAY_ANTHROPIC_API_KEY=sk-ant-...
    AI_GATEWAY_OPENAI_API_KEY=sk-proj-...
    ```
 
-   Note the `AI_GATEWAY_*` prefix — older docs/scripts referenced
-   `LLM_GATEWAY_*`, which is inert against the current compose file.
+   (`bin/setup-gateway-e2e` sets `AI_GATEWAY_AUTH_MODE=resolver` for you.)
 
-3. **Enable the `ai_gateway` capability** in `hogli dev:setup` so the
-   `ai-gateway` mprocs entry runs. It executes
-   [`bin/start-ai-gateway`](../../../bin/start-ai-gateway) which
-   brings up `docker compose --profile full` (gateway + billing +
-   deps) and seeds the anonymous-team ledger with $100 so requests
-   pass admission. Idempotent — runs cleanly on every restart.
-4. **Flip `AGENT_USE_AI_GATEWAY: 'true'`** on the agent-runner entry
-   in [bin/mprocs.yaml](../../../bin/mprocs.yaml).
+3. **Enable the `ai_gateway` capability** in `hogli dev:setup` (it pulls in
+   `agent_runtime`).
+
+`hogli start` then runs the `ai-gateway` pane
+([`bin/start-ai-gateway`](../../../bin/start-ai-gateway)): it provisions a phs*
+credential — enable the team, mint the deterministic dev phs*
+(`llm_gateway:read`), publish its blob to the **same Valkey the gateway reads**
+(`localhost:6381` — Django's hypercache and the gateway must share one Redis or
+the resolver 401s) — sets resolver mode, starts the gateway on the host, and
+funds the ledger once it's up. Idempotent.
+
+The agent-runner uses the gateway **by default in dev** (config dev defaults, no
+`.env.local`); it authenticates with the static dev phs\_ and all cost bills to
+the team that owns it. To fall back to direct providers, set
+`AGENT_USE_AI_GATEWAY=false` in `.env.local`.
+
+Standalone (without the capability):
+
+```bash
+bin/setup-gateway-e2e
+cd ~/Development/ai-gateway && bin/start gateway
+```
 
 How model routing works:
 

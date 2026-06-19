@@ -72,6 +72,7 @@ function makeRev(spec: Partial<Parameters<typeof AgentSpecSchema.parse>[0]> = {}
         bundle_uri: 's3://x/',
         bundle_sha256: null,
         spec: AgentSpecSchema.parse({ model: FAUX_MODEL_ID, ...spec }),
+        encrypted_env: null,
     }
 }
 
