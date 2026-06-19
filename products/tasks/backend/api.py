@@ -167,11 +167,9 @@ logger = logging.getLogger(__name__)
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
-# Long-lived SSE connections pin NGINX Unit processes for their whole duration
-# during recycle-drain, so cap each connection: emit `event: end` so clients can
-# tell rotation from run completion, then close cleanly. Clients resume via
-# Last-Event-ID (taskDetailSceneLogic.ts restarts the stream when it ends while
-# the run is still active).
+# Long-lived SSE connections pin NGINX Unit processes during recycle-drain, so
+# cap each one: emit `event: end` so clients can tell rotation from run
+# completion, then close. Clients resume from their Last-Event-ID cursor.
 TASK_RUN_STREAM_CONNECTION_MAX_SECONDS = 15 * 60
 TASK_RUN_STREAM_END_EVENT_NAME = "end"
 TASK_RUN_STREAM_ROTATED_PAYLOAD = {"type": "rotated"}

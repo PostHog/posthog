@@ -55,13 +55,9 @@ TASK_RUN_FAILED_TOTAL = Counter(
 )
 
 
-# Connection lifetimes span a few seconds (cold reconnect) up to the per-connection
-# cap (TASK_RUN_STREAM_CONNECTION_MAX_SECONDS), where streams rotate with a clean
-# EOF. The 120s bucket is deliberate: it isolates connections cut at the
-# Envoy/Contour response_timeout boundary from genuinely long-lived ones. The 960s
-# bucket sits just above the cap so cap-rotated connections are separable from
-# everything that died earlier in the 600-1800s range. Buckets above the cap
-# predate it and are kept for histogram continuity.
+# Connection lifetimes range from a few seconds (cold reconnect) to the
+# per-connection cap. The 120s bucket isolates connections cut at the
+# Envoy/Contour response_timeout boundary from genuinely long-lived ones.
 STREAM_CONNECTION_DURATION_BUCKETS = [
     1.0,
     5.0,

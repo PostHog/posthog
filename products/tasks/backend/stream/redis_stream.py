@@ -22,17 +22,9 @@ TASK_RUN_STREAM_TIMEOUT = SANDBOX_TTL_SECONDS
 TASK_RUN_STREAM_SEQUENCE_TIMEOUT = int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seconds())
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"
 TASK_RUN_STREAM_READ_COUNT = 16
-# XREAD BLOCK is push-based — XADD wakes the blocked client immediately — so a
-# long block only cuts idle polling, it doesn't delay delivery. Keep it below
-# the keepalive interval so idle readers still wake in time to emit one; the
-# idle check only runs between blocks, so the worst-case gap between yields on
-# an idle stream is keepalive_interval + block (~25s) — intermediary idle
-# timeouts must exceed that sum. The Redis client must not set a socket_timeout
-# at or below this block (none is set today — see posthog/redis.py), or every
-# idle block raises TimeoutError and kills the stream. Cancellation landing
-# mid-block relies on redis-py >= 5 discarding the in-flight connection rather
-# than returning it desynced to the pool. This default is also inherited by
-# ee/hogai/sandbox/executor.py's background reader.
+# XREAD BLOCK is push-based (XADD wakes the blocked client immediately), so a
+# longer block only cuts idle polling — it never delays delivery. Keep it under
+# the keepalive interval so idle readers still wake in time to emit one.
 TASK_RUN_STREAM_READ_BLOCK_MS = 5_000
 TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS = 0.05
 TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS = 0.15
