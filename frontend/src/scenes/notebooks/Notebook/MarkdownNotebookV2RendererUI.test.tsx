@@ -14,6 +14,7 @@ import { NotebookType } from '../types'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { MarkdownNotebookV2 } from './MarkdownNotebookV2Renderer'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
+import { NotebookKernelInfoButton } from './NotebookMeta'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 jest.mock('./migrations/migrate', () => {
@@ -75,15 +76,22 @@ describe('MarkdownNotebookV2Renderer UI', () => {
         jest.restoreAllMocks()
     })
 
-    it('opens kernel info from the top control and closes markdown source', () => {
+    it('opens kernel info from the header control and closes markdown source', () => {
         const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
         const onDebugOpenChange = jest.fn()
 
-        function ControlledMarkdownNotebook(): JSX.Element {
+        function ControlledMarkdownNotebookWithHeader(): JSX.Element {
             const [debugOpen, setDebugOpen] = useState(true)
 
             return (
                 <BindLogic logic={notebookLogic} props={logicProps}>
+                    <NotebookKernelInfoButton
+                        type="secondary"
+                        size="small"
+                        onBeforeShowKernelInfo={() => setDebugOpen(false)}
+                    >
+                        Kernel
+                    </NotebookKernelInfoButton>
                     <MarkdownNotebookV2
                         debugOpen={debugOpen}
                         onDebugOpenChange={(isOpen) => {
@@ -95,14 +103,13 @@ describe('MarkdownNotebookV2Renderer UI', () => {
             )
         }
 
-        const { container, getByRole } = render(<ControlledMarkdownNotebook />)
+        const { container, getByRole } = render(<ControlledMarkdownNotebookWithHeader />)
 
-        expect(container.querySelector('.Notebook__markdown-v2-top-actions')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeInstanceOf(HTMLElement)
 
         fireEvent.click(getByRole('button', { name: /kernel/i }))
 
-        expect(onDebugOpenChange).toHaveBeenCalledWith(false)
+        expect(onDebugOpenChange).not.toHaveBeenCalled()
         expect(settingsLogic.values.showKernelInfo).toBe(true)
         expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeNull()
     })

@@ -33,7 +33,6 @@ import {
 import { MarkdownNotebookSavedInsightPicker } from './MarkdownNotebookSavedInsightPicker'
 import { getMarkdownNotebookMarkdown, notebookArtifactContentToMarkdown } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
-import { NotebookKernelInfoButton } from './NotebookMeta'
 import {
     NOTEBOOK_AI_PRESENCE_COLOR,
     NOTEBOOK_AI_PRESENCE_CLIENT_ID,
@@ -91,10 +90,6 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         },
         [debugOpen, onDebugOpenChange]
     )
-
-    const closeMarkdownSource = useCallback((): void => {
-        setMarkdownSourceOpen(false)
-    }, [setMarkdownSourceOpen])
 
     const handleDebugOpenChange = useCallback(
         (isOpen: boolean): void => {
@@ -510,41 +505,30 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
 
     return (
         <MarkdownNotebookRuntimeContext.Provider value={runtimeContext}>
-            <div className="Notebook__markdown-v2-shell">
-                <div className="Notebook__markdown-v2-top-actions">
-                    <NotebookKernelInfoButton
-                        type="secondary"
-                        size="small"
-                        onBeforeShowKernelInfo={closeMarkdownSource}
-                    >
-                        Kernel
-                    </NotebookKernelInfoButton>
-                </div>
-                <MarkdownNotebook
-                    value={markdownEditorValue}
-                    remoteValue={remoteMarkdown}
-                    remoteVersion={notebook?.version}
-                    mode={isEditable ? 'edit' : 'view'}
-                    registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                    extraInsertCommands={isEditable ? buildSavedInsightInsertCommands : undefined}
-                    onChange={isEditable ? handleMarkdownEditorChange : undefined}
-                    onConflict={reportMarkdownMergeConflicts}
-                    remoteCarets={remoteCarets}
-                    onCaretChange={isEditable ? publishMarkdownCaret : undefined}
-                    onAskAI={isEditable ? handleAskAI : undefined}
-                    isAskAIDisabled={inlineAIRequests.length > 0}
-                    createAIConversationId={uuid}
-                    deferRemoteValue={markdownEditorInteractionActive}
-                    onInteractionStateChange={setMarkdownEditorInteractionActive}
-                    className="Notebook__markdown-v2"
-                    data-attr="notebook-markdown-v2"
-                    autoFocus={isEditable}
-                    showDebug={isEditable}
-                    debugOpen={isDebugOpen}
-                    onDebugOpenChange={handleDebugOpenChange}
-                    focusAIPromptRequest={focusAIPromptRequest}
-                />
-            </div>
+            <MarkdownNotebook
+                value={markdownEditorValue}
+                remoteValue={remoteMarkdown}
+                remoteVersion={notebook?.version}
+                mode={isEditable ? 'edit' : 'view'}
+                registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                extraInsertCommands={isEditable ? buildSavedInsightInsertCommands : undefined}
+                onChange={isEditable ? handleMarkdownEditorChange : undefined}
+                onConflict={reportMarkdownMergeConflicts}
+                remoteCarets={remoteCarets}
+                onCaretChange={isEditable ? publishMarkdownCaret : undefined}
+                onAskAI={isEditable ? handleAskAI : undefined}
+                isAskAIDisabled={inlineAIRequests.length > 0}
+                createAIConversationId={uuid}
+                deferRemoteValue={markdownEditorInteractionActive}
+                onInteractionStateChange={setMarkdownEditorInteractionActive}
+                className="Notebook__markdown-v2"
+                data-attr="notebook-markdown-v2"
+                autoFocus={isEditable}
+                showDebug={isEditable}
+                debugOpen={isDebugOpen}
+                onDebugOpenChange={handleDebugOpenChange}
+                focusAIPromptRequest={focusAIPromptRequest}
+            />
             {inlineAIRequests.map((request) => (
                 <InlineNotebookAIRunner
                     key={request.conversationId}
