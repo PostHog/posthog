@@ -7974,6 +7974,35 @@ def parser_test_factory(backend: HogQLParserBackend):
                     msg=query,
                 )
 
+        def test_nested_string_interval_dispatches_on_trailing_unit_count(self):
+            # A nested string-valued INTERVAL: cpp keeps the inner string
+            # self-contained (`'5 day'`) when ONE unit trails (it's the OUTER's),
+            # but reads it as the value-expr of an expr+unit inner when TWO trail —
+            # the value-expr reading sidesteps the string's count/unit validation,
+            # so `''` / `'bm '` parse there (`interval interval '' day month` →
+            # `INTERVAL (INTERVAL '' DAY) MONTH`). A window FILTER body, being
+            # grammar-parsed but never visited, also tolerates a bad inner string.
+            # rust used to always use the string-only reading and wrong-reject these.
+            for query in (
+                "interval interval '' day month",
+                "interval interval '5 day' hour month",
+                "a() filter(where interval interval 'bm ' day) over a",
+                "a() filter(where interval interval '' day month) over a",
+                # one trailing unit keeps the inner string-only — still parity
+                "interval interval '5 day' month",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            # Guard: a bad inner string with a SINGLE trailing unit has no
+            # value-expr escape hatch, so it rejects when VISITED. (The empty
+            # `''` single-unit form is left out — the legacy python backend
+            # surfaces it as a bare ValueError, an unrelated pre-existing quirk.)
+            with self.assertRaises((BaseHogQLError, SyntaxError), msg="interval interval 'bm ' day"):
+                parse_expr("interval interval 'bm ' day", backend=backend)
+
         def test_stacked_table_alias_span_ends_at_first_alias(self):
             # `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs end
             # the JoinExpr span at the INNERMOST (first) alias, while each outer
