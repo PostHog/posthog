@@ -1611,6 +1611,7 @@ class TestExternalDataSource(APIBaseTest):
                 "prefix",
                 "description",
                 "access_method",
+                "direct_query_enabled",
                 "engine",
                 "last_run_at",
                 "schemas",
