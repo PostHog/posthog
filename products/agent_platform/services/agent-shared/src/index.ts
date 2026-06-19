@@ -65,3 +65,6 @@ export * from './runtime/secret-resolver'
 export * from './config/platform'
 
 export * from './memory'
+
+// CI no-op: verifying that a services-only change skips frontend & storybook CI.
+// Remove before merge.
