@@ -49,3 +49,14 @@ export function isOverflowBatchByDistinctId(): boolean {
     const overflowBatchByDistinctId = process.env.INGESTION_OVERFLOW_BATCH_BY_DISTINCT_ID
     return stringToBoolean(overflowBatchByDistinctId)
 }
+
+// Parse a comma-separated env var of team ids into a list, or '*' for "all teams".
+export function parseTeamsList(teamsStr: string): number[] | '*' {
+    if (teamsStr === '*') {
+        return '*'
+    }
+    return teamsStr
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !isNaN(n))
+}

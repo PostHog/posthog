@@ -3,6 +3,7 @@ import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { ProcessedEvent } from '~/types'
+import { parseTeamsList } from '~/utils/env-utils'
 
 import { EventToEmit } from './emit-event-step'
 
@@ -84,16 +85,6 @@ function maybeStripAiProperties(
         { event: strippedEvent, output: entry.output },
         { event: entry.event, output: AI_EVENTS_OUTPUT },
     ]
-}
-
-export function parseTeamsList(teamsStr: string): number[] | '*' {
-    if (teamsStr === '*') {
-        return '*'
-    }
-    return teamsStr
-        .split(',')
-        .map((s) => parseInt(s.trim(), 10))
-        .filter((n) => !isNaN(n))
 }
 
 function clampPercentage(pct: number): number {

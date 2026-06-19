@@ -7,7 +7,7 @@ import {
     createTagger,
 } from '~/ai-observability/_tests/fixtures'
 import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
-import { parseTeamsList } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
+import { parseTeamsList } from '~/utils/env-utils'
 import { logger } from '~/utils/logger'
 
 import {
