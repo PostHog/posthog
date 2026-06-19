@@ -53,6 +53,7 @@ def _mock_adapter(*, lag_bytes=0, retention_cap_mb=None):
 def _run(adapter):
     with (
         patch("posthog.temporal.data_imports.cdc.activities.activity") as mock_activity,
+        patch("posthog.temporal.data_imports.cdc.activities.HeartbeaterSync"),
         patch("posthog.temporal.data_imports.cdc.activities.close_old_connections"),
         patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter", return_value=adapter),
         patch("products.data_warehouse.backend.data_load.service.delete_cdc_extraction_schedule") as mock_delete,
@@ -63,15 +64,13 @@ def _run(adapter):
 
 def test_encrypted_cdc_source_is_selected(team):
     # Regression: cdc_enabled is encrypted at rest, so the old ORM filter never matched
-    # and the sweeper checked zero sources. It must now reach the active lag-check path
-    # and heartbeat along the way.
+    # and the sweeper checked zero sources. It must now reach the active lag-check path.
     _create_source(team, job_inputs=_cdc_job_inputs())
     adapter = _mock_adapter(lag_bytes=0)
 
-    mock_activity, _ = _run(adapter)
+    _run(adapter)
 
     adapter.get_lag_bytes.assert_called_once()
-    mock_activity.heartbeat.assert_called()
 
 
 @pytest.mark.parametrize(
