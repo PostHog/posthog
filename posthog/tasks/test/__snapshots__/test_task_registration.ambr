@@ -139,6 +139,7 @@
     'posthog.tasks.usage_report.capture_report',
     'posthog.tasks.usage_report.send_all_org_usage_reports',
     'posthog.tasks.usage_report.send_report_to_billing_service',
+    'posthog.tasks.user_auth_sessions.cleanup_user_auth_sessions',
     'posthog.tasks.warehouse.validate_data_warehouse_table_columns',
   ])
 # ---
