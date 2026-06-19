@@ -8663,11 +8663,33 @@ export namespace Schemas {
       type: HogQLAlertConfigType;
     }
 
+    export type FunnelConversionMetric = typeof FunnelConversionMetric[keyof typeof FunnelConversionMetric];
+
+
+    export const FunnelConversionMetric = {
+      ConversionFromStart: 'conversion_from_start',
+      ConversionFromPrevious: 'conversion_from_previous',
+    } as const;
+
+    export type FunnelsAlertConfigType = typeof FunnelsAlertConfigType[keyof typeof FunnelsAlertConfigType];
+
+
+    export const FunnelsAlertConfigType = {
+      FunnelsAlertConfig: 'FunnelsAlertConfig',
+    } as const;
+
+    export interface FunnelsAlertConfig {
+      /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
+      funnel_step?: number | null;
+      metric: FunnelConversionMetric;
+      type: FunnelsAlertConfigType;
+    }
+
     /**
      * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
      * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
      */
-    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig;
+    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig;
 
     export interface PreprocessingConfig {
       /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -8915,7 +8937,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions. */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -33820,7 +33842,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total?: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions. */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
