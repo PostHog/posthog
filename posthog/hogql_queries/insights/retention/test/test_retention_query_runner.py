@@ -1,5 +1,4 @@
 import uuid
-from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -147,21 +146,6 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             return runner.calculate().model_dump()["results"]
 
         return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
-
-    def assert_variant_breakdown_parity(self, query: dict[str, Any]) -> list[dict[str, Any]]:
-        # Force the legacy and DWH-variant base-query paths and assert identical chart
-        # results. Used while the breakdownFilter gap is still active — the standard
-        # run_query comparison skips breakdown queries until that gap is removed.
-        if not query.get("retentionFilter"):
-            query["retentionFilter"] = {}
-
-        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=False):
-            legacy = RetentionQueryRunner(team=self.team, query=deepcopy(query)).calculate().model_dump()["results"]
-        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
-            variant = RetentionQueryRunner(team=self.team, query=deepcopy(query)).calculate().model_dump()["results"]
-
-        self.assertEqual(variant, legacy)
-        return legacy
 
     def test_retention_default(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -3873,7 +3857,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         flush_persons_and_events()
 
-        result = self.assert_variant_breakdown_parity(
+        result = self.run_query(
             query={
                 "dateRange": {"date_to": _date(5, hour=0)},
                 "retentionFilter": {
@@ -3905,7 +3889,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         _create_events(self.team, [("new_user", _date(3), {"$feature/x": "variant"})], "insight_viewed")
         flush_persons_and_events()
 
-        result = self.assert_variant_breakdown_parity(
+        result = self.run_query(
             query={
                 "dateRange": {"date_from": _date(0), "date_to": _date(4)},
                 "retentionFilter": {
@@ -3945,7 +3929,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         flush_persons_and_events()
 
-        result = self.assert_variant_breakdown_parity(
+        result = self.run_query(
             query={
                 "dateRange": {"date_to": _date(4, hour=0)},
                 "retentionFilter": {"totalIntervals": 5, "period": "Day"},

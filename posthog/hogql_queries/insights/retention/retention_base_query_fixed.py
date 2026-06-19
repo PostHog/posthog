@@ -9,7 +9,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
-from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID
+from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, has_breakdown_filter
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -239,7 +239,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
 
         group_by_fields: list[ast.Expr] = [ast.Field(chain=["actor_id"])]
-        if self.breakdown_extract_expr_for_query() is not None:
+        if has_breakdown_filter(self.query.breakdownFilter):
             if self.is_first_ever_occurrence:
                 # Each arm resolves the same single per-actor value; max() collapses the
                 # UNION rows deterministically and lets a real value win over the
