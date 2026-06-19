@@ -549,6 +549,9 @@ class TestExternalDataSchema(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            # Seed leftover config so the post-request assertion catches a regression that writes the
+            # value rather than leaving it untouched (a missing key would pass trivially).
+            sync_type_config={"incremental_field": "old_value", "primary_key_columns": ["id"]},
         )
 
         # Setting incremental_field on a full_refresh schema without switching sync_type can't be
@@ -560,7 +563,17 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         schema.refresh_from_db()
-        assert schema.sync_type_config.get("incremental_field") is None
+        assert schema.sync_type_config.get("incremental_field") == "old_value"
+
+        # primary_key_columns is dropped the same way on a non-incremental schema, so it errors too.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"primary_key_columns": ["other_id"]},
+        )
+
+        assert response.status_code == 400, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("primary_key_columns") == ["id"]
 
     def test_incremental_field_lookback_seconds_survives_reset(self):
         source = ExternalDataSource.objects.create(

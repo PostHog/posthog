@@ -580,17 +580,29 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             ExternalDataSchema.SyncType.WEBHOOK,
         )
 
-        # A bare incremental-field edit (no sync_type in the request) on a schema whose sync type
-        # can't use one would otherwise be an unpersisted no-op that still returns 200. Reject it so
-        # the caller gets a clear error instead of a response that looks applied but isn't.
+        # A bare edit (no sync_type in the request) of sync-config fields on a schema whose sync type
+        # can't apply them would otherwise be an unpersisted no-op that still returns 200 — only the
+        # incremental-style branch below writes these, and a non-incremental schema falls through it.
+        # Reject it so the caller gets a clear error instead of a response that looks applied but isn't.
+        # (primary_key_columns is included: CDC/xmin do use it, but only when sync_type is sent, so a
+        # bare PK edit on those is dropped just like on full_refresh.)
         if "sync_type" not in data and resulting_sync_type not in incremental_style_types:
-            for field in ("incremental_field", "incremental_field_type", "incremental_field_lookback_seconds"):
-                if field in data and data.get(field) is not None:
-                    raise ValidationError(
-                        f"{field} only applies to incremental, append, or webhook sync types. "
-                        f"This schema's sync type is {resulting_sync_type or 'not set'}. "
-                        "Include sync_type in the same request to change the sync type."
-                    )
+            unappliable_fields = [
+                field
+                for field in (
+                    "incremental_field",
+                    "incremental_field_type",
+                    "incremental_field_lookback_seconds",
+                    "primary_key_columns",
+                )
+                if field in data and data.get(field) is not None
+            ]
+            if unappliable_fields:
+                raise ValidationError(
+                    f"{', '.join(unappliable_fields)} cannot be applied to a schema with sync type "
+                    f"{resulting_sync_type or 'not set'} on its own. "
+                    "Include sync_type in the same request to change the sync type."
+                )
 
         trigger_refresh = False
         # Update the validated_data with incremental fields
