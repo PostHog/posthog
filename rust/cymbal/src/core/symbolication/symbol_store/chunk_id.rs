@@ -360,9 +360,9 @@ mod test {
     };
 
     const EXAMPLE_EXCEPTION: &str =
-        include_str!("../../../tests/static/raw_ch_exception_list.json");
-    const MINIFIED: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js");
-    const MAP: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js.map");
+        include_str!("../../../../tests/static/raw_ch_exception_list.json");
+    const MINIFIED: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js");
+    const MAP: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js.map");
 
     // Used to construct a Catalog with only the chunk id based provider implemented
     #[allow(dead_code)]

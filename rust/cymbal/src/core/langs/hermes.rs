@@ -246,8 +246,8 @@ mod test {
         },
     };
 
-    const HERMES_MAP: &str = include_str!("../../tests/static/hermes/composed_example.map");
-    const RAW_STACK: &str = include_str!("../../tests/static/hermes/raw_stack.txt");
+    const HERMES_MAP: &str = include_str!("../../../tests/static/hermes/composed_example.map");
+    const RAW_STACK: &str = include_str!("../../../tests/static/hermes/raw_stack.txt");
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_hermes_resolution(db: PgPool) {

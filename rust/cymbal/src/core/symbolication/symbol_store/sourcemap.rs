@@ -563,10 +563,10 @@ fn assert_is_sourcemap(data: &str) -> Result<(), ResolveError> {
 mod test {
     use httpmock::MockServer;
 
-    const MINIFIED: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js");
-    const MAP: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js.map");
+    const MINIFIED: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js");
+    const MAP: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js.map");
     const MINIFIED_WITH_NO_MAP_REF: &[u8] =
-        include_bytes!("../../../tests/static/chunk-PGUQKT6S-no-map.js");
+        include_bytes!("../../../../tests/static/chunk-PGUQKT6S-no-map.js");
 
     use super::*;
 
@@ -658,7 +658,7 @@ mod test {
     #[tokio::test]
     pub async fn data_url_test() {
         let data_url_example: &str =
-            include_str!("../../../tests/static/inline_sourcemap_example.js");
+            include_str!("../../../../tests/static/inline_sourcemap_example.js");
 
         let server = MockServer::start();
 
@@ -679,7 +679,7 @@ mod test {
             panic!("Expected Data, got something else");
         };
 
-        let expected = include_str!("../../../tests/static/inline_sourcemap_example.js.map");
+        let expected = include_str!("../../../../tests/static/inline_sourcemap_example.js.map");
 
         assert_eq!(res.trim(), expected.trim());
 

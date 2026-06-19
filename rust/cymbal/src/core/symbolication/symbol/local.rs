@@ -267,10 +267,10 @@ mod test {
     };
 
     const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
-    const MINIFIED: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js");
-    const MAP: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js.map");
+    const MINIFIED: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js");
+    const MAP: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js.map");
     const EXAMPLE_EXCEPTION: &str =
-        include_str!("../../../tests/static/raw_ch_exception_list.json");
+        include_str!("../../../../tests/static/raw_ch_exception_list.json");
 
     async fn setup_test_context<S>(pool: PgPool, s3_init: S) -> (Config, Catalog, MockServer)
     where

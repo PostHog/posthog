@@ -1,6 +1,6 @@
 use std::future::Future;
 
-pub type TeamId = i32;
+pub use crate::core::ids::TeamId;
 
 /// An Operator is a stateless function that can be applied in parallel to items in a batch.
 pub trait Operator {

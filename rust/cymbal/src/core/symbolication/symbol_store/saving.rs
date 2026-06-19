@@ -16,7 +16,7 @@ use crate::{
         SAVE_SYMBOL_SET, SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES,
         SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
-    posthog_utils::{capture_symbol_set_deleted, capture_symbol_set_saved},
+    core::analytics::{capture_symbol_set_deleted, capture_symbol_set_saved},
     symbolication::symbol_store::{chunk_id::SymbolSetKey, BlobClient},
 };
 
@@ -542,8 +542,8 @@ mod test {
     };
 
     const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
-    const MINIFIED: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js");
-    const MAP: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js.map");
+    const MINIFIED: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js");
+    const MAP: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js.map");
 
     #[test]
     fn test_truncate_ref_short_string() {
