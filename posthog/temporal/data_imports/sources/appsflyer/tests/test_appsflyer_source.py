@@ -48,9 +48,9 @@ class TestAppsFlyerSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/dailyreport/v5",
+            "401 Client Error: Unauthorized for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/daily_report/v5",
             "403 Client Error: Forbidden for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/geo_by_date_report/v5",
-            "404 Client Error: Not Found for url: https://hq1.appsflyer.com/api/agg-data/export/app/nope/dailyreport/v5",
+            "404 Client Error: Not Found for url: https://hq1.appsflyer.com/api/agg-data/export/app/nope/daily_report/v5",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
@@ -61,7 +61,7 @@ class TestAppsFlyerSource:
         "other_vendor_error",
         [
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/dailyreport/v5",
+            "500 Server Error for url: https://hq1.appsflyer.com/api/agg-data/export/app/id123/daily_report/v5",
         ],
     )
     def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
@@ -90,21 +90,14 @@ class TestAppsFlyerSource:
     def test_get_schemas_filtered_unknown_name_returns_empty(self):
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
-    @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
-        [
-            (True, True, None),
-            (False, False, "Invalid AppsFlyer API token or app id"),
-        ],
-    )
     @mock.patch("posthog.temporal.data_imports.sources.appsflyer.source.validate_appsflyer_credentials")
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
+    def test_validate_credentials_succeeds(self, mock_validate):
+        mock_validate.return_value = True
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
-        assert is_valid is expected_valid
-        assert error_message == expected_message
+        assert is_valid is True
+        assert error_message is None
         mock_validate.assert_called_once_with("token", "id123")
 
     @pytest.mark.parametrize(

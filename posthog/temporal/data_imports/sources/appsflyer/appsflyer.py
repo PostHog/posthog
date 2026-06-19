@@ -37,7 +37,12 @@ class AppsFlyerCredentialsError(Exception):
 
 
 def _get_session(api_token: str) -> requests.Session:
-    return make_tracked_session(headers={"Authorization": f"Bearer {api_token}"}, redact_values=(api_token,))
+    # The v5 Pull API defaults to JSON; CSV is opt-in via Accept only. This header is required —
+    # without it we'd get JSON and the CSV parser below would silently produce garbage.
+    return make_tracked_session(
+        headers={"Authorization": f"Bearer {api_token}", "Accept": "text/csv"},
+        redact_values=(api_token,),
+    )
 
 
 def _validate_app_id(app_id: str) -> str:
@@ -87,8 +92,10 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
 
     Returns ``True`` when the probe succeeds. Raises ``AppsFlyerCredentialsError`` with a
     user-facing message when AppsFlyer rejects the token or app id (the status code tells the
-    two apart), ``AppsFlyerRetryableError`` on rate-limit / 5xx responses, and lets transport
-    errors propagate so the caller can tell a transient failure apart from a bad credential.
+    two apart) or returns any other unexpected status, ``AppsFlyerRetryableError`` on
+    rate-limit / 5xx responses, and lets transport errors propagate so the caller can tell a
+    transient failure apart from a bad credential. Never returns ``False`` — a non-200 always
+    raises so the failure is never silently conflated with a bad credential.
     """
     try:
         app = _validate_app_id(app_id)
@@ -99,7 +106,7 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         ) from None
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     response = _get_session(api_token).get(
-        f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(app)}/dailyreport/v5"
+        f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(app)}/daily_report/v5"
         f"?{urlencode({'from': today, 'to': today})}",
         timeout=30,
     )
@@ -121,7 +128,12 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         )
     if response.status_code == 404:
         raise AppsFlyerCredentialsError("AppsFlyer couldn't find an app with that app id. Please check the app id.")
-    return False
+    # Any other status is unexpected (e.g. a 400 from a malformed request) — surface the real
+    # code rather than blaming the token or app id, which sends users debugging the wrong thing.
+    raise AppsFlyerCredentialsError(
+        f"AppsFlyer returned an unexpected response (HTTP {response.status_code}) while validating credentials. "
+        "If your app id and API token (V2) look correct, please try again shortly or contact support."
+    )
 
 
 def get_rows(
