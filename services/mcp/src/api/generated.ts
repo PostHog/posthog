@@ -532,6 +532,95 @@ export namespace Schemas {
     }
 
     /**
+     * * `user` - user
+     * * `team` - team
+     */
+    export type AchievementDefinitionScopeEnum = typeof AchievementDefinitionScopeEnum[keyof typeof AchievementDefinitionScopeEnum];
+
+
+    export const AchievementDefinitionScopeEnum = {
+      User: 'user',
+      Team: 'team',
+    } as const;
+
+    export interface AchievementStage {
+      /** Stage number within the track, 1-5. */
+      stage: number;
+      /** Hog-themed stage name, e.g. 'Spike Streak'. */
+      name: string;
+      /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
+      threshold: number;
+    }
+
+    export interface AchievementDefinition {
+      /** Stable track identifier, e.g. 'hog_streak'. */
+      key: string;
+      /** Human-readable track name. */
+      display_name: string;
+      /** One-line description of what the track rewards. */
+      description: string;
+      /** Whether the track is tracked per user or per team.
+       *
+       * * `user` - user
+       * * `team` - team */
+      scope: AchievementDefinitionScopeEnum;
+      /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
+      is_experiment_track: boolean;
+      /** The five stages of this track, in ascending threshold order. */
+      stages: AchievementStage[];
+    }
+
+    export interface AchievementProgress {
+      /** Track this progress row belongs to. */
+      track_key: string;
+      /** Highest stage unlocked so far, 0-5. */
+      current_stage: number;
+      /** Most recently computed progress value for the track. */
+      progress_value: number;
+      /**
+         * When the track was last recomputed, or null if it never has been.
+         * @nullable
+         */
+      last_computed_at: string | null;
+    }
+
+    export interface PendingCelebration {
+      /** Track whose stage was newly unlocked. */
+      track_key: string;
+      /** Newly unlocked stage number, 1-5. */
+      stage: number;
+      /** Name of the unlocked stage, shown in the celebration UI. */
+      stage_name: string;
+    }
+
+    export interface AchievementsListResponse {
+      /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
+      definitions: AchievementDefinition[];
+      /** The requesting user's progress on per-user tracks. */
+      user_progress: AchievementProgress[];
+      /** The team's progress on per-team tracks. */
+      team_progress: AchievementProgress[];
+      /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
+      pending_celebrations: PendingCelebration[];
+    }
+
+    export interface AcknowledgeCelebrationRequest {
+      /** Track of the celebration being acknowledged. */
+      track_key: string;
+      /**
+         * Stage number being acknowledged, 1-5.
+         * @minimum 1
+         * @maximum 5
+         */
+      stage: number;
+    }
+
+    export interface AcknowledgeCelebrationResponse {
+      /** True if a matching pending celebration was cleared (idempotent). */
+      acknowledged: boolean;
+    }
+
+    /**
      * * `event` - event
      * * `event_metadata` - event_metadata
      * * `feature` - feature
@@ -2176,6 +2265,7 @@ export namespace Schemas {
       ActionsAreaGraph: 'ActionsAreaGraph',
       ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
       BoldNumber: 'BoldNumber',
+      Metric: 'Metric',
       ActionsPie: 'ActionsPie',
       ActionsBarValue: 'ActionsBarValue',
       ActionsTable: 'ActionsTable',
@@ -2294,6 +2384,18 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       hiddenLegendIndexes?: number[] | null;
       hideWeekends?: boolean | null;
+      /** Metric display: change pill color when the metric decreased. Defaults to red. */
+      metricChangeDecreaseColor?: string | null;
+      /** Metric display: change pill color when the metric increased. Defaults to green. */
+      metricChangeIncreaseColor?: string | null;
+      /** Metric display: color the sparkline by whether the metric increased or decreased. */
+      metricColorByDirection?: boolean | null;
+      /** Metric display: line color when the metric decreased. Defaults to red. */
+      metricLineDecreaseColor?: string | null;
+      /** Metric display: line color when the metric increased. Defaults to green. */
+      metricLineIncreaseColor?: string | null;
+      /** Show the period-over-period change pill on the Metric display. */
+      metricShowChange?: boolean | null;
       minDecimalPlaces?: number | null;
       movingAverageIntervals?: number | null;
       /** Wether result datasets are associated by their values or by their order. */
@@ -4894,6 +4996,7 @@ export namespace Schemas {
       CustomerioApp: 'customerio-app',
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
+      Postgresql: 'postgresql',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -8519,13 +8622,52 @@ export namespace Schemas {
       readonly notification_suppressed_by_agent: boolean;
     }
 
+    export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
+
+
+    export const TrendsAlertConfigType = {
+      TrendsAlertConfig: 'TrendsAlertConfig',
+    } as const;
+
     export interface TrendsAlertConfig {
       /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
       check_ongoing_interval?: boolean | null;
       /** Zero-based index of the series in the insight's query to monitor. */
       series_index: number;
-      type?: 'TrendsAlertConfig';
+      type: TrendsAlertConfigType;
     }
+
+    export type HogQLAlertEvaluation = typeof HogQLAlertEvaluation[keyof typeof HogQLAlertEvaluation];
+
+
+    export const HogQLAlertEvaluation = {
+      LastRow: 'last_row',
+      FirstRow: 'first_row',
+      AnyRow: 'any_row',
+    } as const;
+
+    export type HogQLAlertConfigType = typeof HogQLAlertConfigType[keyof typeof HogQLAlertConfigType];
+
+
+    export const HogQLAlertConfigType = {
+      HogQLAlertConfig: 'HogQLAlertConfig',
+    } as const;
+
+    export interface HogQLAlertConfig {
+      /** Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column). */
+      column?: string | null;
+      /** How to read the result rows — an explicit choice, no implicit default. */
+      evaluation: HogQLAlertEvaluation;
+      /** In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number. */
+      label_column?: string | null;
+      type: HogQLAlertConfigType;
+    }
+
+    /**
+     * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
+     * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
+     */
+    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig;
 
     export interface PreprocessingConfig {
       /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -8773,8 +8915,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total: number | null;
-      /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-      config?: TrendsAlertConfig | null;
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
@@ -9321,6 +9463,10 @@ export namespace Schemas {
      * * `test_endpoint` - test_endpoint
      * * `create_early_access_feature` - create_early_access_feature
      * * `update_feature_stage` - update_feature_stage
+     * * `use_posthog_ai` - use_posthog_ai
+     * * `use_posthog_code` - use_posthog_code
+     * * `use_posthog_mcp` - use_posthog_mcp
+     * * `use_posthog_in_slack` - use_posthog_in_slack
      */
     export type AvailableSetupTaskIdsEnum = typeof AvailableSetupTaskIdsEnum[keyof typeof AvailableSetupTaskIdsEnum];
 
@@ -9391,6 +9537,10 @@ export namespace Schemas {
       TestEndpoint: 'test_endpoint',
       CreateEarlyAccessFeature: 'create_early_access_feature',
       UpdateFeatureStage: 'update_feature_stage',
+      UsePosthogAi: 'use_posthog_ai',
+      UsePosthogCode: 'use_posthog_code',
+      UsePosthogMcp: 'use_posthog_mcp',
+      UsePosthogInSlack: 'use_posthog_in_slack',
     } as const;
 
     export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
@@ -10006,13 +10156,39 @@ export namespace Schemas {
       type: BigQueryDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig;
+    export type PostgresDestinationConfigType = typeof PostgresDestinationConfigType[keyof typeof PostgresDestinationConfigType];
+
+
+    export const PostgresDestinationConfigType = {
+      Postgres: 'Postgres',
+    } as const;
+
+    /**
+     * Typed configuration for a PostgreSQL batch-export destination.
+     *
+     * Connection credentials may live in a linked Integration (when one is provided) or
+     * inline in this config (legacy). Mirrors the non-credential fields of
+     * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface PostgresDestinationConfig {
+      /** PostgreSQL database name to connect to. */
+      database: string;
+      /** PostgreSQL schema name containing the destination table. */
+      schema?: string;
+      /** PostgreSQL table name to write exported rows into. */
+      table_name?: string;
+      /** Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration. */
+      has_self_signed_cert?: boolean;
+      type: PostgresDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
-     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
+     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).
      * Other destination types accept the same JSON shape but without a typed
      * OpenAPI schema. Secret fields are stripped from `config` on read.
      */
@@ -10033,7 +10209,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -10041,7 +10217,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -10975,7 +11151,24 @@ export namespace Schemas {
       config: BigQueryDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest;
+    export type PostgresDestinationRequestType = typeof PostgresDestinationRequestType[keyof typeof PostgresDestinationRequestType];
+
+
+    export const PostgresDestinationRequestType = {
+      Postgres: 'Postgres',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a PostgreSQL batch-export destination.
+     */
+    export interface PostgresDestinationRequest {
+      type: PostgresDestinationRequestType;
+      /** ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
+      config: PostgresDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -18134,12 +18327,8 @@ export namespace Schemas {
       filters: unknown;
       /** @nullable */
       readonly assignee: ErrorTrackingAssignmentRuleAssignee;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key: number;
-      disabled_data?: unknown;
+      disabled_data: unknown;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -18278,18 +18467,14 @@ export namespace Schemas {
       /** @nullable */
       readonly assignee: ErrorTrackingGroupingRuleAssignee;
       /** @nullable */
-      description?: string | null;
+      description: string | null;
       /**
          * Issue linked to this rule
          * @nullable
          */
       readonly issue: ErrorTrackingGroupingRuleIssue;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key: number;
-      disabled_data?: unknown;
+      disabled_data: unknown;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -18922,14 +19107,74 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * @nullable
+     */
+    export type ErrorTrackingReleaseMetadata = { [key: string]: unknown } | null;
+
     export interface ErrorTrackingRelease {
-      readonly id: string;
+      id: string;
       hash_id: string;
-      readonly team_id: number;
-      readonly created_at: string;
-      metadata?: unknown;
+      team_id: number;
+      created_at: string;
+      /** @nullable */
+      metadata: ErrorTrackingReleaseMetadata;
       version: string;
       project: string;
+    }
+
+    /**
+     * Optional free-form metadata object stored alongside the release.
+     * @nullable
+     */
+    export type ErrorTrackingReleaseCreateRequestMetadata = { [key: string]: unknown } | null;
+
+    export interface ErrorTrackingReleaseCreateRequest {
+      /** Human-readable release version, e.g. a semver string or build number. */
+      version: string;
+      /** Identifier of the project this release belongs to. */
+      project: string;
+      /**
+         * Optional client-supplied release hash (e.g. a git commit SHA). Generated server-side when omitted.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Optional free-form metadata object stored alongside the release.
+         * @nullable
+         */
+      metadata?: ErrorTrackingReleaseCreateRequestMetadata;
+    }
+
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    export type ErrorTrackingReleaseUpdateRequestMetadata = { [key: string]: unknown } | null;
+
+    export interface ErrorTrackingReleaseUpdateRequest {
+      /**
+         * Human-readable release version. Omit to preserve the current value.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Project identifier. Omit to preserve the current value.
+         * @nullable
+         */
+      project?: string | null;
+      /**
+         * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Free-form metadata object. Omit to preserve the current value.
+         * @nullable
+         */
+      metadata?: ErrorTrackingReleaseUpdateRequestMetadata;
     }
 
     export interface ErrorTrackingSettings {
@@ -19028,43 +19273,62 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingSpikeEventIssue {
-      readonly id: string;
+      id: string;
       /** @nullable */
-      readonly name: string | null;
+      name: string | null;
       /** @nullable */
-      readonly description: string | null;
+      description: string | null;
     }
 
     export interface ErrorTrackingSpikeEvent {
-      readonly id: string;
-      readonly issue: ErrorTrackingSpikeEventIssue;
-      readonly detected_at: string;
-      readonly computed_baseline: number;
-      readonly current_bucket_value: number;
+      id: string;
+      issue: ErrorTrackingSpikeEventIssue;
+      detected_at: string;
+      computed_baseline: number;
+      current_bucket_value: number;
     }
 
+    export type ErrorTrackingStackFrameContents = { [key: string]: unknown };
+
+    /**
+     * @nullable
+     */
+    export type ErrorTrackingStackFrameContext = { [key: string]: unknown } | null;
+
     export interface ErrorTrackingStackFrame {
-      readonly id: string;
-      /** Raw frame ID in 'hash/part' format */
-      readonly raw_id: string;
-      readonly created_at: string;
-      contents: unknown;
+      id: string;
+      raw_id: string;
+      created_at: string;
+      contents: ErrorTrackingStackFrameContents;
       resolved: boolean;
-      context?: unknown;
-      symbol_set_ref?: string;
-      readonly release: ErrorTrackingRelease;
+      /** @nullable */
+      context: ErrorTrackingStackFrameContext;
+      /** @nullable */
+      symbol_set_ref: string | null;
+      release: ErrorTrackingRelease | null;
+    }
+
+    export interface ErrorTrackingStackFrameBatchGetRequest {
+      /** Raw frame IDs in 'hash/part' format to resolve in a single request. */
+      raw_ids: string[];
+      /**
+         * Optional symbol set reference to scope the lookup to a single symbol set.
+         * @nullable
+         */
+      symbol_set?: string | null;
+    }
+
+    export interface ErrorTrackingStackFrameBatchGetResponse {
+      /** Resolved stack frames for the requested raw IDs. */
+      results: ErrorTrackingStackFrame[];
     }
 
     export interface ErrorTrackingSuppressionRule {
       readonly id: string;
       filters: unknown;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key: number;
-      disabled_data?: unknown;
-      sampling_rate?: number;
+      disabled_data: unknown;
+      sampling_rate: number;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -19205,7 +19469,7 @@ export namespace Schemas {
     }
 
     /**
-     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type EvaluationEvaluationConfig = {
       /**
@@ -19219,6 +19483,9 @@ export namespace Schemas {
          * @minLength 1
          */
       source: string;
+    } | {
+      /** Classify sentiment from user messages in the generation input. */
+      source?: 'user_messages';
     };
 
     /**
@@ -19260,6 +19527,7 @@ export namespace Schemas {
     /**
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
      */
     export type EvaluationTypeEnum = typeof EvaluationTypeEnum[keyof typeof EvaluationTypeEnum];
 
@@ -19267,16 +19535,19 @@ export namespace Schemas {
     export const EvaluationTypeEnum = {
       LlmJudge: 'llm_judge',
       Hog: 'hog',
+      Sentiment: 'sentiment',
     } as const;
 
     /**
      * * `boolean` - Boolean (Pass/Fail)
+     * * `sentiment` - Sentiment
      */
     export type OutputTypeEnum = typeof OutputTypeEnum[keyof typeof OutputTypeEnum];
 
 
     export const OutputTypeEnum = {
       Boolean: 'boolean',
+      Sentiment: 'sentiment',
     } as const;
 
     export type EvaluationConditionPropertiesItem = { [key: string]: unknown };
@@ -19348,16 +19619,18 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status: EvaluationStatusEnum;
       readonly status_reason: StatusReasonEnum | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
        *
        * * `llm_judge` - LLM as a judge
-       * * `hog` - Hog */
+       * * `hog` - Hog
+       * * `sentiment` - Sentiment analysis */
       evaluation_type: EvaluationTypeEnum;
-      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: EvaluationEvaluationConfig;
-      /** Output format. Currently only 'boolean' is supported.
+      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
        *
-       * * `boolean` - Boolean (Pass/Fail) */
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: EvaluationOutputConfig;
@@ -20312,15 +20585,23 @@ export namespace Schemas {
 
     /**
      * * `manual` - Manual
+     * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
+     * * `auto_refresh` - Auto Refresh
+     * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update
      */
-    export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
+    export type TriggerEnum = typeof TriggerEnum[keyof typeof TriggerEnum];
 
 
-    export const ExperimentMetricsRecalculationTriggerEnum = {
+    export const TriggerEnum = {
       Manual: 'manual',
+      ColdRun: 'cold_run',
+      StaleRefresh: 'stale_refresh',
+      AutoRefresh: 'auto_refresh',
+      ConfigChange: 'config_change',
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
       ExperimentUpdate: 'experiment_update',
@@ -20387,10 +20668,14 @@ export namespace Schemas {
       /** What triggered this recalculation
        *
        * * `manual` - Manual
+       * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
+       * * `auto_refresh` - Auto Refresh
+       * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
        * * `experiment_update` - Experiment Update */
-      readonly trigger: ExperimentMetricsRecalculationTriggerEnum;
+      readonly trigger: TriggerEnum;
       /** When the job was created */
       readonly created_at: string;
       /**
@@ -20591,6 +20876,7 @@ export namespace Schemas {
      * * `append` - append
      * * `webhook` - webhook
      * * `cdc` - cdc
+     * * `xmin` - xmin
      */
     export type SyncTypeEnum = typeof SyncTypeEnum[keyof typeof SyncTypeEnum];
 
@@ -20601,6 +20887,7 @@ export namespace Schemas {
       Append: 'append',
       Webhook: 'webhook',
       Cdc: 'cdc',
+      Xmin: 'xmin',
     } as const;
 
     /**
@@ -20610,6 +20897,7 @@ export namespace Schemas {
      * * `date` - date
      * * `timestamp` - timestamp
      * * `objectid` - objectid
+     * * `xid` - xid
      */
     export type IncrementalFieldTypeEnum = typeof IncrementalFieldTypeEnum[keyof typeof IncrementalFieldTypeEnum];
 
@@ -20621,6 +20909,7 @@ export namespace Schemas {
       Date: 'date',
       Timestamp: 'timestamp',
       Objectid: 'objectid',
+      Xid: 'xid',
     } as const;
 
     /**
@@ -20677,7 +20966,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Column name used to track sync progress.
@@ -20691,7 +20981,8 @@ export namespace Schemas {
        * * `datetime` - datetime
        * * `date` - date
        * * `timestamp` - timestamp
-       * * `objectid` - objectid */
+       * * `objectid` - objectid
+       * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
        *
@@ -20763,7 +21054,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Incremental cursor field for incremental or append syncs.
@@ -25223,6 +25515,97 @@ export namespace Schemas {
     }
 
     /**
+     * * `high` - high
+     * * `medium` - medium
+     * * `low` - low
+     */
+    export type TierEnum = typeof TierEnum[keyof typeof TierEnum];
+
+
+    export const TierEnum = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+    } as const;
+
+    export interface IdentityMatchingLink {
+      /** Identity matching run that produced this link. */
+      job_id: string;
+      /** Scoring model that produced the link, e.g. 'rules_v1' or 'logreg_v1'. */
+      model_version: string;
+      /** Anonymous distinct ID that the model linked to an identified person. */
+      orphan_distinct_id: string;
+      /** Canonical distinct ID representing the matched identified person. */
+      anchor_person_key: string;
+      /** Link score: weighted rule points for 'rules_v1', a 0-1 probability for 'logreg_v1'. */
+      score: number;
+      /** Score margin over the runner-up candidate person for this orphan. */
+      margin: number;
+      /** Confidence tier derived from score thresholds.
+       *
+       * * `high` - high
+       * * `medium` - medium
+       * * `low` - low */
+      tier: TierEnum;
+      /** When the link was computed (UTC). */
+      computed_at: string;
+      /** Distinct (IP, day) combinations both sides were seen on. */
+      shared_ip_days: number;
+      /** Distinct IPs both sides were seen on. */
+      shared_ips: number;
+      /** Device count on the least crowded shared IP-day; small values suggest a household IP. */
+      min_ip_block_size: number;
+      /** Both sides were seen in the same city. */
+      geo_city_match: boolean;
+      /** Both sides reported the same timezone. */
+      timezone_match: boolean;
+      /** Both sides reported the same browser language. */
+      language_match: boolean;
+      /** A byte-identical user agent was seen on both sides. */
+      ua_exact_match: boolean;
+      /** The orphan's traffic came from an in-app browser or webview. */
+      orphan_is_webview: boolean;
+      /** The sides form a mobile + desktop device pair. */
+      device_type_complement: boolean;
+      /** Number of days on which the two sides shared an IP. */
+      days_overlap: number;
+      /** Average overlap (0-1) of pages visited by the two sides on shared IP-days. */
+      avg_path_jaccard: number;
+      /** The orphan arrived via a paid click ID (gclid, li_fat_id, ...) inside the window. */
+      orphan_paid_touch: boolean;
+      /** The matched person already had a paid click ID inside the window. */
+      anchor_paid_touch: boolean;
+    }
+
+    export interface IdentityMatchingLinksResponse {
+      /** Links ordered by score, descending. */
+      results: IdentityMatchingLink[];
+      /** Total links matching the filters, ignoring pagination. */
+      count: number;
+    }
+
+    export interface IdentityMatchingRunModelCount {
+      /** Scoring model, e.g. 'rules_v1' or 'logreg_v1'. */
+      model_version: string;
+      /** Number of links this model produced in the run. */
+      link_count: number;
+    }
+
+    export interface IdentityMatchingRun {
+      /** Identity matching run identifier (the Dagster run ID). */
+      job_id: string;
+      /** When the run wrote its links (UTC). */
+      computed_at: string;
+      /** Link counts per scoring model in this run. */
+      models: IdentityMatchingRunModelCount[];
+    }
+
+    export interface IdentityMatchingRunsResponse {
+      /** Runs ordered by recency, most recent first. */
+      results: IdentityMatchingRun[];
+    }
+
+    /**
      * * `trends` - trends
      * * `funnel` - funnel
      * * `retention` - retention
@@ -25489,6 +25872,18 @@ export namespace Schemas {
          */
       created_at: string | null;
     }
+
+    /**
+     * * `data` - data
+     * * `recording` - recording
+     */
+    export type InteractionKindEnum = typeof InteractionKindEnum[keyof typeof InteractionKindEnum];
+
+
+    export const InteractionKindEnum = {
+      Data: 'data',
+      Recording: 'recording',
+    } as const;
 
     export interface InterestingNote {
       text: string;
@@ -26908,7 +27303,7 @@ export namespace Schemas {
       readonly intent_count: number;
       /** Number of MCP sessions whose summarised intent belongs to this cluster. */
       readonly session_count: number;
-      /** Total number of mcp_tool_call events represented by this cluster. */
+      /** Total number of $mcp_tool_call events represented by this cluster. */
       readonly call_count: number;
       /** Total number of error responses observed across the cluster. */
       readonly error_count: number;
@@ -27110,13 +27505,13 @@ export namespace Schemas {
     }
 
     export interface MCPSession {
-      /** $mcp_session_id grouping all mcp_tool_call events in the session. */
+      /** $mcp_session_id grouping all $mcp_tool_call events in the session. */
       readonly session_id: string;
-      /** Total number of mcp_tool_call events in the session. */
+      /** Total number of $mcp_tool_call events in the session. */
       readonly tool_calls: number;
-      /** Timestamp of the first mcp_tool_call event in the session. */
+      /** Timestamp of the first $mcp_tool_call event in the session. */
       readonly session_start: string;
-      /** Timestamp of the most recent mcp_tool_call event in the session. */
+      /** Timestamp of the most recent $mcp_tool_call event in the session. */
       readonly session_end: string;
       /** Number of distinct PostHog distinct_ids that produced events in the session. */
       readonly distinct_id_count: number;
@@ -27142,7 +27537,7 @@ export namespace Schemas {
     }
 
     export interface MCPToolCall {
-      /** ClickHouse uuid of the mcp_tool_call event. */
+      /** ClickHouse uuid of the $mcp_tool_call event. */
       readonly event_id: string;
       /** When the tool call was captured. */
       readonly timestamp: string;
@@ -33412,8 +33807,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total?: number | null;
-      /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-      config?: TrendsAlertConfig | null;
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
@@ -34372,10 +34767,6 @@ export namespace Schemas {
       filters?: unknown;
       /** @nullable */
       readonly assignee?: PatchedErrorTrackingAssignmentRuleAssignee;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key?: number;
       disabled_data?: unknown;
       readonly created_at?: string;
@@ -34415,10 +34806,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly issue?: PatchedErrorTrackingGroupingRuleIssue;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key?: number;
       disabled_data?: unknown;
       readonly created_at?: string;
@@ -34471,14 +34858,34 @@ export namespace Schemas {
       description?: string | null;
     }
 
-    export interface PatchedErrorTrackingRelease {
-      readonly id?: string;
-      hash_id?: string;
-      readonly team_id?: number;
-      readonly created_at?: string;
-      metadata?: unknown;
-      version?: string;
-      project?: string;
+    /**
+     * Free-form metadata object. Omit to preserve the current value.
+     * @nullable
+     */
+    export type PatchedErrorTrackingReleaseUpdateRequestMetadata = { [key: string]: unknown } | null;
+
+    export interface PatchedErrorTrackingReleaseUpdateRequest {
+      /**
+         * Human-readable release version. Omit to preserve the current value.
+         * @nullable
+         */
+      version?: string | null;
+      /**
+         * Project identifier. Omit to preserve the current value.
+         * @nullable
+         */
+      project?: string | null;
+      /**
+         * Release hash (e.g. a git commit SHA). Omit to preserve the current value.
+         * @maxLength 128
+         * @nullable
+         */
+      hash_id?: string | null;
+      /**
+         * Free-form metadata object. Omit to preserve the current value.
+         * @nullable
+         */
+      metadata?: PatchedErrorTrackingReleaseUpdateRequestMetadata;
     }
 
     export interface PatchedErrorTrackingSettings {
@@ -34529,10 +34936,6 @@ export namespace Schemas {
     export interface PatchedErrorTrackingSuppressionRule {
       readonly id?: string;
       filters?: unknown;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         */
       order_key?: number;
       disabled_data?: unknown;
       sampling_rate?: number;
@@ -34552,7 +34955,7 @@ export namespace Schemas {
     }
 
     /**
-     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type PatchedEvaluationEvaluationConfig = {
       /**
@@ -34566,6 +34969,9 @@ export namespace Schemas {
          * @minLength 1
          */
       source: string;
+    } | {
+      /** Classify sentiment from user messages in the generation input. */
+      source?: 'user_messages';
     };
 
     /**
@@ -34589,16 +34995,18 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status?: EvaluationStatusEnum;
       readonly status_reason?: StatusReasonEnum | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
        *
        * * `llm_judge` - LLM as a judge
-       * * `hog` - Hog */
+       * * `hog` - Hog
+       * * `sentiment` - Sentiment analysis */
       evaluation_type?: EvaluationTypeEnum;
-      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: PatchedEvaluationEvaluationConfig;
-      /** Output format. Currently only 'boolean' is supported.
+      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
        *
-       * * `boolean` - Boolean (Pass/Fail) */
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: PatchedEvaluationOutputConfig;
@@ -34876,7 +35284,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Column name used to track sync progress.
@@ -34890,7 +35299,8 @@ export namespace Schemas {
        * * `datetime` - datetime
        * * `date` - date
        * * `timestamp` - timestamp
-       * * `objectid` - objectid */
+       * * `objectid` - objectid
+       * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
        *
@@ -39774,6 +40184,16 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
+    /**
+     * * `Postgres` - Postgres
+     */
+    export type PostgresDestinationRequestTypeEnum = typeof PostgresDestinationRequestTypeEnum[keyof typeof PostgresDestinationRequestTypeEnum];
+
+
+    export const PostgresDestinationRequestTypeEnum = {
+      Postgres: 'Postgres',
+    } as const;
+
     export interface PreviewInviteRequest {
       /**
          * Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.
@@ -41486,6 +41906,15 @@ export namespace Schemas {
       open_to_merge_seconds: number | null;
       /** GitHub label names on the pull request. */
       labels: string[];
+      /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
+      pushes: number;
+      /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+      rerun_cycles: number;
+      /**
+         * Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.
+         * @nullable
+         */
+      estimated_cost_usd?: number | null;
     }
 
     export interface PullRequestList {
@@ -43770,32 +44199,20 @@ export namespace Schemas {
     }
 
     /**
-     * * `manual` - manual
-     * * `experiment_launch` - experiment_launch
-     * * `experiment_stop` - experiment_stop
-     * * `experiment_update` - experiment_update
-     */
-    export type RecalculateMetricsRequestTriggerEnum = typeof RecalculateMetricsRequestTriggerEnum[keyof typeof RecalculateMetricsRequestTriggerEnum];
-
-
-    export const RecalculateMetricsRequestTriggerEnum = {
-      Manual: 'manual',
-      ExperimentLaunch: 'experiment_launch',
-      ExperimentStop: 'experiment_stop',
-      ExperimentUpdate: 'experiment_update',
-    } as const;
-
-    /**
      * Request body for triggering a metrics recalculation.
      */
     export interface RecalculateMetricsRequest {
       /** What triggered this recalculation (manual is the default for user-initiated runs)
        *
-       * * `manual` - manual
-       * * `experiment_launch` - experiment_launch
-       * * `experiment_stop` - experiment_stop
-       * * `experiment_update` - experiment_update */
-      trigger?: RecalculateMetricsRequestTriggerEnum;
+       * * `manual` - Manual
+       * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
+       * * `auto_refresh` - Auto Refresh
+       * * `config_change` - Config Change
+       * * `experiment_launch` - Experiment Launch
+       * * `experiment_stop` - Experiment Stop
+       * * `experiment_update` - Experiment Update */
+      trigger?: TriggerEnum;
     }
 
     export interface RecomputeResult {
@@ -43805,6 +44222,24 @@ export namespace Schemas {
       ci_rerun_triggered: boolean;
       /** @nullable */
       ci_rerun_error?: string | null;
+    }
+
+    export interface RecordInteractionRequest {
+      /** Which interaction counter to increment: 'data' (slicing/filtering the dashboard) or 'recording' (opening a session recording).
+       *
+       * * `data` - data
+       * * `recording` - recording */
+      interaction_kind: InteractionKindEnum;
+    }
+
+    export interface RecordInteractionResponse {
+      /** True once the interaction has been counted for the user. */
+      recorded: boolean;
+    }
+
+    export interface RecordVisitResponse {
+      /** True once today's visit row exists for the user. */
+      recorded: boolean;
     }
 
     /**
@@ -44816,6 +45251,8 @@ export namespace Schemas {
       skill_version: number;
       /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
       status: string;
+      /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+      created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
       started_at: string;
       /**
@@ -44870,6 +45307,8 @@ export namespace Schemas {
       skill_version: number;
       /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
       status: string;
+      /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+      created_at: string;
       /** ISO-8601 timestamp the TaskRun was created. */
       started_at: string;
       /**
@@ -58133,6 +58572,56 @@ export namespace Schemas {
       Week: 'week',
     } as const;
 
+    export type IdentityMatchingLinksListParams = {
+    /**
+     * Identity matching run to read. Defaults to the team's most recent run.
+     */
+    job_id?: string;
+    /**
+     * Page size, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Only return links with a score at or above this.
+     */
+    min_score?: number;
+    /**
+     * Only return links produced by this scoring model, e.g. 'rules_v1'.
+     * @minLength 1
+     */
+    model_version?: string;
+    /**
+     * Pagination offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Case-insensitive substring match on the orphan distinct ID or the matched person key.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Only return links in this confidence tier.
+     *
+     * * `high` - high
+     * * `medium` - medium
+     * * `low` - low
+     * @minLength 1
+     */
+    tier?: IdentityMatchingLinksListTier;
+    };
+
+    export type IdentityMatchingLinksListTier = typeof IdentityMatchingLinksListTier[keyof typeof IdentityMatchingLinksListTier];
+
+
+    export const IdentityMatchingLinksListTier = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+    } as const;
+
     export type InsightVariablesListParams = {
     /**
      * A page number within the paginated result set.
@@ -60370,7 +60859,7 @@ export namespace Schemas {
      */
     date_from?: string;
     /**
-     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page).
      */
     date_to?: string;
     /**

@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconGear, IconSparkles } from '@posthog/icons'
+import { IconArrowUpRight, IconGear, IconSparkles } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
@@ -16,6 +16,7 @@ import {
     prettifyScoutSkillName,
     ScoutRollup,
 } from '../../../utils/scoutRunsWindow'
+import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
 import { DryRunBadge, ScoutOriginBadge } from './ScoutBadges'
 import { ScoutConfigForm, ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
@@ -28,31 +29,57 @@ export function ScoutRowCard({
     config,
     rollup,
     onUpdate,
+    asHeader = false,
 }: {
     config: SignalScoutConfig
     rollup: ScoutRollup | undefined
     onUpdate: (configId: string, updates: SignalScoutConfigUpdate) => void
+    /** When rendered as the scout detail header the name is plain text (the row IS the page). */
+    asHeader?: boolean
 }): JSX.Element {
     const [settingsOpen, setSettingsOpen] = useState(false)
+    const { closeSetupModal } = useActions(agentSetupModalLogic)
+    const displayName = prettifyScoutSkillName(config.skill_name)
 
     return (
         <div
             className={clsx(
-                'group flex flex-col rounded border border-primary bg-bg-light px-4 py-3 transition-colors hover:border-primary-3000 hover:bg-bg-3000',
+                'flex flex-col rounded border border-primary bg-bg-light px-4 py-3',
+                !asHeader && 'group transition-colors hover:border-primary-3000 hover:bg-bg-3000',
                 !config.enabled && 'opacity-65'
             )}
         >
             <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {asHeader ? (
+                        // min-w keeps the name from being squeezed to zero width by the
+                        // trailing metadata (badges, cadence, emitted count) — truncate
+                        // should clip to an ellipsis, never vanish entirely.
+                        <span className="truncate font-medium text-sm min-w-[6rem]">{displayName}</span>
+                    ) : (
+                        <Tooltip title={`${config.skill_name} · view scout`}>
+                            <Link
+                                to={urls.inboxScout(config.skill_name)}
+                                // The fleet list lives in the setup modal, which portals outside the
+                                // (hidden) list subtree — close it so it doesn't cover the detail page.
+                                onClick={() => closeSetupModal()}
+                                subtle
+                                className="truncate font-medium text-sm min-w-[6rem]"
+                            >
+                                {displayName}
+                            </Link>
+                        </Tooltip>
+                    )}
                     <Tooltip title={`${config.skill_name} · open skill`}>
                         <Link
                             to={urls.skill(config.skill_name)}
                             target="_blank"
                             targetBlankIcon={false}
                             subtle
-                            className="truncate font-medium text-sm"
+                            className="shrink-0 text-muted"
+                            aria-label={`Open the ${config.skill_name} skill`}
                         >
-                            {prettifyScoutSkillName(config.skill_name)}
+                            <IconArrowUpRight className="size-3.5" />
                         </Link>
                     </Tooltip>
                     <ScoutOriginBadge skillName={config.skill_name} />
