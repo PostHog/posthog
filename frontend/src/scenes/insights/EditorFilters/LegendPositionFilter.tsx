@@ -29,7 +29,7 @@ export function LegendPositionFilter(): JSX.Element {
                 size="small"
                 value={legendPosition ?? 'bottom'}
                 options={OPTIONS}
-                onChange={(value) => updateInsightFilter({ legendPosition: value })}
+                onChange={(value) => updateInsightFilter({ legendPosition: value as LegendPosition })}
             />
         </div>
     )
