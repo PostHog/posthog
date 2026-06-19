@@ -1,4 +1,4 @@
-import { connect, kea, key, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -11,20 +11,17 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 import { logsFacetValuesCreate } from '../../../generated/api'
 import { _LogFacetValueApi, _LogPropertyFilterApi } from '../../../generated/api.schemas'
 import type { facetCountsLogicType } from './facetCountsLogicType'
+import { FacetField } from './facets'
 
 export interface FacetCountsLogicProps {
     id: string
 }
 
-type FacetField = 'severity_text' | 'service_name'
-
-function toCountMap(results: _LogFacetValueApi[]): Record<string, number> {
-    return Object.fromEntries(results.map((r) => [r.value, r.count]))
-}
-
 /**
- * Per-facet value counts, cross-filtered server-side: each facet's counts reflect every active
- * filter except its own selection. Refetches whenever the filters change.
+ * Per-facet values + counts, cross-filtered server-side: each facet's results reflect every active
+ * filter except its own selection (see the backend's exclude_facet_field). Values come back ordered
+ * by count descending. Dynamic facets (e.g. service) also pass a per-facet type-ahead search so they
+ * can match values beyond the returned window.
  */
 export const facetCountsLogic = kea<facetCountsLogicType>([
     props({ id: 'default' } as FacetCountsLogicProps),
@@ -40,10 +37,23 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
         ],
     })),
 
+    actions({
+        setFacetSearch: (facetField: FacetField, search: string) => ({ facetField, search }),
+    }),
+
+    reducers({
+        facetSearch: [
+            {} as Record<string, string>,
+            {
+                setFacetSearch: (state, { facetField, search }) => ({ ...state, [facetField]: search }),
+            },
+        ],
+    }),
+
     loaders(({ values }) => {
-        const fetchCounts = async (facetField: FacetField): Promise<Record<string, number>> => {
+        const fetchValues = async (facetField: FacetField): Promise<_LogFacetValueApi[]> => {
             if (!values.currentTeamId) {
-                return {}
+                return []
             }
             const group = values.queryFilterGroup as UniversalFiltersGroup
             const filterGroup = ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ??
@@ -55,47 +65,60 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                     severityLevels: values.filters.severityLevels ?? [],
                     serviceNames: values.filters.serviceNames ?? [],
                     searchTerm: values.filters.searchTerm || undefined,
+                    facetSearch: values.facetSearch[facetField] || undefined,
                     filterGroup,
                 },
             })
-            return toCountMap(response.results)
+            return response.results
         }
 
         return {
-            levelCounts: [
-                {} as Record<string, number>,
+            levelValues: [
+                [] as _LogFacetValueApi[],
                 {
-                    loadLevelCounts: async (_: null, breakpoint) => {
+                    loadLevelValues: async (_: null, breakpoint) => {
                         await breakpoint(300)
-                        const counts = await fetchCounts('severity_text')
+                        const results = await fetchValues('severity_text')
                         breakpoint()
-                        return counts
+                        return results
                     },
                 },
             ],
-            serviceCounts: [
-                {} as Record<string, number>,
+            serviceValues: [
+                [] as _LogFacetValueApi[],
                 {
-                    loadServiceCounts: async (_: null, breakpoint) => {
+                    loadServiceValues: async (_: null, breakpoint) => {
                         await breakpoint(300)
-                        const counts = await fetchCounts('service_name')
+                        const results = await fetchValues('service_name')
                         breakpoint()
-                        return counts
+                        return results
                     },
                 },
             ],
         }
     }),
 
+    listeners(({ actions }) => {
+        // Re-fetch the facet whose search term changed. Typed by FacetField so adding a field is a
+        // compile error until its loader is wired here (fixed facets just never receive a search).
+        const reloaders: Record<FacetField, () => void> = {
+            severity_text: () => actions.loadLevelValues(null),
+            service_name: () => actions.loadServiceValues(null),
+        }
+        return {
+            setFacetSearch: ({ facetField }) => reloaders[facetField](),
+        }
+    }),
+
     subscriptions(({ actions }) => {
         // Fires on mount (initial load) and on any change. We watch both `filters` (severity,
         // service, search, date, user filterGroup) and `queryFilterGroup` (which folds in
-        // pinnedFilters, e.g. the person-tab distinct_id pin) so counts re-fetch when the pinned
+        // pinnedFilters, e.g. the person-tab distinct_id pin) so values re-fetch when the pinned
         // scope changes too. `filterGroup` feeds both, so a normal edit fires both — the 300ms
         // debounce in each loader collapses that into one request.
         const reload = (): void => {
-            actions.loadLevelCounts(null)
-            actions.loadServiceCounts(null)
+            actions.loadLevelValues(null)
+            actions.loadServiceValues(null)
         }
         return {
             filters: reload,
