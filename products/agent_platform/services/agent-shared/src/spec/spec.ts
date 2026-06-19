@@ -619,6 +619,37 @@ export type AuthConfig = z.infer<typeof AuthConfigSchema>
  */
 export const ReasoningEffortSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
 
+/** One model in a manual priority list; per-entry `reasoning` overrides the spec default. */
+export const ModelEntrySchema = z.object({
+    model: ModelIdSchema,
+    reasoning: ReasoningEffortSchema.optional(),
+})
+
+/** Quality/cost level for `auto` policy; mapped to a maintained model list (below). */
+export const ModelLevelSchema = z.enum(['low', 'medium', 'high'])
+
+/** `auto`: platform resolves `level` to a priority-ordered list at runtime.
+ *  `manual`: author's explicit priority list. Legacy `spec.model` → manual. */
+export const ModelPolicySchema = z.discriminatedUnion('mode', [
+    z.object({
+        mode: z.literal('auto'),
+        level: ModelLevelSchema.default('medium'),
+        reasoning: ReasoningEffortSchema.optional(),
+    }),
+    z.object({
+        mode: z.literal('manual'),
+        models: z.array(ModelEntrySchema).min(1),
+    }),
+])
+
+/** `auto` level → priority-ordered, cross-provider list (also the fallback chain).
+ *  v1 constant; could move to DB/gateway later. Ids must be gateway-advertisable. */
+export const MODEL_POLICY_LEVELS: Record<z.infer<typeof ModelLevelSchema>, readonly string[]> = {
+    low: ['anthropic/claude-haiku-4-5', 'openai/gpt-5-mini'],
+    medium: ['anthropic/claude-sonnet-4-6', 'openai/gpt-5'],
+    high: ['anthropic/claude-opus-4-7', 'openai/gpt-5-thinking', 'anthropic/claude-sonnet-4-6'],
+}
+
 /**
  * Author-facing knobs for the framework-injected system-prompt preamble.
  */
@@ -679,7 +710,10 @@ export const ResumeConfigSchema = z.object({
 })
 
 export const AgentSpecSchema = z.object({
-    model: ModelIdSchema,
+    /** Legacy single model; prefer `model_policy`. Resolve via `modelPolicyToList`, don't read directly. */
+    model: ModelIdSchema.optional(),
+    /** Auto level or manual priority list; wins over `model`. */
+    model_policy: ModelPolicySchema.optional(),
     triggers: z.array(TriggerSchema).default([]),
     tools: z.array(ToolRefSchema).default([]),
     mcps: z.array(McpRefSchema).default([]),
@@ -700,6 +734,33 @@ export const AgentSpecSchema = z.object({
 })
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
+export type ModelEntry = z.infer<typeof ModelEntrySchema>
+export type ModelLevel = z.infer<typeof ModelLevelSchema>
+export type ModelPolicy = z.infer<typeof ModelPolicySchema>
+
+/** Effective policy: explicit `model_policy`, else legacy `model` as manual, else auto/medium. */
+export function resolveModelPolicy(spec: Pick<AgentSpec, 'model' | 'model_policy'>): ModelPolicy {
+    if (spec.model_policy) {
+        return spec.model_policy
+    }
+    if (spec.model) {
+        return { mode: 'manual', models: [{ model: spec.model }] }
+    }
+    return { mode: 'auto', level: 'medium' }
+}
+
+/** Priority-ordered models the runner tries (primary first). Reasoning: per-entry → auto override → spec default. */
+export function modelPolicyToList(spec: Pick<AgentSpec, 'model' | 'model_policy' | 'reasoning'>): ModelEntry[] {
+    const policy = resolveModelPolicy(spec)
+    if (policy.mode === 'manual') {
+        return policy.models.map((m) => ({ model: m.model, reasoning: m.reasoning ?? spec.reasoning }))
+    }
+    return MODEL_POLICY_LEVELS[policy.level].map((model) => ({
+        model,
+        reasoning: policy.reasoning ?? spec.reasoning,
+    }))
+}
+
 export type Trigger = z.infer<typeof TriggerSchema>
 export type TriggerType = Trigger['type']
 

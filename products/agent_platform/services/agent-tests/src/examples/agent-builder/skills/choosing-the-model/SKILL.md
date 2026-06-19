@@ -1,63 +1,116 @@
 # Skill — choosing the model
 
-Load whenever you're about to set `spec.model` on a new or edited
-agent, OR the user asks "which model should I use?" / "is this the
-right model?" / "what's the cheapest model that'll work?".
+Load whenever you're about to set `spec.model_policy` on a new or
+edited agent, OR the user asks "which model should I use?" / "is
+this the right model?" / "what's the cheapest model that'll work?".
 
-Your job: **recommend a model based on the agent's actual job,
-explain the tradeoff clearly, and let the user decide.** Don't
+Your job: **recommend a model policy based on the agent's actual
+job, explain the tradeoff clearly, and let the user decide.** Don't
 default to the most expensive model out of habit. Don't default to
-the cheapest either. Match model to job.
+the cheapest either. Match the policy to the job.
+
+## auto is the default — start there
+
+The model lives in `spec.model_policy`, a discriminated union on
+`mode`:
+
+- **`auto`** (the default for almost every agent) — you pick a
+  `level` (`low` / `medium` / `high`, default `medium`) and the
+  platform resolves it to a maintained, priority-ordered,
+  cross-provider model list at runtime. The list is kept current as
+  models ship and prices move, so an `auto` agent rides upgrades
+  without a spec edit and falls back across providers automatically.
+- **`manual`** — an explicit, author-ordered priority list. Only
+  reach for this when the agent genuinely needs a specific model
+  (a fine-tune, a capability only one model has, a contractual /
+  compliance pin). It opts you OUT of platform model upgrades.
+
+```jsonc
+// auto — the recommendation for most agents
+{ "model_policy": { "mode": "auto", "level": "medium" } }
+
+// auto with reasoning, when the job benefits from deliberation
+{ "model_policy": { "mode": "auto", "level": "high", "reasoning": "high" } }
+
+// manual — explicit, PROVIDER-DIVERSE priority list
+{ "model_policy": { "mode": "manual", "models": [
+    { "model": "anthropic/claude-sonnet-4-6", "reasoning": "high" },
+    { "model": "openai/gpt-5" }
+] } }
+```
+
+(Legacy single-string `spec.model` still parses — it's treated as a
+one-entry manual list. Prefer `model_policy` on anything new.)
 
 ## The cost / quality axes
 
 Three independent dials in roughly increasing cost:
 
-1. **Model family** — Haiku < Sonnet < Opus (Anthropic); GPT-5-mini
-   < GPT-5 < GPT-5-thinking (OpenAI); Gemini-flash < Gemini-pro.
-   Within a vendor each step up is ~3-8× the per-token cost.
-2. **Reasoning level** (`spec.reasoning`) — `minimal` < `low` <
-   `medium` < `high` < `xhigh`. Adds deliberation tokens, multiplies
-   per-turn cost. Only meaningful for `high`+ on reasoning-heavy
-   tasks; for skim-and-respond agents it's pure waste.
+1. **Level / model** — `auto` `low` < `medium` < `high`; or, in
+   `manual`, the specific model you pin. Within a vendor each step up
+   is ~3-8× the per-token cost.
+2. **Reasoning** — `minimal` < `low` < `medium` < `high` < `xhigh`.
+   Set it on the policy (`auto.reasoning`) or per-model
+   (`models[].reasoning`, which overrides). Adds deliberation tokens,
+   multiplies per-turn cost. Only meaningful for `high`+ on
+   reasoning-heavy tasks; for skim-and-respond agents it's pure waste.
 3. **Context budget** (`spec.limits.max_output_tokens` + conversation
    length over multi-turn) — longer conversations re-feed the whole
    history each turn, so multi-turn agents pay quadratically.
 
-A small Haiku agent with `reasoning: minimal` on short
-conversations runs ~$0.01/session. A Sonnet agent at `reasoning:
-high` on 50-turn debugging sessions runs ~$3/session. Two orders of
-magnitude, same platform.
+A `low` agent with `reasoning: minimal` on short conversations runs
+~$0.01/session. A `high` agent at `reasoning: high` on 50-turn
+debugging sessions runs ~$3/session. Two orders of magnitude, same
+platform.
 
-## The decision flowchart
+## Picking the level
 
 Walk this with the user — out loud, not in your head. The skill
 they're paying for is your reasoning, not your answer.
 
 ```text
 What's the job?
-├── Short, formulaic, no reasoning ........ Haiku, reasoning: minimal
+├── Short, formulaic, no reasoning ........ auto/low, reasoning: minimal
 │     ("look up a thing and reply")          (slack lookup bots, FAQ bots,
 │                                             webhook responders)
-├── Multi-step but bounded ................ Sonnet, reasoning unset
+├── Multi-step but bounded ................ auto/medium, reasoning unset
 │     ("query data, format an answer")       (analytics summaries, status
 │                                             reports, structured drafts)
-├── Open-ended reasoning, single hop ...... Sonnet, reasoning: medium
+├── Open-ended reasoning, single hop ...... auto/medium, reasoning: medium
 │     ("triage this alert, suggest a fix")   (oncall triage, code review,
 │                                             planning, light debugging)
-├── Long, branching, with backtracking .... Sonnet, reasoning: high
+├── Long, branching, with backtracking .... auto/high, reasoning: high
 │     ("debug this failing session, work     (the Agent Builder itself, deep
 │       through hypotheses")                 investigations, multi-turn
 │                                             editing flows)
-└── Cutting edge / research-grade ......... Opus / GPT-5-thinking, high
+└── Cutting edge / research-grade ......... auto/high, reasoning: xhigh
       ("solve this novel problem")           (rare — flag the cost
                                               explicitly to the user)
 ```
 
-Default recommendation when uncertain: **`anthropic/claude-sonnet-4-6`
-with `reasoning` unset.** It's the platform's stable workhorse —
-good enough for almost anything, not embarrassingly expensive for
-the simple cases.
+Default recommendation when uncertain: **`{ mode: "auto", level:
+"medium" }`, reasoning unset.** Good enough for almost anything, not
+embarrassingly expensive for the simple cases — and it tracks model
+upgrades for free.
+
+## When manual is worth it — and how to order it
+
+Reach for `manual` only when the job needs a specific model. When you
+do, **order the list provider-diverse.** The list is a fallback chain:
+the runner tries each in order until one answers. A fallback to the
+same provider as the primary doesn't help when that provider is the
+thing that's down — list a different vendor next so an outage degrades
+instead of failing.
+
+- Good: `[ anthropic/claude-sonnet-4-6, openai/gpt-5 ]` — Anthropic
+  down → OpenAI catches it.
+- Pointless: `[ anthropic/claude-sonnet-4-6,
+anthropic/claude-haiku-4-5 ]` — one provider outage takes out both.
+
+Set per-model `reasoning` when the fallback should think differently
+from the primary (e.g. high on the primary, unset on a cheaper
+backstop). If the whole policy wants the same reasoning, set it once
+on the spec instead.
 
 ## The conversation to have
 
@@ -71,39 +124,43 @@ model, do this — IN ORDER, don't skip the asking:
    short-formulaic-no-reasoning job — one API call, one reply, no
    branching."
 3. **Recommend with the cost tradeoff stated.** "I'd recommend
-   `anthropic/claude-haiku-4-5` at `reasoning: minimal`. Expected
-   cost: ~$0.005-$0.02 per @-mention. A Sonnet equivalent would be
-   ~$0.05-$0.20 per @-mention — 10× more for no quality difference
-   on this job."
+   `{ mode: auto, level: low }` at `reasoning: minimal`. Expected
+   cost: ~$0.005-$0.02 per @-mention. A `high`-level equivalent
+   would be ~$0.05-$0.20 per @-mention — 10× more for no quality
+   difference on this job."
 4. **Offer the user the upgrade explicitly.** "If you'd rather pay
-   more for slightly better natural-language framing of the reply,
-   I can use Sonnet. Or if you want the cheapest possible, we can
-   try `anthropic/claude-haiku-4-5` at `reasoning: minimal` and see
-   if the replies feel right. Which way do you want to go?"
+   more for slightly better natural-language framing of the reply, I
+   can move to `medium`. Or if this is a contractual must-use-vendor-X
+   case, we can pin a manual list. Which way do you want to go?"
 5. **Wait for the user's pick.** Don't default. Don't assume. Don't
-   "just go with Sonnet to be safe."
+   "just go with medium to be safe."
 
 For the open-ended reasoning cases the conversation flips: lead with
-"this job benefits from deliberation; I'd recommend Sonnet with
-`reasoning: medium`, ~$0.20-$0.50 per session. A Haiku version
+"this job benefits from deliberation; I'd recommend `auto/medium`
+with `reasoning: medium`, ~$0.20-$0.50 per session. A `low` version
 might cost $0.02/session but you'll see it miss things on harder
-inputs. Want me to start with Sonnet and we can dial down if
-sessions feel over-budget?"
+inputs. Want me to start there and we can dial down if sessions feel
+over-budget?"
 
 ## When to push back on the user
 
-The user might ask for the wrong model. Push back gently:
+The user might ask for the wrong policy. Push back gently:
 
-- **User picks Opus / GPT-5-thinking for a lookup bot.** "Opus on a
-  one-API-call agent is a ~50× cost markup for zero quality win on
-  this job. I'd recommend Haiku — happy to upgrade if you see
-  quality issues, but starting at Opus is paying for capability you
-  can't use here."
-- **User picks Haiku for a debugging agent.** "Haiku tends to miss
-  the subtle hypotheses on multi-turn debugging — the kind of agent
-  that helps less than it costs to run. I'd recommend Sonnet
-  starting point. If cost matters, we can put a tight
+- **User picks `auto/high` (or pins Opus) for a lookup bot.** "A
+  top-tier model on a one-API-call agent is a ~50× cost markup for
+  zero quality win on this job. I'd recommend `low` — happy to
+  upgrade if you see quality issues, but starting at the top is
+  paying for capability you can't use here."
+- **User picks `auto/low` for a debugging agent.** "`low` tends to
+  miss the subtle hypotheses on multi-turn debugging — the kind of
+  agent that helps less than it costs to run. I'd recommend `medium`
+  as the starting point. If cost matters, we can put a tight
   `max_wall_seconds` / `max_turns` to cap session cost."
+- **User pins a single-provider manual list.** "A same-provider
+  fallback doesn't survive that provider having an outage — if you
+  want a fallback at all, let's make the second entry a different
+  vendor. Otherwise `auto` already gives you cross-provider
+  fallback for free."
 - **User picks `reasoning: xhigh` on anything that isn't research-
   grade.** "`xhigh` adds 5-10× the per-turn cost for diminishing
   returns past `high`. Worth it for truly novel problems; for almost
@@ -112,22 +169,18 @@ The user might ask for the wrong model. Push back gently:
 
 ## Cost estimation when the user asks
 
-For the rough back-of-envelope:
+Don't ballpark from a hardcoded table — prices and the models behind
+each `auto` level move. **Read the live gateway catalog**: `GET
+/v1/models` returns every model the gateway serves with its per-token
+input / output pricing. Pull it, find the model(s) the policy resolves
+to, and quote from that. For an `auto` level, the catalog plus the
+maintained level→list mapping is your ground truth for which models
+are actually in play.
 
-| Model                         | Input $/1M tok | Output $/1M tok | Notes                                   |
-| ----------------------------- | -------------- | --------------- | --------------------------------------- |
-| `anthropic/claude-haiku-4-5`  | ~$0.80         | ~$4             | Fast, cheap, good at structured work    |
-| `anthropic/claude-sonnet-4-6` | ~$3            | ~$15            | Platform default; balanced quality/cost |
-| `anthropic/claude-opus-4-7`   | ~$15           | ~$75            | High-end reasoning; rare to need        |
-| `openai/gpt-5-mini`           | ~$0.25         | ~$2             | Cheapest competent option               |
-| `openai/gpt-5`                | ~$2.50         | ~$10            | OpenAI workhorse                        |
-| `openai/gpt-5-thinking`       | ~$15           | ~$60            | Heavy reasoning, similar tier to Opus   |
+For actual billed spend on an existing agent, use
+`@posthog/get-llm-total-costs-for-project`.
 
-(These shift; ground-truth lives in
-`@posthog/get-llm-total-costs-for-project` for actual billed rates.
-Use this table for ballparking the conversation, not for invoices.)
-
-Quick session-cost arithmetic, for the recommendation conversation:
+Quick session-cost arithmetic, once you have live rates:
 
 ```text
 session cost ≈ (avg_input_tokens × input_rate)
@@ -146,12 +199,14 @@ $1?" precision so they can make a real choice.
 
 A good model-pick conversation finishes with:
 
-- The user said which model they want.
+- The user said which policy they want.
 - The user understood why you suggested it.
 - The user understood roughly what it'll cost per session.
-- The agent's `spec.model` is set.
-- If reasoning matters, `spec.reasoning` is set explicitly (not
-  defaulted).
+- The agent's `spec.model_policy` is set (`auto` unless the job
+  truly needs a `manual` pin).
+- Any `manual` list is provider-diverse, ordered primary-first.
+- If reasoning matters, it's set explicitly (on the policy or
+  per-model), not defaulted.
 - If session cost matters, `spec.limits.max_turns` /
   `max_wall_seconds` reflect the cap the user chose.
 

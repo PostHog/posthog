@@ -1,5 +1,8 @@
 {
-    "model": "anthropic/claude-sonnet-4-6",
+    "model_policy": {
+        "mode": "auto",
+        "level": "high"
+    },
     "reasoning": "high",
     "triggers": [
         {
@@ -356,7 +359,7 @@
         {
             "id": "choosing-the-model",
             "path": "skills/choosing-the-model/SKILL.md",
-            "description": "Picking `spec.model` + `spec.reasoning` for an agent's actual job \u2014 the cost/quality axes (model family, reasoning level, context budget) and how to match model to task without defaulting to the most or least expensive. Load whenever you're about to set or review an agent's model, or the user asks which / cheapest model to use."
+            "description": "Picking `spec.model_policy` (auto + level vs a manual provider-diverse list) and reasoning for an agent's actual job \u2014 the cost/quality axes and how to match the policy to the task without defaulting to the most or least expensive, plus reading the live gateway catalog for pricing. Load whenever you're about to set or review an agent's model, or the user asks which / cheapest model to use."
         },
         {
             "id": "secrets-and-integrations",

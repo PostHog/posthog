@@ -53,6 +53,26 @@ def _with_auth(spec: dict) -> dict:
     ("name", "spec"),
     [
         ("minimal", {"model": "anthropic/claude-haiku-4-5"}),
+        # `model` is optional — auto/medium is the runner's default, so a spec
+        # may omit it entirely.
+        ("no_model", {}),
+        # model_policy auto: level + default; `model` can be dropped.
+        ("model_policy_auto", {"model_policy": {"mode": "auto", "level": "high"}}),
+        # auto omitting level (defaulted to medium) + per-policy reasoning.
+        ("model_policy_auto_defaults", {"model_policy": {"mode": "auto", "reasoning": "high"}}),
+        # model_policy manual: provider-diverse priority list, per-entry reasoning.
+        (
+            "model_policy_manual",
+            {
+                "model_policy": {
+                    "mode": "manual",
+                    "models": [
+                        {"model": "anthropic/claude-sonnet-4-6", "reasoning": "high"},
+                        {"model": "openai/gpt-5"},
+                    ],
+                }
+            },
+        ),
         (
             "with_chat_trigger",
             {
@@ -203,12 +223,19 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
 @pytest.mark.parametrize(
     ("name", "spec", "expected_substring"),
     [
-        # The exact case we hit today: a spec that looks like an application
-        # row (name/description) instead of a runtime config (model).
-        ("missing_model", {"name": "Hedgebox Helper"}, "model"),
-        # `model` must be a non-empty string. zod uses min(1); JSON Schema
-        # mirrors that via minLength.
+        # A spec that looks like an application row (name/description) instead
+        # of a runtime config. `model` is optional now, so the rejection is on
+        # the stray top-level `name` key (additionalProperties: false), not a
+        # missing model.
+        ("app_row_shaped", {"name": "Hedgebox Helper"}, "name"),
+        # `model` is optional, but when present must be a non-empty string. zod
+        # uses min(1); JSON Schema mirrors that via minLength.
         ("empty_model", {"model": ""}, "model"),
+        # model_policy is a discriminated union on `mode`; an unknown mode
+        # matches neither auto nor manual arm.
+        ("model_policy_bad_mode", {"model_policy": {"mode": "cheapest"}}, "model_policy"),
+        # manual mode requires a non-empty `models` list.
+        ("model_policy_manual_empty", {"model_policy": {"mode": "manual", "models": []}}, "model_policy"),
         # `triggers` must be an array if present, not a string.
         ("triggers_wrong_type", {"model": "x", "triggers": "all"}, "triggers"),
         # Discriminated union: an unknown trigger type doesn't match any of

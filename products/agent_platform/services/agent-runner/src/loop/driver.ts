@@ -35,7 +35,7 @@
 
 import type { AgentContext, AgentEvent, AgentEventSink, AgentMessage, StreamFn } from '@earendil-works/pi-agent-core'
 import { runAgentLoop } from '@earendil-works/pi-agent-core'
-import type { AssistantMessage, Message, Model } from '@earendil-works/pi-ai'
+import type { AssistantMessage, Message } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai'
 import { randomUUID } from 'node:crypto'
 
@@ -80,6 +80,7 @@ import {
 
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
 import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResultDetails } from './build-agent-tools'
+import { fallbackStreamFn, ResolvedModel } from './fallback-stream'
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
 import { lookupMcpToolApproval } from './mcp-tool-lookup'
@@ -87,8 +88,13 @@ import type { IsAskerInApproverScope } from './per-asker-auth'
 import { providerSafeName } from './provider-safe-names'
 
 export interface RunSessionDeps {
-    /** The pi-ai Model to invoke for this session (resolved from rev.spec.model). */
-    model: Model<string>
+    /**
+     * Priority-ordered models the loop tries (primary first, fallbacks after).
+     * Resolved once per session from `modelPolicyToList(rev.spec)` — a legacy
+     * `spec.model` collapses to a 1-element list (no fallback). On a
+     * fallback-eligible provider failure the wrapper retries the next entry.
+     */
+    models: ResolvedModel[]
     /** Per-call API key (provider-specific). */
     apiKey?: string
     /**
@@ -233,6 +239,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     if (!deps.approvals) {
         throw new Error('RunSessionDeps.approvals is required — refusing to run with approval gating disabled.')
     }
+    if (deps.models.length === 0) {
+        throw new Error('RunSessionDeps.models is required — resolve via modelPolicyToList(rev.spec).')
+    }
+    // Primary (highest-priority) model — identity for max-tokens, error context,
+    // and the analytics fallback tag. Fallbacks (if any) live after it.
+    const primaryModel = deps.models[0].model
     // Slack-triggered sessions: the runner relays each finalized assistant
     // message into the thread (see the turn_end handler). The model is told as
     // much so it replies in natural language instead of forcing everything
@@ -546,6 +558,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     turn++
                     controlThisTurn = undefined
                     partialAssistantText = ''
+                    // Reset fallback tracking; the wrapper's hooks repopulate it
+                    // for this turn's outbound call(s).
+                    modelAttempt = 0
+                    fellBackFrom = undefined
                     await emit('turn_started', { turn })
                     // Show "working on it" in the thread while this turn runs.
                     await slackStatus?.start(':hourglass_flowing_sand: _Working on it…_')
@@ -753,8 +769,15 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                             turn,
                             span_id: genSpan,
                             distinct_id: distinctId,
-                            model: msg.model ?? deps.model.id,
-                            provider: msg.provider ?? deps.model.provider,
+                            // The model that ACTUALLY answered: pi-ai stamps the
+                            // answering model on `msg`, so a fallback turn tags the
+                            // fallback model. Falls back to the resolved primary id.
+                            model: msg.model ?? deps.models[modelAttempt]?.model.id ?? primaryModel.id,
+                            provider:
+                                msg.provider ?? deps.models[modelAttempt]?.model.provider ?? primaryModel.provider,
+                            // Marker when this turn fell over to a non-primary model.
+                            model_attempt: modelAttempt > 0 ? modelAttempt : undefined,
+                            fallback_from: fellBackFrom,
                             input: inputSnapshot,
                             output: msg.content,
                             input_tokens: msg.usage?.input ?? 0,
@@ -800,8 +823,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 session.conversation.push({
                     role: 'assistant',
                     content: [{ type: 'text', text: partialAssistantText }],
-                    model: deps.model.id,
-                    provider: deps.model.provider,
+                    model: primaryModel.id,
+                    provider: primaryModel.provider,
                     stopReason: 'aborted',
                     timestamp: Date.now(),
                 } satisfies AssistantMessageRecord)
@@ -855,10 +878,28 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         if (deps.gatewayHeaders || deps.gatewayUsage) {
             baseStreamFn = gatewayMetadataStreamFn(baseStreamFn, session.id, deps.gatewayHeaders, turnRequestIds)
         }
-        const streamFn = sanitizingStreamFn(baseStreamFn, nameToId)
+        let streamFn = sanitizingStreamFn(baseStreamFn, nameToId)
+
+        // Which model answered the current turn, for the `$ai_generation` tag.
+        // Reset per `turn_start`; updated by the fallback wrapper's hooks (the
+        // attempt that committed, and whether it fell over from an earlier one).
+        // Single-model sessions skip the wrapper entirely → identical to today.
+        let modelAttempt = 0
+        let fellBackFrom: string | undefined
+        if (deps.models.length > 1) {
+            streamFn = fallbackStreamFn(streamFn, deps.models, {
+                onAttempt: (index) => {
+                    modelAttempt = index
+                },
+                onFallback: (fromIndex, fromModel) => {
+                    fellBackFrom = fromModel.id
+                    runLog.warn({ from: fromModel.id, attempt: fromIndex }, 'model.fallback')
+                },
+            })
+        }
 
         const resolvedMaxTokens = resolveMaxOutputTokens({
-            modelMaxTokens: deps.model.maxTokens,
+            modelMaxTokens: primaryModel.maxTokens,
             configOverride: deps.maxOutputTokensOverride,
             specRequested: rev.spec.limits.max_output_tokens,
             reasoning: rev.spec.reasoning,
@@ -869,7 +910,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     requested: resolvedMaxTokens.clamped.requested,
                     ceiling: resolvedMaxTokens.clamped.ceiling,
                     source: resolvedMaxTokens.clamped.source,
-                    model: deps.model.id,
+                    model: primaryModel.id,
                 },
                 'max_output_tokens.clamped'
             )
@@ -888,11 +929,15 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 [],
                 context,
                 {
-                    model: deps.model,
+                    // The fallback wrapper owns model selection across the list;
+                    // this is the loop's identity model (primary) for any model
+                    // metadata it reads outside the stream.
+                    model: primaryModel,
                     apiKey: deps.apiKey,
                     maxTokens: resolvedMaxTokens.value,
-                    // pi-ai ignores `reasoning` for non-reasoning models, so forward unconditionally.
-                    reasoning: rev.spec.reasoning,
+                    // Primary entry's reasoning (folds in spec default); the wrapper
+                    // overrides per-attempt. pi-ai ignores it for non-reasoning models.
+                    reasoning: deps.models[0].reasoning,
                     convertToLlm: (messages) => messages as unknown as Message[],
                     // The loop contract requires this hook to never throw. Drain
                     // atomically from PG so a `/send` that lands during this turn
@@ -1105,9 +1150,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         function errorContext(): Record<string, unknown> {
             return {
                 source: deps.gatewayHeaders ? 'ai_gateway' : 'provider',
-                model: deps.model.id,
-                provider: deps.model.provider,
-                api: deps.model.api,
+                model: primaryModel.id,
+                provider: primaryModel.provider,
+                api: primaryModel.api,
             }
         }
 

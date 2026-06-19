@@ -36,6 +36,7 @@ import {
     HttpFetcher,
     LogSink,
     MemoryStore,
+    modelPolicyToList,
     TabularStore,
     RevisionStore,
     SandboxInstanceStore,
@@ -65,9 +66,10 @@ export interface WorkerDeps {
         session: AgentSession
     ) => Promise<Record<string, { kind: string; access_token: string; refresh_token?: string }>>
     /**
-     * Resolve a session's spec.model string to a concrete pi-ai Model. Defaults
-     * to `resolveModelCached(spec.model)` which works for built-in providers.
-     * Override for custom-endpoint models (ai-gateway) or test faux models.
+     * Resolve a single model-id string (one entry of the resolved policy list)
+     * to a concrete pi-ai Model. Defaults to `resolveModelCached` which works
+     * for built-in providers. Override for custom-endpoint models (ai-gateway)
+     * or test faux models. Applied per-entry across `modelPolicyToList(spec)`.
      */
     resolveModel?: (specModel: string) => Model<string>
     /**
@@ -493,13 +495,21 @@ export class Worker {
                         )
                 }
             }
+            // Resolve the full priority-ordered model list once per session.
+            // `modelPolicyToList` handles back-compat (legacy `spec.model` → a
+            // 1-element list) and the auto/medium default. Each entry resolves
+            // through the same path as before (gateway or direct), carrying its
+            // per-entry reasoning so the fallback wrapper can apply it per attempt.
             const resolveModel = this.deps.resolveModel ?? resolveModelCached
-            const model = resolveModel(rev.spec.model)
+            const models = modelPolicyToList(rev.spec).map((entry) => ({
+                model: resolveModel(entry.model),
+                reasoning: entry.reasoning,
+            }))
             const apiKey = await this.deps.resolveApiKey?.(session)
             const gatewayHeaders = this.deps.resolveGatewayHeaders?.(session)
             const gatewayUsage = await this.deps.resolveGatewayUsage?.(session)
             const outcome = await runSession(rev, session, {
-                model,
+                models,
                 apiKey,
                 bundle: this.deps.bundle,
                 sandbox,

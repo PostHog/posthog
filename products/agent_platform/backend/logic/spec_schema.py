@@ -134,7 +134,58 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
+        # Legacy single model; optional now. Prefer `model_policy`. Mirror
+        # `AgentSpecSchema.model` (.optional()) in spec.ts.
         "model": {"type": "string", "minLength": 1},
+        # Auto level or manual priority list; wins over `model`. Mirror
+        # `ModelPolicySchema` (discriminated union on `mode`) in spec.ts.
+        # auto: platform resolves `level` to a cross-provider list at runtime.
+        # manual: author's explicit priority list (provider-diverse fallbacks).
+        "model_policy": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "mode": {"type": "string", "const": "auto"},
+                        "level": {
+                            "default": "medium",
+                            "type": "string",
+                            "enum": ["low", "medium", "high"],
+                        },
+                        "reasoning": {
+                            "type": "string",
+                            "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                        },
+                    },
+                    "required": ["mode"],
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "mode": {"type": "string", "const": "manual"},
+                        "models": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "model": {"type": "string", "minLength": 1},
+                                    "reasoning": {
+                                        "type": "string",
+                                        "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                                    },
+                                },
+                                "required": ["model"],
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
+                    "required": ["mode", "models"],
+                    "additionalProperties": False,
+                },
+            ],
+        },
         "triggers": {
             "default": [],
             "type": "array",
@@ -549,8 +600,10 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             "additionalProperties": False,
         },
     },
+    # `model` is no longer required — `model_policy` (or the runner's
+    # auto/medium default) covers the model choice. Mirror
+    # `AgentSpecSchema.model` (.optional()) in spec.ts.
     "required": [
-        "model",
         "triggers",
         "tools",
         "mcps",

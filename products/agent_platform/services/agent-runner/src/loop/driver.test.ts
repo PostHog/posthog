@@ -1,6 +1,8 @@
 import type { S3Client } from '@aws-sdk/client-s3'
 import {
     type AssistantMessage,
+    type AssistantMessageEvent,
+    createAssistantMessageEventStream,
     fauxAssistantMessage,
     fauxToolCall,
     type Model,
@@ -166,7 +168,7 @@ async function run(
         await seedSessionRow(session)
     }
     return runSession(rev, session, {
-        model: fauxModel((over.script as AssistantMessage[]) ?? [stop('ok')]),
+        models: [{ model: fauxModel((over.script as AssistantMessage[]) ?? [stop('ok')]) }],
         bundle,
         sandbox: null,
         integrations: {},
@@ -754,6 +756,67 @@ describe('driver runSession', () => {
             // No Idempotency-Key / X-Request-Id injected when no gateway path.
             expect(calls[0].headers ?? {}).not.toHaveProperty('Idempotency-Key')
             expect(calls[0].headers ?? {}).not.toHaveProperty('X-Request-Id')
+        })
+    })
+
+    /**
+     * Multi-model fallback. The driver wraps the base streamFn with
+     * `fallbackStreamFn` whenever `models.length > 1`. A pre-commit transient
+     * failure on the primary falls over to the next model; a single-model spec
+     * skips the wrapper entirely (legacy behaviour).
+     */
+    describe('multi-model fallback', () => {
+        // A streamFn that fails model `a` once (pre-commit 429) then answers on
+        // model `b`. Mirrors the faux provider's `start`→`error` shape so the
+        // commit guard treats it as a pre-commit failure.
+        const fallbackStreamFn = (): Parameters<typeof runSession>[2]['streamFn'] => {
+            return (model) => {
+                const stream = createAssistantMessageEventStream()
+                queueMicrotask(() => {
+                    if (model.id === 'a') {
+                        const errored = fauxAssistantMessage('', {
+                            stopReason: 'error',
+                            errorMessage: '429 rate limit',
+                        })
+                        const evs: AssistantMessageEvent[] = [
+                            { type: 'start', partial: fauxAssistantMessage('') },
+                            { type: 'error', reason: 'error', error: errored },
+                        ]
+                        for (const e of evs) {
+                            stream.push(e)
+                        }
+                        stream.end(errored)
+                        return
+                    }
+                    const done = fauxAssistantMessage('recovered', { stopReason: 'stop' })
+                    const partial = { ...done }
+                    const evs: AssistantMessageEvent[] = [
+                        { type: 'start', partial: fauxAssistantMessage('') },
+                        { type: 'text_delta', contentIndex: 0, delta: 'recovered', partial },
+                        { type: 'done', reason: 'stop', message: done },
+                    ]
+                    for (const e of evs) {
+                        stream.push(e)
+                    }
+                    stream.end(done)
+                })
+                return stream
+            }
+        }
+
+        it('falls over to the second model on a transient primary failure', async () => {
+            const session = makeSession()
+            const out = await run(makeRev(), session, {
+                models: [{ model: fauxModel([stop('x')]) }, { model: fauxModel([stop('y')]) }].map((m, i) => ({
+                    // Distinct ids so the streamFn can route per attempt.
+                    model: { ...m.model, id: i === 0 ? 'a' : 'b' },
+                })),
+                streamFn: fallbackStreamFn(),
+            })
+            // The session completed on the fallback model's answer.
+            expect(out.state).toBe('completed')
+            const last = session.conversation.at(-1) as { role: string; content: unknown }
+            expect(last.role).toBe('assistant')
         })
     })
 
