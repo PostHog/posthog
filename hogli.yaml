@@ -1071,3 +1071,7 @@ environment:
         bin_script: inject_mcp_intents.py
         description: 'Used when developing MCP Analytics locally and trying to load some intents'
         hidden: true
+    setup:gateway:e2e:
+        bin_script: setup-gateway-e2e
+        description: 'Provision the local ai-gateway e2e: enable the team, mint a phs_, publish the credential blob, fund the ledger'
+        hidden: true

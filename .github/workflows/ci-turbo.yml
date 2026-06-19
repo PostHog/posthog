@@ -49,17 +49,10 @@ jobs:
                     echo "TURBO_SCM_BASE=master" >> $GITHUB_ENV
                   fi
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-
-            - name: Install Node dependencies
-              run: pnpm install --frozen-lockfile --filter=@posthog/root
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Turbo Affected
               run: |

@@ -37,7 +37,6 @@ members = [
   "cyclotron-janitor",
   "cymbal",
   "cymbal-proto",
-  "cymbal-resolution",
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
