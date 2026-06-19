@@ -907,3 +907,34 @@ class TestTable(BaseTest):
 
         with pytest.raises(Exception, match=expected_message):
             table._safe_expose_ch_error(ServerException(message=error_message, code=error_code))
+
+
+class TestColumnOrder(BaseTest):
+    """Postgres stores `columns` as jsonb, which reorders keys (length, then bytewise). The
+    stamped positions must restore the introspected column order after a DB round-trip — this
+    is what `SELECT *` column order on warehouse tables and materialized views comes from."""
+
+    def test_save_stamps_positions_and_hogql_definition_restores_order(self):
+        # jsonb returns these as id, content, source_product — not the defined order
+        defined_order = ["content", "id", "source_product"]
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+        table = DataWarehouseTable.objects.create(
+            name="ordered_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/ordered_table/*",
+            columns={
+                name: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True} for name in defined_order
+            },
+        )
+
+        refreshed = DataWarehouseTable.raw_objects.get(pk=table.pk)
+
+        assert refreshed.columns is not None
+        assert {name: value["position"] for name, value in refreshed.columns.items()} == {
+            "content": 0,
+            "id": 1,
+            "source_product": 2,
+        }
+        assert list(refreshed.hogql_definition().fields.keys()) == defined_order

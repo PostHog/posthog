@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconChevronDown, IconCompass, IconPlus, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -27,7 +28,14 @@ import { ScoutRowCard } from './ScoutRowCard'
  */
 export function ScoutsFleetSection(): JSX.Element {
     const { scoutConfigs, scoutConfigsLoading, expanded, enabledCount, lastRunAt } = useValues(scoutFleetLogic)
-    const { setExpanded, loadScoutConfigs } = useActions(scoutFleetLogic)
+    const { setExpanded, loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+
+    // Poll the runs window only while the fleet list is open — the always-mounted setup
+    // widget reads configs only and shouldn't trigger the paginated runs requests.
+    useEffect(() => {
+        startRunsPolling()
+        return () => stopRunsPolling()
+    }, [startRunsPolling, stopRunsPolling])
 
     if (scoutConfigsLoading && scoutConfigs === null) {
         return <LemonSkeleton className="h-12 w-full rounded" />

@@ -2,10 +2,12 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import funnelTopToBottomFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
 import funnelTopToBottomBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'
+import funnelTopToBottomCompareFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomCompare.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -64,6 +66,15 @@ export const Default: Story = {
 
 export const Breakdown: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} width={720} />,
+}
+
+// Compare to previous: each step renders two stacked bars (current solid above, previous desaturated
+// below), each scaled to the shared baseline — not two periods crammed into one bar.
+export const FunnelTopToBottomCompare: Story = {
+    render: () => <StoryRender insightFixture={funnelTopToBottomCompareFixture} width={720} />,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE],
+    },
 }
 
 // Narrow widths force the step footers to wrap — each row should grow to fit its own text

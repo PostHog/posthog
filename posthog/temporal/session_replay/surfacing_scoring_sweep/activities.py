@@ -59,6 +59,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.features import (
     out_of_contract_row_mask,
     validate_features,
 )
+from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import record_backlog_estimate
 from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import get_feature_names, predict
 from posthog.temporal.session_replay.surfacing_scoring_sweep.types import (
     ChunkResult,
@@ -98,6 +99,7 @@ async def list_chunks_activity(_inputs: ScoreSessionsBatchInputs) -> ListChunksR
 
     sampled = await sync_to_async(_count_unscored_in_one_bucket, thread_sensitive=False)(lookback_days, of_chunks)
     estimated_total = sampled * of_chunks
+    record_backlog_estimate(estimated_total)
 
     chunks = [
         ChunkSpec(

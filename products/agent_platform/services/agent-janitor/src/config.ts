@@ -23,10 +23,8 @@ import {
 const ONE_MINUTE_MS = 60_000
 
 // Dev SeaweedFS defaults — the PostHog dev stack pre-creates the `posthog`
-// bucket on `seaweedfs:8333`. Matches the same defaults session-replay v2
-// uses (`SESSION_RECORDING_V2_S3_*`). SeaweedFS S3 runs in anonymous mode,
-// so the access/secret keys are placeholders (`any`). Gated by `isDev()`
-// so prod (NODE_ENV=production) still has to set AGENT_{MEMORY,BUNDLE}_S3_*
+// bucket on `seaweedfs:8333` (anonymous mode, so access/secret are `any`). Gated by
+// `isDev()` so prod (NODE_ENV=production) must set AGENT_{MEMORY,BUNDLE}_S3_*
 // explicitly; without them the bundle-store fail-fast in index.ts trips.
 const DEV_S3_ENDPOINT = 'http://localhost:8333'
 const DEV_S3_BUCKET = 'posthog'
@@ -34,7 +32,12 @@ const DEV_S3_ACCESS_KEY_ID = 'any'
 const DEV_S3_SECRET_ACCESS_KEY = 'any'
 
 export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
-    port: z.coerce.number().int().positive().default(8082).describe('HTTP listen port.'),
+    port: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(() => (isDev() ? 3031 : 8082))
+        .describe('HTTP listen port. Dev defaults to 3031; deployed sets it explicitly.'),
     internalSigningKey: requiredInProd(DEV_INTERNAL_SIGNING_KEY, 'AGENT_INTERNAL_SIGNING_KEY').describe(
         "Shared HMAC signing key (must match Django's `AGENT_INTERNAL_SIGNING_KEY`). Verifies the audience-bound JWT Django sends as `x-internal-secret` (aud = `agent-janitor.rpc`). Gates every endpoint other than `/healthz` — required in prod, dev default for local running."
     ),
