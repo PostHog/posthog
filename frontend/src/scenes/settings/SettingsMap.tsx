@@ -154,6 +154,7 @@ import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
+import { LoginSessions } from './user/LoginSessions'
 import { MCPHintsSetting } from './user/MCPHintsSetting'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
@@ -1812,6 +1813,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Manage your passkeys for passwordless sign-in and two-factor authentication.',
                 component: <PasskeySettings />,
                 keywords: ['webauthn', 'fido', 'biometric', 'passwordless'],
+            },
+            {
+                id: 'login-sessions',
+                title: 'Web sessions',
+                description: 'Devices and browsers currently signed in to your PostHog account.',
+                component: <LoginSessions />,
+                keywords: ['sessions', 'devices', 'logins', 'sign out', 'log out', 'security', 'revoke'],
             },
         ],
     },

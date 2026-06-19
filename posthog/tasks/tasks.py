@@ -189,7 +189,7 @@ def kill_stale_queued_task_runs() -> None:
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def clear_expired_sessions() -> None:
-    from django.contrib.sessions.models import Session
+    from posthog.session.models import Session
 
     deleted_count, _ = Session.objects.filter(expire_date__lt=timezone.now()).delete()
 

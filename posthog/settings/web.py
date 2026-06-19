@@ -105,7 +105,9 @@ INSTALLED_APPS = [
     "django.contrib.admin.apps.SimpleAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
-    "django.contrib.sessions",
+    # Replaces django.contrib.sessions: a custom session model on the same django_session table
+    # (see posthog/session). SessionMiddleware still works without the contrib app installed.
+    "posthog.session",
     "django.contrib.messages",
     "django.contrib.postgres",
     "django.contrib.staticfiles",
@@ -166,6 +168,7 @@ MIDDLEWARE = [
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
+    "posthog.session.middleware.UserAuthSessionActivityMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
@@ -292,6 +295,7 @@ SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https
 LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
 
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
+SESSION_ENGINE = "posthog.session.backend"
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
 
 # For sensitive actions we have an additional permission (default 2 hour)

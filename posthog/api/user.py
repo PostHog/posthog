@@ -30,11 +30,11 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
-from rest_framework import exceptions, mixins, serializers, viewsets
+from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -99,6 +99,14 @@ from posthog.rate_limit import (
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
 )
+from posthog.session.activity import (
+    list_user_sessions,
+    revoke_other_sessions,
+    revoke_user_auth_session,
+    session_public_id,
+    sync_current_session_metadata,
+)
+from posthog.session.models import Session
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -785,6 +793,47 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
+class UserAuthSessionSerializer(serializers.ModelSerializer):
+    """A cookie-auth login session shown on the user's 'Web sessions' screen."""
+
+    id = serializers.SerializerMethodField(help_text="Identifier used to revoke this login session.")
+    last_activity = serializers.DateTimeField(
+        read_only=True, help_text="When this login session last made a request (refreshed periodically)."
+    )
+    location = serializers.CharField(
+        read_only=True, help_text="Approximate city and country derived from the IP address, if known."
+    )
+    device = serializers.CharField(
+        source="short_user_agent",
+        read_only=True,
+        help_text="Browser and operating system parsed from the user agent, e.g. 'Chrome 135 on macOS'.",
+    )
+    login_method = serializers.CharField(
+        read_only=True, help_text="How this session signed in (e.g. password, Google, SAML)."
+    )
+    is_current = serializers.SerializerMethodField(
+        help_text="Whether this is the login session making the current request."
+    )
+
+    class Meta:
+        model = Session
+        fields = ["id", "last_activity", "location", "device", "login_method", "is_current"]
+
+    @extend_schema_field({"type": "string", "format": "uuid"})
+    def get_id(self, obj: Session) -> str:
+        # Expose a stable, opaque id derived from the session key — never the key itself.
+        return str(session_public_id(obj.session_key))
+
+    @extend_schema_field({"type": "boolean"})
+    def get_is_current(self, obj: Session) -> bool:
+        request = self.context.get("request")
+        return bool(request and obj.session_key == request.session.session_key)
+
+
+class RevokeOtherSessionsResponseSerializer(serializers.Serializer):
+    revoked_count = serializers.IntegerField(help_text="Number of other login sessions that were revoked.")
+
+
 @extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
@@ -894,6 +943,64 @@ class UserViewSet(
     def github_login(self, request, **kwargs):
         user = self.get_object()
         return Response({"github_login": user.get_github_login()})
+
+    @extend_schema(responses=UserAuthSessionSerializer(many=True))
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="login_sessions",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated],
+        pagination_class=None,
+    )
+    def login_sessions(self, request, **kwargs):
+        """List the cookie-auth login sessions for the current user. Self-only — never another user."""
+        user = cast(User, request.user)
+        # Populate the current session's display metadata up front so it appears fully on first load
+        # (the activity middleware otherwise only records it after this response is sent).
+        sync_current_session_metadata(request, force=True)
+        rows = list_user_sessions(user)
+        current_key = request.session.session_key
+        rows.sort(key=lambda row: row.session_key != current_key)  # current first, stable on -last_activity
+        serializer = UserAuthSessionSerializer(rows, many=True, context=self.get_serializer_context())
+        return Response(serializer.data)
+
+    @extend_schema(request=None, responses={204: OpenApiResponse(description="Login session revoked.")})
+    @action(
+        methods=["DELETE"],
+        detail=True,
+        url_path=r"login_sessions/(?P<session_id>[0-9a-f-]+)",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated, TimeSensitiveActionPermission],
+    )
+    def revoke_login_session(self, request, session_id=None, **kwargs):
+        """Revoke a single login session belonging to the current user. Self-only.
+
+        Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize
+        revocation, and is blocked while impersonating via ImpersonationBlockedPathsMiddleware.
+        """
+        user = cast(User, request.user)
+        if not revoke_user_auth_session(user, session_id):
+            raise NotFound("Login session not found.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(request=None, responses=RevokeOtherSessionsResponseSerializer)
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="login_sessions/revoke_others",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated, TimeSensitiveActionPermission],
+    )
+    def revoke_other_login_sessions(self, request, **kwargs):
+        """Revoke every login session for the current user except the one making this request. Self-only.
+
+        Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize the
+        "log out everywhere else" lock-out, and is blocked while impersonating.
+        """
+        user = cast(User, request.user)
+        revoked_count = revoke_other_sessions(user, request.session.session_key)
+        return Response({"revoked_count": revoked_count})
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
