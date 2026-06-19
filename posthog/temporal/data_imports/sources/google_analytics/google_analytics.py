@@ -111,6 +111,12 @@ def _is_quota_error(response: requests.Response) -> bool:
     return response.status_code == 429
 
 
+def _is_retryable_server_error(response: requests.Response) -> bool:
+    """5xx responses (e.g. 503 Service Unavailable) are transient backend errors —
+    back off and retry inline rather than failing the chunk."""
+    return 500 <= response.status_code < 600
+
+
 def _quota_backoff_seconds(response: requests.Response, attempt: int) -> float:
     """Seconds to wait before retrying a quota error: honor `Retry-After`, else exponential."""
     retry_after = response.headers.get("Retry-After")
@@ -157,18 +163,22 @@ def _run_report(
             body=response.text,
         )
 
-        if not _is_quota_error(response):
+        is_quota = _is_quota_error(response)
+        if not is_quota and not _is_retryable_server_error(response):
             # Permission / bad-request errors are fatal — let the HTTPError bubble up so
             # `get_non_retryable_errors` can match "403 Client Error" / "401 Client Error".
             response.raise_for_status()
 
         if attempt == QUOTA_MAX_RETRIES:
-            raise GoogleAnalyticsQuotaExceededError(
-                f"Data API quota for property '{pid}' still exhausted after {QUOTA_MAX_RETRIES} retries"
-            )
+            if is_quota:
+                raise GoogleAnalyticsQuotaExceededError(
+                    f"Data API quota for property '{pid}' still exhausted after {QUOTA_MAX_RETRIES} retries"
+                )
+            # A transient 5xx that never cleared — surface the HTTPError so Temporal retries the activity.
+            response.raise_for_status()
 
         wait = _quota_backoff_seconds(response, attempt)
-        logger.warning("GA4 quota exceeded, backing off", property_id=pid, attempt=attempt, wait_seconds=wait)
+        logger.warning("GA4 runReport failed, backing off", property_id=pid, attempt=attempt, wait_seconds=wait)
         time.sleep(wait)
 
     # Unreachable: the loop either returns, raises for status, or raises the quota error.
