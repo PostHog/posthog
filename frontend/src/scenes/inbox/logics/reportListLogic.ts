@@ -28,7 +28,7 @@ export interface ReportListLogicProps {
  * bodies, the count chips, and the scene. Mirrors the backend filters confirmed in the plan.
  */
 export const INBOX_FLAT_TAB_LIST_PARAMS: Record<InboxFlatListTabKey, ReportListParams> = {
-    pulls: { has_implementation_pr: 'true' },
+    pulls: { has_implementation_pr: 'true', status: 'ready' },
     reports: {
         has_implementation_pr: 'false',
         status: 'ready,pending_input',
