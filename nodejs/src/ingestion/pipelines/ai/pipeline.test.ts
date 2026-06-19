@@ -192,7 +192,7 @@ describe('AiIngestionPipeline', () => {
         expect(mockPersonRepository.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
         expect(mockPersonRepository.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
             [{ teamId: 123, distinctId: 'user-1' }],
-            'ai/person-properties'
+            'fetch-person-batch-step'
         )
     })
 

@@ -195,7 +195,7 @@ export function createAiIngestionPipeline<
                                         )
                                         .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
                                         // Read-only batch person fetch (no person writes).
-                                        .pipeBatch(createFetchPersonBatchStep(personRepository, 'ai/person-properties'))
+                                        .pipeBatch(createFetchPersonBatchStep(personRepository))
                                         .sequentially((b) =>
                                             b
                                                 .pipe(createNormalizeProcessPersonFlagStep())

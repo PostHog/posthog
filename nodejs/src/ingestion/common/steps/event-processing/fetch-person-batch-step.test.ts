@@ -36,7 +36,7 @@ describe('createFetchPersonBatchStep', () => {
             fetchPersonsByPersonIds: jest.fn(),
             fetchDistinctIdsForPersons: jest.fn(),
         }
-        step = createFetchPersonBatchStep(mockPersonRepository, 'test/person-properties')
+        step = createFetchPersonBatchStep(mockPersonRepository)
     })
 
     it('returns empty array for empty input', async () => {
@@ -87,7 +87,7 @@ describe('createFetchPersonBatchStep', () => {
                 { teamId: 123, distinctId: 'user-1' },
                 { teamId: 123, distinctId: 'user-2' },
             ],
-            'test/person-properties'
+            'fetch-person-batch-step'
         )
     })
 
@@ -189,7 +189,7 @@ describe('createFetchPersonBatchStep', () => {
         // Should only query for the event with distinct_id
         expect(mockPersonRepository.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
             [{ teamId: 123, distinctId: 'user-123' }],
-            'test/person-properties'
+            'fetch-person-batch-step'
         )
     })
 
