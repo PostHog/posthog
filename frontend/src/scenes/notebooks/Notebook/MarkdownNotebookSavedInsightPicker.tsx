@@ -1,9 +1,14 @@
 import { LemonButton } from '@posthog/lemon-ui'
 
-import type { MarkdownNotebookSavedInsightPickerProps } from 'lib/components/MarkdownNotebook'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { SavedInsightsTable } from 'scenes/saved-insights/SavedInsightsTable'
+
+export type MarkdownNotebookSavedInsightPickerProps = {
+    isOpen: boolean
+    onClose: () => void
+    onSelect: (shortId: string, title: string) => void
+}
 
 export function MarkdownNotebookSavedInsightPicker({
     isOpen,

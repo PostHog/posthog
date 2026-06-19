@@ -6,7 +6,7 @@ describe('buildInsertCommands', () => {
     const noop = (): void => {}
 
     const build = (
-        openSavedInsightPicker?: (nodeId: string) => void
+        extraCommands?: InsertCommand[]
     ): { commands: InsertCommand[]; replaceNodeWithInsertedComponent: jest.Mock } => {
         const replaceNodeWithInsertedComponent = jest.fn()
         const commands = buildInsertCommands(
@@ -18,27 +18,26 @@ describe('buildInsertCommands', () => {
             noop,
             undefined,
             undefined,
-            openSavedInsightPicker
+            extraCommands
         )
         return { commands, replaceNodeWithInsertedComponent }
     }
 
-    const getSavedInsightCommand = (commands: InsertCommand[]): InsertCommand | undefined =>
-        commands.find((candidate) => candidate.key === 'query-saved-insight')
+    it('appends caller-supplied commands and runs their callbacks untouched', () => {
+        const run = jest.fn()
+        const extraCommand: InsertCommand = { key: 'custom', label: 'Custom', category: 'Insight', run }
+        const { commands, replaceNodeWithInsertedComponent } = build([extraCommand])
 
-    it('opens the picker when one is provided instead of inserting a node', () => {
-        const openSavedInsightPicker = jest.fn()
-        const { commands, replaceNodeWithInsertedComponent } = build(openSavedInsightPicker)
-        const command = getSavedInsightCommand(commands)
+        const command = commands.find((candidate) => candidate.key === 'custom')
         command?.run('node-1')
 
-        expect(command).not.toBeUndefined()
-        expect(openSavedInsightPicker).toHaveBeenCalledWith('node-1')
+        expect(command).toBe(extraCommand)
+        expect(run).toHaveBeenCalledWith('node-1')
         expect(replaceNodeWithInsertedComponent).not.toHaveBeenCalled()
     })
 
-    it('omits the saved-insight command entirely when no picker is provided', () => {
+    it('omits caller-supplied commands when none are provided', () => {
         const { commands } = build()
-        expect(getSavedInsightCommand(commands)).toBeUndefined()
+        expect(commands.find((candidate) => candidate.key === 'custom')).toBeUndefined()
     })
 })

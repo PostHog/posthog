@@ -9,7 +9,6 @@ import {
     Fragment,
     KeyboardEvent,
     MouseEvent as ReactMouseEvent,
-    ReactNode,
     Suspense,
     lazy,
     useCallback,
@@ -112,9 +111,11 @@ import {
     FloatingToolbarState,
     FloatingToolbarTextRange,
     INSERT_MENU_PLACEHOLDER,
+    InsertCommand,
     InsertMenuPosition,
     InsertMenuSelectionDirection,
     InsertMenuState,
+    MarkdownNotebookInsertMenuApi,
     MAX_UNDO_HISTORY_ENTRIES,
     NOTEBOOK_TITLE_PLACEHOLDER,
     RestoreSelectionRequest,
@@ -221,7 +222,9 @@ export type MarkdownNotebookProps = {
     createAIChatId?: () => string
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
-    renderSavedInsightPicker?: (props: MarkdownNotebookSavedInsightPickerProps) => ReactNode
+    /** Caller-supplied insert-menu commands. Receives an API for inserting blocks so the command's
+     * behavior (e.g. opening a picker modal) and labeling stay in the caller, not this component. */
+    extraInsertCommands?: (api: MarkdownNotebookInsertMenuApi) => InsertCommand[]
     remoteValue?: string
     /** Notebook version `remoteValue` corresponds to, for version-aware caret mapping. */
     remoteVersion?: number
@@ -253,12 +256,6 @@ export type MarkdownNotebookAskAIRequest = {
     markdownWithResponse: string
     selectedMarkdown?: string
     selectedRefId?: string
-}
-
-export type MarkdownNotebookSavedInsightPickerProps = {
-    isOpen: boolean
-    onClose: () => void
-    onSelect: (shortId: string, title: string) => void
 }
 
 type CommitDocumentOptions = {
@@ -399,7 +396,7 @@ export function MarkdownNotebook({
     createAIChatId = createDefaultAIChatId,
     mode = 'edit',
     registry,
-    renderSavedInsightPicker,
+    extraInsertCommands,
     remoteValue,
     remoteVersion,
     deferRemoteValue = false,
@@ -425,10 +422,6 @@ export function MarkdownNotebook({
     const [floatingToolbar, setFloatingToolbar] = useState<FloatingToolbarState | null>(null)
     const [insertMenu, setInsertMenu] = useState<InsertMenuState | null>(null)
     const [insertMenuPosition, setInsertMenuPosition] = useState<InsertMenuPosition | null>(null)
-    // Node the saved-insight picker will replace once an insight is chosen; null when the picker is closed.
-    // The ref mirrors the state so the pick/close callbacks can read the target without depending on it.
-    const [savedInsightPickerTargetNodeId, setSavedInsightPickerTargetNodeId] = useState<string | null>(null)
-    const savedInsightPickerTargetNodeIdRef = useRef<string | null>(null)
     const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null)
     const [activeBoundaryIndex, setActiveBoundaryIndex] = useState<number | null>(null)
     const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null)
@@ -2235,37 +2228,17 @@ export function MarkdownNotebook({
         [mergedRegistry, replaceNode]
     )
 
-    const setSavedInsightPickerTarget = useCallback((nodeId: string | null): void => {
-        savedInsightPickerTargetNodeIdRef.current = nodeId
-        setSavedInsightPickerTargetNodeId(nodeId)
-    }, [])
-
-    const closeSavedInsightPicker = useCallback((): void => {
-        setSavedInsightPickerTarget(null)
-    }, [setSavedInsightPickerTarget])
-
-    const handleSavedInsightPicked = useCallback(
-        (shortId: string, title: string): void => {
-            const targetNodeId = savedInsightPickerTargetNodeIdRef.current
-            if (!targetNodeId) {
-                return
-            }
-            replaceNodeWithInsertedComponent(targetNodeId, {
-                id: makeEmptyParagraph('component-Query').id,
-                type: 'component',
-                tagName: 'Query',
-                props: {
-                    query: { kind: 'SavedInsightNode', shortId },
-                    // The insight is already configured via the picker, so render results-only — hiding the
-                    // settings panel (the "Edit the insight" / "Detach from insight" controls) by default.
-                    hideFilters: true,
-                    // Label the node with the insight's name so the toolbar shows it instead of the short id.
-                    ...(title ? { title } : {}),
-                },
-            })
-            setSavedInsightPickerTarget(null)
-        },
-        [replaceNodeWithInsertedComponent, setSavedInsightPickerTarget]
+    const insertMenuApi = useMemo<MarkdownNotebookInsertMenuApi>(
+        () => ({
+            insertComponent: (targetNodeId, tagName, props) =>
+                replaceNodeWithInsertedComponent(targetNodeId, {
+                    id: makeEmptyParagraph(`component-${tagName}`).id,
+                    type: 'component',
+                    tagName,
+                    props,
+                }),
+        }),
+        [replaceNodeWithInsertedComponent]
     )
 
     const replaceNodeWithNodes = useCallback(
@@ -2482,7 +2455,7 @@ export function MarkdownNotebook({
                 },
                 onAskAI ? openAIPrompt : undefined,
                 isAskAIInsertionDisabled,
-                renderSavedInsightPicker ? setSavedInsightPickerTarget : undefined
+                extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
             ),
         [
             mergedRegistry,
@@ -2491,8 +2464,8 @@ export function MarkdownNotebook({
             onAskAI,
             openAIPrompt,
             isAskAIInsertionDisabled,
-            renderSavedInsightPicker,
-            setSavedInsightPickerTarget,
+            extraInsertCommands,
+            insertMenuApi,
         ]
     )
 
@@ -5468,11 +5441,6 @@ export function MarkdownNotebook({
                     </aside>
                 ) : null}
             </div>
-            {renderSavedInsightPicker?.({
-                isOpen: savedInsightPickerTargetNodeId !== null,
-                onClose: closeSavedInsightPicker,
-                onSelect: handleSavedInsightPicked,
-            })}
         </div>
     )
 }

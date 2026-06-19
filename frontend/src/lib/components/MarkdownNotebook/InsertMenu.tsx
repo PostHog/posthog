@@ -173,7 +173,7 @@ export function buildInsertCommands(
     focusInsertedCode: (nodeId: string) => void,
     openAIPrompt?: (nodeId: string) => void,
     isAskAIDisabled?: boolean,
-    openSavedInsightPicker?: (nodeId: string) => void
+    extraCommands: InsertCommand[] = []
 ): InsertCommand[] {
     const commonCategory = 'Common'
 
@@ -277,18 +277,6 @@ export function buildInsertCommands(
                     },
                 }),
         },
-        // Only offered when a picker is wired up — selecting an insight requires the search modal.
-        ...(openSavedInsightPicker
-            ? [
-                  {
-                      key: 'query-saved-insight',
-                      label: 'Saved insight',
-                      category: 'Insight',
-                      icon: <IconGraph />,
-                      run: (targetNodeId: string) => openSavedInsightPicker(targetNodeId),
-                  },
-              ]
-            : []),
     ]
 
     const sqlCommands: InsertCommand[] = [
@@ -496,6 +484,7 @@ export function buildInsertCommands(
         ...mediaCommands,
         ...componentCommands,
         ...textStyleCommands,
+        ...extraCommands,
     ]
 }
 
