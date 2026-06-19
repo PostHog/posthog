@@ -74,11 +74,11 @@ docker compose up -d --wait
 echo "[start-ai-gateway] running gateway (open mode) on http://localhost:${GATEWAY_PORT}"
 # Force open mode + own valkey/postgres over the clone's .env, STUB flags
 # included (else an offline clone's STUB_DISPATCH=true serves canned output).
-exec env \
-    AI_GATEWAY_AUTH_MODE=open \
-    AI_GATEWAY_LISTEN_ADDR=":${GATEWAY_PORT}" \
-    AI_GATEWAY_REDIS_URL="redis://localhost:6381/0" \
-    AI_GATEWAY_POSTGRES_DSN="postgres://postgres:postgres@localhost:5435/ai_gateway?sslmode=disable" \
-    AI_GATEWAY_STUB_DISPATCH=false \
-    AI_GATEWAY_STUB_PRICING=false \
-    go run ./cmd/gateway
+export AI_GATEWAY_AUTH_MODE=open
+export AI_GATEWAY_LISTEN_ADDR=":${GATEWAY_PORT}"
+export AI_GATEWAY_REDIS_URL="redis://localhost:6381/0"
+# nosemgrep: trailofbits.generic.postgres-insecure-sslmode.postgres-insecure-sslmode -- localhost dev postgres, no TLS
+export AI_GATEWAY_POSTGRES_DSN="postgres://postgres:postgres@localhost:5435/ai_gateway?sslmode=disable"
+export AI_GATEWAY_STUB_DISPATCH=false
+export AI_GATEWAY_STUB_PRICING=false
+exec go run ./cmd/gateway
