@@ -5,7 +5,7 @@ import { MetricCard, useChartTheme } from '@posthog/quill-charts'
 
 import { dayjs } from 'lib/dayjs'
 import { hexToRGBA } from 'lib/utils/colors'
-import { formatDate } from 'lib/utils/datetime'
+import { DATE_FORMAT_WITHOUT_YEAR, formatDate } from 'lib/utils/datetime'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -15,11 +15,14 @@ import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
 import {
-    computeMetricChange,
+    computeMetricSummary,
+    computeMetricSummaryChange,
     METRIC_COLOR_BY_DIRECTION_DEFAULT,
     METRIC_DEFAULT_DECREASE_COLOR,
     METRIC_DEFAULT_INCREASE_COLOR,
     METRIC_SHOW_CHANGE_DEFAULT,
+    METRIC_SUMMARY_DEFAULT,
+    METRIC_SUMMARY_LABELS,
 } from './Metric.utils'
 
 const makeChangeColor = (hex: string): { background: string; foreground: string } => ({
@@ -29,7 +32,7 @@ const makeChangeColor = (hex: string): { background: string; foreground: string 
 
 export function Metric({ inCardView }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { insightData, trendsFilter, compareFilter } = useValues(insightVizDataLogic(insightProps))
     const { baseCurrency } = useValues(teamLogic)
     const theme = useChartTheme()
 
@@ -40,14 +43,21 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
         return <InsightEmptyState />
     }
 
-    const headlineValue = resultSeries.count
+    const summary = trendsFilter?.metricSummary ?? METRIC_SUMMARY_DEFAULT
+    const headlineValue = computeMetricSummary(summary, resultSeries.count, resultSeries.data)
     const showChange = trendsFilter?.metricShowChange ?? METRIC_SHOW_CHANGE_DEFAULT
 
-    const { change, startValue } = computeMetricChange(resultSeries.data)
-    const comparisonSubtitle =
-        startValue != null
-            ? `vs. ${formatAggregationAxisValue(trendsFilter, startValue, baseCurrency)} at start`
+    // When "compare to previous" is on, result[1] is the previous period — let total/average compare
+    // against it instead of the within-window first→last movement.
+    const previousSeries =
+        compareFilter?.compare && insightData.result.length > 1
+            ? (insightData.result[1] as TrendResult | undefined)
             : undefined
+    const change = computeMetricSummaryChange(
+        summary,
+        { total: resultSeries.count, data: resultSeries.data },
+        previousSeries ? { total: previousSeries.count, data: previousSeries.data } : undefined
+    )
 
     const isIncrease = (change?.value ?? 0) >= 0
     const pillColors = {
@@ -61,8 +71,9 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
         lineColor = isIncrease ? lineIncreaseColor : lineDecreaseColor
     }
 
-    // Format the backend day labels the app's way ("June 16, 2026" rather than "16-Jun-2026").
-    const labels = resultSeries.days?.map((day) => formatDate(dayjs(day))) ?? resultSeries.labels
+    // Format the backend day labels the app's way, without the year ("June 16" rather than "16-Jun-2026").
+    const labels =
+        resultSeries.days?.map((day) => formatDate(dayjs(day), DATE_FORMAT_WITHOUT_YEAR)) ?? resultSeries.labels
 
     return (
         <div className={clsx('Metric ph-no-capture flex flex-col w-full p-2', inCardView && 'flex-1')}>
@@ -75,8 +86,9 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
                 changeSize="md"
                 changeInline
                 change={change}
+                hoverChangeFromPreviousPoint
                 {...pillColors}
-                subtitle={comparisonSubtitle}
+                restingSubtitle={METRIC_SUMMARY_LABELS[summary]}
                 data={resultSeries.data}
                 labels={labels}
                 theme={theme}

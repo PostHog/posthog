@@ -46,8 +46,16 @@ export interface MetricCardProps {
     changeInline?: boolean
     positiveColor?: ChangeColor
     negativeColor?: ChangeColor
-    /** Caption under the headline. Defaults to `labels[activeIndex]` when a sparkline is present. */
+    /** Caption under the headline. Defaults to `labels[activeIndex]` when a sparkline is present.
+     *  Always wins — shown at rest and on hover. */
     subtitle?: React.ReactNode
+    /** Caption shown only while at rest (e.g. `'Avg'`); on hover it yields to the hovered point's
+     *  label. Ignored when `subtitle` is set. */
+    restingSubtitle?: React.ReactNode
+    /** While hovering a sparkline point, replace the resting `change` pill with the change from the
+     *  previous point (`(data[i] - data[i-1]) / |data[i-1]|`). At the first point there is no previous,
+     *  so the pill is hidden. The resting `change` (or fallback) still shows when not hovering. */
+    hoverChangeFromPreviousPoint?: boolean
     animationMs?: number
     /** Dwell (ms) a pointer must settle on the sparkline before the headline follows it.
      *  Keeps a quick pass-through from grabbing attention. `0` disables the gating. */
@@ -96,6 +104,8 @@ function MetricCardInner({
     positiveColor = DEFAULT_POSITIVE_COLOR,
     negativeColor = DEFAULT_NEGATIVE_COLOR,
     subtitle,
+    restingSubtitle,
+    hoverChangeFromPreviousPoint = false,
     animationMs = 350,
     hoverIntentMs = 140,
     className,
@@ -119,14 +129,25 @@ function MetricCardInner({
     }
 
     const liveValue = sparklineData ? (sparklineData[activeIndex] ?? 0) : restingValue
-    const fallbackChangePercent =
-        sparklineData == null || baselineValue == null
-            ? null
-            : ((liveValue - baselineValue) / Math.abs(baselineValue)) * 100
+    const usePrevPointHover = hoverChangeFromPreviousPoint && intentIndex >= 0 && sparklineData != null
 
-    const delta = resolveDelta({ showChange, change, fallbackChangePercent, formatChange })
+    // While hovering with `hoverChangeFromPreviousPoint`, the point-vs-previous-point delta takes over
+    // from the supplied resting `change`.
+    const fallbackChangePercent =
+        usePrevPointHover && sparklineData
+            ? changeFromPreviousPoint(sparklineData, intentIndex)
+            : sparklineData == null || baselineValue == null
+              ? null
+              : ((liveValue - baselineValue) / Math.abs(baselineValue)) * 100
+    const delta = resolveDelta({
+        showChange,
+        change: usePrevPointHover ? undefined : change,
+        fallbackChangePercent,
+        formatChange,
+    })
     const headlineDisplay = sparklineData ? formatValue(animatedValue) : formatValue(restingValue)
-    const resolvedSubtitle = subtitle ?? labels?.[activeIndex]
+    const resolvedSubtitle =
+        subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labels?.[activeIndex])
 
     const positive = delta != null && delta.value >= 0
     const isGood = goodDirection === 'up' ? positive : !positive
@@ -147,7 +168,12 @@ function MetricCardInner({
                 <div className={`flex items-start gap-2 ${headerJustify}`}>
                     {title != null && <div className="text-sm font-medium">{title}</div>}
                     {headerDelta != null && (
-                        <ChangePill positive={positive} label={headerDelta.label} colors={pillColors} size={changeSize} />
+                        <ChangePill
+                            positive={positive}
+                            label={headerDelta.label}
+                            colors={pillColors}
+                            size={changeSize}
+                        />
                     )}
                 </div>
             )}
@@ -183,6 +209,17 @@ function MetricCardInner({
             )}
         </div>
     )
+}
+
+// Percent change from the point before `index` to the point at `index`. Returns null when there is
+// no usable previous point (first index, missing/non-finite values, or a zero baseline).
+function changeFromPreviousPoint(data: number[], index: number): number | null {
+    const prev = data[index - 1]
+    const curr = data[index]
+    if (index < 1 || prev === 0 || !Number.isFinite(prev) || !Number.isFinite(curr)) {
+        return null
+    }
+    return ((curr - prev) / Math.abs(prev)) * 100
 }
 
 interface ChangePillProps {

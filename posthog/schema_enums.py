@@ -441,6 +441,12 @@ class Display(StrEnum):
     SLOPE_GRAPH = "SlopeGraph"
 
 
+class MetricSummary(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    LATEST = "latest"
+
+
 class YAxisScaleType(StrEnum):
     LOG10 = "log10"
     LINEAR = "linear"
