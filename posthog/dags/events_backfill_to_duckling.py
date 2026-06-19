@@ -203,7 +203,16 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     if catalog is not None and catalog.bucket:
         bucket, bucket_region = catalog.bucket, catalog.bucket_region
     else:
+        # No stored catalog row (dev mode, or an org provisioned with only a DuckgresServer):
+        # the derived name is an unverified guess at the provisioned bucket. Log it so the
+        # "bucket does not exist" failure mode is observable rather than silent.
         bucket, bucket_region = derive_duckling_bucket(org_id)
+        logger.warning(
+            "duckling_bucket_derived_no_catalog",
+            team_id=team_id,
+            organization_id=org_id,
+            bucket=bucket,
+        )
 
     return DucklingTarget(team_id=team_id, organization_id=org_id, bucket=bucket, bucket_region=bucket_region)
 
