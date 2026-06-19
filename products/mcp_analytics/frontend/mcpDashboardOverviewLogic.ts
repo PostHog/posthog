@@ -371,6 +371,11 @@ export function buildBucketKeys(dateFilter: DateFilter, timezone: string, interv
     return keys
 }
 
+export function normalizeBucket(raw: unknown, timezone: string): string {
+    const s = String(raw ?? '')
+    return s ? dayjs(s).tz(timezone).format('YYYY-MM-DD HH:mm:ss') : ''
+}
+
 // Project the daily success/error rows onto the full set of buckets, defaulting empty buckets to 0.
 export function buildDailyActivity(rows: ActivityRow[], bucketKeys: string[]): DailyActivity {
     const byDay = new Map(rows.map((r) => [r.day, r]))
@@ -580,7 +585,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
-                        day: String(r[0] ?? ''),
+                        day: normalizeBucket(r[0], values.timezone),
                         successes: Number(r[1] ?? 0),
                         errors: Number(r[2] ?? 0),
                     }))
@@ -599,7 +604,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
-                        day: String(r[0] ?? ''),
+                        day: normalizeBucket(r[0], values.timezone),
                         tool: String(r[1] ?? ''),
                         calls: Number(r[2] ?? 0),
                     }))

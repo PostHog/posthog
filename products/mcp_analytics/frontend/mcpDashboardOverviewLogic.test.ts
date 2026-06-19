@@ -18,6 +18,7 @@ import {
     deltaPct,
     type HarnessRawRow,
     mcpDashboardOverviewLogic,
+    normalizeBucket,
     pickNotableSessions,
     type SessionRow,
     type ToolDailyRow,
@@ -207,6 +208,34 @@ describe('mcpDashboardOverviewLogic', () => {
                 successes: [0, 0, 0],
                 errors: [0, 0, 0],
             })
+        })
+    })
+
+    describe('normalizeBucket', () => {
+        // The query API serializes dateTrunc buckets as ISO datetimes; they must come back in the
+        // same format buildBucketKeys emits, otherwise the zero-fill join misses every bucket.
+        it.each([
+            ['2026-06-19T00:00:00Z', 'UTC', '2026-06-19 00:00:00'],
+            ['2026-06-19T00:00:00+00:00', 'UTC', '2026-06-19 00:00:00'],
+            ['2026-06-19T11:30:00Z', 'UTC', '2026-06-19 11:30:00'],
+        ])('normalizes %s (%s) to %s', (raw, timezone, expected) => {
+            expect(normalizeBucket(raw, timezone)).toBe(expected)
+        })
+
+        it('returns empty string for missing values', () => {
+            expect(normalizeBucket(null, 'UTC')).toBe('')
+            expect(normalizeBucket('', 'UTC')).toBe('')
+        })
+
+        it('produces keys that match buildBucketKeys so the activity join lands', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            try {
+                const bucketKeys = buildBucketKeys({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')
+                const normalized = normalizeBucket('2026-06-18T00:00:00Z', 'UTC')
+                expect(bucketKeys).toContain(normalized)
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 
