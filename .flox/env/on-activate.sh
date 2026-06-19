@@ -302,15 +302,19 @@ _UV_SKIP=0
 _PHROCS_SKIP=0
 [[ -n "$_PHROCS_BAKED" && -n "$_PHROCS_CURRENT" && "$_PHROCS_BAKED" == "$_PHROCS_CURRENT" ]] && _PHROCS_SKIP=1
 
-# Sandbox the automatic installs below when opted in (POSTHOG_DEV_SANDBOX=1,
-# macOS). .env.local isn't loaded at flox-activate time, so check it directly
-# alongside the live env. The build scripts that run during install (uv sdist
-# hooks, allowlisted pnpm builds, cargo build.rs) then execute inside the
-# sandbox, like the runtime path. See bin/dev-sandbox.
+# Sandbox the automatic installs below by default on macOS (opt out with
+# POSTHOG_DEV_SANDBOX=0). .env.local isn't loaded at flox-activate time, so check
+# it directly — but only when the live env is unset, so shell env keeps precedence.
+# The build scripts that run during install (uv sdist hooks, allowlisted pnpm
+# builds, cargo build.rs) then execute inside the sandbox, like the runtime path.
+# See bin/dev-sandbox.
 _DEV_SANDBOX_INSTALLS=0
 if [[ "$(uname -s)" == "Darwin" && -x "$FLOX_ENV_PROJECT/bin/dev-sandbox" ]]; then
-  if [[ "${POSTHOG_DEV_SANDBOX:-}" == "1" ]] || grep -qE "^[[:space:]]*POSTHOG_DEV_SANDBOX=1[[:space:]]*$" "$FLOX_ENV_PROJECT/.env.local" 2>/dev/null; then
-    _DEV_SANDBOX_INSTALLS=1
+  _DEV_SANDBOX_INSTALLS=1
+  if [[ "${POSTHOG_DEV_SANDBOX:-}" == "0" ]]; then
+    _DEV_SANDBOX_INSTALLS=0
+  elif [[ -z "${POSTHOG_DEV_SANDBOX:-}" ]] && grep -qE "^[[:space:]]*POSTHOG_DEV_SANDBOX=0[[:space:]]*$" "$FLOX_ENV_PROJECT/.env.local" 2>/dev/null; then
+    _DEV_SANDBOX_INSTALLS=0
   fi
 fi
 

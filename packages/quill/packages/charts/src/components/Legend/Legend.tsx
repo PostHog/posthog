@@ -17,6 +17,9 @@ export interface LegendProps {
     hiddenKeys?: string[]
     className?: string
     dataAttr?: string
+    /** Wrap each row — receives the default row node and its item, returns the node to render.
+     *  Use to augment rows (e.g. a right-click context menu) while keeping the default rendering. */
+    renderItem?: (defaultNode: React.ReactNode, item: LegendItem) => React.ReactNode
 }
 
 const ALIGN_CLASS = {
@@ -33,6 +36,7 @@ export function Legend({
     hiddenKeys,
     className,
     dataAttr,
+    renderItem,
 }: LegendProps): React.ReactElement | null {
     if (items.length === 0) {
         return null
@@ -59,9 +63,8 @@ export function Legend({
                         )}
                     </>
                 )
-                return onItemClick ? (
+                const node = onItemClick ? (
                     <button
-                        key={item.key}
                         type="button"
                         className={`${rowClass} cursor-pointer bg-transparent border-0 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
                         onClick={() => onItemClick(item.key)}
@@ -69,10 +72,9 @@ export function Legend({
                         {inner}
                     </button>
                 ) : (
-                    <span key={item.key} className={rowClass}>
-                        {inner}
-                    </span>
+                    <span className={rowClass}>{inner}</span>
                 )
+                return <React.Fragment key={item.key}>{renderItem ? renderItem(node, item) : node}</React.Fragment>
             })}
         </div>
     )

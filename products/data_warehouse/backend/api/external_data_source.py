@@ -42,7 +42,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter
+from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter, source_type_supports_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
@@ -1284,7 +1284,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
 
         return context
 
@@ -1673,11 +1673,34 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 effective_primary_key_columns = primary_key_columns or (
                     source_schema.detected_primary_keys if source_schema else None
                 )
+                # Lookback only applies to incremental (merge-by-PK makes the overlap re-read idempotent).
+                # Mirror the schema-update path's IntegerField(min_value=0, max_value=5_184_000) so both
+                # creation paths reject the same inputs instead of silently dropping null/float values.
+                lookback_seconds = schema.get("incremental_field_lookback_seconds")
+                if lookback_seconds is not None:
+                    # Coerce whole-number floats (e.g. 90.0) the way DRF's IntegerField does.
+                    if isinstance(lookback_seconds, float) and lookback_seconds.is_integer():
+                        lookback_seconds = int(lookback_seconds)
+                    # bool is an int subclass — exclude it so true/false aren't treated as 1/0.
+                    is_valid_int = isinstance(lookback_seconds, int) and not isinstance(lookback_seconds, bool)
+                    if not is_valid_int or not (0 <= lookback_seconds <= 5_184_000):
+                        new_source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "message": f"incremental_field_lookback_seconds must be an integer between 0 and 5184000 (60 days) for schema '{schema_name}'."
+                            },
+                        )
                 sync_type_config = {
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                     "schema_metadata": schema_metadata,
                     **({"primary_key_columns": effective_primary_key_columns} if effective_primary_key_columns else {}),
+                    **(
+                        {"incremental_field_lookback_seconds": lookback_seconds}
+                        if sync_type == "incremental" and lookback_seconds is not None
+                        else {}
+                    ),
                 }
             elif is_cdc_schema and not cdc_not_set_up:
                 cdc_table_mode = schema.get("cdc_table_mode", "consolidated")
@@ -1824,9 +1847,33 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         on failure, or None on success. Callers decide whether to delete the source
         on failure (create flow does; enable_cdc does not).
         """
+        management_mode = payload.get("cdc_management_mode", "posthog")
+        logger.info(
+            "Setting up CDC resources for source",
+            source_id=str(source_model.pk),
+            source_type=source_model.source_type,
+            management_mode=management_mode,
+        )
+
         resource_fields, error = adapter.setup_resources(source_model, payload)
         if error is not None:
+            logger.warning(
+                "CDC resource setup failed",
+                source_id=str(source_model.pk),
+                source_type=source_model.source_type,
+                management_mode=management_mode,
+                error=error,
+            )
             return error
+
+        logger.info(
+            "CDC resources provisioned",
+            source_id=str(source_model.pk),
+            management_mode=management_mode,
+            slot_name=resource_fields.get("cdc_slot_name"),
+            publication_name=resource_fields.get("cdc_publication_name"),
+            resource_keys=sorted(resource_fields.keys()),
+        )
 
         job_inputs = dict(source_model.job_inputs or {})
         job_inputs.update(
@@ -2535,10 +2582,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         and by the self-managed setup popup to verify user-created publications.
         """
         source_type = request.data.get("source_type")
-        if source_type != ExternalDataSourceType.POSTGRES:
+        if not source_type_supports_cdc(source_type):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "CDC prerequisite checks are only supported for Postgres."},
+                data={"message": "CDC prerequisite checks are only supported for CDC enabled sources."},
             )
 
         source_impl: PostgresSource = PostgresSource()

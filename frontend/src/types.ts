@@ -2537,6 +2537,8 @@ export interface DashboardBasicType extends WithAccessControl {
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate' | 'unlisted'
     tags?: string[]
+    /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
+    folder?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /**
@@ -2556,7 +2558,7 @@ export interface DashboardTemplateListParams {
     is_featured?: boolean
 }
 
-export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag' | 'organization'
 
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
@@ -2621,6 +2623,13 @@ export type DashboardTemplateStoredTile =
     | DashboardTemplateStoredButtonTile
     | DashboardTemplateStoredWidgetTile
 
+/** Project-specific references embedded in a template's tiles that may not resolve in another project. */
+export interface NonPortableReferences {
+    actions: number
+    cohorts: number
+    warehouse_tables: string[]
+}
+
 export interface DashboardTemplateType {
     id: string
     team_id?: number
@@ -2639,6 +2648,8 @@ export interface DashboardTemplateType {
     is_featured?: boolean
     /** Soft delete; API allows PATCH for staff undo (restore). */
     deleted?: boolean
+    /** Read-only. Project-specific references in tiles (actions, cohorts, warehouse tables) that may not resolve in another project. */
+    non_portable_references?: NonPortableReferences
 }
 
 export interface MonacoMarker {
@@ -2873,6 +2884,7 @@ export enum ChartDisplayType {
     ActionsAreaGraph = 'ActionsAreaGraph',
     ActionsLineGraphCumulative = 'ActionsLineGraphCumulative',
     BoldNumber = 'BoldNumber',
+    Metric = 'Metric',
     ActionsPie = 'ActionsPie',
     ActionsBarValue = 'ActionsBarValue',
     ActionsTable = 'ActionsTable',
@@ -3351,6 +3363,9 @@ export interface FunnelStep {
     breakdown_value?: BreakdownKeyType
     data?: number[]
     days?: string[]
+
+    /** Set by the funnel compare orchestrator to tag which period a step belongs to. */
+    compare_label?: 'current' | 'previous'
 
     /** Url that you can GET to retrieve the people that converted in this step */
     converted_people_url: string
@@ -4738,6 +4753,8 @@ export interface Experiment {
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
+    /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
+    is_legacy?: boolean
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -5284,6 +5301,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'postgresql',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5514,6 +5532,7 @@ export type APIScopeObject =
     | 'annotation'
     | 'approvals'
     | 'batch_export'
+    | 'business_knowledge'
     | 'clickhouse_test_cluster_perf'
     | 'cohort'
     | 'comment'
@@ -5527,6 +5546,7 @@ export type APIScopeObject =
     | 'early_access_feature'
     | 'element'
     | 'endpoint'
+    | 'engineering_analytics'
     | 'error_tracking'
     | 'evaluation'
     | 'event_definition'
@@ -5576,11 +5596,13 @@ export type APIScopeObject =
     | 'signal_scout'
     | 'subscription'
     | 'survey'
+    | 'tagger'
     | 'task'
     | 'ticket'
     | 'uploaded_media'
     | 'usage_metric'
     | 'user'
+    | 'user_interview'
     | 'visual_review'
     | 'warehouse_objects'
     | 'warehouse_table'
@@ -6111,6 +6133,9 @@ export interface ExternalDataSourceSyncSchema {
     sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
+    /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
+     *  window (catches late/backdated rows). Timestamp/date incremental fields only. */
+    incremental_field_lookback_seconds?: number | null
     sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
     incremental_fields: IncrementalField[]
     incremental_available: boolean
@@ -6159,6 +6184,9 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     latest_error: string | null
     incremental_field: string | null
     incremental_field_type: string | null
+    /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
+     *  window (catches late/backdated rows). Timestamp/date incremental fields only. */
+    incremental_field_lookback_seconds?: number | null
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
     should_sync_default?: boolean
@@ -6226,6 +6254,8 @@ export interface ExternalDataJob {
 export interface SimpleDataWarehouseTable {
     id: string
     name: string
+    /** Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices`). */
+    hogql_name?: string
     columns: DatabaseSchemaField[]
     row_count: number
 }
@@ -6288,11 +6318,12 @@ export type BatchExportServiceS3Compatible = {
 
 export type BatchExportServicePostgres = {
     type: 'Postgres'
+    integration?: number
     config: {
-        user: string
-        password: string
-        host: string
-        port: number
+        user?: string
+        password?: string
+        host?: string
+        port?: number
         database: string
         schema: string
         table_name: string

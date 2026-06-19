@@ -24,7 +24,7 @@ from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
-from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
+from posthog.temporal.data_imports.cdc.adapters import cdc_supported_source_types, get_cdc_adapter
 from posthog.temporal.data_imports.cdc.batcher import (
     ChangeEventBatcher,
     build_scd2_table,
@@ -128,6 +128,12 @@ class CDCExtractActivity:
         self.batcher: ChangeEventBatcher | None = None
         self.last_end_lsn: str | None = None
         self.last_confirmed_lsn: str | None = None
+        # Transaction-boundary tracking for safe mid-run slot advances. All events of
+        # one transaction share the same commit end LSN (position_serialized), so an LSN
+        # change marks a fully-yielded transaction. We only ever micro-advance the slot
+        # past transactions that are completely yielded — see _read_wal_loop.
+        self.current_txn_lsn: str | None = None
+        self.last_complete_txn_end_lsn: str | None = None
         self.event_count: int = 0
         self.all_table_names: set[str] = set()
 
@@ -628,6 +634,28 @@ class CDCExtractActivity:
             columns=filtered,
         )
 
+    def _build_event_name_map(self) -> dict[str, str]:
+        """Map each schema's source-qualified `schema.table` name to its stored `name`.
+
+        WAL events are always qualified (`public.orders`) but `name` may be stored bare
+        (`orders`), so an exact-equality match silently drops every change for a bare row.
+        """
+        default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
+        mapping: dict[str, str] = {}
+        for schema in self.cdc_schemas:
+            metadata = schema.sync_type_config.get("schema_metadata") or {}
+            src_schema = metadata.get("source_schema")
+            src_table = metadata.get("source_table_name")
+            if isinstance(src_schema, str) and isinstance(src_table, str):
+                qualified = f"{src_schema}.{src_table}"
+            elif "." in schema.name:
+                qualified = schema.name
+            else:
+                qualified = f"{default_schema or 'public'}.{schema.name}"
+            mapping[qualified] = schema.name
+            mapping.setdefault(schema.name, schema.name)  # also match a bare-emitted name
+        return mapping
+
     # ------------------------------------------------------------------
     # WAL read loop with periodic micro-batch flushes
     # ------------------------------------------------------------------
@@ -639,20 +667,31 @@ class CDCExtractActivity:
         extractions that hit the activity timeout don't have to replay events
         on the next run.
         """
-        cdc_table_names = {s.name for s in self.cdc_schemas}
+        event_name_to_schema_name = self._build_event_name_map()
         self.batcher = ChangeEventBatcher()
 
         for event in self.reader.read_changes():
             activity.heartbeat()
 
-            # The publication should be scoped to CDC-enabled tables only, so in
-            # practice this filter is a no-op. It's a safety net in case the
-            # publication includes extra tables (e.g. self-managed mode).
-            if event.table_name not in cdc_table_names:
+            # Resolve to the schema's stored `name` so downstream keying lines up. Log
+            # unmatched drops: a silent drop here is how a name mismatch starves a table.
+            canonical_name = event_name_to_schema_name.get(event.table_name)
+            if canonical_name is None:
+                self.log.debug("cdc_event_dropped_unmatched_table", table=event.table_name)
                 continue
+            if canonical_name != event.table_name:
+                event = dataclasses.replace(event, table_name=canonical_name)
 
             event = self._project_event_columns(event)
             self.batcher.add(event)
+
+            # A change in position_serialized proves the previous transaction fully
+            # yielded — all of its events are now buffered or flushed. Record its end LSN
+            # as the high-water mark we may safely release the WAL up to.
+            if event.position_serialized != self.current_txn_lsn:
+                self.last_complete_txn_end_lsn = self.current_txn_lsn
+                self.current_txn_lsn = event.position_serialized
+
             self.last_end_lsn = event.position_serialized
             self.event_count += 1
 
@@ -660,13 +699,24 @@ class CDCExtractActivity:
                 tables = self.batcher.flush()
                 self.all_table_names.update(tables.keys())
                 self._process_flush(tables, is_final=False)
-                # Advance the slot after each successful flush. At this point every
-                # batch in this micro-flush is either in Kafka (streaming) or persisted
-                # in sync_type_config["cdc_deferred_runs"] (snapshot), so it's safe to
-                # release the WAL up to this LSN.
-                if self.last_end_lsn is not None and self.last_end_lsn != self.last_confirmed_lsn:
-                    self.reader.confirm_position(self.last_end_lsn)
-                    self.last_confirmed_lsn = self.last_end_lsn
+                # Advance only to the end of the last FULLY-yielded transaction, never to
+                # last_end_lsn: a micro-flush can fire mid-transaction (the batcher
+                # threshold is checked per event), and every event of the in-flight
+                # transaction shares its commit end LSN. Confirming that LSN while the
+                # transaction's tail is still un-yielded in the generator would release
+                # the WAL past un-flushed events — a crash before the next flush then
+                # loses them permanently. Consequences of this conservative bound:
+                #   (a) a single giant transaction gets no micro-advance until it
+                #       completes (a retry re-decodes it — safe, slow);
+                #   (b) on crash-replay the already-flushed prefix of the in-flight
+                #       transaction is re-delivered — incremental_merge dedups by PK,
+                #       scd2_append may create duplicate history rows. Accepted vs. loss.
+                if (
+                    self.last_complete_txn_end_lsn is not None
+                    and self.last_complete_txn_end_lsn != self.last_confirmed_lsn
+                ):
+                    self.reader.confirm_position(self.last_complete_txn_end_lsn)
+                    self.last_confirmed_lsn = self.last_complete_txn_end_lsn
                 self.log.info(
                     "cdc_micro_batch_flushed",
                     events_so_far=self.event_count,
@@ -896,11 +946,15 @@ class CDCExtractActivity:
 
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)
+        synced_tables = {tracker.table_name for tracker in self.write_trackers.values()}
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.COMPLETED
             schema.latest_error = None
             schema.last_synced_at = now
             schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
+            # Breadcrumb for idle tables; _handle_no_changes only covers the whole-source-quiet case.
+            if schema.name not in synced_tables:
+                self._schema_log(schema).info("cdc_extract_no_changes")
 
 
 @activity.defn
@@ -944,8 +998,6 @@ def cleanup_orphan_slots_activity() -> None:
     """
     close_old_connections()
 
-    from products.data_warehouse.backend.types import ExternalDataSourceType
-
     log = logger.bind()
     log.info("cleanup_orphan_slots_started")
 
@@ -955,7 +1007,7 @@ def cleanup_orphan_slots_activity() -> None:
     # point of this sweeper is to clean up slots for sources that were deleted.
     cdc_sources = list(
         ExternalDataSource.objects.filter(
-            source_type=ExternalDataSourceType.POSTGRES,
+            source_type__in=cdc_supported_source_types(),
             job_inputs__cdc_enabled=True,
         )
         .exclude(job_inputs__cdc_slot_name__isnull=True)

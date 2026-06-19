@@ -72,7 +72,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             /
             ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
             * 100
-            ), 2) as activity_score
+            ), 2) as activity_score,
+            coalesce(max(s.surfacing_score), 0.36) as surfacing_score
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
@@ -103,6 +104,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             "recording_ttl",
             "ongoing",
             "activity_score",
+            "surfacing_score",
         ]
 
     @staticmethod
