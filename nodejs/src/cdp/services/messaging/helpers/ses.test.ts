@@ -1,13 +1,17 @@
+import { defaultConfig } from '~/config/config'
+
 import { SesWebhookHandler } from './ses'
-import { generateEmailTrackingCode, generateShortEmailTrackingCode } from './tracking-code'
+import { EmailTrackingCodeSigner } from './tracking-code'
 
 // Hardcoded (not imported) so a change to the header constant fails this test.
 const TRACKING_CODE_HEADER = 'X-PostHog-Tracking-Code'
 
+const signer = new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, 'http://localhost:8010')
+
 describe('SesWebhookHandler', () => {
     let handler: SesWebhookHandler
     beforeEach(() => {
-        handler = new SesWebhookHandler()
+        handler = new SesWebhookHandler(signer)
     })
 
     // Mirrors what the sender writes: the custom header carries the full signed code (including
@@ -26,9 +30,9 @@ describe('SesWebhookHandler', () => {
         source: 'sender@example.com',
         messageId: 'msg-123',
         destination: ['to@example.com'],
-        headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation) }],
+        headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(baseInvocation) }],
         tags: {
-            ph_id: [generateShortEmailTrackingCode(baseInvocation)],
+            ph_id: [signer.generateShort(baseInvocation)],
         },
     }
 
@@ -207,8 +211,8 @@ describe('SesWebhookHandler', () => {
             ...baseMail,
             // isTest rides on the signed header code (preferred by the webhook); the short tag
             // code stays legacy-shaped without it.
-            headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation, true) }],
-            tags: { ph_id: [generateShortEmailTrackingCode(baseInvocation)] },
+            headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(baseInvocation, true) }],
+            tags: { ph_id: [signer.generateShort(baseInvocation)] },
         }
         const body = [{ eventType, mail: testMail, ...eventFields }]
         const result = await handler.handleWebhook({ body, headers: {} })
@@ -221,8 +225,8 @@ describe('SesWebhookHandler', () => {
             ...baseMail,
             // isTest rides on the signed header code (preferred by the webhook); the short tag
             // code stays legacy-shaped without it.
-            headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation, true) }],
-            tags: { ph_id: [generateShortEmailTrackingCode(baseInvocation)] },
+            headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(baseInvocation, true) }],
+            tags: { ph_id: [signer.generateShort(baseInvocation)] },
         }
         const body = [
             {
@@ -438,10 +442,8 @@ describe('SesWebhookHandler', () => {
         }
         const mailWithParentRun = {
             ...baseMail,
-            headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(batchInvocation) }],
-            tags: {
-                ph_id: [generateShortEmailTrackingCode(batchInvocation)],
-            },
+            headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(batchInvocation) }],
+            tags: { ph_id: [signer.generateShort(batchInvocation)] },
         }
         const body = [
             {

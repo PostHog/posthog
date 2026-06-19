@@ -62,8 +62,8 @@ carries the events Request URL makes Slack verify it immediately:
 - If `events_url` came back null (no public ingress URL), say so and
   stop — same as the manual flow; the manifest's URL is a placeholder.
 
-The console surfaces the same manifest under the agent's **Connections**
-tab ("Set up Slack" card) — point console users there instead of pasting
+PostHog Code surfaces the same manifest under the agent's **Connections**
+tab ("Set up Slack" card) — point PostHog Code users there instead of pasting
 JSON into chat.
 
 ## Prereqs you can detect

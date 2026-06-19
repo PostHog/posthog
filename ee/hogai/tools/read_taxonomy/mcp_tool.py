@@ -19,7 +19,7 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
     args_schema = ReadTaxonomyToolArgs
 
     async def execute(self, args: ReadTaxonomyToolArgs) -> str:
-        toolkit = TaxonomyAgentToolkit(self._team)
+        toolkit = TaxonomyAgentToolkit(self._team, self._user)
 
         try:
 
