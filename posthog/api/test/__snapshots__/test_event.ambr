@@ -157,138 +157,6 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEvents.test_event_property_values_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
-  FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')))
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEvents.test_event_property_values_materialized.1
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
-  FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ilike(events.mat_random_prop, '%qw%'))
-  ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEvents.test_event_property_values_materialized.2
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
-  FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ilike(events.mat_random_prop, '%QW%'))
-  ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEvents.test_event_property_values_materialized.3
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
-  FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), ilike(events.mat_random_prop, '%6%'))
-  ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEvents.test_event_property_values_materialized.4
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
-  FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), equals(events.event, 'random event'), ilike(events.mat_random_prop, '%6%'))
-  ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEvents.test_event_property_values_materialized.5
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
-  FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), or(equals(events.event, 'foo'), equals(events.event, 'random event')), ilike(events.mat_random_prop, '%6%'))
-  ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEvents.test_event_property_values_materialized.6
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT nullIf(nullIf(events.mat_random_prop, ''), 'null') AS random_prop
-  FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')), equals(events.event, '404_i_dont_exist'), ilike(events.mat_random_prop, '%qw%'))
-  ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
 # name: TestEvents.test_event_property_values_with_hidden_properties
   '''
   /* user_id:0 request:_snapshot_ */
@@ -309,24 +177,6 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEvents.test_event_property_values_with_hidden_properties_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT nullIf(nullIf(events.mat_visible_prop, ''), 'null') AS visible_prop
-  FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(nullIf(nullIf(events.mat_visible_prop, ''), 'null')))
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
 # name: TestEvents.test_event_property_values_without_hidden_properties
   '''
   /* user_id:0 request:_snapshot_ */
@@ -343,24 +193,6 @@
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEvents.test_event_property_values_without_hidden_properties_materialized
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT nullIf(nullIf(events.mat_test_prop, ''), 'null') AS test_prop
-  FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(nullIf(nullIf(events.mat_test_prop, ''), 'null')))
-  LIMIT 10 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
