@@ -432,7 +432,7 @@ export function InputFormArea(): JSX.Element | null {
         pendingApprovalProposalId,
         pendingApprovalsData,
         resolvedApprovalStatuses,
-        conversationId,
+        sandboxConversationKey,
         pendingSandboxPermissionRequest,
     } = useValues(maxThreadLogic)
 
@@ -470,7 +470,7 @@ export function InputFormArea(): JSX.Element | null {
             return (
                 <SandboxQuestionInput
                     key={pendingSandboxPermissionRequest.requestId}
-                    streamKey={conversationId}
+                    streamKey={sandboxConversationKey}
                     request={pendingSandboxPermissionRequest}
                 />
             )
@@ -478,7 +478,7 @@ export function InputFormArea(): JSX.Element | null {
         return (
             <SandboxPermissionInput
                 key={pendingSandboxPermissionRequest.requestId}
-                streamKey={conversationId}
+                streamKey={sandboxConversationKey}
                 request={pendingSandboxPermissionRequest}
             />
         )
