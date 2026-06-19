@@ -144,6 +144,87 @@ fn rowbinary_returns_ok_on_clean_eof() {
     assert!(writer.into_inner().is_empty());
 }
 
+// Array-breakdown steps header where CH has wrapped the breakdown slot in
+// Nullable — the shape that crashed `aggregate_funnel_array` (the breakdown
+// expression inherits Nullable from a nullable sub-expression upstream).
+fn write_array_steps_header_nullable_breakdown(buf: &mut Vec<u8>) {
+    let nullable_array_string = DataTypeNode::Nullable(Box::new(DataTypeNode::Array(Box::new(
+        DataTypeNode::String,
+    ))));
+    let nullable_f64 = DataTypeNode::Nullable(Box::new(DataTypeNode::Float64));
+    let cols = vec![
+        Column::new("num_steps".into(), DataTypeNode::UInt8),
+        Column::new("conversion_window_limit".into(), DataTypeNode::UInt64),
+        Column::new("breakdown_attribution_type".into(), DataTypeNode::String),
+        Column::new("funnel_order_type".into(), DataTypeNode::String),
+        Column::new(
+            "prop_vals".into(),
+            DataTypeNode::Array(Box::new(nullable_array_string.clone())),
+        ),
+        Column::new(
+            "optional_steps".into(),
+            DataTypeNode::Array(Box::new(DataTypeNode::Int8)),
+        ),
+        Column::new(
+            "value".into(),
+            DataTypeNode::Array(Box::new(DataTypeNode::Tuple(vec![
+                nullable_f64,
+                DataTypeNode::UUID,
+                nullable_array_string,
+                DataTypeNode::Array(Box::new(DataTypeNode::Int8)),
+            ]))),
+        ),
+    ];
+    write_block_header(buf, &cols).unwrap();
+}
+
+// Regression: an array breakdown whose wire type is `Nullable(Array(String))`
+// must parse cleanly (non-null arrays read through, null arrays map to the
+// empty bucket) instead of aborting the whole funnel query with a UDF crash.
+#[test]
+fn rowbinary_array_steps_nullable_breakdown_does_not_crash() {
+    let uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+
+    let mut input_buf = Vec::new();
+    write_chunk_header(&mut input_buf, 1).unwrap();
+    write_array_steps_header_nullable_breakdown(&mut input_buf);
+
+    input_buf.write_u8(1).unwrap();
+    input_buf.write_u64_le(3600).unwrap();
+    input_buf.write_bytes(b"first_touch").unwrap();
+    input_buf.write_bytes(b"ordered").unwrap();
+    // prop_vals: [["US","mobile"], null] — one non-null array, one null array.
+    input_buf.write_varint(2).unwrap();
+    input_buf.write_u8(0).unwrap(); // prop_vals[0] not-null marker
+    input_buf.write_varint(2).unwrap();
+    input_buf.write_bytes(b"US").unwrap();
+    input_buf.write_bytes(b"mobile").unwrap();
+    input_buf.write_u8(1).unwrap(); // prop_vals[1] null marker
+    input_buf.write_varint(0).unwrap(); // optional_steps
+                                        // value: one event with a non-null array breakdown.
+    input_buf.write_varint(1).unwrap();
+    input_buf.write_u8(0).unwrap(); // timestamp not-null marker
+    input_buf.write_f64_le(1.0).unwrap();
+    input_buf.write_uuid(uuid).unwrap();
+    input_buf.write_u8(0).unwrap(); // breakdown not-null marker
+    input_buf.write_varint(2).unwrap();
+    input_buf.write_bytes(b"US").unwrap();
+    input_buf.write_bytes(b"mobile").unwrap();
+    input_buf.write_varint(1).unwrap();
+    input_buf.write_i8(1).unwrap();
+
+    let mut reader = Cursor::new(input_buf);
+    let mut writer = Cursor::new(Vec::new());
+    run_rowbinary(
+        &mut reader,
+        &mut writer,
+        Mode::Steps,
+        BreakdownShape::ArrayString,
+    )
+    .expect("nullable-wrapped array breakdown must not crash the UDF");
+    assert!(!writer.into_inner().is_empty());
+}
+
 // Same logical fixture as the rowbinary test, but as JSONEachRow input.
 #[test]
 fn json_path_still_works_for_same_fixture() {

@@ -17,7 +17,7 @@ pub use types::{Bytes, PropVal};
 
 use crate::codec::chunk::read_chunk_header;
 use crate::codec::header::{read_block_header, write_block_header};
-use crate::codec::CodecResult;
+use crate::codec::{CodecError, CodecResult};
 use crate::types::BreakdownShape;
 
 #[derive(Clone, Copy, Debug)]
@@ -94,6 +94,33 @@ fn run_json<R: BufRead, W: Write>(reader: R, writer: &mut W, mode: Mode) -> std:
     Ok(())
 }
 
+// On a per-row parse error, surface which invocation crashed and the block
+// header's declared column types — the wire shape is what we got wrong, and it
+// is otherwise invisible once CH collapses the failure into an opaque
+// `CHILD_WAS_NOT_EXITED_NORMALLY`. We emit it to stderr eagerly here (it may be
+// dropped by CH but shows up when the binary is run by hand on captured input)
+// and fold it into the returned error so it also rides along in `main`'s write.
+fn row_context(
+    e: CodecError,
+    mode: Mode,
+    shape: BreakdownShape,
+    columns: &[clickhouse_types::Column],
+    row: u64,
+    n: u64,
+) -> CodecError {
+    let types: Vec<String> = columns
+        .iter()
+        .map(|c| format!("{}: {}", c.name, c.data_type))
+        .collect();
+    let ctx = format!(
+        "{e} (failed reading {mode:?} row {}/{n}, variant {shape:?}, columns [{}])",
+        row + 1,
+        types.join(", ")
+    );
+    let _ = writeln!(std::io::stderr(), "funnels error: {ctx}");
+    CodecError::CorruptWire(ctx)
+}
+
 fn run_rowbinary<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
@@ -113,8 +140,9 @@ fn run_rowbinary<R: BufRead, W: Write>(
         match mode {
             Mode::Steps => {
                 let mut results = Vec::with_capacity(n as usize);
-                for _ in 0..n {
-                    let args = io::steps_io::read_args(reader, shape, &columns)?;
+                for row in 0..n {
+                    let args = io::steps_io::read_args(reader, shape, &columns)
+                        .map_err(|e| row_context(e, mode, shape, &columns, row, n))?;
                     results.push(steps::run(&args));
                 }
                 let out_cols = io::steps_io::output_columns(shape);
@@ -125,8 +153,9 @@ fn run_rowbinary<R: BufRead, W: Write>(
             }
             Mode::Trends => {
                 let mut results = Vec::with_capacity(n as usize);
-                for _ in 0..n {
-                    let args = io::trends_io::read_args(reader, shape, &columns)?;
+                for row in 0..n {
+                    let args = io::trends_io::read_args(reader, shape, &columns)
+                        .map_err(|e| row_context(e, mode, shape, &columns, row, n))?;
                     results.push(trends::run(&args));
                 }
                 let out_cols = io::trends_io::output_columns(shape);

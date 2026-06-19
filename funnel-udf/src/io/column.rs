@@ -31,7 +31,7 @@ use crate::codec::{CodecError, CodecResult};
 /// bytes. On non-null, calls `read_payload` with the inner (non-Nullable, non-LC)
 /// type. This is the one place the permissive-null policy lives — every `_col`
 /// reader below goes through here.
-fn read_or_null<R: RowBinaryRead + ?Sized, T, F>(
+pub fn read_or_null<R: RowBinaryRead + ?Sized, T, F>(
     r: &mut R,
     t: &DataTypeNode,
     null_default: T,

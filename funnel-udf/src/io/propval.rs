@@ -2,12 +2,19 @@ use clickhouse_types::DataTypeNode;
 
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
-use crate::io::column::{array_elem, read_bytes_col, read_int_col};
+use crate::io::column::{array_elem, read_bytes_col, read_int_col, read_or_null};
 use crate::types::{BreakdownShape, Bytes, PropVal};
 
 // Reads one breakdown value. Shape is pinned at process startup by the
 // `--variant` CLI arg — each XML <function> block has its own executable_pool,
 // so the variant never changes for the lifetime of this process.
+//
+// Like every `_col` reader, the array path peels Nullable/LowCardinality before
+// touching the payload: CH inherits Nullable from any nullable sub-expression
+// upstream, so an `Array(String)` breakdown can arrive as `Nullable(Array(...))`
+// even though the XML declares it non-nullable. A null array maps to the empty
+// bucket (matching the `""` breakdown the scalar path produces for NULL). Before
+// this peeling, `aggregate_funnel_array` aborted the whole query on that shape.
 pub fn read_propval<R: RowBinaryRead + ?Sized>(
     r: &mut R,
     shape: BreakdownShape,
@@ -16,13 +23,17 @@ pub fn read_propval<R: RowBinaryRead + ?Sized>(
     match shape {
         BreakdownShape::NullableString => Ok(PropVal::String(Bytes(read_bytes_col(r, t)?))),
         BreakdownShape::ArrayString => {
-            let inner = array_elem(t, "breakdown")?;
-            let len = r.read_varint()? as usize;
-            let mut out = Vec::with_capacity(len);
-            for _ in 0..len {
-                out.push(Bytes(read_bytes_col(r, inner)?));
-            }
-            Ok(PropVal::Vec(out))
+            read_or_null(r, t, PropVal::Vec(Vec::new()), |r, inner| {
+                let elem = array_elem(inner, "breakdown")?;
+                let len = r.read_varint()? as usize;
+                // Length comes off the wire untrusted — don't pre-reserve it, or a
+                // corrupt varint turns into a huge allocation that aborts the process.
+                let mut out = Vec::new();
+                for _ in 0..len {
+                    out.push(Bytes(read_bytes_col(r, elem)?));
+                }
+                Ok(PropVal::Vec(out))
+            })
         }
         BreakdownShape::U64 => Ok(PropVal::Int(read_int_col(r, t)? as u64)),
     }
@@ -33,13 +44,15 @@ pub fn read_propval_array<R: RowBinaryRead + ?Sized>(
     shape: BreakdownShape,
     t: &DataTypeNode,
 ) -> CodecResult<Vec<PropVal>> {
-    let inner = array_elem(t, "prop_vals")?;
-    let len = r.read_varint()? as usize;
-    let mut out = Vec::with_capacity(len);
-    for _ in 0..len {
-        out.push(read_propval(r, shape, inner)?);
-    }
-    Ok(out)
+    read_or_null(r, t, Vec::new(), |r, inner| {
+        let elem = array_elem(inner, "prop_vals")?;
+        let len = r.read_varint()? as usize;
+        let mut out = Vec::new();
+        for _ in 0..len {
+            out.push(read_propval(r, shape, elem)?);
+        }
+        Ok(out)
+    })
 }
 
 pub fn write_propval<W: RowBinaryWrite + ?Sized>(
