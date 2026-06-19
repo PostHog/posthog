@@ -14,13 +14,14 @@ import {
 } from '../../../utils/scoutRunsWindow'
 
 // Quiet is the common, healthy baseline so it recedes to muted; saturated color
-// only means something happened – purple emission payoff, red/amber trouble.
+// only means something happened – blue emission payoff, red/amber trouble. Blue
+// (not the orange brand primary) keeps this in step with the desktop Code app.
 const OUTCOME_BOX_CLASS: Record<ScoutRunOutcome, string> = {
-    emitted: 'bg-primary-3000',
+    emitted: 'bg-brand-blue',
     quiet: 'bg-border-bold',
     error: 'bg-danger',
     timed_out: 'bg-warning',
-    running: 'bg-primary animate-pulse',
+    running: 'bg-brand-blue animate-pulse',
     stuck: 'bg-danger animate-pulse',
     queued: 'border border-border-bold bg-transparent',
     unknown: 'bg-border',

@@ -91,32 +91,6 @@
                             },
                             "required": ["evaluation"],
                             "type": "object"
-                        },
-                        {
-                            "properties": {
-                                "funnel_step": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Zero-based step index to evaluate. Null = the last step (overall conversion)."
-                                },
-                                "metric": {
-                                    "enum": ["conversion_from_start", "conversion_from_previous"],
-                                    "type": "string"
-                                },
-                                "type": {
-                                    "default": "FunnelsAlertConfig",
-                                    "enum": ["FunnelsAlertConfig"],
-                                    "type": "string"
-                                }
-                            },
-                            "required": ["metric"],
-                            "type": "object"
                         }
                     ],
                     "description": "Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support."
@@ -125,7 +99,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions."
+            "description": "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row)."
         },
         "detector_config": {
             "anyOf": [

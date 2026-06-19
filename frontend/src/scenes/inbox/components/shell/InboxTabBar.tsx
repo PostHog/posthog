@@ -52,6 +52,10 @@ export function InboxTabBar({ showConfigTab }: { showConfigTab?: boolean }): JSX
     return (
         <LemonTabs
             activeKey={activeTab}
+            // min-w-0 lets the tab bar shrink inside the header flex row so its own overflow-x scroll
+            // engages on narrow/mobile widths – otherwise it grows to fit every tab and the last ones
+            // (e.g. Configuration) overflow off-screen with no way to reach them.
+            className="min-w-0"
             // Hide LemonTabs' own bottom border + margin so the single full-width border lives on the
             // scene header row; the active-tab slider then sits directly on that one border.
             barClassName="before:hidden mb-0"
