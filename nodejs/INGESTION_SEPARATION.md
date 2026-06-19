@@ -417,10 +417,16 @@ Naming (pipelines, not lanes; single-word dirs):
 
 Move other-team code out of `src/ingestion/` (ownership / reviewers):
 
-- [ ] Move `logs` (and traces) out of `src/ingestion/` — not ingestion-team-owned. [logs thread]
-- [ ] Separate the session-recording **API service** (`recording-api`) out of ingestion — separate
-      service run by another team. [recording-api thread, already marked resolved — confirm + execute]
-- [ ] Move the recording **rasterizer** out of ingestion — orthogonal to session-recording ingestion.
+- [x] Move `logs` (and traces) out of `src/ingestion/` -> top-level `src/logs` (+ `tests/logs`). Was
+      already decoupled (0 imports into ingestion internals), so a clean lift; dropped from guard
+      `PIPELINES`. [logs thread]
+- [ ] Separate the session-recording **API service** (`recording-api`) out -> `src/recording-api`.
+      BLOCKED on a decision: recording-api imports `sessionreplay/shared/*` (crypto, keystore, metadata,
+      features, retention, outputs) — also used by the sessionreplay *ingestion* pipeline. Either (a) accept
+      cross-imports `~/ingestion/pipelines/sessionreplay/shared/*` for now, or (b) extract that `shared/`
+      into top-level `common/` (e.g. `common/sessionreplay`) consumed by all three. [recording-api thread]
+- [ ] Move the recording **rasterizer** out -> `src/recording-rasterizer`. Nearly self-contained (only
+      external import is `recording-api/types`), so move it together with / right after recording-api.
       [rasterizer thread]
 
 Steps placement (no top-level `steps/`):
