@@ -1,6 +1,7 @@
 """Activities for evaluation reports workflow."""
 
 import datetime as dt
+from functools import partial
 from zoneinfo import ZoneInfo
 
 import temporalio.activity
@@ -121,7 +122,7 @@ async def fetch_count_triggered_eval_reports_activity(
             # by the team's offset.
             since = report.last_delivered_at or report.starts_at or report.created_at
 
-            team = run_with_db_resilience(lambda team_id=report.team_id: Team.objects.get(id=team_id))
+            team = run_with_db_resilience(partial(Team.objects.get, id=report.team_id))
             query = parse_select(
                 """
                 SELECT count() as total

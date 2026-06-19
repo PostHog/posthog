@@ -212,7 +212,14 @@ def test_run_with_db_resilience_returns_value_without_retry():
     mock_close.assert_not_called()
 
 
-def test_run_with_db_resilience_retries_once_on_operational_error():
+@pytest.mark.parametrize(
+    "test_mode,expected_close_calls",
+    [
+        pytest.param(False, 1, id="non-test-mode-evicts-connection"),
+        pytest.param(True, 0, id="test-mode-skips-eviction"),
+    ],
+)
+def test_run_with_db_resilience_retries_once_on_operational_error(test_mode, expected_close_calls):
     calls = 0
 
     def fn() -> str:
@@ -224,12 +231,12 @@ def test_run_with_db_resilience_retries_once_on_operational_error():
 
     with (
         patch(CLOSE_OLD_CONNECTIONS_TARGET) as mock_close,
-        patch("posthog.temporal.common.utils.settings.TEST", False),
+        patch("posthog.temporal.common.utils.settings.TEST", test_mode),
     ):
         assert run_with_db_resilience(fn) == "ok"
 
     assert calls == 2
-    mock_close.assert_called_once()
+    assert mock_close.call_count == expected_close_calls
 
 
 def test_run_with_db_resilience_reraises_if_retry_also_fails():
@@ -262,24 +269,4 @@ def test_run_with_db_resilience_does_not_retry_other_errors():
         run_with_db_resilience(fn)
 
     assert calls == 1
-    mock_close.assert_not_called()
-
-
-def test_run_with_db_resilience_skips_eviction_under_test_settings():
-    calls = 0
-
-    def fn() -> str:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise OperationalError("server closed the connection unexpectedly")
-        return "ok"
-
-    with (
-        patch(CLOSE_OLD_CONNECTIONS_TARGET) as mock_close,
-        patch("posthog.temporal.common.utils.settings.TEST", True),
-    ):
-        assert run_with_db_resilience(fn) == "ok"
-
-    assert calls == 2
     mock_close.assert_not_called()
