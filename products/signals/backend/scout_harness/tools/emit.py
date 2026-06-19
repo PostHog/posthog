@@ -37,6 +37,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalSourceConfig
+from products.tasks.backend.models import TaskRun
 
 logger = logging.getLogger(__name__)
 
@@ -132,9 +133,11 @@ async def emit_finding(
     _validate_inputs(description, confidence, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
     tags = normalize_tags(tags)
+    task_id = await database_sync_to_async(_resolve_task_id, thread_sensitive=False)(run)
     extra = _build_extra(
         run_id=str(run.id),
         task_run_id=str(run.task_run_id),
+        task_id=task_id,
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
@@ -224,9 +227,11 @@ def emit_finding_sync(
     _validate_inputs(description, confidence, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
     tags = normalize_tags(tags)
+    task_id = _resolve_task_id(run)
     extra = _build_extra(
         run_id=str(run.id),
         task_run_id=str(run.task_run_id),
+        task_id=task_id,
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
@@ -352,10 +357,20 @@ def _validate_inputs(
         raise InvalidEmitError(f"finding_id exceeds {MAX_FINDING_ID_LENGTH} chars ({len(finding_id)})")
 
 
+def _resolve_task_id(run: SignalScoutRun) -> str | None:
+    """The parent `tasks.Task` id for this run's `TaskRun`, used to deep-link the inbox card to the
+    run. None when the run isn't bridged to a TaskRun yet. Sync-only — wrap callers in async paths."""
+    if not run.task_run_id:
+        return None
+    task_id = TaskRun.objects.filter(id=run.task_run_id).values_list("task_id", flat=True).first()
+    return str(task_id) if task_id else None
+
+
 def _build_extra(
     *,
     run_id: str,
     task_run_id: str,
+    task_id: str | None,
     finding_id: str,
     skill_name: str,
     skill_version: int,
@@ -380,6 +395,8 @@ def _build_extra(
         "confidence": confidence,
         "evidence": [asdict(e) for e in evidence],
     }
+    if task_id is not None:
+        extra["task_id"] = task_id
     if hypothesis is not None:
         extra["hypothesis"] = hypothesis
     if severity is not None:
