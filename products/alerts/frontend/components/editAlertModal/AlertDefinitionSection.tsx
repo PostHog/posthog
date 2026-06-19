@@ -94,8 +94,9 @@ export function AlertDefinitionSection({
     onClearSimulationOverlay,
 }: AlertDefinitionSectionProps): JSX.Element {
     // Funnel alerts evaluate a single conversion-rate snapshot (always a 0–100%), so relative
-    // conditions have no prior value to compare against — the options are omitted entirely below.
+    // conditions have no prior value to compare against — they're omitted entirely below.
     const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
+    const supportsRelativeConditions = !isFunnelAlert
     const relativeConditionDisabledReason =
         (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
         (isHogQLAnyRow(alertForm) &&
@@ -183,9 +184,8 @@ export function AlertDefinitionSection({
                                             label: 'has value',
                                             value: AlertConditionType.ABSOLUTE_VALUE,
                                         },
-                                        ...(isFunnelAlert
-                                            ? []
-                                            : [
+                                        ...(supportsRelativeConditions
+                                            ? [
                                                   {
                                                       label: 'increases by',
                                                       value: AlertConditionType.RELATIVE_INCREASE,
@@ -196,7 +196,8 @@ export function AlertDefinitionSection({
                                                       value: AlertConditionType.RELATIVE_DECREASE,
                                                       disabledReason: relativeConditionDisabledReason,
                                                   },
-                                              ]),
+                                              ]
+                                            : []),
                                     ]}
                                 />
                             </LemonField>
