@@ -174,27 +174,22 @@ describe('RequestContext', () => {
     })
 
     describe('getEffectiveSessionUuid', () => {
-        it('prefers the explicit sessionId over the MCP session id', async () => {
-            const ctx = new RequestContext(fakeRedis(), env, makeProps())
-            const effective = await ctx.getEffectiveSessionUuid({ sessionId: 'sess-1', mcpSessionId: 'mcp-1' } as any)
+        it.each([
+            { sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'sess-1' },
+            { sessionId: undefined, mcpSessionId: 'mcp-1', expectedKey: 'mcp-1' },
+            { sessionId: undefined, mcpSessionId: undefined, expectedKey: undefined },
+        ])(
+            'sessionId=$sessionId mcpSessionId=$mcpSessionId → resolves via expectedKey=$expectedKey',
+            async ({ sessionId, mcpSessionId, expectedKey }) => {
+                const ctx = new RequestContext(fakeRedis(), env, makeProps())
+                const effective = await ctx.getEffectiveSessionUuid({ sessionId, mcpSessionId } as any)
 
-            expect(effective).toBe(await ctx.getSessionUuid('sess-1'))
-        })
-
-        it('falls back to the MCP session id so $session_id is still populated', async () => {
-            const ctx = new RequestContext(fakeRedis(), env, makeProps())
-            const effective = await ctx.getEffectiveSessionUuid({ sessionId: undefined, mcpSessionId: 'mcp-1' } as any)
-
-            expect(effective).toBe(await ctx.getSessionUuid('mcp-1'))
-            expect(effective).toMatch(/^[0-9a-f-]{36}$/)
-        })
-
-        it('returns undefined when neither session id is present', async () => {
-            const ctx = new RequestContext(fakeRedis(), env, makeProps())
-            expect(
-                await ctx.getEffectiveSessionUuid({ sessionId: undefined, mcpSessionId: undefined } as any)
-            ).toBeUndefined()
-        })
+                expect(effective).toBe(expectedKey ? await ctx.getSessionUuid(expectedKey) : undefined)
+                if (expectedKey) {
+                    expect(effective).toMatch(/^[0-9a-f-]{36}$/)
+                }
+            }
+        )
     })
 
     describe('buildClientProperties', () => {
