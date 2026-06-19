@@ -60,6 +60,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     SafeTimetzLoader,
     SSLRequiredError,
     XminBounds,
+    _aggregate_table_function_arity,
     _build_count_query,
     _build_query,
     _capture_xmin_ceiling,
@@ -2356,6 +2357,39 @@ class TestNormalizeFunctionNames:
 
     def test_rejects_empty_string(self):
         assert _normalize_function_names([""]) == []
+
+
+class TestAggregateTableFunctionArity:
+    def test_nullary_function(self):
+        # `duckdb_secrets()` takes no positional args ⇒ min/max of 0.
+        assert _aggregate_table_function_arity([("duckdb_secrets", 0, False)]) == {
+            "duckdb_secrets": {"min": 0, "max": 0}
+        }
+
+    def test_fixed_arity_function(self):
+        assert _aggregate_table_function_arity([("unnest", 1, False)]) == {"unnest": {"min": 1, "max": 1}}
+
+    def test_overloads_widen_min_and_max(self):
+        rows = [("range", 1, False), ("range", 2, False), ("range", 3, False)]
+        assert _aggregate_table_function_arity(rows) == {"range": {"min": 1, "max": 3}}
+
+    def test_variadic_overload_makes_max_unbounded(self):
+        rows = [("concat_things", 1, False), ("concat_things", 2, True)]
+        assert _aggregate_table_function_arity(rows) == {"concat_things": {"min": 1, "max": None}}
+
+    def test_lowercases_and_groups_names(self):
+        rows = [("Unnest", 1, False), ("UNNEST", 2, False)]
+        assert _aggregate_table_function_arity(rows) == {"unnest": {"min": 1, "max": 2}}
+
+    def test_skips_invalid_identifiers(self):
+        rows = [("ok_fn", 1, False), ("1bad", 0, False), ("has space", 0, False)]
+        assert _aggregate_table_function_arity(rows) == {"ok_fn": {"min": 1, "max": 1}}
+
+    def test_clamps_negative_required_to_zero(self):
+        assert _aggregate_table_function_arity([("weird", -1, False)]) == {"weird": {"min": 0, "max": 0}}
+
+    def test_empty_input(self):
+        assert _aggregate_table_function_arity([]) == {}
 
 
 class TestFilterPostgresIncrementalFields:

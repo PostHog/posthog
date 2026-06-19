@@ -2392,7 +2392,25 @@ class Resolver(CloningVisitor):
         if is_dangerous_table_function(function_name):
             return None
 
-        return build_opaque_function_call_table(function_name)
+        min_args, max_args = self._opaque_table_function_arity(metadata, function_name)
+        return build_opaque_function_call_table(function_name, min_args=min_args, max_args=max_args)
+
+    @staticmethod
+    def _opaque_table_function_arity(metadata: dict, function_name: str) -> tuple[Optional[int], Optional[int]]:
+        # Introspected `{name: {"min": int, "max": int | None}}`. Absent for metadata captured before
+        # arity was introspected — return (None, None) so the call validates against the engine instead
+        # of a fabricated floor (which wrongly rejected nullary functions like `duckdb_secrets()`).
+        arity = metadata.get("table_function_arity")
+        if not isinstance(arity, dict):
+            return None, None
+        bounds = arity.get(function_name)
+        if not isinstance(bounds, dict):
+            return None, None
+        raw_min = bounds.get("min")
+        raw_max = bounds.get("max")
+        min_args = raw_min if isinstance(raw_min, int) and not isinstance(raw_min, bool) else None
+        max_args = raw_max if isinstance(raw_max, int) and not isinstance(raw_max, bool) else None
+        return min_args, max_args
 
     def _is_next_s3(self, node: Optional[ast.JoinExpr]):
         if node is None:

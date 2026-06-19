@@ -102,16 +102,27 @@ class GenerateSeriesTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
         return "generate_series"
 
 
-def build_opaque_function_call_table(name: str) -> "OpaqueFunctionCallTable":
+def build_opaque_function_call_table(
+    name: str, min_args: Optional[int] = None, max_args: Optional[int] = None
+) -> "OpaqueFunctionCallTable":
     """Synthesize a table for a Postgres/DuckDB table-valued function discovered via introspection.
 
     The output column shape isn't introspected — we expose a single column named after the function
     with an unknown type. That covers the common single-column shapes (range, generate_series, unnest,
     jsonb_array_elements_text, regexp_split_to_table, …) without needing per-function schemas.
+
+    `min_args`/`max_args` come from connection introspection (`table_function_arity`). When they're
+    known we enforce them; when the arity is unknown (`min_args is None` — e.g. metadata predating
+    arity capture) we don't fabricate a floor and instead defer argument validation to the engine.
+    A correct floor matters for nullary table functions like `duckdb_secrets()`, which must accept a
+    zero-argument call.
     """
     return OpaqueFunctionCallTable(
         name=name,
         fields={name: UnknownDatabaseField(name=name, nullable=True)},
+        requires_args=min_args is not None,
+        min_args=min_args,
+        max_args=max_args,
     )
 
 
@@ -124,8 +135,8 @@ class OpaqueFunctionCallTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
 
     fields: dict[str, FieldOrTable]
     name: str
-    requires_args: bool = True
-    min_args: Optional[int] = 1
+    requires_args: bool = False
+    min_args: Optional[int] = None
     max_args: Optional[int] = None
 
     def to_printed_clickhouse(self, context):

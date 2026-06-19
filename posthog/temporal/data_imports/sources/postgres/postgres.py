@@ -5,7 +5,7 @@ import math
 import time
 import collections
 import dataclasses
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import (
     UTC,
@@ -590,6 +590,36 @@ def _normalize_function_names(function_names: list[Any]) -> list[str]:
             if isinstance(function_name, str) and IDENTIFIER_FUNCTION_NAME_RE.fullmatch(function_name)
         }
     )
+
+
+def _aggregate_table_function_arity(
+    rows: Iterable[tuple[Any, int, bool]],
+) -> dict[str, dict[str, int | None]]:
+    """Fold per-overload `(name, required_args, is_variadic)` rows into a per-function arity map.
+
+    A function name can appear once per overload (`range(stop)` / `range(start, stop)` / …), so we
+    take the smallest required-arg count as `min` and the largest as `max` — with `max = None` when
+    any overload is variadic (unbounded). Names are lowercased to match `available_table_functions`.
+    """
+    arity: dict[str, dict[str, int | None]] = {}
+    for raw_name, required, variadic in rows:
+        if not isinstance(raw_name, str) or not IDENTIFIER_FUNCTION_NAME_RE.fullmatch(raw_name):
+            continue
+        name = raw_name.lower()
+        required = max(0, int(required))
+        entry = arity.get(name)
+        if entry is None:
+            arity[name] = {"min": required, "max": None if variadic else required}
+            continue
+        current_min = entry["min"]
+        if current_min is None or required < current_min:
+            entry["min"] = required
+        current_max = entry["max"]
+        if variadic or current_max is None:
+            entry["max"] = None
+        elif required > current_max:
+            entry["max"] = required
+    return arity
 
 
 def filter_postgres_incremental_fields(
@@ -1216,6 +1246,36 @@ def get_connection_metadata(
             available_functions = [fn for fn in available_functions if not is_dangerous_table_function(fn)]
             available_table_functions = [fn for fn in available_table_functions if not is_dangerous_table_function(fn)]
 
+            # Best-effort per-function argument arity, kept in its own try/except so a missing column
+            # (e.g. older DuckDB without `varargs`) degrades to "unknown arity" rather than dropping
+            # the table-function list above. Consumers fall back to engine-side validation when absent.
+            table_function_arity: dict[str, dict[str, int | None]] = {}
+            try:
+                if is_duckdb:
+                    cursor.execute(
+                        "SELECT function_name, parameters, varargs FROM duckdb_functions() "
+                        "WHERE function_type = 'table'"
+                    )
+                    table_function_arity = _aggregate_table_function_arity(
+                        (row[0], len(row[1] or []), row[2] is not None) for row in cursor.fetchall()
+                    )
+                else:
+                    # required args = total in-args minus those with defaults; provariadic != 0 ⇒ variadic.
+                    cursor.execute(
+                        "SELECT proname, pronargs, pronargdefaults, provariadic FROM pg_proc "
+                        "WHERE pg_function_is_visible(oid) AND proretset = true AND prokind = 'f'"
+                    )
+                    table_function_arity = _aggregate_table_function_arity(
+                        (row[0], int(row[1]) - int(row[2] or 0), (row[3] or 0) != 0) for row in cursor.fetchall()
+                    )
+            except Exception as error:
+                capture_exception(error)
+
+            allowed_table_functions = set(available_table_functions)
+            table_function_arity = {
+                name: bounds for name, bounds in table_function_arity.items() if name in allowed_table_functions
+            }
+
             return {
                 "database": current_database,
                 "version": version,
@@ -1223,6 +1283,7 @@ def get_connection_metadata(
                 "function_source": function_source,
                 "available_functions": available_functions,
                 "available_table_functions": available_table_functions,
+                "table_function_arity": table_function_arity,
             }
 
 

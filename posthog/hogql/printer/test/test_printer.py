@@ -5778,13 +5778,16 @@ class TestPostgresPrinter(BaseTest):
             self._select(query)
         self.assertIn(expected_error, str(ctx.exception))
 
-    def _context_with_table_functions(self, *function_names: str) -> HogQLContext:
+    def _context_with_table_functions(
+        self, *function_names: str, arity: dict[str, dict[str, int | None]] | None = None
+    ) -> HogQLContext:
+        metadata: dict[str, object] = {"available_table_functions": list(function_names)}
+        if arity is not None:
+            metadata["table_function_arity"] = arity
         return HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
-            direct_postgres_connection_metadata={
-                "available_table_functions": list(function_names),
-            },
+            direct_postgres_connection_metadata=metadata,
         )
 
     @parameterized.expand(
@@ -5819,11 +5822,31 @@ class TestPostgresPrinter(BaseTest):
             self._select("SELECT * FROM unnest", context=context)
         self.assertIn("Unknown table", str(ctx.exception))
 
-    def test_opaque_table_function_rejects_empty_call(self):
-        context = self._context_with_table_functions("unnest")
+    def test_opaque_table_function_rejects_empty_call_when_arity_known(self):
+        context = self._context_with_table_functions("unnest", arity={"unnest": {"min": 1, "max": None}})
         with self.assertRaises(QueryError) as ctx:
             self._select("SELECT * FROM unnest()", context=context)
         self.assertIn("requires at least 1 argument", str(ctx.exception))
+
+    def test_opaque_table_function_rejects_too_many_args_when_arity_known(self):
+        context = self._context_with_table_functions("unnest", arity={"unnest": {"min": 1, "max": 1}})
+        with self.assertRaises(QueryError) as ctx:
+            self._select("SELECT * FROM unnest(1, 2)", context=context)
+        self.assertIn("requires at most 1 argument", str(ctx.exception))
+
+    def test_opaque_table_function_allows_nullary_call_when_arity_known(self):
+        # `duckdb_secrets()` is a zero-argument table function; a known min of 0 must accept an empty call.
+        context = self._context_with_table_functions("duckdb_secrets", arity={"duckdb_secrets": {"min": 0, "max": 0}})
+        printed = self._select("SELECT * FROM duckdb_secrets()", context=context)
+        self.assertIn("duckdb_secrets(", printed)
+
+    def test_opaque_table_function_allows_empty_call_without_arity(self):
+        # Metadata captured before arity introspection has no `table_function_arity`. We no longer
+        # fabricate a min-1 floor (which wrongly rejected `duckdb_secrets()`); argument validation is
+        # deferred to the engine instead.
+        context = self._context_with_table_functions("duckdb_secrets")
+        printed = self._select("SELECT * FROM duckdb_secrets()", context=context)
+        self.assertIn("duckdb_secrets(", printed)
 
     def test_opaque_table_function_falls_back_to_hardcoded_range_without_metadata(self):
         # Connections that haven't refreshed since this rolled out won't have
