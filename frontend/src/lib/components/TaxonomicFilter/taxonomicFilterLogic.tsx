@@ -895,7 +895,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ],
                         getIcon: getPropertyDefinitionIcon,
                         getPopoverHeader: () => 'Exception properties',
-                        valuesEndpoint: (key) => `api/event/values/?key=${key}`,
+                        valuesEndpoint: (key) => `api/event/values/?key=${encodeURIComponent(key)}`,
                     },
                     {
                         name: 'Revenue analytics properties',
