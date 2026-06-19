@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict, dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +181,7 @@ def _fallback_items(context: BriefingContext) -> list[BriefingItem]:
     return candidates[:BRIEFING_ITEM_COUNT]
 
 
-def coerce_to_three_items(raw_items: list[dict], context: BriefingContext) -> tuple[BriefingItem, ...]:
+def coerce_to_three_items(raw_items: list[Any], context: BriefingContext) -> tuple[BriefingItem, ...]:
     """Force any model output into EXACTLY three well-formed items.
 
     Drops malformed entries, clips overlong fields, truncates a too-long list, and tops up a

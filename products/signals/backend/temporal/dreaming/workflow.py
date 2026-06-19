@@ -25,6 +25,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team
+from posthog.models.integration import GitHubIntegration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
@@ -87,7 +88,9 @@ def _previous_run_iso(team_id: int) -> str | None:
 
 def _run_cleanup_sync(team_id: int) -> InstrumentationCleanupResult:
     github = resolve_team_github_integration(team_id)
-    if github is None:
+    # Only an app-installation GitHubIntegration has the PR-write surface the cleanup needs;
+    # a user-token integration can't open the cleanup PR, so skip rather than fail.
+    if not isinstance(github, GitHubIntegration):
         return InstrumentationCleanupResult(
             repository=None,
             prs_inspected=0,

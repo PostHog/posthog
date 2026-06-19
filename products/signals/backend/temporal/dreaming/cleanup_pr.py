@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.integration import GitHubIntegration
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class CleanupPRError(Exception):
     """A non-recoverable failure while reconciling the cleanup PR."""
 
 
-def _open_labeled_cleanup_prs(github: GitHubIntegrationBase, repository: str) -> list[dict]:
+def _open_labeled_cleanup_prs(github: GitHubIntegration, repository: str) -> list[dict]:
     """Open PRs carrying the dreaming-cleanup label, oldest first.
 
     GitHub's list-PRs endpoint doesn't filter by label, so we list open PRs and match on the
@@ -86,7 +86,7 @@ def _open_labeled_cleanup_prs(github: GitHubIntegrationBase, repository: str) ->
 
 
 def _apply_edits(
-    github: GitHubIntegrationBase,
+    github: GitHubIntegration,
     repository: str,
     branch: str,
     edits: list[CleanupFileEdit],
@@ -103,7 +103,7 @@ def _apply_edits(
             raise CleanupPRError(f"Failed to write {edit.path} on {branch}: {result.get('error')}")
 
 
-def _ensure_branch(github: GitHubIntegrationBase, repository: str, branch: str) -> None:
+def _ensure_branch(github: GitHubIntegration, repository: str, branch: str) -> None:
     """Create the cleanup branch if it doesn't already exist (idempotent)."""
     info = github.get_branch_info(repository, branch)
     if info.get("success") and info.get("exists"):
@@ -113,7 +113,7 @@ def _ensure_branch(github: GitHubIntegrationBase, repository: str, branch: str) 
         raise CleanupPRError(f"Failed to create branch {branch} on {repository}: {created.get('error')}")
 
 
-def _add_label(github: GitHubIntegrationBase, repository: str, pr_number: int) -> None:
+def _add_label(github: GitHubIntegration, repository: str, pr_number: int) -> None:
     """Apply the dreaming-cleanup label. Best-effort: a labeling failure must not duplicate
     the PR (the body marker still identifies it), so we log and continue."""
     add_label = getattr(github, "add_labels_to_issue", None)
@@ -129,7 +129,7 @@ def _add_label(github: GitHubIntegrationBase, repository: str, pr_number: int) -
         )
 
 
-def _update_pr_body(github: GitHubIntegrationBase, repository: str, pr_number: int, body: str) -> None:
+def _update_pr_body(github: GitHubIntegration, repository: str, pr_number: int, body: str) -> None:
     update = getattr(github, "update_pull_request", None)
     if update is None:
         logger.info("dreaming cleanup: integration has no update_pull_request; branch amended, body left as-is")
@@ -140,7 +140,7 @@ def _update_pr_body(github: GitHubIntegrationBase, repository: str, pr_number: i
 
 
 def reconcile_cleanup_pr(
-    github: GitHubIntegrationBase,
+    github: GitHubIntegration,
     repository: str,
     *,
     title: str,

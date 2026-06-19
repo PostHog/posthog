@@ -38,7 +38,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.dreaming.briefing import BriefingContext
@@ -79,7 +79,7 @@ class InstrumentationCleanupResult:
 
 
 def _fetch_pr_diffs(
-    github: GitHubIntegrationBase,
+    github: GitHubIntegration,
     repository: str,
     since_iso: str,
 ) -> list[PullRequestDiff]:
@@ -121,7 +121,7 @@ def _fetch_pr_diffs(
 
 
 def run_instrumentation_cleanup(
-    github: GitHubIntegrationBase,
+    github: GitHubIntegration,
     repository: str,
     *,
     since_iso: str,
@@ -175,14 +175,16 @@ def gather_briefing_context(team_id: int, project_name: str, scout_skills: list[
     Recent inbox reports are the strongest "what mattered" signal we have today. Profile
     highlights and memory notes will enrich this as those surfaces come online.
     """
-    recent_titles = list(
-        SignalReport.objects.filter(team_id=team_id)
+    recent_titles: list[str] = [
+        title
+        for title in SignalReport.objects.filter(team_id=team_id)
         .exclude(status=SignalReport.Status.DELETED)
         .exclude(title__isnull=True)
         .exclude(title="")
         .order_by("-updated_at")
         .values_list("title", flat=True)[:8]
-    )
+        if title
+    ]
 
     # TODO(memory): read prior dreaming observations from the memory store and fold the most
     # relevant into `profile_highlights` (or a dedicated `memory_notes` slot on
