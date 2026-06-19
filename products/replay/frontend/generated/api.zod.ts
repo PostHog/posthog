@@ -9,6 +9,19 @@
  */
 import * as zod from 'zod'
 
+/**
+ * @summary Trigger a session recording export
+ */
+export const sessionRecordingExportsCreateBodySessionIdMax = 200
+
+export const SessionRecordingExportsCreateBody = /* @__PURE__ */ zod.object({
+    session_id: zod
+        .string()
+        .max(sessionRecordingExportsCreateBodySessionIdMax)
+        .describe('The `$session_id` of the recording to export.'),
+    reason: zod.string().describe('Why this recording is being exported. Recorded for audit purposes.'),
+})
+
 export const sessionRecordingPlaylistsCreateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsCreateBodyDerivedNameMax = 400
