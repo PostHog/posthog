@@ -413,14 +413,19 @@ export const alertFormLogic = kea<alertFormLogicType>([
             ): HogQLAlertPreview | null =>
                 props.insightAlertKind === 'hogql' ? deriveHogQLAlertPreview(insightData, config, bounds) : null,
         ],
-        /** The conversion rate(s) a funnel alert would evaluate right now; null until the result loads. */
+        /** The conversion rate(s) a funnel alert would evaluate right now, with breach status; null until the result loads. */
         funnelAlertPreview: [
-            (s) => [s.insightData, (state, logicProps) => s.alertForm(state, logicProps)?.config],
+            (s) => [
+                s.insightData,
+                (state, logicProps) => s.alertForm(state, logicProps)?.config,
+                (state, logicProps) => s.alertForm(state, logicProps)?.threshold?.configuration?.bounds,
+            ],
             (
                 insightData: Record<string, any> | null,
-                config: AlertConfig | null | undefined
+                config: AlertConfig | null | undefined,
+                bounds: InsightsThresholdBounds | null | undefined
             ): FunnelAlertPreview | null =>
-                props.insightAlertKind === 'funnels' ? deriveFunnelAlertPreview(insightData, config) : null,
+                props.insightAlertKind === 'funnels' ? deriveFunnelAlertPreview(insightData, config, bounds) : null,
         ],
         /** Result column names of the SQL insight, for the column pickers. */
         hogqlResultColumns: [

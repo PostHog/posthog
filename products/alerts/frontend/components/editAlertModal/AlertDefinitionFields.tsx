@@ -65,8 +65,9 @@ export function TrendsDefinitionFields({
     )
 }
 
-/** A read-out of the conversion rate the funnel alert would evaluate right now, so the threshold
- * can be set against a real value before the first check. */
+/** A read-out of the conversion rate the funnel alert would evaluate right now plus, once a threshold
+ * is set, whether it would currently breach — so the threshold can be sanity-checked before the first
+ * check (mirrors the SQL alert's breach/ok preview). */
 function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | null }): JSX.Element | null {
     if (preview === null) {
         return (
@@ -84,23 +85,42 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
         )
     }
     const format = (rate: number): string => `${rate.toFixed(1)}%`
+    const breaching = preview.values.filter((value) => value.breaching)
+    const wouldFire = breaching.length > 0
+
     if (preview.isBreakdown) {
-        const min = Math.min(...preview.rates)
-        const max = Math.max(...preview.rates)
+        const rates = preview.values.map((value) => value.rate)
         return (
-            <LemonBanner type="info" className="w-full">
-                Across {preview.rates.length} breakdown values, conversion is currently{' '}
+            <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+                Across {preview.values.length} breakdown values, conversion is currently{' '}
                 <strong>
-                    {format(min)}–{format(max)}
-                </strong>{' '}
-                — the alert fires if any value breaches the threshold.
+                    {format(Math.min(...rates))}–{format(Math.max(...rates))}
+                </strong>
+                {!preview.hasBounds ? (
+                    <> — the alert fires if any value breaches. Set a threshold to preview which would.</>
+                ) : wouldFire ? (
+                    <>
+                        . <strong>{breaching.length}</strong> would breach (
+                        {breaching.map((value) => `${value.label ?? 'conversion'} ${format(value.rate)}`).join(', ')}) —
+                        the alert would fire on its next check.
+                    </>
+                ) : (
+                    <>. All values are within your threshold.</>
+                )}
             </LemonBanner>
         )
     }
+
     return (
-        <LemonBanner type="info" className="w-full">
-            This funnel currently converts at <strong>{format(preview.rates[0])}</strong> — the alert checks this
-            against your threshold.
+        <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+            This funnel currently converts at <strong>{format(preview.values[0].rate)}</strong>
+            {!preview.hasBounds ? (
+                <> — set a threshold to preview whether it would fire.</>
+            ) : wouldFire ? (
+                <> — that breaches your threshold, so the alert would fire on its next check.</>
+            ) : (
+                <> — within your threshold.</>
+            )}
         </LemonBanner>
     )
 }
