@@ -73,7 +73,7 @@
   FROM (
     SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_0)s)), sumStateIf(1, equals(events.event, %(hogql_val_1)s)), avgStateIf(1, equals(events.event, %(hogql_val_2)s))) AS comprehensive_metrics, if(isNull(events.properties.campaign_source), NULL, toString(events.properties.campaign_source)) AS source 
     FROM events_json AS events 
-    WHERE and(equals(events.team_id, 420), ifNull(equals(if(isNull(events.properties.campaign_source), NULL, toString(events.properties.campaign_source)), %(hogql_val_3)s), 0)) 
+    WHERE and(equals(events.team_id, 420), and(ifNull(equals(if(isNull(events.properties.campaign_source), NULL, toString(events.properties.campaign_source)), %(hogql_val_3)s), 0), isNotNull(events.properties.campaign_source))) 
     GROUP BY source) 
   GROUP BY source 
   LIMIT 50000 UNION ALL 
@@ -81,7 +81,7 @@
   FROM (
     SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_4)s)), sumStateIf(1, equals(events.event, %(hogql_val_5)s)), avgStateIf(1, equals(events.event, %(hogql_val_6)s))) AS comprehensive_metrics, if(isNull(events.properties.campaign_source), NULL, toString(events.properties.campaign_source)) AS source 
     FROM events_json AS events 
-    WHERE and(equals(events.team_id, 420), ifNull(equals(if(isNull(events.properties.campaign_source), NULL, toString(events.properties.campaign_source)), %(hogql_val_7)s), 0)) 
+    WHERE and(equals(events.team_id, 420), and(ifNull(equals(if(isNull(events.properties.campaign_source), NULL, toString(events.properties.campaign_source)), %(hogql_val_7)s), 0), isNotNull(events.properties.campaign_source))) 
     GROUP BY source) 
   GROUP BY source 
   LIMIT 50000
@@ -111,13 +111,13 @@
   FROM (
     SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_0)s)), countStateIf(equals(events.event, %(hogql_val_1)s))) AS funnel_metrics 
     FROM events_json AS events 
-    WHERE and(equals(events.team_id, 420), ifNull(equals(if(isNull(events.properties.device_type), NULL, toString(events.properties.device_type)), %(hogql_val_2)s), 0))) 
+    WHERE and(equals(events.team_id, 420), and(ifNull(equals(if(isNull(events.properties.device_type), NULL, toString(events.properties.device_type)), %(hogql_val_2)s), 0), isNotNull(events.properties.device_type)))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(funnel_metrics, 1)), countMerge(tupleElement(funnel_metrics, 2)), countMerge(tupleElement(funnel_metrics, 3))) AS funnel_metrics 
   FROM (
     SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_3)s)), countStateIf(equals(events.event, %(hogql_val_4)s))) AS funnel_metrics 
     FROM events_json AS events 
-    WHERE and(equals(events.team_id, 420), ifNull(equals(if(isNull(events.properties.device_type), NULL, toString(events.properties.device_type)), %(hogql_val_5)s), 0))) 
+    WHERE and(equals(events.team_id, 420), and(ifNull(equals(if(isNull(events.properties.device_type), NULL, toString(events.properties.device_type)), %(hogql_val_5)s), 0), isNotNull(events.properties.device_type)))) 
   LIMIT 50000
   '''
 # ---

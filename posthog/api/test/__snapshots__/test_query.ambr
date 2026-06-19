@@ -104,9 +104,9 @@
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
                                                  FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(if(isNull(events.properties.key), NULL, toString(events.properties.key)), 'test_val3'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 WHERE and(equals(events.team_id, 99999), and(ifNull(equals(if(isNull(events.properties.key), NULL, toString(events.properties.key)), 'test_val3'), 0), isNotNull(events.properties.key)), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
                                                  ORDER BY events.event ASC
-                                                 LIMIT 101)), and(ifNull(equals(if(isNull(events.properties.key), NULL, toString(events.properties.key)), 'test_val3'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
+                                                 LIMIT 101)), and(and(ifNull(equals(if(isNull(events.properties.key), NULL, toString(events.properties.key)), 'test_val3'), 0), isNotNull(events.properties.key)), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -797,9 +797,9 @@
   WHERE and(equals(events.team_id, 99999), in(events.uuid,
                                                 (SELECT events.uuid AS uuid
                                                  FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(if(isNull(events.properties.key), NULL, toString(events.properties.key)), 'test_val2'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 WHERE and(equals(events.team_id, 99999), and(ifNull(equals(if(isNull(events.properties.key), NULL, toString(events.properties.key)), 'test_val2'), 0), isNotNull(events.properties.key)), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
                                                  ORDER BY events.event ASC
-                                                 LIMIT 101)), and(ifNull(equals(if(isNull(events.properties.key), NULL, toString(events.properties.key)), 'test_val2'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
+                                                 LIMIT 101)), and(and(ifNull(equals(if(isNull(events.properties.key), NULL, toString(events.properties.key)), 'test_val2'), 0), isNotNull(events.properties.key)), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,

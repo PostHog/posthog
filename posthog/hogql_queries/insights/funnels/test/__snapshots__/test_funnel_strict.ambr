@@ -104,7 +104,7 @@
                   e.`$session_id` AS `$session_id`,
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
-                  if(and(equals(e.event, 'buy'), ifNull(equals(if(isNull(e.properties.`$version`), NULL, toString(e.properties.`$version`)), 'xyz'), 0)), 1, 0) AS step_1,
+                  if(and(equals(e.event, 'buy'), and(ifNull(equals(if(isNull(e.properties.`$version`), NULL, toString(e.properties.`$version`)), 'xyz'), 0), isNotNull(e.properties.`$version`))), 1, 0) AS step_1,
                   [ifNull(toString(nullIf(nullIf(e.properties.`$browser`, ''), 'null')), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
@@ -244,7 +244,7 @@
                   e.`$session_id` AS `$session_id`,
                   e.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
-                  if(and(equals(e.event, 'buy'), ifNull(equals(if(isNull(e.properties.`$version`), NULL, toString(e.properties.`$version`)), 'xyz'), 0)), 1, 0) AS step_1,
+                  if(and(equals(e.event, 'buy'), and(ifNull(equals(if(isNull(e.properties.`$version`), NULL, toString(e.properties.`$version`)), 'xyz'), 0), isNotNull(e.properties.`$version`))), 1, 0) AS step_1,
                   [ifNull(toString(nullIf(nullIf(e.properties.`$browser`, ''), 'null')), '')] AS prop_basic,
                   if(equals(step_1, 1), prop_basic, []) AS prop
            FROM events_json AS e
