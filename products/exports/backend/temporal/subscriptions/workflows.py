@@ -29,6 +29,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     create_export_assets,
     deliver_subscription,
     fetch_due_subscriptions_activity,
+    notify_subscription_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
@@ -48,6 +49,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliveryStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
+    NotifySubscriptionFailureInputs,
     ProcessSubscriptionWorkflowInputs,
     RecipientResult,
     ScheduleAllSubscriptionsWorkflowInputs,
@@ -57,6 +59,18 @@ from products.exports.backend.temporal.subscriptions.types import (
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
 )
+
+
+def _terminal_error_type(error: BaseException) -> str:
+    """The original exception class name for the owner-facing failure email.
+
+    A delivery failure surfaces to the workflow wrapped in an ActivityError; Temporal
+    stashes the underlying exception's class name on the ApplicationError cause, so unwrap
+    one level to avoid reporting the unhelpful "ActivityError" to the subscription owner.
+    """
+    if isinstance(error, ActivityError) and isinstance(error.cause, ApplicationError):
+        return error.cause.type or type(error.cause).__name__
+    return type(error).__name__
 
 
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
@@ -399,6 +413,27 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     if caught_error is None:
                         raise
 
+            # Proactively email the owner that their scheduled delivery failed. Auto-disable
+            # paths return normally above (and send their own "disabled" email), so reaching
+            # the except block means a genuine, still-enabled failure that will be retried.
+            # Best-effort and fire-once-per-streak — gated to scheduled runs since manual and
+            # target-change sends already surface their result to the user in the UI.
+            if (
+                caught_error is not None
+                and delivery_id is not None
+                and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
+            ):
+                await temporalio.workflow.execute_activity(
+                    notify_subscription_failure,
+                    NotifySubscriptionFailureInputs(
+                        subscription_id=inputs.subscription_id,
+                        delivery_id=delivery_id,
+                        error_type=_terminal_error_type(caught_error),
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                )
+
             # Advance schedule — always for scheduled deliveries, even on failure.
             # The activity itself no-ops when the subscription is disabled, so a
             # just-auto-disabled sub doesn't get a misleading future delivery date.
@@ -564,6 +599,24 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     )
                     if caught_error is None:
                         raise
+
+            # Proactively email the owner on a genuine (non-auto-disable) scheduled failure.
+            # See ProcessSubscriptionWorkflow for the rationale; kept in sync with it.
+            if (
+                caught_error is not None
+                and delivery_id is not None
+                and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
+            ):
+                await temporalio.workflow.execute_activity(
+                    notify_subscription_failure,
+                    NotifySubscriptionFailureInputs(
+                        subscription_id=inputs.subscription_id,
+                        delivery_id=delivery_id,
+                        error_type=_terminal_error_type(caught_error),
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                )
 
             # Advance schedule for scheduled deliveries even on failure — the activity
             # no-ops when the subscription is disabled, so a just-auto-disabled sub

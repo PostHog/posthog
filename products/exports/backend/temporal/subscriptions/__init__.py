@@ -4,6 +4,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     create_export_assets,
     deliver_subscription,
     fetch_due_subscriptions_activity,
+    notify_subscription_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
@@ -33,4 +34,5 @@ ACTIVITIES = [
     create_delivery_record,
     update_delivery_record,
     snapshot_subscription_insights,
+    notify_subscription_failure,
 ]

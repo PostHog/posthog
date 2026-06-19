@@ -1,0 +1,25 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block preheader %}We couldn't deliver your scheduled PostHog subscription "{{ subscription_title }}".{% endblock %}
+{% block heading %}Your subscription didn't send{% endblock %}
+{% block section %}
+    <p>
+        PostHog couldn't deliver your subscription <strong>{{ subscription_title }}</strong>{% if target_label %} to
+        <strong>{{ target_label }}</strong>{% endif %} on its last scheduled run.
+    </p>
+    <p><strong>What happened:</strong> {{ failure_summary }}</p>
+    {% if failure_suggestion %}
+    <p><strong>What you can do:</strong> {{ failure_suggestion }}</p>
+    {% endif %}
+    <p class="muted">
+        This subscription is still active — we'll automatically try again on its next scheduled run. You'll only get
+        another email if it fails again after a successful delivery.
+    </p>
+    {% if subscription_url %}
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri subscription_url %}">View subscription</a>
+    </div>
+    {% endif %}
+    {% if error_type %}
+    <p class="muted">Reference for support: {{ error_type }}</p>
+    {% endif %}
+{% endblock %}

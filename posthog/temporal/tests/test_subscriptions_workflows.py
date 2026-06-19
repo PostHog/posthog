@@ -41,6 +41,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     create_export_assets,
     deliver_subscription,
     fetch_due_subscriptions_activity,
+    notify_subscription_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
@@ -59,6 +60,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliveryStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
+    NotifySubscriptionFailureInputs,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionTriggerType,
@@ -99,6 +101,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
+        notify_subscription_failure,
     ],
 )
 
@@ -113,6 +116,7 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
+        notify_subscription_failure,
     ],
 )
 
@@ -2489,3 +2493,122 @@ async def test_fetch_due_subscriptions_includes_ai_with_resource_type(team, user
     match = next((s for s in fetched if s.subscription_id == sub.id), None)
     assert match is not None, "due AI subscription must be picked up by the shared scheduler fetch"
     assert match.resource_type == Subscription.ResourceType.AI_PROMPT
+
+
+_NOTIFY_SEND = "products.exports.backend.temporal.subscriptions.activities.send_notification_for_failed_subscription"
+
+
+def _make_delivery(subscription, status, *, finished=True, key_suffix=""):
+    return SubscriptionDelivery.objects.create(
+        subscription=subscription,
+        team=subscription.team,
+        temporal_workflow_id="wf-test",
+        idempotency_key=f"idem-{subscription.id}-{status}-{key_suffix}-{uuid.uuid4()}",
+        trigger_type=SubscriptionTriggerType.SCHEDULED,
+        target_type=subscription.target_type,
+        target_value=subscription.target_value,
+        status=status,
+        finished_at=timezone.now() if finished else None,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case_label, prior_statuses",
+    [
+        ("no_prior_delivery", []),
+        ("prior_completed", [SubscriptionDelivery.Status.COMPLETED]),
+        ("prior_skipped", [SubscriptionDelivery.Status.SKIPPED]),
+    ],
+)
+async def test_notify_subscription_failure_emails_owner_on_transition(team, user, case_label, prior_statuses):
+    """The owner is emailed when a scheduled delivery newly fails (no prior failure)."""
+    subscription = await sync_to_async(create_subscription)(
+        team=team, created_by=user, target_type="slack", target_value="C123|#alerts", title="Daily metrics"
+    )
+    for i, status in enumerate(prior_statuses):
+        await sync_to_async(_make_delivery)(subscription, status, key_suffix=f"prior{i}")
+    failed = await sync_to_async(_make_delivery)(subscription, SubscriptionDelivery.Status.FAILED, key_suffix="current")
+
+    with patch(_NOTIFY_SEND) as send_mock:
+        await ActivityEnvironment().run(
+            notify_subscription_failure,
+            NotifySubscriptionFailureInputs(
+                subscription_id=subscription.id, delivery_id=failed.id, error_type="SlackApiError"
+            ),
+        )
+
+    send_mock.assert_called_once()
+    args = send_mock.call_args.args
+    assert args[0].id == subscription.id  # subscription
+    assert args[2] == "SlackApiError"  # error_type
+    assert args[3] == [user.email]  # targets
+
+
+@pytest.mark.asyncio
+async def test_notify_subscription_failure_silent_during_failure_streak(team, user):
+    """A second consecutive failure does not re-email — the owner was told on the first."""
+    subscription = await sync_to_async(create_subscription)(team=team, created_by=user, target_type="slack")
+    await sync_to_async(_make_delivery)(subscription, SubscriptionDelivery.Status.FAILED, key_suffix="prior")
+    current = await sync_to_async(_make_delivery)(
+        subscription, SubscriptionDelivery.Status.FAILED, key_suffix="current"
+    )
+
+    with patch(_NOTIFY_SEND) as send_mock:
+        await ActivityEnvironment().run(
+            notify_subscription_failure,
+            NotifySubscriptionFailureInputs(subscription_id=subscription.id, delivery_id=current.id),
+        )
+
+    send_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case_label, disabled, clear_author",
+    [
+        ("disabled_subscription", True, False),
+        ("no_author", False, True),
+    ],
+)
+async def test_notify_subscription_failure_skips_when_unreachable(team, user, case_label, disabled, clear_author):
+    """Auto-disabled subs get the dedicated 'disabled' email, and an author-less sub has nobody to notify."""
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        created_by=None if clear_author else user,
+        enabled=not disabled,
+        target_type="slack",
+    )
+    current = await sync_to_async(_make_delivery)(
+        subscription, SubscriptionDelivery.Status.FAILED, key_suffix="current"
+    )
+
+    with patch(_NOTIFY_SEND) as send_mock:
+        await ActivityEnvironment().run(
+            notify_subscription_failure,
+            NotifySubscriptionFailureInputs(subscription_id=subscription.id, delivery_id=current.id),
+        )
+
+    send_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_notify_subscription_failure_swallows_send_errors(team, user):
+    """A broken email send must not turn the already-failed delivery into a hard workflow failure."""
+    subscription = await sync_to_async(create_subscription)(team=team, created_by=user, target_type="slack")
+    current = await sync_to_async(_make_delivery)(
+        subscription, SubscriptionDelivery.Status.FAILED, key_suffix="current"
+    )
+
+    with (
+        patch(_NOTIFY_SEND, side_effect=RuntimeError("smtp down")) as send_mock,
+        patch("products.exports.backend.temporal.subscriptions.activities.capture_exception") as capture_mock,
+    ):
+        # Must not raise.
+        await ActivityEnvironment().run(
+            notify_subscription_failure,
+            NotifySubscriptionFailureInputs(subscription_id=subscription.id, delivery_id=current.id),
+        )
+
+    send_mock.assert_called_once()
+    capture_mock.assert_called_once()

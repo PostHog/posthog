@@ -212,6 +212,19 @@ class UpdateDeliveryRecordInputs:
 
 
 @dataclasses.dataclass
+class NotifySubscriptionFailureInputs:
+    """Drives the best-effort "your subscription failed to send" email to the owner.
+
+    `delivery_id` is the just-failed delivery row — excluded when checking whether the
+    previous delivery already failed (so we only notify on the transition into failure).
+    """
+
+    subscription_id: int
+    delivery_id: uuid.UUID
+    error_type: typing.Optional[str] = None
+
+
+@dataclasses.dataclass
 class SnapshotInsightsInputs:
     subscription_id: int
     team_id: int

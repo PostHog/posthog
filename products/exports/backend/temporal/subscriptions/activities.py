@@ -11,6 +11,7 @@ import temporalio.activity
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -33,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     FetchDueSubscriptionsActivityInputs,
+    NotifySubscriptionFailureInputs,
     RecipientResult,
     SubscriptionAbortInfo,
     SubscriptionInfo,
@@ -47,6 +49,10 @@ from ee.tasks.subscriptions.auto_disable import (
     get_subscription_disable_reason,
 )
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
+from ee.tasks.subscriptions.failure_notifications import (
+    classify_delivery_failure,
+    send_notification_for_failed_subscription,
+)
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
 
 LOGGER = get_logger(__name__)
@@ -499,3 +505,63 @@ async def advance_next_delivery_date(subscription_id: int) -> None:
         subscription_id=subscription_id,
         next_delivery_date=subscription.next_delivery_date,
     )
+
+
+@temporalio.activity.defn
+async def notify_subscription_failure(inputs: NotifySubscriptionFailureInputs) -> None:
+    """Best-effort email to the subscription owner when a scheduled delivery failed without
+    auto-disabling (a transient or unexpected error that will be retried, not a permanently
+    broken target — those get the dedicated "disabled" email instead).
+
+    Sends once per failure streak: if the most recent *prior* finished delivery already
+    failed, the owner has been told, so staying quiet avoids a daily inbox of the same alert.
+    Never raises — a notification problem must not turn a recoverable delivery failure into
+    a hard workflow failure.
+    """
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _notify() -> None:
+        subscription = Subscription.objects.select_related("created_by").get(pk=inputs.subscription_id)
+
+        # Auto-disabled subs already receive the dedicated "disabled" email — don't double up.
+        if not subscription.enabled:
+            return
+        if not (subscription.created_by and subscription.created_by.email):
+            LOGGER.info("notify_subscription_failure.skipped_no_author_email", subscription_id=inputs.subscription_id)
+            return
+
+        # Notify only on the transition into failure. The just-failed delivery row is
+        # excluded; if the most recent prior finished delivery also failed, we already
+        # notified for this streak.
+        previous_status = (
+            SubscriptionDelivery.objects.filter(
+                subscription_id=inputs.subscription_id,
+                finished_at__isnull=False,
+            )
+            .exclude(pk=inputs.delivery_id)
+            .order_by("-finished_at")
+            .values_list("status", flat=True)
+            .first()
+        )
+        if previous_status == SubscriptionDelivery.Status.FAILED:
+            LOGGER.info("notify_subscription_failure.skipped_failure_streak", subscription_id=inputs.subscription_id)
+            return
+
+        reason = classify_delivery_failure(subscription.target_type)
+        send_notification_for_failed_subscription(
+            subscription,
+            reason,
+            inputs.error_type,
+            [subscription.created_by.email],
+        )
+
+    try:
+        await _notify()
+    except Exception as e:
+        # Notification is best-effort; swallow so it can't fail the (already-failed) workflow.
+        capture_exception(e)
+        await LOGGER.awarning(
+            "notify_subscription_failure.failed",
+            subscription_id=inputs.subscription_id,
+            exc_info=True,
+        )
