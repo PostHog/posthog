@@ -104,9 +104,8 @@ export function AlertDefinitionSection({
             "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
     return (
         <>
-            {/* Funnels convey the same any-value behavior in their own preview banner (with the live
-                range), so this generic trends-worded banner is suppressed for them to avoid redundancy. */}
-            {isBreakdownValid && !isFunnelAlert && (
+            {/* Trends-specific copy; funnels have their own breakdown messaging in the preview banner. */}
+            {isBreakdownValid && isTrendsAlertConfig(alertForm.config) && (
                 <LemonBanner type="warning">
                     {alertMode === 'detector'
                         ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
@@ -176,8 +175,6 @@ export function AlertDefinitionSection({
                         <LemonBanner type="error">{thresholdBoundsFormError}</LemonBanner>
                     ) : null}
                     <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                        {/* Funnels only ever check the absolute value, and "less than … / more than …"
-                            already says so — omit the redundant condition control entirely. */}
                         {supportsRelativeConditions && (
                             <Group name={['condition']}>
                                 <LemonField name="type">
@@ -208,7 +205,7 @@ export function AlertDefinitionSection({
                                 type="number"
                                 className="w-30"
                                 data-attr="alertForm-lower-threshold"
-                                suffix={isFunnelAlert ? <span>%</span> : undefined}
+                                suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
                                 value={
                                     alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
                                     alertForm.threshold.configuration.bounds?.lower
@@ -239,7 +236,7 @@ export function AlertDefinitionSection({
                                 type="number"
                                 className="w-30"
                                 data-attr="alertForm-upper-threshold"
-                                suffix={isFunnelAlert ? <span>%</span> : undefined}
+                                suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
                                 value={
                                     alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
                                     alertForm.threshold.configuration.bounds?.upper
