@@ -146,7 +146,6 @@ export function TimeSeriesLineChart<Meta = unknown>({
             scaleType: config.scale,
             tickFormatter: resolveYTickFormatter(config),
             label: config.label,
-            showGrid: config.showGrid,
         }))
     }, [yAxis, axisList])
 

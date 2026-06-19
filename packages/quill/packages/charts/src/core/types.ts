@@ -255,8 +255,6 @@ export interface YAxisRenderConfig {
     tickFormatter?: (value: number) => string
     /** Axis title. */
     label?: string
-    /** Whether this axis owns the interior grid lines. Only the primary (left) axis draws them. */
-    showGrid?: boolean
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
