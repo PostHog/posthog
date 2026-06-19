@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     EmitFindingRequestApi,
     EmitFindingResponseApi,
+    ErrorTrackingLinkedReportApi,
     ForgetRequestApi,
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
@@ -34,6 +35,7 @@ import type {
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
+    SignalsReportsLinkedReportsRetrieveParams,
     SignalsReportsListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
@@ -199,6 +201,39 @@ export const signalsReportsStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportStateRequestApi),
+    })
+}
+
+export const getSignalsReportsLinkedReportsRetrieveUrl = (
+    projectId: string,
+    params: SignalsReportsLinkedReportsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/linked_reports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/linked_reports/`
+}
+
+/**
+ * List the inbox reports a given external source record (e.g. an error tracking issue) contributed signals to — the reverse of a report's evidence list. Walks the signal store backwards from the record's `(source_product, source_id)` to the reports its signals grouped into, enriching each with its latest implementation PR url when an agent has opened a fix. Strictly team-scoped; returns an empty list when nothing is linked.
+ */
+export const signalsReportsLinkedReportsRetrieve = async (
+    projectId: string,
+    params: SignalsReportsLinkedReportsRetrieveParams,
+    options?: RequestInit
+): Promise<ErrorTrackingLinkedReportApi[]> => {
+    return apiMutator<ErrorTrackingLinkedReportApi[]>(getSignalsReportsLinkedReportsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

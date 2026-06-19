@@ -410,6 +410,35 @@ class SignalReportSerializer(serializers.ModelSerializer):
         return value if isinstance(value, str) else None
 
 
+class ErrorTrackingLinkedReportSerializer(serializers.Serializer):
+    """A minimal projection of an inbox report linked to an external source record.
+
+    Returned by the reverse lookup that maps a source record (e.g. an error tracking issue)
+    to the inbox report(s) its signals grouped into. The primary link target is the inbox
+    report itself; `implementation_pr_url` is a secondary indicator surfaced only when an
+    agent has opened a fix.
+    """
+
+    id = serializers.UUIDField(read_only=True, help_text="The inbox report's UUID. Deep-link to it in the inbox.")
+    title = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="LLM-generated report title (null until the report has been summarized).",
+    )
+    # Plain CharField (not ChoiceField) to avoid a drf-spectacular `status` enum-name collision —
+    # the value is one of SignalReport.Status, surfaced read-only for display only.
+    status = serializers.CharField(
+        read_only=True,
+        help_text="Current report status in the inbox pipeline (e.g. potential, ready, resolved).",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the report was first created.")
+    implementation_pr_url = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="URL of the pull request from the latest implementation task run, if an agent has opened a fix.",
+    )
+
+
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
     content = serializers.SerializerMethodField()
 

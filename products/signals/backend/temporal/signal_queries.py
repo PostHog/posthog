@@ -620,6 +620,65 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
 
 
 # ---------------------------------------------------------------------------
+# fetch_report_ids_for_source — synchronous, for the cross-product reverse lookup
+# ---------------------------------------------------------------------------
+
+
+def fetch_report_ids_for_source(team: Team, source_product: str, source_id: str, *, limit: int = 25) -> list[str]:
+    """Map a single source record (e.g. an error tracking issue) to the inbox reports it grouped into.
+
+    Reverse of the report -> signals link: a source emits a signal whose ClickHouse metadata carries
+    both its `source_id` (the source record's id) and, once grouping matches it, the `report_id` of
+    the report it landed in. This walks that link backwards so a source product's own UI (e.g. the
+    error tracking issue page) can surface which inbox report(s) it contributed to.
+
+    Only non-deleted signals that resolved to a non-empty `report_id` are returned. The
+    `(source_product, source_id)` predicate is pushed into the document_embeddings scan so the dedup
+    is bounded to just this record's signals, not the team's whole signal history. Returns distinct
+    report ids most-recent-first, capped at `limit` (a single source record maps to a handful of
+    reports at most — the cap guards against pathological re-emission).
+    """
+    if not source_id:
+        return []
+
+    # Push both predicates into the inner scan so we only dedup this record's signals.
+    source_scan_filter = (
+        "JSONExtractString(metadata, 'source_product') = {source_product} "
+        "AND JSONExtractString(metadata, 'source_id') = {source_id}"
+    )
+    ch_query = f"""
+        SELECT report_id
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'report_id') as report_id,
+                JSONExtractBool(metadata, 'deleted') as is_deleted,
+                timestamp
+            FROM ({_deduped_signals_subquery(extra_where=source_scan_filter)})
+        )
+        WHERE NOT is_deleted
+          AND report_id != ''
+        GROUP BY report_id
+        ORDER BY max(timestamp) DESC
+        LIMIT {{limit}}
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFetchReportIdsForSource",
+        query=ch_query,
+        team=team,
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "source_product": ast.Constant(value=source_product),
+            "source_id": ast.Constant(value=source_id),
+            "limit": ast.Constant(value=limit),
+        },
+    )
+
+    return [row[0] for row in (result.results or []) if row[0]]
+
+
+# ---------------------------------------------------------------------------
 # fetch_report_ids_for_source_ids — synchronous, for the scout reverse lookup
 # ---------------------------------------------------------------------------
 

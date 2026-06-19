@@ -1209,3 +1209,141 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert report.status == SignalReport.Status.READY
         assert report.title == "Original title"
         assert report.summary == "Original summary"
+
+
+class TestSignalReportLinkedReportsAPI(APIBaseTest):
+    """GET .../signals/reports/linked_reports/ — reverse lookup from a source record to inbox reports.
+
+    The ClickHouse half (`fetch_report_ids_for_source`) is mocked; these tests cover the viewset's
+    validation, Postgres hydration, status filtering, PR enrichment, ordering, and team isolation.
+    """
+
+    LOOKUP_PATH = "products.signals.backend.views.fetch_report_ids_for_source"
+
+    def _url(self, **query) -> str:
+        base = f"/api/projects/{self.team.id}/signals/reports/linked_reports/"
+        if not query:
+            return base
+        return f"{base}?{urlencode(query)}"
+
+    def _create_report(self, **kwargs) -> SignalReport:
+        defaults = {
+            "team": self.team,
+            "status": SignalReport.Status.READY,
+            "title": "Test report",
+            "summary": "Test summary",
+            "signal_count": 3,
+            "total_weight": 1.5,
+        }
+        defaults.update(kwargs)
+        return SignalReport.objects.create(**defaults)
+
+    def _create_implementation_task_with_run(self, report: SignalReport, *, pr_url: str) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation task",
+            description="Fix the bug",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        SignalReportTask.objects.create(
+            team=self.team,
+            report=report,
+            task=task,
+            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        )
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": pr_url},
+        )
+
+    def test_returns_linked_reports_with_fields(self):
+        report = self._create_report(title="Crash on save")
+        with patch(self.LOOKUP_PATH, return_value=[str(report.id)]) as mock_lookup:
+            response = self.client.get(self._url(source_product="error_tracking", source_id="issue-123"))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["id"] == str(report.id)
+        assert body[0]["title"] == "Crash on save"
+        assert body[0]["status"] == SignalReport.Status.READY
+        assert body[0]["implementation_pr_url"] is None
+        assert "created_at" in body[0]
+        mock_lookup.assert_called_once()
+        args, kwargs = mock_lookup.call_args
+        assert args[1] == "error_tracking"
+        assert args[2] == "issue-123"
+
+    def test_returns_empty_list_when_nothing_linked(self):
+        with patch(self.LOOKUP_PATH, return_value=[]):
+            response = self.client.get(self._url(source_product="error_tracking", source_id="issue-none"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_enriches_implementation_pr_url(self):
+        report = self._create_report()
+        self._create_implementation_task_with_run(report, pr_url="https://github.com/org/repo/pull/7")
+        with patch(self.LOOKUP_PATH, return_value=[str(report.id)]):
+            response = self.client.get(self._url(source_product="error_tracking", source_id="issue-pr"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["implementation_pr_url"] == "https://github.com/org/repo/pull/7"
+
+    def test_preserves_clickhouse_ordering(self):
+        first = self._create_report(title="First")
+        second = self._create_report(title="Second")
+        # ClickHouse returns most-recently-active first; the viewset must not re-sort by id.
+        with patch(self.LOOKUP_PATH, return_value=[str(second.id), str(first.id)]):
+            response = self.client.get(self._url(source_product="error_tracking", source_id="issue-multi"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["id"] for r in response.json()] == [str(second.id), str(first.id)]
+
+    @parameterized.expand(
+        [
+            ("deleted", SignalReport.Status.DELETED),
+            ("suppressed", SignalReport.Status.SUPPRESSED),
+        ]
+    )
+    def test_excludes_hidden_status_reports(self, _name, hidden_status):
+        visible = self._create_report(title="Visible")
+        hidden = self._create_report(title="Hidden", status=hidden_status)
+        with patch(self.LOOKUP_PATH, return_value=[str(hidden.id), str(visible.id)]):
+            response = self.client.get(self._url(source_product="error_tracking", source_id="issue-x"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["id"] for r in response.json()] == [str(visible.id)]
+
+    def test_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_report = SignalReport.objects.create(
+            team=other_team,
+            status=SignalReport.Status.READY,
+            title="Other team report",
+        )
+        # Even if ClickHouse (mocked) hands back another team's report id, the Postgres
+        # hydration is team-scoped, so it never surfaces.
+        with patch(self.LOOKUP_PATH, return_value=[str(other_report.id)]):
+            response = self.client.get(self._url(source_product="error_tracking", source_id="issue-cross"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    @parameterized.expand(
+        [
+            ("missing_both", {}),
+            ("missing_source_id", {"source_product": "error_tracking"}),
+            ("missing_source_product", {"source_id": "issue-1"}),
+            ("blank_source_id", {"source_product": "error_tracking", "source_id": "  "}),
+        ]
+    )
+    def test_missing_required_params_returns_400(self, _name, query):
+        response = self.client.get(self._url(**query))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_unsupported_source_product_returns_400(self):
+        response = self.client.get(self._url(source_product="surveys", source_id="issue-1"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_clickhouse_failure_degrades_to_empty_list(self):
+        with patch(self.LOOKUP_PATH, side_effect=RuntimeError("ClickHouse down")):
+            response = self.client.get(self._url(source_product="error_tracking", source_id="issue-boom"))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []

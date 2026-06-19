@@ -29,7 +29,7 @@ import structlog
 from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -71,6 +71,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
 )
 from products.signals.backend.serializers import (
+    ErrorTrackingLinkedReportSerializer,
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteSerializer,
     SignalReportSerializer,
@@ -88,6 +89,7 @@ from products.signals.backend.temporal.deletion import SignalReportDeletionWorkf
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
 from products.signals.backend.temporal.signal_queries import (
+    fetch_report_ids_for_source,
     fetch_report_ids_for_source_products,
     fetch_signals_for_report_sync,
     fetch_source_products_for_reports,
@@ -1019,6 +1021,104 @@ class SignalReportViewSet(
         report_data = SignalReportSerializer(report, context=self._enriched_report_context(report)).data
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
         return Response({"report": report_data, "signals": signals_list})
+
+    # Source products allowed in the reverse `linked_reports` lookup. Constrained so the
+    # cross-product reverse link is an explicit allow-list, not an open `source_product` filter.
+    _LINKED_REPORTS_ALLOWED_SOURCE_PRODUCTS = frozenset({SignalSourceConfig.SourceProduct.ERROR_TRACKING})
+    # A single source record maps to a handful of reports at most; cap the lookup defensively.
+    _LINKED_REPORTS_LIMIT = 25
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="source_product",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Source product of the external record (e.g. error_tracking).",
+            ),
+            OpenApiParameter(
+                name="source_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="ID of the external record within the source product (e.g. an error tracking issue UUID).",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=ErrorTrackingLinkedReportSerializer(many=True),
+                description="Inbox reports linked to the source record, most-recently-active first.",
+            ),
+        },
+        description=(
+            "List the inbox reports a given external source record (e.g. an error tracking issue) "
+            "contributed signals to — the reverse of a report's evidence list. Walks the signal "
+            "store backwards from the record's `(source_product, source_id)` to the reports its "
+            "signals grouped into, enriching each with its latest implementation PR url when an agent "
+            "has opened a fix. Strictly team-scoped; returns an empty list when nothing is linked."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="linked_reports",
+        required_scopes=["task:read"],
+        pagination_class=None,
+    )
+    def linked_reports(self, request, **kwargs):
+        source_product = (request.query_params.get("source_product") or "").strip()
+        source_id = (request.query_params.get("source_id") or "").strip()
+
+        if not source_product or not source_id:
+            raise serializers.ValidationError(
+                {"source_product": "Both source_product and source_id query params are required."}
+            )
+        if source_product not in self._LINKED_REPORTS_ALLOWED_SOURCE_PRODUCTS:
+            allowed = ", ".join(sorted(self._LINKED_REPORTS_ALLOWED_SOURCE_PRODUCTS))
+            raise serializers.ValidationError(
+                {"source_product": f"Unsupported source_product: {source_product!r}. Allowed: {allowed}."}
+            )
+
+        # One bounded ClickHouse query: source record -> distinct report ids it grouped into.
+        # A CH/HogQL hiccup degrades to "no links" rather than 500-ing the caller's page.
+        try:
+            report_ids = fetch_report_ids_for_source(
+                self.team, source_product, source_id, limit=self._LINKED_REPORTS_LIMIT
+            )
+        except Exception:
+            logger.exception("signals.linked_reports.lookup_failed", source_product=source_product, source_id=source_id)
+            report_ids = []
+
+        if not report_ids:
+            return Response([])
+
+        # One Postgres query: hydrate the reports (fail-closed team scope). Exclude DELETED and
+        # SUPPRESSED — both are hidden by the report retrieve/list flow, so a link to either would
+        # deep-link to a page that can't load it. Treat that as "no link".
+        reports_by_id = {
+            str(report.id): report
+            for report in SignalReport.objects.filter(team=self.team, id__in=report_ids).exclude(
+                status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED]
+            )
+        }
+
+        # One more Postgres query: latest implementation PR url per report (no N+1).
+        implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(list(reports_by_id.keys()))
+
+        # Preserve ClickHouse most-recently-active ordering; drop ids hidden by the status filter.
+        payload = [
+            {
+                "id": report.id,
+                "title": report.title,
+                "status": report.status,
+                "created_at": report.created_at,
+                "implementation_pr_url": implementation_pr_url_map.get(report_id),
+            }
+            for report_id in report_ids
+            if (report := reports_by_id.get(report_id)) is not None
+        ]
+        return Response(ErrorTrackingLinkedReportSerializer(payload, many=True).data)
 
     @extend_schema(
         request=SignalReportStateRequestSerializer,
