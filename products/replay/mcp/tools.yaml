@@ -40,14 +40,14 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        feature_flag: replay-admin-export
         title: Export session recording
         description: >
             Trigger an export of a single session recording's data to a downloadable archive. Requires staff access.
             Provide the `session_id` and a `reason` (recorded for audit). Returns an export job whose `status` starts as
-            `pending`; poll `session-recording-export-get` with the returned `id` until `status` is `complete`, then read
-            `export_location` for the archive's storage path. The export gathers recording blocks plus related ClickHouse
-            metadata, so completion is not instant.
+            `pending`; poll `session-recording-export-get` with the returned `id` until `status` is `complete`, then
+            read `export_location` for the archive's storage path. The export gathers recording blocks plus related
+            ClickHouse metadata, so completion is not instant.
+        feature_flag: replay-admin-export
     session-recording-export-get:
         operation: session_recording_exports_retrieve
         enabled: true
@@ -57,14 +57,14 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        feature_flag: replay-admin-export
         enrich_url: '{id}'
         title: Get session recording export
         description: >
             Get a single session recording export job by `id`. Requires staff access. Returns its `status`
             (pending/running/complete/failed), `export_location` (the archive's storage path, populated once `status` is
-            `complete`), any `error_message`, and `is_expired` (exports older than 7 days may have been purged). Use after
-            `session-recording-export-create` to poll for completion.
+            `complete`), any `error_message`, and `is_expired` (exports older than 7 days may have been purged). Use
+            after `session-recording-export-create` to poll for completion.
+        feature_flag: replay-admin-export
     session-recording-exports-list:
         operation: session_recording_exports_list
         enabled: true
@@ -75,11 +75,11 @@ tools:
             destructive: false
             idempotent: true
         list: true
-        feature_flag: replay-admin-export
         title: List session recording exports
         description: >
             List past session recording export jobs for the project, newest first. Requires staff access. Use to find an
             export's `id` and `status` before reading its download location via `session-recording-export-get`.
+        feature_flag: replay-admin-export
     session-recording-get:
         operation: session_recordings_retrieve
         enabled: true
