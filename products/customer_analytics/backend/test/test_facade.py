@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
 from posthog.rbac.user_access_control import UserAccessControl
@@ -10,9 +11,11 @@ from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
 )
+from products.customer_analytics.backend.models import Account
 from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
 from products.customer_analytics.backend.test.factories import create_account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestCustomerAnalyticsFacade(BaseTest):
@@ -271,3 +274,214 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert result.error == contracts.ExternalAccountUpdateError.UPDATE_FAILED
         account.refresh_from_db()
         assert account.properties.csm is None
+
+
+class TestCustomerAnalyticsCRUDFacade(BaseTest):
+    """Parity coverage for the presentation-wave CRUD functions the account/journey/
+    profile-config viewsets call."""
+
+    def _uac(self) -> UserAccessControl:
+        return UserAccessControl(user=self.user, team=self.team)
+
+    def _create_account_input(self, **kwargs) -> contracts.CreateAccountInput:
+        kwargs.setdefault("name", "Acme Corp")
+        return contracts.CreateAccountInput(**kwargs)
+
+    def _create(self, **kwargs) -> contracts.AccountView:
+        return facade.create_account_for_view(
+            team_id=self.team.id,
+            team=self.team,
+            input=self._create_account_input(**kwargs),
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+
+    # --- Account create/update/delete ---
+
+    def test_create_account_returns_view_and_persists(self):
+        view = self._create(name="Acme", external_id="acme-1", properties={"stripe_customer_id": "cus_1"})
+
+        assert isinstance(view, contracts.AccountView)
+        assert view.name == "Acme"
+        assert view.external_id == "acme-1"
+        assert view.properties == {"stripe_customer_id": "cus_1"}
+        assert view.created_by == self.user.id
+        stored = Account.objects.unscoped().get(id=view.id)
+        assert stored.team_id == self.team.id
+        assert stored.created_by_id == self.user.id
+
+    def test_create_account_empty_properties_serializes_as_empty_dict(self):
+        view = self._create(name="Bare")
+        assert view.properties == {}
+
+    def test_create_account_sets_tags(self):
+        view = self._create(name="Tagged", tags=["enterprise", "priority"])
+        account = Account.objects.unscoped().get(id=view.id)
+        assert sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)) == [
+            "enterprise",
+            "priority",
+        ]
+
+    def test_create_account_duplicate_external_id_raises_conflict(self):
+        self._create(name="First", external_id="dup")
+        with self.assertRaises(facade.AccountConflictError):
+            self._create(name="Second", external_id="dup")
+
+    def test_create_account_invalid_properties_raises_validation_error(self):
+        with self.assertRaises(facade.AccountPropertiesValidationError) as ctx:
+            self._create(name="Bad", properties={"unknown_field": "x"})
+        assert ctx.exception.messages  # non-empty field-error list
+
+    def test_create_account_logs_activity(self):
+        view = self._create(name="Logged")
+        log = ActivityLog.objects.get(team_id=self.team.id, scope="Account", activity="created")
+        assert log.item_id == str(view.id)
+
+    def test_update_account_changes_name_and_tags(self):
+        view = self._create(name="Before", tags=["old"])
+        updated = facade.update_account_for_view(
+            team_id=self.team.id,
+            account_id=str(view.id),
+            input=contracts.UpdateAccountInput(name="After", tags=["new"]),
+            user_access_control=self._uac(),
+            required_level="editor",
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+        assert updated.name == "After"
+        assert updated.tags == ["new"]
+
+    def test_update_account_unknown_raises_does_not_exist(self):
+        with self.assertRaises(facade.Account_DoesNotExist):
+            facade.update_account_for_view(
+                team_id=self.team.id,
+                account_id="00000000-0000-0000-0000-000000000000",
+                input=contracts.UpdateAccountInput(name="x"),
+                user_access_control=self._uac(),
+                required_level="editor",
+                organization_id=self.organization.id,
+                user=self.user,
+                was_impersonated=False,
+            )
+
+    def test_delete_account_removes_row(self):
+        view = self._create(name="Doomed")
+        facade.delete_account_for_view(
+            team_id=self.team.id,
+            account_id=str(view.id),
+            user_access_control=self._uac(),
+            required_level="editor",
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+        assert not Account.objects.unscoped().filter(id=view.id).exists()
+
+    def test_get_account_for_view_unknown_raises(self):
+        with self.assertRaises(facade.Account_DoesNotExist):
+            facade.get_account_for_view(
+                team_id=self.team.id,
+                account_id="00000000-0000-0000-0000-000000000000",
+                user_access_control=self._uac(),
+                required_level="viewer",
+            )
+
+    def test_list_accounts_for_view_filters_by_search(self):
+        self._create(name="Acme Corp", external_id="acme-1")
+        self._create(name="Globex", external_id="glx-9")
+        page, count = facade.list_accounts_for_view(
+            team_id=self.team.id, user_access_control=self._uac(), offset=0, limit=10, search="acme"
+        )
+        assert count == 1
+        assert [a.name for a in page] == ["Acme Corp"]
+
+    # --- CustomerJourney ---
+
+    def test_create_journey_returns_view_and_logs(self):
+        insight = Insight.objects.create(team=self.team)
+        view = facade.create_customer_journey(
+            team_id=self.team.id,
+            insight_id=insight.id,
+            name="Onboarding",
+            description="desc",
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+        assert isinstance(view, contracts.CustomerJourneyView)
+        assert view.insight == insight.id
+        assert view.created_by == self.user.id
+        assert ActivityLog.objects.filter(team_id=self.team.id, scope="CustomerJourney", activity="created").exists()
+
+    def test_create_journey_duplicate_insight_raises_conflict(self):
+        insight = Insight.objects.create(team=self.team)
+        kwargs = {
+            "team_id": self.team.id,
+            "insight_id": insight.id,
+            "description": None,
+            "organization_id": self.organization.id,
+            "user": self.user,
+            "was_impersonated": False,
+        }
+        facade.create_customer_journey(name="First", **kwargs)
+        with self.assertRaises(facade.CustomerJourneyConflictError):
+            facade.create_customer_journey(name="Second", **kwargs)
+
+    def test_insight_belongs_to_team(self):
+        insight = Insight.objects.create(team=self.team)
+        assert facade.insight_belongs_to_team(self.team.id, insight.id)
+        assert not facade.insight_belongs_to_team(self.team.id, insight.id + 9999)
+
+    # --- CustomerProfileConfig ---
+
+    def test_profile_config_create_update_delete_with_activity(self):
+        created = facade.create_customer_profile_config(
+            team_id=self.team.id,
+            scope="person",
+            content={"a": 1},
+            sidebar={},
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+        assert isinstance(created, contracts.CustomerProfileConfigView)
+        assert created.scope == "person"
+        assert ActivityLog.objects.filter(
+            team_id=self.team.id, scope="CustomerProfileConfig", activity="created"
+        ).exists()
+
+        updated = facade.update_customer_profile_config(
+            team_id=self.team.id,
+            config_id=str(created.id),
+            fields={"content": {"a": 2}},
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+        assert updated is not None and updated.content == {"a": 2}
+
+        assert facade.delete_customer_profile_config(
+            team_id=self.team.id,
+            config_id=str(created.id),
+            organization_id=self.organization.id,
+            user=self.user,
+            was_impersonated=False,
+        )
+        assert ActivityLog.objects.filter(
+            team_id=self.team.id, scope="CustomerProfileConfig", activity="deleted"
+        ).exists()
+
+    def test_profile_config_update_unknown_returns_none(self):
+        assert (
+            facade.update_customer_profile_config(
+                team_id=self.team.id,
+                config_id="00000000-0000-0000-0000-000000000000",
+                fields={"scope": "person"},
+                organization_id=self.organization.id,
+                user=self.user,
+                was_impersonated=False,
+            )
+            is None
+        )
