@@ -471,27 +471,18 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
             }
 
-            it('is none when only a visited_page filter is present', async () => {
-                await expectLogic(logic, () => setFilterValues([visitedPageFilter])).toMatchValues({
-                    matchingEventsMatchType: { matchType: 'none' },
-                })
-            })
-
-            it('routes to backend when a visited_page filter accompanies an event filter', async () => {
-                await expectLogic(logic, () => setFilterValues([visitedPageFilter, eventFilter])).toMatchValues({
-                    matchingEventsMatchType: expect.objectContaining({ matchType: 'backend' }),
-                })
-            })
-
-            it('matches by name for a simple event filter', async () => {
-                await expectLogic(logic, () => setFilterValues([eventFilter])).toMatchValues({
-                    matchingEventsMatchType: { matchType: 'name', eventNames: ['$pageview'] },
-                })
-            })
-
-            it('is none when no event, action, or event-property filter is present', async () => {
-                await expectLogic(logic, () => setFilterValues([])).toMatchValues({
-                    matchingEventsMatchType: { matchType: 'none' },
+            it.each<[string, UniversalFilterValue[], Record<string, unknown>]>([
+                ['a visited_page filter alone', [visitedPageFilter], { matchType: 'none' }],
+                ['no filters at all', [], { matchType: 'none' }],
+                [
+                    'a visited_page filter alongside an event filter',
+                    [visitedPageFilter, eventFilter],
+                    { matchType: 'backend' },
+                ],
+                ['a simple event filter', [eventFilter], { matchType: 'name', eventNames: ['$pageview'] }],
+            ])('resolves %s to the expected match type', async (_case, values, expected) => {
+                await expectLogic(logic, () => setFilterValues(values)).toMatchValues({
+                    matchingEventsMatchType: expect.objectContaining(expected),
                 })
             })
         })
