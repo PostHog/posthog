@@ -3077,6 +3077,11 @@ class TikTokAdsSourceConfig(config.Config):
 
 
 @config.config
+class Tile38SourceConfig(config.Config):
+    pass
+
+
+@config.config
 class TimelySourceConfig(config.Config):
     pass
 
@@ -4021,6 +4026,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.TICKETTAILOR: TicketTailorSourceConfig,
         ExternalDataSourceType.TICKETMASTER: TicketmasterSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
+        ExternalDataSourceType.TILE38: Tile38SourceConfig,
         ExternalDataSourceType.TIMELY: TimelySourceConfig,
         ExternalDataSourceType.TINYEMAIL: TinyemailSourceConfig,
         ExternalDataSourceType.TODOIST: TodoistSourceConfig,

@@ -1794,6 +1794,7 @@ class ExternalDataSourceType(StrEnum):
     NEON = "Neon"
     NEW_RELIC = "NewRelic"
     CUSTOM = "Custom"
+    TILE38 = "Tile38"
 
 
 class ExternalQueryErrorCode(StrEnum):

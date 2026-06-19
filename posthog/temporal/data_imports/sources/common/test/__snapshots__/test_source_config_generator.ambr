@@ -602,6 +602,7 @@
           ExternalDataSourceType.TICKETTAILOR: TicketTailorSourceConfig,
           ExternalDataSourceType.TICKETMASTER: TicketmasterSourceConfig,
           ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
+          ExternalDataSourceType.TILE38: Tile38SourceConfig,
           ExternalDataSourceType.TIMELY: TimelySourceConfig,
           ExternalDataSourceType.TINYEMAIL: TinyemailSourceConfig,
           ExternalDataSourceType.TODOIST: TodoistSourceConfig,

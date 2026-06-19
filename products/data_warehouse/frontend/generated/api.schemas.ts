@@ -1398,6 +1398,7 @@ export interface CredentialApi {
  * * `Neon` - Neon
  * * `NewRelic` - NewRelic
  * * `Custom` - Custom
+ * * `Tile38` - Tile38
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2034,6 +2035,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Neon: 'Neon',
     NewRelic: 'NewRelic',
     Custom: 'Custom',
+    Tile38: 'Tile38',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
