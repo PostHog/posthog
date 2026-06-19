@@ -716,6 +716,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 "Add a primary key on the source table and retry."
             )
 
+        # Switching sync type across the xmin boundary changes the physical Delta schema: xmin
+        # force-projects a non-nullable `_ph_xmin` control column that no other sync type writes.
+        # Reusing the existing Delta table fails the write — the column is missing on the way in, or
+        # lingers on the way out — so force a full resync to rebuild the table from scratch.
+        if (
+            "sync_type" in data
+            and sync_type != instance.sync_type
+            and ExternalDataSchema.SyncType.XMIN in (sync_type, instance.sync_type)
+        ):
+            validated_data.setdefault("sync_type_config", instance.sync_type_config)
+            validated_data["sync_type_config"]["reset_pipeline"] = True
+            if should_sync if should_sync is not None else instance.should_sync:
+                trigger_refresh = True
+
         # When re-enabling a webhook schema, force a full refresh to avoid missing data
         if (
             should_sync is True

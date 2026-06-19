@@ -4261,3 +4261,60 @@ async def test_postgres_xmin_wraparound_or_range(team, postgres_config, postgres
 
     res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_wrap ORDER BY id", team)
     assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, postgres_connection):
+    """Switching an already-synced table to xmin rebuilds the Delta table. Without the resync the
+    write fails: the old physical schema lacks the non-nullable `_ph_xmin` control column."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.switch_tbl (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.switch_tbl (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # First sync as incremental — the Delta table is created without `_ph_xmin`.
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="switch_tbl",
+        table_name="postgres_switch_tbl",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_switch_tbl ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+    # Switch to xmin with reset_pipeline — what the serializer sets when crossing the xmin boundary.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    schema.sync_type = ExternalDataSchema.SyncType.XMIN
+    schema.sync_type_config = {"primary_key_columns": ["id"], "reset_pipeline": True}
+    await sync_to_async(schema.save)()
+
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.switch_tbl (id, name) VALUES (2, 'b')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    # The table was rebuilt from scratch under xmin (first xmin run reads everything below the
+    # ceiling), so both rows land and the `_ph_xmin` column is present.
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT id, name, _ph_xmin FROM postgres_switch_tbl ORDER BY id", team
+    )
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a"), (2, "b")]
+    assert all(r[2] is not None for r in res.results)
+
+    # Reset consumed: xmin state seeded fresh, reset_pipeline cleared.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.sync_type_config.get("reset_pipeline") is None
+    assert schema.xmin_last_value is not None
