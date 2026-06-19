@@ -18,7 +18,8 @@ interface EditorProps {
 // editor never fights the user mid-typing.
 function formatJSON(value: JsonType): string {
     if (typeof value === 'object') {
-        return value !== null ? JSON.stringify(value, null, 2) : ''
+        // Includes `null` -> 'null', matching the prior rendering for null payloads
+        return JSON.stringify(value, null, 2)
     }
     const str = value?.toString() || ''
     try {
@@ -42,7 +43,9 @@ export function JSONEditorInput({ onChange, placeholder, value = '', readOnly = 
     const lastEmitted = useRef<string | undefined>(undefined)
 
     useEffect(() => {
-        const incoming = typeof value === 'object' ? value : (value?.toString() ?? '')
+        // Normalize to a string so the comparison is type-safe even when `value` is an object —
+        // `onChange` only ever emits strings, so an object `value` is always an external change.
+        const incoming = typeof value === 'object' ? JSON.stringify(value) : (value?.toString() ?? '')
         if (incoming !== lastEmitted.current) {
             setValString(formatJSON(value))
         }
