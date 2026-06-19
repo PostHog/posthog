@@ -35,9 +35,22 @@ async function slackCall(
     if (!res.ok) {
         throw new Error(`slack.${method} HTTP ${res.status}`)
     }
-    const j = (await res.json()) as { ok: boolean; error?: string }
+    const j = (await res.json()) as {
+        ok: boolean
+        error?: string
+        warning?: string
+        response_metadata?: { messages?: string[] }
+    }
     if (!j.ok) {
-        throw new Error(`slack.${method} error: ${j.error ?? 'unknown'}`)
+        // Include Slack's warning + field messages so the agent can self-correct.
+        const parts = [`slack.${method} error: ${j.error ?? 'unknown'}`]
+        if (j.warning) {
+            parts.push(`warning: ${j.warning}`)
+        }
+        if (j.response_metadata?.messages?.length) {
+            parts.push(`detail: ${j.response_metadata.messages.join('; ')}`)
+        }
+        throw new Error(parts.join(' | '))
     }
     return j
 }

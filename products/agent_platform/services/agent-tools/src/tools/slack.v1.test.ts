@@ -205,4 +205,25 @@ describe('slack.* tools', () => {
             /channel_not_found/
         )
     })
+
+    it('surfaces slack warning + field detail so the agent can self-correct', async () => {
+        const http: HttpFetcher = {
+            fetch: vi.fn(
+                async () =>
+                    ({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            ok: false,
+                            error: 'invalid_arguments',
+                            warning: 'missing_charset',
+                            response_metadata: { messages: ['[ERROR] missing required field: ts'] },
+                        }),
+                    }) as unknown as Response
+            ),
+        }
+        await expect(slackPostMessageV1.run({ channel: 'C01', text: 'hi' }, ctxWithSlack(http))).rejects.toThrow(
+            /missing_charset.*missing required field: ts/
+        )
+    })
 })
