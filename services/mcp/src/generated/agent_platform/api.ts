@@ -161,6 +161,7 @@ export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentio
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigBlockExternalSharedChannelsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault = `project`
 
@@ -299,6 +300,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                     .boolean()
                                     .default(
                                         agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault
+                                    ),
+                                block_external_shared_channels: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigBlockExternalSharedChannelsDefault
                                     ),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
                             }),
@@ -813,6 +819,7 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfi
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigBlockExternalSharedChannelsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault = `project`
 
@@ -951,6 +958,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                     .boolean()
                                     .default(
                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault
+                                    ),
+                                block_external_shared_channels: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigBlockExternalSharedChannelsDefault
                                     ),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
                             }),

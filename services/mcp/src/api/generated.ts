@@ -8043,6 +8043,7 @@ export namespace Schemas {
       allow_workspace_participants: boolean;
       ack_reaction?: string;
       allow_direct_messages: boolean;
+      block_external_shared_channels: boolean;
       trusted_workspaces: string[] | '*';
     };
     } | {
@@ -33467,6 +33468,7 @@ export namespace Schemas {
       allow_workspace_participants: boolean;
       ack_reaction?: string;
       allow_direct_messages: boolean;
+      block_external_shared_channels: boolean;
       trusted_workspaces: string[] | '*';
     };
     } | {

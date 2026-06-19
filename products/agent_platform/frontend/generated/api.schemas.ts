@@ -231,6 +231,7 @@ export type AgentRevisionApiSpecTriggersItem =
               allow_workspace_participants: boolean
               ack_reaction?: string
               allow_direct_messages: boolean
+              block_external_shared_channels: boolean
               trusted_workspaces: string[] | '*'
           }
       }
@@ -591,6 +592,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
               allow_workspace_participants: boolean
               ack_reaction?: string
               allow_direct_messages: boolean
+              block_external_shared_channels: boolean
               trusted_workspaces: string[] | '*'
           }
       }
