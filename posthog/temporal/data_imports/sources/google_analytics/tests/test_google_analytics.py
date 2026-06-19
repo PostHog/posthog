@@ -13,7 +13,7 @@ from posthog.temporal.data_imports.sources.google_analytics.google_analytics imp
     CHUNK_DAYS,
     HISTORY_DAYS,
     LOOKBACK_DAYS,
-    QUOTA_MAX_RETRIES,
+    RUNREPORT_MAX_RETRIES,
     GoogleAnalyticsQuotaExceededError,
     GoogleAnalyticsResumeConfig,
     _convert_metric_value,
@@ -23,10 +23,10 @@ from posthog.temporal.data_imports.sources.google_analytics.google_analytics imp
     _is_retryable_server_error,
     _iter_chunks,
     _parse_ga4_date,
-    _quota_backoff_seconds,
     _resolve_window,
     _rows_to_dicts,
     _run_report,
+    _runreport_backoff_seconds,
     google_analytics_source,
     normalize_property_id,
 )
@@ -251,12 +251,12 @@ def test_is_retryable_server_error(status_code, expected):
 
 def test_quota_backoff_honors_retry_after():
     response = _fake_response(429, headers={"Retry-After": "17"})
-    assert _quota_backoff_seconds(response, attempt=0) == 17.0
+    assert _runreport_backoff_seconds(response, attempt=0) == 17.0
 
 
 def test_quota_backoff_falls_back_to_exponential():
     response = _fake_response(429, headers={"Retry-After": "soon"})
-    assert _quota_backoff_seconds(response, attempt=2) == ga.QUOTA_BACKOFF_BASE_SECONDS * 4
+    assert _runreport_backoff_seconds(response, attempt=2) == ga.RUNREPORT_BACKOFF_BASE_SECONDS * 4
 
 
 def test_run_report_returns_payload_on_success():
@@ -324,7 +324,7 @@ def test_run_report_raises_after_exhausting_quota_retries(monkeypatch):
             offset=0,
         )
 
-    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
+    assert session.post.call_count == RUNREPORT_MAX_RETRIES + 1
 
 
 @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
@@ -386,7 +386,7 @@ def test_run_report_raises_http_error_after_exhausting_server_error_retries(monk
             offset=0,
         )
 
-    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
+    assert session.post.call_count == RUNREPORT_MAX_RETRIES + 1
 
 
 def _report_payload(dates: list[str], users: list[int], row_count: int | None = None) -> dict:

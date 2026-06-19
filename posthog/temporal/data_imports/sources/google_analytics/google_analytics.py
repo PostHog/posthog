@@ -40,11 +40,12 @@ LOOKBACK_DAYS = 2
 CHUNK_DAYS = 30
 PAGE_LIMIT = 50000  # runReport allows up to 250k rows/request; keep payloads modest
 
-# The Data API reports quota exhaustion (property tokens, concurrent requests)
-# as HTTP 429 RESOURCE_EXHAUSTED. These are transient — back off and retry
-# inline, then fall back to a Temporal activity retry via the resumable state.
-QUOTA_MAX_RETRIES = 5
-QUOTA_BACKOFF_BASE_SECONDS = 5.0
+# Shared runReport retry policy for transient failures: 429 RESOURCE_EXHAUSTED
+# quota exhaustion (property tokens, concurrent requests) and 5xx server errors.
+# Both are transient — back off and retry inline, then fall back to a Temporal
+# activity retry via the resumable state.
+RUNREPORT_MAX_RETRIES = 5
+RUNREPORT_BACKOFF_BASE_SECONDS = 5.0
 
 _INTEGER_METRIC_TYPES = frozenset({"TYPE_INTEGER"})
 
@@ -117,15 +118,15 @@ def _is_retryable_server_error(response: requests.Response) -> bool:
     return 500 <= response.status_code < 600
 
 
-def _quota_backoff_seconds(response: requests.Response, attempt: int) -> float:
-    """Seconds to wait before retrying a quota error: honor `Retry-After`, else exponential."""
+def _runreport_backoff_seconds(response: requests.Response, attempt: int) -> float:
+    """Seconds to wait before retrying a transient error: honor `Retry-After`, else exponential."""
     retry_after = response.headers.get("Retry-After")
     if retry_after is not None:
         try:
             return float(retry_after)
         except ValueError:
             pass
-    return QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
+    return RUNREPORT_BACKOFF_BASE_SECONDS * (2**attempt)
 
 
 def _run_report(
@@ -150,7 +151,7 @@ def _run_report(
     }
     url = f"{GA4_API_BASE}/properties/{pid}:runReport"
 
-    for attempt in range(QUOTA_MAX_RETRIES + 1):
+    for attempt in range(RUNREPORT_MAX_RETRIES + 1):
         response = session.post(url, json=body)
         if response.ok:
             return response.json()
@@ -169,15 +170,15 @@ def _run_report(
             # `get_non_retryable_errors` can match "403 Client Error" / "401 Client Error".
             response.raise_for_status()
 
-        if attempt == QUOTA_MAX_RETRIES:
+        if attempt == RUNREPORT_MAX_RETRIES:
             if is_quota:
                 raise GoogleAnalyticsQuotaExceededError(
-                    f"Data API quota for property '{pid}' still exhausted after {QUOTA_MAX_RETRIES} retries"
+                    f"Data API quota for property '{pid}' still exhausted after {RUNREPORT_MAX_RETRIES} retries"
                 )
             # A transient 5xx that never cleared — surface the HTTPError so Temporal retries the activity.
             response.raise_for_status()
 
-        wait = _quota_backoff_seconds(response, attempt)
+        wait = _runreport_backoff_seconds(response, attempt)
         logger.warning("GA4 runReport failed, backing off", property_id=pid, attempt=attempt, wait_seconds=wait)
         time.sleep(wait)
 
