@@ -2328,6 +2328,14 @@ jobs:
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
+                  # Pick the split algorithm at runtime: optimal_chunks only when the
+                  # installed pytest-split offers it, else duration_based_chunks. A workflow
+                  # edit runs merged with master, so an unrebased PR on older pytest-split
+                  # must not hit an unknown --splitting-algorithm. See AGENTS.md (CI).
+                  SPLITTING_ALGORITHM=duration_based_chunks
+                  if python -c "from pytest_split.algorithms import Algorithms; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                      SPLITTING_ALGORITHM=optimal_chunks
+                  fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # No --splits/--group (no sharding), no --store-durations (don't pollute timing
@@ -2361,7 +2369,7 @@ jobs:
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 --store-durations \
                         --pytest-durations=100 \
-                        --splitting-algorithm=duration_based_chunks \
+                        --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         --reruns 2 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
@@ -2416,6 +2424,14 @@ jobs:
                   TEMPORAL_FILES: ${{ needs.select-tests.outputs.temporal_files }}
               run: |
                   set +e
+                  # Pick the split algorithm at runtime: optimal_chunks only when the
+                  # installed pytest-split offers it, else duration_based_chunks. A workflow
+                  # edit runs merged with master, so an unrebased PR on older pytest-split
+                  # must not hit an unknown --splitting-algorithm. See AGENTS.md (CI).
+                  SPLITTING_ALGORITHM=duration_based_chunks
+                  if python -c "from pytest_split.algorithms import Algorithms; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                      SPLITTING_ALGORITHM=optimal_chunks
+                  fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --store-durations (don't pollute
                       # timing data with a partial run), no --reruns (fail loud; the ready
@@ -2436,7 +2452,7 @@ jobs:
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
-                          --splitting-algorithm=duration_based_chunks \
+                          --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           --reruns 2 --reruns-delay 1 \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
