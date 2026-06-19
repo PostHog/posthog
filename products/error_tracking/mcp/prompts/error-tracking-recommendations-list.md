@@ -19,7 +19,7 @@ Only act on recommendations that are not `completed` and not dismissed.
 
 `meta.alerts` is a list of `{ key, enabled }`. Keys: `error-tracking-issue-created` (new issue appears), `error-tracking-issue-reopened` (a resolved issue regresses), `error-tracking-issue-spiking` (volume spikes). `enabled: false` means no alert is wired for that trigger. Completed once all are enabled.
 
-What to do: tell the user which triggers are off and why each is worth turning on, then use the `authoring-error-tracking-alerts` skill to wire up the missing ones — it covers trigger-event selection, integration choice (Slack/webhook/Linear), and dedup against existing alerts. There's no direct alert-creation MCP tool, so the skill is the path; if it isn't available, point them to Error tracking → Alerts in the app.
+What to do: tell the user which triggers are off and why each is worth turning on, then create the missing alerts with the `error-tracking-alerts-create` MCP tool — it covers trigger-event selection and the per-integration payloads (Slack/webhook/Linear). Use the `authoring-error-tracking-alerts` skill for the canonical message bodies and dedup against existing alerts. If the tool isn't available in this session, fall back to the skill, then to Error tracking → Alerts in the app.
 
 ## `rate_limits` — ingestion limits to set
 
