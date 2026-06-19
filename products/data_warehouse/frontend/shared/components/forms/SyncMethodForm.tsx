@@ -93,20 +93,9 @@ const getCdcSyncSupported = (
     }
 }
 
-const getXminSyncSupported = (
-    schema: ExternalDataSourceSyncSchema
-): { disabled: true; disabledReason: string } | { disabled: false } => {
-    if (!schema.xmin_available) {
-        return {
-            disabled: true,
-            disabledReason: 'This table has no primary key, which is required for xmin',
-        }
-    }
-
-    return {
-        disabled: false,
-    }
-}
+// xmin is offered only when the source advertises it for the table and the gating flag is on.
+export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema, xminFlagEnabled: boolean): boolean =>
+    !schema.webhook_only && xminFlagEnabled && !!schema.xmin_available
 
 const getSaveDisabledReason = (
     syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
@@ -172,7 +161,6 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
-    const xminSyncSupported = getXminSyncSupported(schema)
 
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
@@ -303,10 +291,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         })
     }
 
-    if (!hideNonWebhookOptions && xminFlagEnabled && schema.xmin_available) {
+    if (shouldOfferXmin(schema, xminFlagEnabled)) {
         radioOptions.push({
             value: 'xmin',
-            disabledReason: (xminSyncSupported.disabled && xminSyncSupported.disabledReason) || undefined,
             label: (
                 <div className="mb-4 font-normal">
                     <div className="items-center flex leading-[normal] overflow-hidden mb-1">

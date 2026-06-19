@@ -409,6 +409,7 @@ function SyncMethodSection({
                                 incremental_available: schemaIncrementalFields.incremental_available,
                                 append_available: schemaIncrementalFields.append_available,
                                 cdc_available: schemaIncrementalFields.cdc_available,
+                                xmin_available: schemaIncrementalFields.xmin_available,
                                 cdc_table_mode: schema.cdc_table_mode,
                                 incremental_fields: schemaIncrementalFields.incremental_fields,
                                 supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,

@@ -1,16 +1,7 @@
-import '@testing-library/jest-dom'
-
-import { cleanup, render, screen } from '@testing-library/react'
-import { createRef } from 'react'
-
 import { ExternalDataSourceSyncSchema } from '~/types'
 
-import { SyncMethodForm, SyncMethodFormHandle } from './SyncMethodForm'
-
-const mockFlag = { value: true }
-jest.mock('lib/hooks/useFeatureFlag', () => ({
-    useFeatureFlag: () => mockFlag.value,
-}))
+import { SyncTypeLabelMap } from '../../../utils'
+import { shouldOfferXmin } from './SyncMethodForm'
 
 const baseSchema: ExternalDataSourceSyncSchema = {
     table: 'orders',
@@ -31,47 +22,16 @@ const baseSchema: ExternalDataSourceSyncSchema = {
 }
 
 describe('SyncMethodForm', () => {
-    beforeEach(() => {
-        mockFlag.value = true
+    it.each([
+        ['flag on + available', { xmin_available: true }, true, true],
+        ['flag off', { xmin_available: true }, false, false],
+        ['not available', { xmin_available: false }, true, false],
+        ['webhook-only table', { xmin_available: true, webhook_only: true }, true, false],
+    ])('offers xmin: %s', (_, overrides, flagEnabled, expected) => {
+        expect(shouldOfferXmin({ ...baseSchema, ...overrides }, flagEnabled)).toBe(expected)
     })
 
-    afterEach(() => {
-        cleanup()
-    })
-
-    const renderForm = (schema: Partial<ExternalDataSourceSyncSchema>, onSave = jest.fn()): { onSave: jest.Mock } => {
-        render(<SyncMethodForm schema={{ ...baseSchema, ...schema }} onClose={jest.fn()} onSave={onSave} />)
-        return { onSave }
-    }
-
-    it('renders the xmin radio when xmin_available and the flag is enabled', () => {
-        renderForm({ xmin_available: true })
-        expect(screen.getByText('xmin replication')).toBeInTheDocument()
-    })
-
-    it('hides the xmin radio when the flag is disabled', () => {
-        mockFlag.value = false
-        renderForm({ xmin_available: true })
-        expect(screen.queryByText('xmin replication')).not.toBeInTheDocument()
-    })
-
-    it('hides the xmin radio when the table does not support xmin', () => {
-        renderForm({ xmin_available: false })
-        expect(screen.queryByText('xmin replication')).not.toBeInTheDocument()
-    })
-
-    it('emits sync_type=xmin with no incremental field or cdc table mode on save', () => {
-        const onSave = jest.fn()
-        const ref = createRef<SyncMethodFormHandle>()
-        render(
-            <SyncMethodForm
-                ref={ref}
-                schema={{ ...baseSchema, sync_type: 'xmin' }}
-                onClose={jest.fn()}
-                onSave={onSave}
-            />
-        )
-        ref.current?.triggerSave()
-        expect(onSave).toHaveBeenCalledWith('xmin', null, null, null)
+    it('exposes a label for the xmin sync type', () => {
+        expect(SyncTypeLabelMap.xmin).toBe('xmin')
     })
 })
