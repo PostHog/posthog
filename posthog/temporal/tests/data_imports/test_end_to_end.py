@@ -4203,9 +4203,9 @@ async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
     res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
     assert [(r[0], r[1]) for r in res.results] == [(1, "a2"), (2, "b")]
 
-    # Ceiling advanced past the first run's value.
+    # Ceiling advanced strictly past the first run's value — the delta committed new transactions.
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
-    assert schema.xmin_last_value >= first_ceiling
+    assert schema.xmin_last_value > first_ceiling
 
     # Hard deletes are invisible to xmin — a vacuumed tuple leaves nothing to read.
     await postgres_connection.execute("DELETE FROM {schema}.xmin_table WHERE id = 2".format(schema=schema_name))
