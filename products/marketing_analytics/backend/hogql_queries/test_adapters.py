@@ -3,7 +3,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import ClassVar, Union
+from typing import ClassVar, Union, cast
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -2608,16 +2608,17 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     # CONSTANT VALUE TESTS
     # ================================================================
 
-    # Explicit row type widens to ``type[ast.Expr]`` so mypy accepts both ``ast.Field`` and
-    # ``ast.Constant`` rows (otherwise the literal list infers ``type[ast.Field]`` from row 0).
-    _resolve_field_or_constant_cases: list[tuple[str, str, type[ast.Expr]]] = [
-        ("simple_column", "campaign_name", ast.Field),
-        ("constant_source", "const:linkedin", ast.Constant),
-        ("constant_currency", "const:USD", ast.Constant),
-    ]
-
-    @parameterized.expand(_resolve_field_or_constant_cases)
-    def test_resolve_field_or_constant(self, _name: str, field_value: str, expected_type: type[ast.Expr]) -> None:
+    @parameterized.expand(
+        cast(
+            list[tuple[str, str, type[ast.Expr]]],
+            [
+                ("simple_column", "campaign_name", ast.Field),
+                ("constant_source", "const:linkedin", ast.Constant),
+                ("constant_currency", "const:USD", ast.Constant),
+            ],
+        )
+    )
+    def test_resolve_field_or_constant(self, _name, field_value, expected_type):
         table = self._create_mock_table("test_table", "aws")
         source_map = self._create_source_map()
         config = ExternalConfig(
@@ -2630,9 +2631,9 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = AWSAdapter(config=config, context=self.context)
         result = adapter._resolve_field_or_constant(field_value)
         assert isinstance(result, expected_type)
-        if isinstance(result, ast.Constant):
+        if expected_type == ast.Constant:
             assert result.value == field_value[len("const:") :]
-        elif isinstance(result, ast.Field):
+        elif expected_type == ast.Field:
             assert result.chain == [field_value]
 
     def test_source_field_with_constant_value(self):
