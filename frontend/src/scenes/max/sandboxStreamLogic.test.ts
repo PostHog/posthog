@@ -1044,6 +1044,51 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
+    describe('assistant message id uniqueness', () => {
+        it('assigns unique ids to no-messageId finalized messages across turns (no React key collision)', async () => {
+            // S3 replay drops `agent_message_chunk`, so each prior turn arrives as a bare finalized
+            // `agent_message` with no `messageId` — they all fall back to the same id base. Each must
+            // still get a unique thread-item id, or they collide as React keys and render duplicated.
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'first answer' } }),
+                notification('_posthog/turn_complete', {}),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'second answer' } }),
+                notification('_posthog/turn_complete', {}),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'third answer' } }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame, 'replay'))
+            }).toFinishAllListeners()
+
+            const assistants = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistants.map((item) => item.text)).toEqual(['first answer', 'second answer', 'third answer'])
+            const ids = assistants.map((item) => item.id)
+            expect(new Set(ids).size).toEqual(ids.length)
+        })
+
+        it('assigns unique ids to no-messageId chunked messages across turns', async () => {
+            // The live path: each turn streams chunks with no `messageId` (so the same `current` base),
+            // closed by a finalize. Distinct turns must still produce distinct bubble ids.
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'one' } }),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'one' } }),
+                notification('_posthog/turn_complete', {}),
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'two' } }),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'two' } }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame, 'live'))
+            }).toFinishAllListeners()
+
+            const assistants = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistants.map((item) => item.text)).toEqual(['one', 'two'])
+            const ids = assistants.map((item) => item.id)
+            expect(new Set(ids).size).toEqual(ids.length)
+        })
+    })
+
     describe('resume-context filter (§6)', () => {
         it('drops the synthetic resume-context prompt on a resume run but keeps the genuine turn (§6)', async () => {
             const resumePrompt =

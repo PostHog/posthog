@@ -537,14 +537,13 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
 
     const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
         const idx = findLastBufferIndex(items, id, type, false)
-        if (idx === -1) {
-            items.push({ id, type, text: delta, complete: false })
-            return
-        }
-        // Continue the matched buffer only while it's still the tail and incomplete; otherwise a
-        // finalized buffer or one interrupted by a tool call/separator starts a fresh bubble so text
-        // resuming after an interruption renders in chronological order.
-        if (items[idx].complete || idx !== items.length - 1) {
+        // Continue the matched buffer only while it's still the tail and incomplete; otherwise (no
+        // buffer, a finalized one, or one interrupted by a tool call/separator) start a fresh bubble
+        // so text resuming after an interruption renders in chronological order. Every fresh bubble
+        // gets a unique `${id}@<seq>` id — the wire often omits `messageId` (and the S3 replay always
+        // does, since the backend drops chunks), so the bare fallback id would collide as a React key
+        // across messages. The continuation lookup matches the `${id}@` prefix, so it still works.
+        if (idx === -1 || items[idx].complete || idx !== items.length - 1) {
             items.push({ id: `${id}@${bubbleSeq++}`, type, text: delta, complete: false })
             return
         }
@@ -571,7 +570,10 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             }
         }
         if (idx === -1) {
-            items.push({ id, type: 'assistant_message', text, complete: true })
+            // No buffer to close (the common replay case: S3 drops chunks, so a finalized message
+            // arrives alone). Push a fresh bubble with a unique id — a bare fallback id would collide
+            // as a React key with every other no-`messageId` message in the thread.
+            items.push({ id: `${id}@${bubbleSeq++}`, type: 'assistant_message', text, complete: true })
             return
         }
         items[idx] = { ...items[idx], text, complete: true }
