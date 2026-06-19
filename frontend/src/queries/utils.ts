@@ -69,6 +69,7 @@ import {
     SessionsQuery,
     StickinessQuery,
     TracesQuery,
+    TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
     WebGoalsQuery,
@@ -570,6 +571,13 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
         return query.lifecycleFilter?.showLegend
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.showLegend
+    }
+    return undefined
+}
+
+export const getLegendPosition = (query: InsightQueryNode): TrendsFilter['legendPosition'] | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.legendPosition
     }
     return undefined
 }

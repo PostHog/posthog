@@ -43600,6 +43600,12 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
+                },
                 "metricChangeDecreaseColor": {
                     "description": "Metric display: change pill color when the metric decreased. Defaults to red.",
                     "type": "string"
