@@ -1795,6 +1795,7 @@ class ExternalDataSourceType(StrEnum):
     NEW_RELIC = "NewRelic"
     CUSTOM = "Custom"
     TILE38 = "Tile38"
+    CHATWOOT = "Chatwoot"
 
 
 class ExternalQueryErrorCode(StrEnum):

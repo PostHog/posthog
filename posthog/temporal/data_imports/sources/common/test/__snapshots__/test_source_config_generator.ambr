@@ -135,6 +135,7 @@
           ExternalDataSourceType.CHARGEDESK: ChargedeskSourceConfig,
           ExternalDataSourceType.CHARGIFY: ChargifySourceConfig,
           ExternalDataSourceType.CHARTMOGUL: ChartMogulSourceConfig,
+          ExternalDataSourceType.CHATWOOT: ChatwootSourceConfig,
           ExternalDataSourceType.CHECKOUTCOM: CheckoutComSourceConfig,
           ExternalDataSourceType.CHIFT: ChiftSourceConfig,
           ExternalDataSourceType.CHORUS: ChorusSourceConfig,

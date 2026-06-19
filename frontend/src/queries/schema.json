@@ -21295,7 +21295,8 @@
                 "Neon",
                 "NewRelic",
                 "Custom",
-                "Tile38"
+                "Tile38",
+                "Chatwoot"
             ],
             "type": "string"
         },

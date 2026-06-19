@@ -6875,6 +6875,7 @@ export const externalDataSources = [
     'NewRelic',
     'Custom',
     'Tile38',
+    'Chatwoot',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
