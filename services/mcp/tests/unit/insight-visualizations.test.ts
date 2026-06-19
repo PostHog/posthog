@@ -87,6 +87,7 @@ describe('insight visualizations', () => {
             it.each([
                 ['DataVisualizationNode wrapping HogQLQuery', 'DataVisualizationNode', 'HogQLQuery', 'table'],
                 ['InsightVizNode wrapping TrendsQuery', 'InsightVizNode', 'TrendsQuery', 'trends'],
+                ['InsightVizNode wrapping StickinessQuery', 'InsightVizNode', 'StickinessQuery', 'stickiness'],
                 ['InsightVizNode wrapping RetentionQuery', 'InsightVizNode', 'RetentionQuery', 'retention'],
             ] as const)('unwraps %s to its inner kind', (_label, wrapperKind, sourceKind, expected) => {
                 // Wrapper nodes carry the real query kind on `source.kind`; the fallback must
