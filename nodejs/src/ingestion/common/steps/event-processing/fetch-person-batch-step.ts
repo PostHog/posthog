@@ -35,8 +35,10 @@ function personKey(teamId: number, distinctId: string): string {
  */
 export function createFetchPersonBatchStep<T extends FetchPersonBatchStepInput>(
     personRepository: PersonReadRepository
-): BatchProcessingStep<T, T & { person: Person | null }> {
-    return async function fetchPersonBatchStep(inputs: T[]): Promise<PipelineResult<T & { person: Person | null }>[]> {
+): BatchProcessingStep<T, T & { person: Person | undefined }> {
+    return async function fetchPersonBatchStep(
+        inputs: T[]
+    ): Promise<PipelineResult<T & { person: Person | undefined }>[]> {
         if (inputs.length === 0) {
             return []
         }
@@ -52,11 +54,12 @@ export function createFetchPersonBatchStep<T extends FetchPersonBatchStepInput>(
         // Build lookup map
         const personMap = new Map(persons.map((p) => [personKey(p.team_id, p.distinct_id), p as Person]))
 
-        // Map results back to inputs
+        // Map results back to inputs. `undefined` (not `null`) for not-found, matching
+        // the optional `person?` that createCreateEventStep / createEvent expect.
         return inputs.map((input) => {
             const person = input.event.distinct_id
-                ? (personMap.get(personKey(input.team.id, input.event.distinct_id)) ?? null)
-                : null
+                ? personMap.get(personKey(input.team.id, input.event.distinct_id))
+                : undefined
             return ok({ ...input, person })
         })
     }
