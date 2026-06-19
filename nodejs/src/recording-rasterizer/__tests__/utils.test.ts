@@ -1,4 +1,4 @@
-import { elapsed } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/utils'
+import { elapsed } from '~/recording-rasterizer/utils'
 
 describe('elapsed', () => {
     it('returns a non-negative number', () => {

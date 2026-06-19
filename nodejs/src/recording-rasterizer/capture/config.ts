@@ -1,7 +1,7 @@
 import type { PlayerConfig } from '@posthog/replay-headless/protocol'
 
-import { RasterizationError } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/errors'
-import { CaptureConfig, RasterizeRecordingInput } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/types'
+import { RasterizationError } from '~/recording-rasterizer/errors'
+import { CaptureConfig, RasterizeRecordingInput } from '~/recording-rasterizer/types'
 
 const DEFAULT_PLAYBACK_SPEED = 4
 const DEFAULT_FPS = 24

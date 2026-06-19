@@ -5,20 +5,20 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 
-import { BrowserPool } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/browser-pool'
-import { rasterizeRecording } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/recorder'
-import { RasterizationError } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/errors'
-import { createLogger } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/logger'
-import { RasterizationMetrics } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/metrics'
-import { computeVideoTimestamps } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/postprocess'
-import { uploadToS3 } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/storage'
+import { BrowserPool } from '~/recording-rasterizer/capture/browser-pool'
+import { rasterizeRecording } from '~/recording-rasterizer/capture/recorder'
+import { RasterizationError } from '~/recording-rasterizer/errors'
+import { createLogger } from '~/recording-rasterizer/logger'
+import { RasterizationMetrics } from '~/recording-rasterizer/metrics'
+import { computeVideoTimestamps } from '~/recording-rasterizer/postprocess'
+import { uploadToS3 } from '~/recording-rasterizer/storage'
 import {
     ActivityTimings,
     RasterizationProgress,
     RasterizeRecordingInput,
     RasterizeRecordingOutput,
-} from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/types'
-import { elapsed } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/utils'
+} from '~/recording-rasterizer/types'
+import { elapsed } from '~/recording-rasterizer/utils'
 
 function toActivityError(err: unknown): Error {
     if (err instanceof RasterizationError && !err.retryable) {

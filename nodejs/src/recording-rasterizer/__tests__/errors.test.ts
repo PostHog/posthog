@@ -1,4 +1,4 @@
-import { RasterizationError } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/errors'
+import { RasterizationError } from '~/recording-rasterizer/errors'
 
 describe('RasterizationError', () => {
     it('sets name, message, retryable, and code', () => {

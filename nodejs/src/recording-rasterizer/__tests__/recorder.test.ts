@@ -1,16 +1,16 @@
-import { BlockProxy } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/block-proxy'
-import { BrowserPool } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/browser-pool'
-import { capturePlayback } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/capture'
-import { CapturePage } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/capture-page'
-import { PlayerController } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/player'
-import { rasterizeRecording } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/recorder'
-import { RasterizeRecordingInput } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/types'
+import { BlockProxy } from '~/recording-rasterizer/capture/block-proxy'
+import { BrowserPool } from '~/recording-rasterizer/capture/browser-pool'
+import { capturePlayback } from '~/recording-rasterizer/capture/capture'
+import { CapturePage } from '~/recording-rasterizer/capture/capture-page'
+import { PlayerController } from '~/recording-rasterizer/capture/player'
+import { rasterizeRecording } from '~/recording-rasterizer/capture/recorder'
+import { RasterizeRecordingInput } from '~/recording-rasterizer/types'
 
-jest.mock('~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/capture')
-jest.mock('~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/capture-page')
-jest.mock('~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/block-proxy')
-jest.mock('~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/player')
-jest.mock('~/ingestion/pipelines/sessionreplay/recording-rasterizer/logger', () => ({
+jest.mock('~/recording-rasterizer/capture/capture')
+jest.mock('~/recording-rasterizer/capture/capture-page')
+jest.mock('~/recording-rasterizer/capture/block-proxy')
+jest.mock('~/recording-rasterizer/capture/player')
+jest.mock('~/recording-rasterizer/logger', () => ({
     createLogger: () => ({
         info: jest.fn(),
         warn: jest.fn(),

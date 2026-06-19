@@ -1,8 +1,8 @@
 import { Frame, HTTPRequest, Page } from 'puppeteer'
 
-import { BlockProxy } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/block-proxy'
-import { CapturePage } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/capture-page'
-import { RequestInterceptor } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/request-interceptor'
+import { BlockProxy } from '~/recording-rasterizer/capture/block-proxy'
+import { CapturePage } from '~/recording-rasterizer/capture/capture-page'
+import { RequestInterceptor } from '~/recording-rasterizer/capture/request-interceptor'
 
 const mockFetch = jest.fn()
 jest.mock('~/utils/request', () => ({

@@ -6,10 +6,10 @@ import * as prometheus from 'prom-client'
 import express from 'ultimate-express'
 
 import { EncryptionCodec } from '~/common/temporal/codec'
-import { BrowserPool } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/browser-pool'
-import { playerHtmlCache } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/capture-page'
-import { config } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/config'
-import { createLogger } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/logger'
+import { BrowserPool } from '~/recording-rasterizer/capture/browser-pool'
+import { playerHtmlCache } from '~/recording-rasterizer/capture/capture-page'
+import { config } from '~/recording-rasterizer/config'
+import { createLogger } from '~/recording-rasterizer/logger'
 
 import { createActivities } from './activities'
 

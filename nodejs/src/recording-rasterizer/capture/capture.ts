@@ -1,15 +1,10 @@
 import * as fs from 'fs/promises'
 import { capture as captureVideo } from 'puppeteer-capture'
 
-import { RasterizationError } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/errors'
-import { type Logger, createLogger } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/logger'
-import {
-    CaptureConfig,
-    InactivityPeriod,
-    RasterizationProgress,
-    RecordingResult,
-} from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/types'
-import { elapsed } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/utils'
+import { RasterizationError } from '~/recording-rasterizer/errors'
+import { type Logger, createLogger } from '~/recording-rasterizer/logger'
+import { CaptureConfig, InactivityPeriod, RasterizationProgress, RecordingResult } from '~/recording-rasterizer/types'
+import { elapsed } from '~/recording-rasterizer/utils'
 
 import { PlayerController } from './player'
 

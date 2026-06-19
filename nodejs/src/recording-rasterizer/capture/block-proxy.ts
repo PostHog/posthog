@@ -2,10 +2,10 @@ import { HTTPRequest } from 'puppeteer'
 
 import { BLOCK_REQUEST_PREFIX } from '@posthog/replay-headless/protocol'
 
-import { type RecordingBlock as FullRecordingBlock } from '~/ingestion/pipelines/sessionreplay/recording-api/types'
-import { RasterizationError } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/errors'
-import { type Logger, createLogger } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/logger'
-import { RasterizeRecordingInput } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/types'
+import { type RecordingBlock as FullRecordingBlock } from '~/recording-api/types'
+import { RasterizationError } from '~/recording-rasterizer/errors'
+import { type Logger, createLogger } from '~/recording-rasterizer/logger'
+import { RasterizeRecordingInput } from '~/recording-rasterizer/types'
 import { internalFetch } from '~/utils/request'
 
 type RecordingBlock = Pick<FullRecordingBlock, 'key' | 'start_byte' | 'end_byte'>

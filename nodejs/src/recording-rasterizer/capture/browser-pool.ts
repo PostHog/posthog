@@ -1,9 +1,9 @@
 import { Browser, Page } from 'puppeteer'
 import { launch as launchForCapture } from 'puppeteer-capture'
 
-import { config } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/config'
-import { createLogger } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/logger'
-import { RasterizationMetrics } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/metrics'
+import { config } from '~/recording-rasterizer/config'
+import { createLogger } from '~/recording-rasterizer/logger'
+import { RasterizationMetrics } from '~/recording-rasterizer/metrics'
 
 const log = createLogger()
 

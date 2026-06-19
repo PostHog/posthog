@@ -1,6 +1,6 @@
-import { BlockProxy } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/block-proxy'
-import { RasterizationError } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/errors'
-import { RasterizeRecordingInput } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/types'
+import { BlockProxy } from '~/recording-rasterizer/capture/block-proxy'
+import { RasterizationError } from '~/recording-rasterizer/errors'
+import { RasterizeRecordingInput } from '~/recording-rasterizer/types'
 
 const mockInternalFetch = jest.fn()
 jest.mock('~/utils/request', () => ({

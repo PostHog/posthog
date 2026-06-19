@@ -1,19 +1,19 @@
 import type { PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
 
-import { BlockProxy } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/block-proxy'
-import { CapturePage } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/capture-page'
-import { PlayerController } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/player'
-import { RasterizationError } from '~/ingestion/pipelines/sessionreplay/recording-rasterizer/errors'
+import { BlockProxy } from '~/recording-rasterizer/capture/block-proxy'
+import { CapturePage } from '~/recording-rasterizer/capture/capture-page'
+import { PlayerController } from '~/recording-rasterizer/capture/player'
+import { RasterizationError } from '~/recording-rasterizer/errors'
 
-jest.mock('~/ingestion/pipelines/sessionreplay/recording-rasterizer/capture/request-interceptor', () => ({
+jest.mock('~/recording-rasterizer/capture/request-interceptor', () => ({
     RequestInterceptor: jest.fn().mockImplementation(() => ({
         install: jest.fn().mockResolvedValue(undefined),
         waitForSettled: jest.fn().mockResolvedValue(undefined),
     })),
 }))
 
-jest.mock('~/ingestion/pipelines/sessionreplay/recording-rasterizer/logger', () => ({
+jest.mock('~/recording-rasterizer/logger', () => ({
     createLogger: () => ({
         info: jest.fn(),
         warn: jest.fn(),
