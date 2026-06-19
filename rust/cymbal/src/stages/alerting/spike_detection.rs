@@ -1280,7 +1280,8 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn test_get_spiking_issues_does_not_retry_unrecoverable_error() {
         let mut ctx = TestContext::new();
-        ctx.redis.mget_error(CustomRedisError::InvalidConfiguration("bad".to_string()));
+        ctx.redis
+            .mget_error(CustomRedisError::InvalidConfiguration("bad".to_string()));
 
         let configs = HashMap::from([(ctx.team_id, SpikeDetectionConfig::default())]);
         let empty_props = HashMap::new();
