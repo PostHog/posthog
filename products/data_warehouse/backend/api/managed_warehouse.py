@@ -212,10 +212,11 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
     the row can be reconciled later from the warehouse status.
     """
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
-    from posthog.ducklake.common import upsert_duckgres_server_for_org  # noqa: PLC0415
+    from posthog.ducklake.common import derive_duckling_bucket, upsert_duckgres_server_for_org  # noqa: PLC0415
 
     try:
         connection = _present_connection({"database": database_name, "username": body.get("username", "root")})
+        bucket, bucket_region = derive_duckling_bucket(str(organization_id))
         upsert_duckgres_server_for_org(
             organization_id,
             host=connection["host"],
@@ -223,6 +224,8 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
             database=connection["database"],
             username=connection["username"],
             password=body.get("password", ""),
+            bucket=bucket,
+            bucket_region=bucket_region,
         )
     except Exception:
         logger.exception("Failed to persist DuckgresServer after provision", organization_id=str(organization_id))

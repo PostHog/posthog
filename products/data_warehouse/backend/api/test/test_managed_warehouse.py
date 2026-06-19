@@ -48,6 +48,8 @@ def test_provision_persists_duckgres_server_on_success(mock_request: MagicMock) 
     assert server.database == "ducklake"
     assert server.username == "root"
     assert server.password == "secret"
+    assert server.bucket == f"posthog-duckling-{org.id}-prod-us"
+    assert server.bucket_region == "us-east-1"
 
 
 @pytest.mark.django_db

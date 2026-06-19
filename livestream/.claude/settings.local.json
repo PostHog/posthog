@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfix(livestream): Add diagnostic logging to session recording Kafka consumer\n\nAdd logging to help debug why session recording events are not being processed:\n- Log on successful topic subscription\n- Log periodic timeout counts (every 60 timeouts)\n- Log first 5 messages and every 10,000th with header keys\n- Log first 5 dropped messages with full header details\n\nAlso fix fmt.Println to use log.Printf in configs for consistency.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(git commit:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh api:*)",
+      "Bash(git stash:*)",
+      "Bash(git pull:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
