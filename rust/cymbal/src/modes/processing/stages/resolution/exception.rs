@@ -97,7 +97,7 @@ mod test {
         types::{Exception, Stacktrace},
     };
 
-    const PROGUARD_MAP: &str = include_str!("../../../tests/static/proguard/mapping_example.txt");
+    const PROGUARD_MAP: &str = include_str!("../../../../../tests/static/proguard/mapping_example.txt");
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_proguard_resolution(db: PgPool) {
