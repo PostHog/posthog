@@ -1117,8 +1117,11 @@ def _compute_fanout(row_count: int, target_rows_per_file: int, max_fanout: int) 
 
     Pure arithmetic — no ClickHouse I/O, so no retry decorator (the count that feeds it
     is retried in _estimate_export_row_count).
+
+    Fails closed to a single file on an empty export or a non-positive config (these are
+    user-tunable, so a 0 target must not divide-by-zero the backfill).
     """
-    if row_count <= 0:
+    if row_count <= 0 or target_rows_per_file <= 0 or max_fanout <= 0:
         return 1
     return max(1, min(math.ceil(row_count / target_rows_per_file), max_fanout))
 
@@ -1542,8 +1545,13 @@ def export_persons_to_duckling_s3(
         return None
 
     # Size the fan-out from a cheap proxy: persons modified that day (team_id is the
-    # leading primary key). Output rows are these persons' distinct_ids, so this slightly
-    # under-counts — fine for sizing, and persons days are small.
+    # leading primary key). Output rows are these persons' distinct_ids, so this under-counts
+    # by the distinct-ids-per-person ratio (~1-2). We can't use the accurate
+    # person_distinct_id2 count the full export uses: the daily filter is on person._timestamp
+    # (which day a person changed), and person_distinct_id2 has no equivalent per-day column —
+    # counting the actual output would mean running the FINAL'd JOIN, i.e. the export itself.
+    # The under-count only nudges files slightly above target; persons days are small and the
+    # max_s3_file_fanout clamp binds first.
     row_count = _estimate_export_row_count(
         client,
         f"SELECT count() FROM person WHERE team_id = {team_id} AND toDate(_timestamp) = '{date_str}' AND is_deleted = 0",

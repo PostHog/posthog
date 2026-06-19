@@ -1,5 +1,6 @@
 import os
 from datetime import date, datetime, timedelta
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -999,6 +1000,11 @@ class TestComputeFanout:
             ("big_team_day", 72_000_000, 1_000_000, 256, 72),
             ("clamped_to_max", 10_000_000_000, 1_000_000, 256, 256),
             ("smaller_target_more_files", 10_000_000, 500_000, 256, 20),
+            # Fail closed on non-positive (user-tunable) config — must not divide-by-zero.
+            ("zero_target", 10_000_000, 0, 256, 1),
+            ("negative_target", 10_000_000, -1, 256, 1),
+            ("zero_max_fanout", 10_000_000, 1_000_000, 0, 1),
+            ("negative_max_fanout", 10_000_000, 1_000_000, -5, 1),
         ]
     )
     def test_fanout(self, _label, row_count, target_rows, max_fanout, expected):
@@ -1250,9 +1256,9 @@ class _DuckdbPsycopgAdapter:
     register_files_with_duckling / _glob_run_files / delete_events_partition_data run
     against a local DuckLake catalog instead of being re-implemented in the test."""
 
-    def __init__(self, duck):
+    def __init__(self, duck: Any):
         self._duck = duck
-        self._result = None
+        self._result: Any = None
 
     # The production code uses one connection as both connection and cursor; in this
     # single-threaded test we can be both.
@@ -1326,12 +1332,15 @@ class TestFannedOutLayoutRoundTrip:
         """Drive the PRODUCTION register_files_with_duckling against the real catalog."""
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
         config = DucklingBackfillConfig()
-        return register_files_with_duckling(MagicMock(), target, file_glob, config, _DuckdbPsycopgAdapter(conn))
+        # The adapter duck-types the psycopg.Connection slice these helpers use.
+        adapter = cast("psycopg.Connection[Any]", _DuckdbPsycopgAdapter(conn))
+        return register_files_with_duckling(MagicMock(), target, file_glob, config, adapter)
 
     def _delete_day(self, conn):
         """Drive the PRODUCTION ranged DELETE against the real catalog."""
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
-        delete_events_partition_data(MagicMock(), target, 2, datetime(2026, 6, 17), conn=_DuckdbPsycopgAdapter(conn))
+        adapter = cast("psycopg.Connection[Any]", _DuckdbPsycopgAdapter(conn))
+        delete_events_partition_data(MagicMock(), target, 2, datetime(2026, 6, 17), conn=adapter)
 
     def test_many_files_register_and_all_rows_queryable(self, lake):
         conn, root = lake
