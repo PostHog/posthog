@@ -106,7 +106,7 @@ class SyncFrequencyField(serializers.ChoiceField):
         kwargs.setdefault("allow_null", True)
         super().__init__(**kwargs)
 
-    def to_internal_value(self, data: Any) -> str | None:
+    def to_internal_value(self, data: Any) -> str:
         # Clamp deprecated sub-15min cadences up to the floor before validating against choices.
         if data in DEPRECATED_FAST_SYNC_FREQUENCIES:
             data = "15min"
