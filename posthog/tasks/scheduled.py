@@ -18,7 +18,7 @@ from posthog.tasks.email import (
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
 )
-from posthog.tasks.gateway_credential import refresh_gateway_credentials
+from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flag_definitions_without_cohorts_cache_task,
@@ -228,6 +228,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="10"),
         refresh_gateway_credentials.s(),
         name="gateway credential cache sync",
+    )
+
+    # Gateway credential last-used drain - every 5 min; the only writer of last_used_at for gateway keys.
+    sender.add_periodic_task(
+        crontab(minute="*/5"),
+        drain_gateway_credential_last_used_task.s(),
+        name="gateway credential last-used drain",
     )
 
     # Stale QUEUED task run cleanup - hourly

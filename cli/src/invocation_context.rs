@@ -12,7 +12,7 @@ use std::{
     sync::{Mutex, OnceLock},
     thread::JoinHandle,
 };
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 use crate::{
     api::client::PHClient,
@@ -64,7 +64,7 @@ pub fn init_context(
             .expect("Building PH config succeeds");
         posthog_rs::init_global(ph_config).expect("Initializing PostHog client");
     } else {
-        warn!("Posthog api token not set at build time - is this a debug build?");
+        debug!("Posthog api token not set at build time - is this a debug build?");
     };
 
     Ok(())
@@ -155,14 +155,10 @@ impl InvocationContext {
     }
 
     pub fn finish(&self) {
-        info!("Finishing up....");
-
         self.handles
             .lock()
             .unwrap()
             .drain(..)
             .for_each(|handle| handle.join().unwrap());
-
-        info!("Finished!")
     }
 }

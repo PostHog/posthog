@@ -896,11 +896,15 @@ class CDCExtractActivity:
 
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)
+        synced_tables = {tracker.table_name for tracker in self.write_trackers.values()}
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.COMPLETED
             schema.latest_error = None
             schema.last_synced_at = now
             schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
+            # Breadcrumb for idle tables; _handle_no_changes only covers the whole-source-quiet case.
+            if schema.name not in synced_tables:
+                self._schema_log(schema).info("cdc_extract_no_changes")
 
 
 @activity.defn
