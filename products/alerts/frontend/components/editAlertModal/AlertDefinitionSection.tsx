@@ -175,35 +175,34 @@ export function AlertDefinitionSection({
                         <LemonBanner type="error">{thresholdBoundsFormError}</LemonBanner>
                     ) : null}
                     <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                        <Group name={['condition']}>
-                            <LemonField name="type">
-                                <LemonSelect
-                                    fullWidth
-                                    className="w-40"
-                                    data-attr="alertForm-condition"
-                                    options={[
-                                        {
-                                            label: 'has value',
-                                            value: AlertConditionType.ABSOLUTE_VALUE,
-                                        },
-                                        ...(supportsRelativeConditions
-                                            ? [
-                                                  {
-                                                      label: 'increases by',
-                                                      value: AlertConditionType.RELATIVE_INCREASE,
-                                                      disabledReason: relativeConditionDisabledReason,
-                                                  },
-                                                  {
-                                                      label: 'decreases by',
-                                                      value: AlertConditionType.RELATIVE_DECREASE,
-                                                      disabledReason: relativeConditionDisabledReason,
-                                                  },
-                                              ]
-                                            : []),
-                                    ]}
-                                />
-                            </LemonField>
-                        </Group>
+                        {/* Funnels only support the absolute "has value" condition; render it as text
+                            instead of a pointless single-option dropdown. */}
+                        {supportsRelativeConditions ? (
+                            <Group name={['condition']}>
+                                <LemonField name="type">
+                                    <LemonSelect
+                                        fullWidth
+                                        className="w-40"
+                                        data-attr="alertForm-condition"
+                                        options={[
+                                            { label: 'has value', value: AlertConditionType.ABSOLUTE_VALUE },
+                                            {
+                                                label: 'increases by',
+                                                value: AlertConditionType.RELATIVE_INCREASE,
+                                                disabledReason: relativeConditionDisabledReason,
+                                            },
+                                            {
+                                                label: 'decreases by',
+                                                value: AlertConditionType.RELATIVE_DECREASE,
+                                                disabledReason: relativeConditionDisabledReason,
+                                            },
+                                        ]}
+                                    />
+                                </LemonField>
+                            </Group>
+                        ) : (
+                            <div data-attr="alertForm-condition">has value</div>
+                        )}
                         <div>less than</div>
                         <LemonField name="lower">
                             <LemonInput
