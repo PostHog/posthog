@@ -1,4 +1,4 @@
-import { hexToRGBA } from 'lib/utils'
+import { hexToRGBA } from 'lib/utils/colors'
 
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 
@@ -72,6 +72,15 @@ describe('buildTrendsBarTimeSeries', () => {
     it('falls back to empty string label when result label is null', () => {
         const series = buildTrendsBarTimeSeries([makeResult({ label: null })], { getColor: () => RED })
         expect(series[0].label).toBe('')
+    })
+
+    it.each([
+        { showMultipleYAxes: undefined, expected: ['left', 'left', 'left'] },
+        { showMultipleYAxes: true, expected: ['left', 'y1', 'y2'] },
+    ])('assigns yAxisId per series (showMultipleYAxes=$showMultipleYAxes)', ({ showMultipleYAxes, expected }) => {
+        const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        const series = buildTrendsBarTimeSeries(results, { getColor: () => RED, showMultipleYAxes })
+        expect(series.map((s) => s.yAxisId)).toEqual(expected)
     })
 })
 

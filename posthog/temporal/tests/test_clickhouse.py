@@ -197,6 +197,16 @@ def test_clickhouse_error_code_maps_to_exception(clickhouse_client, error_text, 
                 pass
 
 
+def test_post_query_disables_http_compression(clickhouse_client):
+    mock_response = MagicMock(status_code=200)
+    with _mock_internal_session_post(mock_response) as mock_factory:
+        with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
+            pass
+
+    call_kwargs = mock_factory.return_value.post.call_args.kwargs
+    assert call_kwargs["params"]["enable_http_compression"] == "0"
+
+
 @pytest.mark.parametrize(
     "query,query_parameters,expected",
     [

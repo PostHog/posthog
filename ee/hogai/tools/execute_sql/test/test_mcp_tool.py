@@ -1,5 +1,5 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import sync_to_async
 
@@ -56,7 +56,6 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         validated = self.tool.args_schema.model_validate({"query": "SELECT 1"})
         self.assertEqual(validated.query, "SELECT 1")
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     async def test_select_from_system_insights(self):
         await sync_to_async(Insight.objects.create)(
             team=self.team,

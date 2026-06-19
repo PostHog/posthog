@@ -7,6 +7,7 @@ pub mod go;
 pub mod hermes;
 pub mod java;
 pub mod js;
+pub mod native;
 pub mod node;
 pub mod php;
 pub mod python;

@@ -5,8 +5,8 @@ import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { IconRecordingClip } from 'lib/lemon-ui/icons'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
-import { colonDelimitedDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'

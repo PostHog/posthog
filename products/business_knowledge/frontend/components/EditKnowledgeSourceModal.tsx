@@ -65,7 +65,7 @@ export function EditKnowledgeSourceModal({
                             ]}
                         />
                     </LemonField>
-                    <CrawlConfigFields crawlMode={editUrlSource.crawl_mode} />
+                    <CrawlConfigFields crawlMode={editUrlSource.crawl_mode} url={editUrlSource.url} />
                     <LemonField
                         name="refresh_interval"
                         label="Auto-refresh"

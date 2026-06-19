@@ -4,9 +4,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -19,9 +17,11 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { QUOTA_WARN_THRESHOLD } from '../utils/quotaProjection'
+import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
+import { ScannerRunTab } from './components/ScannerRunTab'
 import { SummarizerMaxChat } from './components/SummarizerMaxChat'
 import { replayScannerLogic } from './replayScannerLogic'
 import { replayScannerSceneLogic } from './replayScannerSceneLogic'
@@ -33,13 +33,13 @@ export const scene: SceneExport = {
 }
 
 export function ReplayScannerSceneComponent(): JSX.Element {
-    const { scannerId } = useValues(replayScannerSceneLogic)
+    const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
+    const { setActiveTab } = useActions(replayScannerSceneLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
     const { scanner, scannerLoading } = useValues(scannerLogic)
-    const { deleteScanner } = useActions(scannerLogic)
 
     if (scannerLoading || !scanner) {
         return (
@@ -57,7 +57,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        <ReplayVisionFeedbackButton />
                         <AccessControlAction
                             resourceType={AccessControlResourceType.SessionRecording}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -72,53 +71,44 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                                 Edit scanner
                             </LemonButton>
                         </AccessControlAction>
-                        <More
-                            size="small"
-                            overlay={
-                                <LemonButton
-                                    status="danger"
-                                    fullWidth
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
-                                            description: 'This cannot be undone.',
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () => deleteScanner(),
-                                            },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
-                                    }
-                                    data-attr="vision-scanner-delete"
-                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                                >
-                                    Delete
-                                </LemonButton>
-                            }
-                        />
+                        <ReplayVisionFeedbackButton />
                     </>
                 }
             />
 
             <QuotaBanner />
 
-            <ScannerOverview scannerId={scannerId} />
-
-            <div className="flex flex-col gap-2">
-                <LemonCollapse
-                    panels={[
-                        {
-                            key: 'configuration',
-                            header: 'Configuration',
-                            content: <ScannerConfigReadonly scanner={scanner} />,
-                            dataAttr: 'vision-scanner-config-expand',
-                        },
-                    ]}
-                />
-                <SummarizerMaxChat scannerId={scannerId} />
-                <ScannerObservationsTable scannerId={scannerId} />
-            </div>
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                data-attr="vision-scanner-tabs"
+                tabs={[
+                    {
+                        key: 'observations',
+                        label: 'Observations',
+                        content: (
+                            <div className="flex flex-col gap-6">
+                                <ScannerOverview scannerId={scannerId} />
+                                <div className="flex flex-col gap-2">
+                                    <SummarizerMaxChat scannerId={scannerId} />
+                                    <ObservationSearchMaxChat scannerId={scannerId} />
+                                    <ScannerObservationsTable scannerId={scannerId} />
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
+                        key: 'on-demand',
+                        label: 'On-demand',
+                        content: <ScannerRunTab scannerId={scannerId} />,
+                    },
+                    {
+                        key: 'configuration',
+                        label: 'Configuration',
+                        content: <ScannerConfigReadonly scanner={scanner} />,
+                    },
+                ]}
+            />
         </SceneContent>
     )
 }

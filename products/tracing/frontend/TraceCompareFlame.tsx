@@ -5,11 +5,11 @@ import React from 'react'
 import { IconChevronRight } from '@posthog/icons'
 import { LemonDropdown, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { SpanTreeNode } from '~/queries/schema/schema-general'
 
-import { formatDuration } from './TraceFlameChart'
+import { formatDuration } from './TraceWaterfallView'
 
 interface TreeNode {
     serviceName: string

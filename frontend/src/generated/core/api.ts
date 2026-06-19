@@ -14,6 +14,8 @@ import type {
     CIMDVerificationTokenApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    ContextGenerationApi,
+    ContextGenerationSetApi,
     DesktopFileSystemInstructionsVersionsListParams,
     DesktopFileSystemListParams,
     DesktopFileSystemShortcutListParams,
@@ -118,10 +120,11 @@ export const getCimdVerificationTokensListUrl = (organizationId: string, params?
 /**
  * Manage CIMD verification tokens for an organization.
  *
- * A partner embeds the plaintext token in their CIMD metadata document under
- * `posthog_verification_token`. When PostHog fetches the metadata, matching
- * the token links the partner app to this organization and grants a higher
- * default rate limit for account provisioning.
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
  *
  * The plaintext value is only available on creation; we store a hash.
  */
@@ -143,10 +146,11 @@ export const getCimdVerificationTokensCreateUrl = (organizationId: string) => {
 /**
  * Manage CIMD verification tokens for an organization.
  *
- * A partner embeds the plaintext token in their CIMD metadata document under
- * `posthog_verification_token`. When PostHog fetches the metadata, matching
- * the token links the partner app to this organization and grants a higher
- * default rate limit for account provisioning.
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
  *
  * The plaintext value is only available on creation; we store a hash.
  */
@@ -170,10 +174,11 @@ export const getCimdVerificationTokensRetrieveUrl = (organizationId: string, id:
 /**
  * Manage CIMD verification tokens for an organization.
  *
- * A partner embeds the plaintext token in their CIMD metadata document under
- * `posthog_verification_token`. When PostHog fetches the metadata, matching
- * the token links the partner app to this organization and grants a higher
- * default rate limit for account provisioning.
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
  *
  * The plaintext value is only available on creation; we store a hash.
  */
@@ -195,10 +200,11 @@ export const getCimdVerificationTokensDestroyUrl = (organizationId: string, id: 
 /**
  * Manage CIMD verification tokens for an organization.
  *
- * A partner embeds the plaintext token in their CIMD metadata document under
- * `posthog_verification_token`. When PostHog fetches the metadata, matching
- * the token links the partner app to this organization and grants a higher
- * default rate limit for account provisioning.
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
  *
  * The plaintext value is only available on creation; we store a hash.
  */
@@ -723,6 +729,114 @@ export const organizationsProjectsCompleteProductOnboardingPartialUpdate = async
     )
 }
 
+export const getOrganizationsProjectsDefaultEvaluationContextsRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_evaluation_contexts/`
+}
+
+/**
+ * Manage default evaluation contexts for a project.
+ */
+export const organizationsProjectsDefaultEvaluationContextsRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultEvaluationContextsRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsDefaultEvaluationContextsCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_evaluation_contexts/`
+}
+
+/**
+ * Manage default evaluation contexts for a project.
+ */
+export const organizationsProjectsDefaultEvaluationContextsCreate = async (
+    organizationId: string,
+    id: number,
+    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultEvaluationContextsCreateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(projectBackwardCompatApi),
+        }
+    )
+}
+
+export const getOrganizationsProjectsDefaultEvaluationContextsDestroyUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_evaluation_contexts/`
+}
+
+/**
+ * Manage default evaluation contexts for a project.
+ */
+export const organizationsProjectsDefaultEvaluationContextsDestroy = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getOrganizationsProjectsDefaultEvaluationContextsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getOrganizationsProjectsDefaultReleaseConditionsRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_release_conditions/`
+}
+
+/**
+ * Manage default release conditions for new feature flags in this project.
+ */
+export const organizationsProjectsDefaultReleaseConditionsRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultReleaseConditionsRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsDefaultReleaseConditionsUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/default_release_conditions/`
+}
+
+/**
+ * Manage default release conditions for new feature flags in this project.
+ */
+export const organizationsProjectsDefaultReleaseConditionsUpdate = async (
+    organizationId: string,
+    id: number,
+    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsDefaultReleaseConditionsUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(projectBackwardCompatApi),
+        }
+    )
+}
+
 export const getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl = (organizationId: string, id: number) => {
     return `/api/organizations/${organizationId}/projects/${id}/delete_secret_token_backup/`
 }
@@ -738,6 +852,72 @@ export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
         getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedProjectBackwardCompatApi),
+        }
+    )
+}
+
+export const getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/`
+}
+
+/**
+ * Projects for the current organization.
+ */
+export const organizationsProjectsEventIngestionRestrictionsRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsExperimentsConfigRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/experiments_config/`
+}
+
+/**
+ * Manage experiment configuration for this project.
+ */
+export const organizationsProjectsExperimentsConfigRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsExperimentsConfigRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsExperimentsConfigPartialUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/experiments_config/`
+}
+
+/**
+ * Manage experiment configuration for this project.
+ */
+export const organizationsProjectsExperimentsConfigPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(
+        getOrganizationsProjectsExperimentsConfigPartialUpdateUrl(organizationId, id),
         {
             ...options,
             method: 'PATCH',
@@ -908,6 +1088,27 @@ export const organizationsProjectsRotateSecretTokenPartialUpdate = async (
             body: JSON.stringify(patchedProjectBackwardCompatApi),
         }
     )
+}
+
+export const getOrganizationsProjectsSettingsAsOfRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/settings_as_of/`
+}
+
+/**
+ * Return the project settings as of the provided timestamp.
+ * Query params:
+ * - at: ISO8601 datetime (required)
+ * - scope: optional, one or multiple keys to filter the returned settings
+ */
+export const organizationsProjectsSettingsAsOfRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ProjectBackwardCompatApi> => {
+    return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsSettingsAsOfRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number) => {
@@ -1122,6 +1323,45 @@ export const desktopFileSystemDestroy = async (projectId: string, id: string, op
     return apiMutator<void>(getDesktopFileSystemDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDesktopFileSystemContextGenerationRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/context_generation/`
+}
+
+/**
+ * Return the Task currently generating this folder's CONTEXT.md, or null if none.
+ */
+export const desktopFileSystemContextGenerationRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContextGenerationApi> => {
+    return apiMutator<ContextGenerationApi>(getDesktopFileSystemContextGenerationRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopFileSystemContextGenerationUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/context_generation/`
+}
+
+/**
+ * Set or clear the Task associated with this folder's CONTEXT.md generation.
+ */
+export const desktopFileSystemContextGenerationUpdate = async (
+    projectId: string,
+    id: string,
+    contextGenerationSetApi: ContextGenerationSetApi,
+    options?: RequestInit
+): Promise<ContextGenerationApi> => {
+    return apiMutator<ContextGenerationApi>(getDesktopFileSystemContextGenerationUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contextGenerationSetApi),
     })
 }
 
@@ -2847,7 +3087,7 @@ export const getUsersCredentialsReviewCompleteCreateUrl = (uuid: string) => {
 }
 
 /**
- * Mark the user as having reviewed their existing credentials. Idempotent. Flips `requires_credential_review` to False so the post-login interstitial isn't shown again. Does not modify any credentials; the user revokes individual Personal API Keys via the existing PAT endpoints from the same screen.
+ * Mark the user as having reviewed their existing credentials. Idempotent. Flips `requires_credential_review` to False so the post-login interstitial isn't shown again. Does not modify any credentials; the user revokes individual Personal API Keys and passkeys via their existing endpoints from the same screen.
  */
 export const usersCredentialsReviewCompleteCreate = async (uuid: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getUsersCredentialsReviewCompleteCreateUrl(uuid), {

@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
-use cymbal::langs::apple::AppleDebugImage;
+use cymbal::langs::native::DebugImage;
 use cymbal::stages::pipeline::ExceptionEventPipelineItem;
 use cymbal::stages::resolution::{
     remote::{
@@ -164,7 +164,12 @@ impl CymbalResolution for StubServer {
                         let item = match next {
                             Ok(item) => item,
                             Err(err) => {
-                                let _ignored = tx.send(Err(err)).await;
+                                // The client may close its request half as soon as every in-flight
+                                // item has a terminal outcome. Tonic can surface that as an h2 body
+                                // read error on the server task; don't turn client-side shutdown into
+                                // an extra response-stream failure after the fixture has already sent
+                                // the outcomes the test cares about.
+                                drop(err);
                                 return;
                             }
                         };
@@ -412,7 +417,7 @@ impl SymbolResolver for NoopResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         Ok(Vec::new())
     }

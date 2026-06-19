@@ -24,7 +24,7 @@ class TestClerkSource:
 
         assert config.name.value == "Clerk"
         assert config.label == "Clerk"
-        assert config.releaseStatus == "beta"
+        assert config.releaseStatus == "ga"
         assert config.iconPath == "/static/services/clerk.png"
         assert len(config.fields) == 1
 

@@ -163,6 +163,7 @@ export interface RoleLookupResponseApi {
  * * `github` - Github
  * * `gitlab` - Gitlab
  * * `google-ads` - Google Ads
+ * * `google-analytics` - Google Analytics
  * * `google-cloud-service-account` - Google Cloud Service Account
  * * `google-cloud-storage` - Google Cloud Storage
  * * `google-pubsub` - Google Pubsub
@@ -203,6 +204,7 @@ export const IntegrationKindEnumApi = {
     Github: 'github',
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
+    GoogleAnalytics: 'google-analytics',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
@@ -395,6 +397,7 @@ export type IntegrationsListParams = {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -446,6 +449,7 @@ export const IntegrationsListKind = {
     Github: 'github',
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
+    GoogleAnalytics: 'google-analytics',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',

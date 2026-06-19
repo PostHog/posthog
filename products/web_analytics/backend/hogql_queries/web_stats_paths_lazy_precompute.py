@@ -283,7 +283,7 @@ def ensure_web_stats_paths_precomputed(
         "breakdown_value_expr": _breakdown_value_expr(runner),
         "entry_breakdown_value_expr": _entry_breakdown_value_expr(runner),
         "event_type_filter": runner.event_type_expr,
-        "user_filter": host_filter_expr(runner.query.properties or []),
+        "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
         "test_account_filter": test_account_filter_expr(
             test_account_filters=runner._test_account_filters, team=runner.team
         ),
@@ -299,6 +299,7 @@ def ensure_web_stats_paths_precomputed(
         table=LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_stats_paths_lazy_insert",
+        spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
     )
 
 

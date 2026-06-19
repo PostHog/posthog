@@ -4,7 +4,7 @@ from temporalio import activity
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 
-from products.error_tracking.backend.recommendations.refresh import refresh_teams_recommendations_batched
+from products.error_tracking.backend.logic.recommendations.refresh import refresh_teams_recommendations_batched
 from products.error_tracking.backend.temporal.recommendations_refresh.types import (
     RecommendationsRefreshInputs,
     RefreshBatchInputs,
@@ -67,5 +67,5 @@ def get_team_batches_activity(inputs: RecommendationsRefreshInputs) -> list[list
 
 @activity.defn
 def refresh_recommendations_batch_activity(inputs: RefreshBatchInputs) -> RefreshBatchResult:
-    kicked = refresh_teams_recommendations_batched(inputs.team_ids, on_progress=activity.heartbeat)
-    return RefreshBatchResult(teams_processed=len(inputs.team_ids), recommendations_kicked=kicked)
+    teams_processed, kicked = refresh_teams_recommendations_batched(inputs.team_ids, on_progress=activity.heartbeat)
+    return RefreshBatchResult(teams_processed=teams_processed, recommendations_kicked=kicked)

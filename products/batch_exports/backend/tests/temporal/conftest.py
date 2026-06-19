@@ -27,8 +27,11 @@ from posthog.temporal.tests.utils.events import generate_test_events_in_clickhou
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.batch_exports.backend.tests.temporal.utils.persons import (
-    generate_test_person_distinct_id2_in_clickhouse,
+    PersonDistinctId2Values,
+    PersonValues,
+    generate_test_person_distinct_id2,
     generate_test_persons_in_clickhouse,
+    insert_person_distinct_id2_values_in_clickhouse,
 )
 
 
@@ -379,6 +382,43 @@ def events_table(request) -> str | None:
     return None
 
 
+async def _insert_person_distinct_ids_for_persons(
+    clickhouse_client: ClickHouseClient, team_id: int, persons: list[PersonValues]
+) -> list[PersonDistinctId2Values]:
+    person_distinct_ids: list[PersonDistinctId2Values] = []
+    other_team_person_distinct_ids: list[PersonDistinctId2Values] = []
+
+    for person in persons:
+        person_id = uuid.UUID(person["id"])
+        timestamp = dt.datetime.fromisoformat(person["_timestamp"])
+        distinct_id = f"distinct-id-{person_id}"
+
+        person_distinct_ids.append(
+            generate_test_person_distinct_id2(
+                count=1,
+                team_id=team_id,
+                person_id=person_id,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+            )
+        )
+        other_team_person_distinct_ids.append(
+            generate_test_person_distinct_id2(
+                count=1,
+                team_id=team_id + random.randint(1, 1000),
+                person_id=person_id,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+            )
+        )
+
+    await insert_person_distinct_id2_values_in_clickhouse(
+        client=clickhouse_client,
+        persons=person_distinct_ids + other_team_person_distinct_ids,
+    )
+    return person_distinct_ids
+
+
 @pytest.fixture
 async def generate_test_data(
     ateam,
@@ -455,14 +495,8 @@ async def generate_test_data(
     )
 
     persons_to_export_created = []
-    for person in persons:
-        person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
-            client=clickhouse_client,
-            team_id=ateam.pk,
-            person_id=uuid.UUID(person["id"]),
-            distinct_id=f"distinct-id-{uuid.UUID(person['id'])}",
-            timestamp=dt.datetime.fromisoformat(person["_timestamp"]),
-        )
+    person_distinct_ids = await _insert_person_distinct_ids_for_persons(clickhouse_client, ateam.pk, persons)
+    for person, person_distinct_id in zip(persons, person_distinct_ids, strict=True):
         person_to_export = {
             "team_id": person["team_id"],
             "person_id": person["id"],
@@ -489,14 +523,8 @@ async def generate_test_persons_data(ateam, clickhouse_client, data_interval_sta
     )
 
     persons_to_export_created = []
-    for person in persons:
-        person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
-            client=clickhouse_client,
-            team_id=ateam.pk,
-            person_id=uuid.UUID(person["id"]),
-            distinct_id=f"distinct-id-{uuid.UUID(person['id'])}",
-            timestamp=dt.datetime.fromisoformat(person["_timestamp"]),
-        )
+    person_distinct_ids = await _insert_person_distinct_ids_for_persons(clickhouse_client, ateam.pk, persons)
+    for person, person_distinct_id in zip(persons, person_distinct_ids, strict=True):
         person_to_export = {
             "team_id": person["team_id"],
             "person_id": person["id"],

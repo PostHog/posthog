@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.cache import cache, caches
 
 import structlog
+from botocore.exceptions import BotoCoreError, ClientError
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
 
@@ -151,6 +152,7 @@ class HyperCache:
         value: str,
         load_fn: Callable[[KeyType], dict | HyperCacheStoreMissing],
         token_based: bool = False,
+        hashed_credential_based: bool = False,
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
         cache_alias: Optional[str] = None,
@@ -159,10 +161,17 @@ class HyperCache:
         enable_etag: bool = False,
         expiry_sorted_set_key: Optional[str] = None,
     ):
+        if token_based and hashed_credential_based:
+            raise ValueError("token_based and hashed_credential_based are mutually exclusive")
+
         self.namespace = namespace
         self.value = value
         self.load_fn = load_fn
         self.token_based = token_based
+        # Credential-centric mode: keys by an already-hashed credential string
+        # (sha256$<hex>) rather than a team. Used by the gateway credential
+        # policy cache, where one blob exists per phx_/pha_ credential.
+        self.hashed_credential_based = hashed_credential_based
         self.cache_ttl = cache_ttl
         self.cache_miss_ttl = cache_miss_ttl
         self.batch_load_fn = batch_load_fn
@@ -203,6 +212,9 @@ class HyperCache:
         return team.api_token if self.token_based else team.id
 
     def get_cache_key(self, key: KeyType) -> str:
+        if self.hashed_credential_based:
+            # key is the precomputed sha256$<hex> credential hash, never a Team.
+            return f"cache/team_tokens_hashed/{key}/{self.namespace}/{self.value}"
         if self.token_based:
             if isinstance(key, Team):
                 key = key.api_token
@@ -241,8 +253,13 @@ class HyperCache:
                 HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
                 self._set_cache_value_redis(key, response)
                 return response, "s3"
-        except ObjectStorageError:
-            pass
+        except (ObjectStorageError, BotoCoreError, ClientError, ValueError) as e:
+            # Any storage-layer failure here (including a misconfigured S3 endpoint that
+            # makes boto3 raise on client construction) must degrade to a cache miss and
+            # fall through to load_fn, never bubble a 500 up to the request handler.
+            # ValueError also catches json.JSONDecodeError from a corrupt blob, so capture
+            # it — otherwise persistent corruption keeps missing silently as a plain hit_db.
+            capture_exception(e)
 
         # NOTE: This only applies to the django version - the dedicated service will rely entirely on the cache
         try:
@@ -464,8 +481,14 @@ class HyperCache:
         return self._set_cache_value_redis(key, data, ttl=ttl)
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
-        """
-        Only meant for use in tests
+        """Test helper alias for delete_cache_entry."""
+        return self.delete_cache_entry(key, kinds)
+
+    def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None):
+        """Hard-delete an entry from the given tiers (default redis + s3).
+
+        Production-safe: the gateway credential projection uses this to revoke a
+        credential's blob immediately — a missing key fails closed at the gateway.
         """
         kinds = kinds or ["redis", "s3"]
         try:

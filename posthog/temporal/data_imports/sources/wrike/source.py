@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,9 +35,9 @@ class WrikeSource(ResumableSource[WrikeSourceConfig, WrikeResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.WRIKE,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Wrike",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter a Wrike permanent access token to pull your Wrike data into the PostHog Data warehouse.
 
 Create a permanent access token under **Apps & Integrations → API** in Wrike. The token needs read access (the default `Default` scope is sufficient) to the resources you want to sync.

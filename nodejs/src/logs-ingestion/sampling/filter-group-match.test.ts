@@ -102,6 +102,19 @@ describe('matchFilterGroup', () => {
             expect(matchFilterGroup(g, baseRecord({ severity_text: 'error' }))).toBe(true)
             expect(matchFilterGroup(g, baseRecord({ severity_text: 'info' }))).toBe(false)
         })
+        it('severity_level is an alias for severity_text (the key the drop-rule UI writes)', () => {
+            // Regression guard: the drop-rule builder persists severity filters as
+            // `{key: 'severity_level', type: 'log'}`. Before the alias existed this
+            // fell through to the `type: 'log'` body fallback and compared the log
+            // BODY against e.g. "info" — so UI-created severity rules never matched.
+            const g = group({
+                values: [{ key: 'severity_level', type: 'log', operator: 'exact', value: ['info'] }],
+            })
+            expect(matchFilterGroup(g, baseRecord({ severity_text: 'info' }))).toBe(true)
+            expect(matchFilterGroup(g, baseRecord({ severity_text: 'error' }))).toBe(false)
+            // Must not match via the body fallback.
+            expect(matchFilterGroup(g, baseRecord({ severity_text: 'error', body: 'info' }))).toBe(false)
+        })
         it('level is an alias for severity_text (UI surfaces it this way)', () => {
             const g = group({
                 values: [{ key: 'level', type: 'log_attribute', operator: 'exact', value: ['info', 'INFO'] }],

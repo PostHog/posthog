@@ -106,8 +106,8 @@ PRODUCT_COST_WINDOW_USD = Gauge(
     "llm_gateway_product_cost_window_usd",
     (
         "Current accumulated cost (USD) for a product within its configured window. "
-        "Reflects only the shared pool — spend from teams with a team_rate_limit_multipliers "
-        "override lives in a separate per-multiplier Redis bucket and is not included here."
+        "Reflects only the shared pool — spend from teams or staff with a rate-limit "
+        "multiplier lives in a separate per-multiplier Redis bucket and is not included here."
     ),
     labelnames=["product"],
 )
@@ -116,8 +116,8 @@ PRODUCT_COST_LIMIT_USD = Gauge(
     "llm_gateway_product_cost_limit_usd",
     (
         "Configured cost cap (USD) for a product within its configured window. "
-        "This is the base (team_mult=1) cap that pairs with llm_gateway_product_cost_window_usd; "
-        "teams with a team_rate_limit_multipliers override get a multiplied cap not reflected here."
+        "This is the base (multiplier=1) cap that pairs with llm_gateway_product_cost_window_usd; "
+        "teams or staff with a rate-limit multiplier get a multiplied cap not reflected here."
     ),
     labelnames=["product"],
 )

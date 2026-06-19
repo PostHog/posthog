@@ -5,16 +5,13 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
-from django.conf import settings
 from django.core.cache import cache
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.organization import OrganizationSerializer, _fetch_member_count, _org_serializer_cache_version
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
@@ -359,12 +356,6 @@ class TestOrganizationAPI(APIBaseTest):
             "Only the scoped organization should be listed, the other one should be excluded",
         )
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_projects_outside_oauth_scoped_organizations_causes_401(self):
         # TODO: This should filter out the organizations to the scoped organizations, but it causes a 401 due to a bug in APIScopePermission for list endpoints.
         other_org, _, _ = Organization.objects.bootstrap(self.user)
@@ -397,12 +388,6 @@ class TestOrganizationAPI(APIBaseTest):
             ("is_ai_data_processing_approved",),
             ("is_ai_training_opted_in",),
         ]
-    )
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
     )
     def test_org_scoped_oauth_token_can_patch_current_organization(self, field: str):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

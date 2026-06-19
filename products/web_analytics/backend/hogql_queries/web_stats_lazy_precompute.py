@@ -107,6 +107,12 @@ SUPPORTED_BREAKDOWNS: set[WebStatsBreakdown] = {
     WebStatsBreakdown.CITY,
     WebStatsBreakdown.TIMEZONE,
     WebStatsBreakdown.LANGUAGE,
+    # EXIT_PAGE is a session-scoped path (`session.$end_pathname`) served as a simple
+    # breakdown — no bounce-rate join, unlike PAGE/INITIAL_PAGE which route to the
+    # paths precompute family. It reads a materialized sessions column, so it carries
+    # none of the unmaterialized-property OOM risk that keeps INITIAL_REFERRING_URL
+    # out of the eager warmer.
+    WebStatsBreakdown.EXIT_PAGE,
 }
 
 # Breakdowns whose value is a tuple — JSON-decoded as a list and converted back
@@ -277,6 +283,7 @@ def ensure_web_stats_precomputed(
         table=LazyComputationTable.WEB_STATS_PREAGGREGATED,
         placeholders=placeholders,
         query_type=f"web_stats_{runner.query.breakdownBy.value}_lazy_insert",
+        spill_to_disk=True,  # high-cardinality breakdown GROUP BY; can build a large hash table
     )
 
 

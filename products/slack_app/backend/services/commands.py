@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 def _handle_help(
     slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str, slack_user_id: str
 ) -> None:
-    from products.slack_app.backend.api import is_slack_workspace_admin
+    from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
     lines = [
         "*Available commands:*\n",
@@ -298,8 +298,8 @@ def _handle_project_set_workspace(
     """
     from posthog.models.user import User
 
-    from products.slack_app.backend.api import is_slack_workspace_admin
     from products.slack_app.backend.models import SlackSettings
+    from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
     if not is_slack_workspace_admin(slack, integration, slack_user_id):
         slack.client.chat_postEphemeral(

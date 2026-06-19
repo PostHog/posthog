@@ -4,10 +4,15 @@ import asyncio
 import functools
 import json
 import os
+import time
 from typing import Any, Final
 
 import boto3
+import httpx
 import structlog
+from boto3.session import Session as Boto3Session
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
 from botocore.config import Config
 from fastapi import HTTPException
 
@@ -16,6 +21,10 @@ from llm_gateway.config import get_settings
 logger = structlog.get_logger(__name__)
 
 BEDROCK_ANTHROPIC_VERSION: Final[str] = "bedrock-2023-05-31"
+# The bedrock-mantle endpoint speaks Anthropic's native Messages API, so it expects the
+# public Anthropic version string in an HTTP header rather than the bedrock-runtime body value.
+BEDROCK_MANTLE_ANTHROPIC_VERSION: Final[str] = "2023-06-01"
+BEDROCK_MANTLE_SIGV4_SERVICE: Final[str] = "bedrock-mantle"
 DEFAULT_BEDROCK_MAX_TOKENS: Final[int] = 4096
 
 BEDROCK_ANTHROPIC_MODEL_PREFIXES: Final[tuple[str, ...]] = (
@@ -47,10 +56,6 @@ ANTHROPIC_TO_BEDROCK_MODEL_MAP: Final[dict[str, dict[str, str]]] = {
     "claude-opus-4-8": {
         "us": "us.anthropic.claude-opus-4-8",
         "eu": "eu.anthropic.claude-opus-4-8",
-    },
-    "claude-fable-5": {
-        "us": "us.anthropic.claude-fable-5",
-        "eu": "eu.anthropic.claude-fable-5",
     },
     "claude-sonnet-4-5": {
         "us": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -158,6 +163,11 @@ def get_bedrock_runtime_client(region_name: str, timeout_seconds: float):
     )
 
 
+@functools.lru_cache
+def get_bedrock_session() -> Boto3Session:
+    return boto3.Session()
+
+
 async def count_tokens_with_bedrock(
     request_data: dict[str, Any],
     model: str,
@@ -168,7 +178,7 @@ async def count_tokens_with_bedrock(
         bedrock_runtime_client = get_bedrock_runtime_client(aws_region_name, timeout_seconds)
 
         # CountTokens API does not support regional model prefixes ("us.anthropic.", "eu.anthropic.")
-        count_tokens_model = model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
+        count_tokens_model = _strip_regional_inference_prefix(model)
 
         # Build the minimal invoke body Bedrock CountTokens accepts. Unlike invoke_model,
         # CountTokens rejects extra fields such as thinking and tools.
@@ -185,3 +195,85 @@ async def count_tokens_with_bedrock(
         return int(response["inputTokens"])
 
     return await asyncio.to_thread(_sync)
+
+
+def _strip_regional_inference_prefix(model: str) -> str:
+    """Drop the regional inference-profile prefix ("us.anthropic.", "eu.anthropic.") so the
+    bare foundation-model id ("anthropic.<model>") is used for token counting."""
+    return model.replace("us.anthropic.", "anthropic.").replace("eu.anthropic.", "anthropic.")
+
+
+def get_bedrock_mantle_count_tokens_url(region_name: str) -> str:
+    return f"https://bedrock-mantle.{region_name}.api.aws/anthropic/v1/messages/count_tokens"
+
+
+def _sign_bedrock_mantle_request(url: str, body: bytes, region_name: str) -> dict[str, str]:
+    """SigV4-sign a bedrock-mantle request using the ambient AWS credentials (same IAM role
+    the bedrock-runtime client uses). The AWS SDKs don't expose a client for this endpoint."""
+    credentials = get_bedrock_session().get_credentials()
+    if credentials is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {"message": "AWS credentials not available", "type": "configuration_error"}},
+        )
+
+    request = AWSRequest(
+        method="POST",
+        url=url,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "anthropic-version": BEDROCK_MANTLE_ANTHROPIC_VERSION,
+        },
+    )
+    SigV4Auth(credentials.get_frozen_credentials(), BEDROCK_MANTLE_SIGV4_SERVICE, region_name).add_auth(request)
+    return dict(request.headers)
+
+
+async def count_tokens_with_bedrock_mantle(
+    request_data: dict[str, Any],
+    model: str,
+    aws_region_name: str,
+    timeout_seconds: float,
+    *,
+    product: str,
+) -> int:
+    """Count input tokens via Anthropic's count_tokens API on the bedrock-mantle endpoint.
+
+    AWS recommends this path for Claude models that bedrock-runtime CountTokens doesn't support
+    (e.g. cross-Region-inference-only models like claude-opus-4-8). Unlike the runtime CountTokens
+    body, mantle takes the native Anthropic shape (model + messages + optional system/tools).
+    """
+    mantle_model = _strip_regional_inference_prefix(model)
+    body: dict[str, Any] = {"model": mantle_model, "messages": request_data.get("messages")}
+    for key in ("system", "tools", "tool_choice"):
+        if key in request_data:
+            body[key] = request_data[key]
+
+    payload = json.dumps(body).encode("utf-8")
+    url = get_bedrock_mantle_count_tokens_url(aws_region_name)
+    # Credential resolution can touch the network (e.g. role refresh), so sign off the event loop.
+    headers = await asyncio.to_thread(_sign_bedrock_mantle_request, url, payload, aws_region_name)
+
+    request_start_time = time.monotonic()
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        response = await client.post(url, content=payload, headers=headers)
+
+    if response.status_code != 200:
+        try:
+            detail = response.json()
+        except Exception:
+            detail = {"error": {"message": response.text, "type": "api_error"}}
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    input_tokens = int(response.json()["input_tokens"])
+    logger.info(
+        "bedrock-mantle count_tokens request succeeded",
+        model=model,
+        mantle_model=mantle_model,
+        product=product,
+        region_name=aws_region_name,
+        status_code=response.status_code,
+        duration_ms=round((time.monotonic() - request_start_time) * 1000, 2),
+    )
+    return input_tokens

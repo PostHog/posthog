@@ -47,6 +47,11 @@ DLT_TO_PA_TYPE_MAP: dict[
 DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
 DEFAULT_NUMERIC_SCALE = 18  # Good default scale for decimal128, 20 int digits plus 18 decimal cases
 MAX_NUMERIC_SCALE = 32  # Maximum scale for Delta Lake
+
+# pyarrow infers `int64` for Python `int` columns; values outside this range overflow with
+# "OverflowError: Python int too large to convert to C long" (Python ints are unbounded).
+INT64_MIN = -(2**63)
+INT64_MAX = 2**63 - 1
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 type SupportedDltDataType = Literal["text", "bigint", "bool", "timestamp", "json", "double", "date", "time", "decimal"]
@@ -799,9 +804,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
         # Remove any NaN or infinite values from decimal columns
         if issubclass(py_type, decimal.Decimal) or issubclass(py_type, float):
 
-            def _convert_to_decimal_or_none(x: decimal.Decimal | float | None) -> decimal.Decimal | None:
+            def _convert_to_decimal_or_none(x: decimal.Decimal | float | str | None) -> decimal.Decimal | None:
                 if x is None:
                     return None
+
+                if isinstance(x, str):
+                    # Non-numeric value in a column imported as a number; the caller adds column context.
+                    raise TypeError("must be real number, not str")
 
                 if (
                     math.isnan(x)
@@ -815,9 +824,12 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
                 return decimal.Decimal(str(x))
 
-            def _convert_to_float_or_none(x: float | None) -> float | None:
+            def _convert_to_float_or_none(x: float | str | None) -> float | None:
                 if x is None:
                     return None
+
+                if isinstance(x, str):
+                    raise TypeError("must be real number, not str")
 
                 if math.isnan(x) or np.isinf(x):
                     return None
@@ -828,7 +840,20 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
             if len(unique_types_in_column) > 1 or issubclass(py_type, decimal.Decimal):
                 # Mixed types: convert all to decimals
-                all_values = [_convert_to_decimal_or_none(x) for x in all_values]
+                try:
+                    all_values = [_convert_to_decimal_or_none(x) for x in all_values]
+                except TypeError as e:
+                    # A column imported as a number contains a non-numeric value (text, or a
+                    # blank cell that arrives as ""). Keep the original "must be real number,
+                    # not str" phrase so source non-retryable matching still fires, but name the
+                    # column and show examples so the offending cells can be found in the source.
+                    offenders = [x for x in all_values if isinstance(x, str)]
+                    sample = [(x if x != "" else "<blank>") for x in offenders[:5]]
+                    raise TypeError(
+                        f"must be real number, not str: column '{field_name}' is imported as a "
+                        f"number but contains {len(offenders)} non-numeric value(s) such as "
+                        f"{sample}. Ensure every cell in this column is a plain number (or empty)."
+                    ) from e
 
                 if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
                     new_field_type = arrow_schema.field(field_index).type
@@ -870,6 +895,38 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             columnar_table_data[field_name] = number_arr
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(new_field_type))
+
+        # Integer columns can hold Python ints larger than pyarrow's int64 range (e.g. a Google
+        # Sheets cell with a huge number). pyarrow raises "OverflowError: Python int too large to
+        # convert to C long" while inferring int64. Such a column already failed `pa.array(values)`
+        # above and fell back to an object ndarray, so restrict the scan to those candidates to
+        # avoid touching every normal int column. Promote to decimal when it fits, else stringify.
+        if (
+            py_type is int
+            and unique_types_in_column == {int}
+            and isinstance(columnar_table_data[field_name], np.ndarray)
+        ):
+            all_values = _to_list_array(columnar_table_data[field_name])
+            if any(value is not None and not (INT64_MIN <= value <= INT64_MAX) for value in all_values):
+                try:
+                    overflow_arr = _decimal_array_from_values(
+                        [None if value is None else decimal.Decimal(value) for value in all_values]
+                    )
+                    py_type = decimal.Decimal
+                    unique_types_in_column = {decimal.Decimal}
+                except ValueError:
+                    # Too large even for decimal256 — keep it as text rather than crash the sync.
+                    overflow_arr = pa.array(
+                        [None if value is None else str(value) for value in all_values], type=pa.string()
+                    )
+                    py_type = str
+                    unique_types_in_column = {str}
+
+                columnar_table_data[field_name] = overflow_arr
+                if arrow_schema:
+                    arrow_schema = arrow_schema.set(
+                        field_index, arrow_schema.field(field_index).with_type(overflow_arr.type)
+                    )
 
         # If one type is a list, then make everything into a list
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:

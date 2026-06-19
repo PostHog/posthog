@@ -1,11 +1,7 @@
 import type { ExternalDataSourceSyncSchema } from '~/types'
 
-import {
-    getDefaultExpandedDirectQuerySchemaKeys,
-    groupDirectQueryTablesBySchema,
-    splitDirectQueryTableName,
-} from './directQuerySchemaUtils'
 import { getDirectQuerySelectionDescription } from './SchemaForm'
+import { getDefaultExpandedSchemaKeys, groupTablesBySchema, splitQualifiedTableName } from './schemaGroupingUtils'
 
 const makeSchema = (table: string): ExternalDataSourceSyncSchema => ({
     table,
@@ -38,26 +34,25 @@ describe('SchemaForm', () => {
     })
 
     it('splits fully qualified table names into schema and table labels', () => {
-        expect(splitDirectQueryTableName('public.events')).toEqual({
+        expect(splitQualifiedTableName('public.events')).toEqual({
             schemaName: 'public',
             tableName: 'events',
         })
     })
 
     it('uses the selected schema as a fallback for unqualified table names', () => {
-        expect(splitDirectQueryTableName('events', 'public')).toEqual({
+        expect(splitQualifiedTableName('events', 'public')).toEqual({
             schemaName: 'public',
             tableName: 'events',
         })
     })
 
-    it('groups direct query tables by schema', () => {
+    it('groups tables by schema', () => {
         expect(
-            groupDirectQueryTablesBySchema([
-                makeSchema('analytics.pageviews'),
-                makeSchema('public.events'),
-                makeSchema('analytics.sessions'),
-            ])
+            groupTablesBySchema(
+                [makeSchema('analytics.pageviews'), makeSchema('public.events'), makeSchema('analytics.sessions')],
+                (schema) => schema.table
+            )
         ).toEqual([
             {
                 schemaName: 'analytics',
@@ -70,14 +65,13 @@ describe('SchemaForm', () => {
         ])
     })
 
-    it('expands all direct query schema groups by default', () => {
+    it('expands all schema groups by default', () => {
         expect(
-            getDefaultExpandedDirectQuerySchemaKeys(
-                groupDirectQueryTablesBySchema([
-                    makeSchema('analytics.pageviews'),
-                    makeSchema('public.events'),
-                    makeSchema('analytics.sessions'),
-                ])
+            getDefaultExpandedSchemaKeys(
+                groupTablesBySchema(
+                    [makeSchema('analytics.pageviews'), makeSchema('public.events'), makeSchema('analytics.sessions')],
+                    (schema) => schema.table
+                )
             )
         ).toEqual(['analytics', 'public'])
     })

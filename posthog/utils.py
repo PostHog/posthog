@@ -50,7 +50,6 @@ from prometheus_client import Histogram
 from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
-from user_agents import parse
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -80,6 +79,7 @@ if TYPE_CHECKING:
 
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
+    from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
     from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 DATERANGE_MAP = {
@@ -736,8 +736,41 @@ def get_dogfood_flags_team_id() -> Optional[int]:
     return team.id if team is not None else None
 
 
+def _build_flag_provider() -> "HyperCacheFlagProvider":
+    """Construct the HyperCache flag-definition provider for this deploy.
+
+    Single source of truth shared by PostHogConfig.ready() (WSGI) and
+    initialize_self_capture_api_token() (ASGI). Callers assign the result to
+    posthoganalytics.flag_definition_cache_provider and handle loading themselves.
+    """
+    from products.feature_flags.backend.sdk_cache_provider import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+        HyperCacheFlagProvider,
+    )
+
+    explicit_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
+    if explicit_team_id:
+        # Operator override: pin the flag-definitions team explicitly.
+        # Truthiness, not `is not None`: an empty env var means "unset" and must
+        # fall through to the defaults below, not crash on int("").
+        return HyperCacheFlagProvider.for_static_team(int(explicit_team_id))
+    if settings.SELF_CAPTURE and not settings.E2E_TESTING:
+        # Local/self-hosted: read flag definitions from the dogfood team
+        # (project.teams.first()), resolved lazily once teams/migrations exist.
+        # Intentionally the FIRST team, not self-capture's current_team — see
+        # resolve_dogfood_flags_team().
+        return HyperCacheFlagProvider.for_dynamic_resolution(get_dogfood_flags_team_id)
+    # Cloud (SELF_CAPTURE off) or E2E: the canonical PostHog-internal team is 2.
+    return HyperCacheFlagProvider.for_static_team(2)
+
+
 async def initialize_self_capture_api_token():
-    """Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way."""
+    """Configure `posthoganalytics` for self-capture, ASGI-compatible (async).
+
+    Overwrites process-global SDK config (api_key, host, disabled, and the
+    flag-definition cache provider) from the DB-resolved self-capture team — the
+    async counterpart to PostHogConfig.ready()'s WSGI path. Mainly the local dev
+    self-capture bootstrap; also invoked by the Dagster PostHogAnalyticsResource.
+    """
     team = await sync_to_async(resolve_self_capture_team)()
     local_api_key = team.api_token if team else None
 
@@ -746,6 +779,16 @@ async def initialize_self_capture_api_token():
         posthoganalytics.disabled = False
         posthoganalytics.api_key = local_api_key
         posthoganalytics.host = settings.SITE_URL
+
+        # ready() wires the flag-definition provider only when posthoganalytics is enabled at
+        # that point — true for WSGI but NOT for ASGI, where self-capture is deferred to here.
+        # Without this the ASGI process has no local flag definitions and falls back to a remote
+        # flags call against SITE_URL (unreachable server-side in dev), so feature_enabled()
+        # always returns False. Mirror ready() so ASGI evaluates flags from HyperCache too.
+        posthoganalytics.flag_definition_cache_provider = _build_flag_provider()  # ty: ignore[invalid-assignment]
+
+        if posthoganalytics.feature_flag_definitions() is None:
+            await sync_to_async(posthoganalytics.load_feature_flags)()
 
 
 BOTH_DEFAULTS_PRESENT_TTL_SECONDS = 24 * 60 * 60
@@ -914,6 +957,10 @@ def get_short_user_agent(request: HttpRequest) -> str:
     user_agent_str = request.headers.get("user-agent")
     if not user_agent_str:
         return ""
+
+    # Deferred: posthog.utils is imported all over at django.setup(); user_agents is only needed on
+    # this request-time UA-parsing path, so keep it off the startup path.
+    from user_agents import parse  # noqa: PLC0415
 
     user_agent = parse(user_agent_str)
 
@@ -1946,32 +1993,6 @@ def patchable(fn):
     inner._temp_patch = temp_patch  # type: ignore[attr-defined]
 
     return inner
-
-
-def label_for_team_id_to_track(team_id: int) -> str:
-    """
-    LEGACY: Only used by flag_matching.py (cohort creation background task).
-    Returns empty string to avoid tracking specific team IDs in metrics.
-    """
-    team_id_as_string = str(team_id)
-    team_id_filter: list[str] = []  # No longer tracking specific teams
-
-    if "all" in team_id_filter:
-        return team_id_as_string
-
-    if team_id_as_string in team_id_filter:
-        return team_id_as_string
-
-    team_id_ranges = [team_id_range for team_id_range in team_id_filter if ":" in team_id_range]
-    for range in team_id_ranges:
-        try:
-            start, end = range.split(":")
-            if int(start) <= team_id <= int(end):
-                return team_id_as_string
-        except Exception:
-            pass
-
-    return "unknown"
 
 
 def camel_to_snake_case(name: str) -> str:

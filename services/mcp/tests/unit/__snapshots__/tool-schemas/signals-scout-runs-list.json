@@ -8,7 +8,7 @@
             "type": "string"
         },
         "date_to": {
-            "description": "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).",
+            "description": "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page).",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
@@ -27,6 +27,16 @@
         "limit": {
             "description": "Max rows to return (default 20, hard cap 100).",
             "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "skill_name": {
+            "description": "Exact-match filter on the scout skill (e.g. `signals-scout-errors`). Narrows the run dump to a single scout — the primary scoping path when a specialist dedupes against its own past runs. Omit to span every scout on the team.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "skill_version": {
+            "description": "Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.",
             "minimum": 1,
             "type": "number"
         },

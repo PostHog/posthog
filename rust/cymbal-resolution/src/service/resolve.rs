@@ -1,11 +1,14 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use serde_json::json;
 
 use tokio::sync::mpsc;
 use tonic::{Status, Streaming};
 use tracing::{debug, warn};
 
 use cymbal::error::UnhandledError;
-use cymbal::langs::apple::AppleDebugImage;
+use cymbal::langs::native::DebugImage;
 use cymbal::stages::resolution::exception::ExceptionResolver;
 use cymbal::stages::resolution::frame::FrameResolver;
 use cymbal::stages::resolution::ResolutionStage;
@@ -230,6 +233,7 @@ fn record_item_metrics(started_at: Instant, outcome: &'static str, kind: &'stati
         .record(started_at.elapsed().as_secs_f64() * 1000.0);
 }
 
+#[derive(Debug)]
 enum ItemFailure {
     InvalidPayload(String),
     Overloaded(String),
@@ -240,7 +244,7 @@ async fn resolve_item(stage: &ResolutionStage, item: &ResolveItem) -> Result<Vec
     let exception: Exception = serde_json::from_slice(&item.exception_json)
         .map_err(|e| ItemFailure::InvalidPayload(format!("invalid exception_json: {e}")))?;
 
-    let debug_images = apple_debug_images_from_metadata(&item.metadata)?;
+    let debug_images = debug_images_from_metadata(&item.metadata)?;
 
     let resolved = resolve_one_exception(stage.clone(), item.team_id, exception, debug_images)
         .await
@@ -255,18 +259,18 @@ async fn resolve_item(stage: &ResolutionStage, item: &ResolveItem) -> Result<Vec
         .map_err(|e| ItemFailure::Unhandled(format!("serialize resolved exception: {e}")))
 }
 
-fn apple_debug_images_from_metadata(metadata: &[u8]) -> Result<Vec<AppleDebugImage>, ItemFailure> {
+fn debug_images_from_metadata(metadata: &[u8]) -> Result<Vec<DebugImage>, ItemFailure> {
     if metadata.is_empty() {
         return Ok(Vec::new());
     }
 
     let metadata: serde_json::Value = serde_json::from_slice(metadata)
         .map_err(|e| ItemFailure::InvalidPayload(format!("invalid metadata: {e}")))?;
-    let Some(debug_images) = metadata.get("apple_debug_images_json") else {
+    let Some(debug_images) = metadata.get("debug_images_json") else {
         return Ok(Vec::new());
     };
     serde_json::from_value(debug_images.clone()).map_err(|e| {
-        ItemFailure::InvalidPayload(format!("invalid metadata.apple_debug_images_json: {e}"))
+        ItemFailure::InvalidPayload(format!("invalid metadata.debug_images_json: {e}"))
     })
 }
 
@@ -279,7 +283,7 @@ async fn resolve_one_exception(
     stage: ResolutionStage,
     team_id: i32,
     exception: Exception,
-    debug_images: Vec<AppleDebugImage>,
+    debug_images: Vec<DebugImage>,
 ) -> Result<Exception, ResolveOneError> {
     let exception = if ExceptionResolver::is_java_exception(&exception) {
         let _permit = acquire_permit(&stage).await?;
@@ -287,21 +291,21 @@ async fn resolve_one_exception(
             .symbol_resolver
             .resolve_java_exception(team_id, exception)
             .await
-            .map_err(to_unhandled)?
+            .map_err(|err| capture_unhandled(team_id, err))?
     } else if ExceptionResolver::is_dart_exception(&exception) {
         let _permit = acquire_permit(&stage).await?;
         stage
             .symbol_resolver
             .resolve_dart_exception(team_id, exception)
             .await
-            .map_err(to_unhandled)?
+            .map_err(|err| capture_unhandled(team_id, err))?
     } else {
         exception
     };
 
     FrameResolver::resolve_exception_frames(team_id, exception, &debug_images, stage)
         .await
-        .map_err(to_unhandled)
+        .map_err(|err| capture_unhandled(team_id, err))
 }
 
 async fn acquire_permit(
@@ -313,6 +317,55 @@ async fn acquire_permit(
         .map_err(|_| ResolveOneError::Overloaded)
 }
 
-fn to_unhandled(err: UnhandledError) -> ResolveOneError {
+fn capture_unhandled(team_id: i32, err: UnhandledError) -> ResolveOneError {
+    let err = Arc::new(err);
+    common_posthog::capture_exception(err.clone(), [("team_id", json!(team_id))]);
     ResolveOneError::Unhandled(err.to_string())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn images_json(debug_id: &str) -> serde_json::Value {
+        serde_json::json!([{
+            "debug_id": debug_id,
+            "image_addr": "0x100000000",
+            "image_size": 4096,
+            "type": "macho",
+        }])
+    }
+
+    #[test]
+    fn metadata_reads_debug_images_key() {
+        let metadata = serde_json::to_vec(&serde_json::json!({
+            "debug_images_json": images_json("img-1"),
+        }))
+        .unwrap();
+
+        let images = debug_images_from_metadata(&metadata).unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].debug_id, "img-1");
+    }
+
+    #[test]
+    fn metadata_without_debug_images_key_is_empty() {
+        // The legacy apple-specific key is no longer read, so it is ignored.
+        let metadata =
+            serde_json::to_vec(&serde_json::json!({"apple_debug_images_json": images_json("x")}))
+                .unwrap();
+        assert!(debug_images_from_metadata(&metadata).unwrap().is_empty());
+        assert!(debug_images_from_metadata(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn invalid_debug_images_key_errors() {
+        let metadata =
+            serde_json::to_vec(&serde_json::json!({"debug_images_json": "not-a-list"})).unwrap();
+
+        assert!(matches!(
+            debug_images_from_metadata(&metadata),
+            Err(ItemFailure::InvalidPayload(msg)) if msg.contains("debug_images_json")
+        ));
+    }
 }

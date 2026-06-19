@@ -114,8 +114,8 @@ class DucklingBackfillConfig:
    - `bucket_region`: AWS region
    - `db_host`: RDS endpoint
    - `db_name`: Database name
-   - `cross_account_role_arn`: IAM role for Dagster to assume
-   - `cross_account_external_id`: External ID for role assumption
+
+   Ensure the runtime IAM role can read from and write to the configured S3 bucket.
 
 2. The discovery sensor will automatically pick up the new team on its next run
 

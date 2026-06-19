@@ -3,7 +3,7 @@ import { waitFor } from '@testing-library/react'
 import type { ChartTheme } from '../../core/types'
 import { renderHogChart, waitForHogChartTooltip } from '../../testing'
 import { BoxPlot, type BoxPlotClickData } from './BoxPlot'
-import type { BoxPlotDatum, BoxPlotSeries } from './computeBoxLayout'
+import type { BoxPlotDatum, BoxPlotSeries } from './types'
 
 const THEME: ChartTheme = {
     colors: ['#1f77b4', '#ff7f0e', '#2ca02c'],

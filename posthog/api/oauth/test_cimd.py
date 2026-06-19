@@ -8,13 +8,10 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.core.cache import cache as real_cache
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 
 import requests
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
@@ -37,17 +34,6 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.models.oauth import OAuthApplication, create_cimd_verification_token
 from posthog.scopes import OAUTH_HIDDEN_SCOPES, PRIVILEGED_SCOPES
-
-
-def generate_rsa_key() -> str:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return pem.decode("utf-8")
-
 
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
 
@@ -251,12 +237,6 @@ class TestFetchCimdMetadata(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestFetchAndUpsertCimdApplication(APIBaseTest):
     """Tests for fetch_and_upsert_cimd_application — the core fetch+create/update function."""
 
@@ -332,12 +312,6 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestGetOrCreateCimdApplication(APIBaseTest):
     """Tests for get_or_create_cimd_application — the orchestration layer."""
 
@@ -400,12 +374,6 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         self.assertEqual(app.name, "Original Name")
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestGetApplicationByClientId(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -447,12 +415,6 @@ class TestGetApplicationByClientId(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_creates_new_app_with_provisioning_defaults(self, mock_get, _url_mock):
@@ -557,12 +519,6 @@ class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestCIMDVerificationToken(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_valid_verification_token_links_app_to_organization(self, mock_get, _url_mock):
@@ -752,12 +708,6 @@ class TestCIMDVerificationToken(APIBaseTest):
         self.assertEqual(refreshed.provisioning_rate_limit_account_requests_source, "admin")
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestAuthorizationServerMetadata(APIBaseTest):
     def test_advertises_cimd_support(self):
         client = APIClient()
@@ -767,12 +717,6 @@ class TestAuthorizationServerMetadata(APIBaseTest):
         self.assertTrue(data.get("client_id_metadata_document_supported"))
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
 class TestCIMDAuthorizeIntegration(APIBaseTest):
     """Integration tests for the CIMD flow through /oauth/authorize/."""
@@ -878,12 +822,6 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestCIMDComPostHogNamespace(APIBaseTest):
     """Tests for the com.posthog namespace: scopes and nested verification_token."""
 

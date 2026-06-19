@@ -48,6 +48,7 @@ class ErrorTrackingRecommendationsRefreshWorkflow(PostHogWorkflow):
             return RecommendationsRefreshResult(teams_total=0, recommendations_kicked=0, batches_failed=0)
 
         kicked = 0
+        teams_total = 0
         batches_failed = 0
         # Keep up to max_concurrent_batches activities in flight at all times: the
         # semaphore releases the moment one finishes, so the next batch starts
@@ -74,9 +75,10 @@ class ErrorTrackingRecommendationsRefreshWorkflow(PostHogWorkflow):
                 )
                 continue
             kicked += result.recommendations_kicked
+            teams_total += result.teams_processed
 
         return RecommendationsRefreshResult(
-            teams_total=sum(len(batch) for batch in batches),
+            teams_total=teams_total,
             recommendations_kicked=kicked,
             batches_failed=batches_failed,
         )
