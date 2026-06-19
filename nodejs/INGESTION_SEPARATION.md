@@ -422,7 +422,7 @@ Move other-team code out of `src/ingestion/` (ownership / reviewers):
       `PIPELINES`. [logs thread]
 - [ ] Separate the session-recording **API service** (`recording-api`) out -> `src/recording-api`.
       BLOCKED on a decision: recording-api imports `sessionreplay/shared/*` (crypto, keystore, metadata,
-      features, retention, outputs) — also used by the sessionreplay *ingestion* pipeline. Either (a) accept
+      features, retention, outputs) — also used by the sessionreplay _ingestion_ pipeline. Either (a) accept
       cross-imports `~/ingestion/pipelines/sessionreplay/shared/*` for now, or (b) extract that `shared/`
       into top-level `common/` (e.g. `common/sessionreplay`) consumed by all three. [recording-api thread]
 - [ ] Move the recording **rasterizer** out -> `src/recording-rasterizer`. Nearly self-contained (only
