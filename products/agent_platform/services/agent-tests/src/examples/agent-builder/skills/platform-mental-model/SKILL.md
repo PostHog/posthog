@@ -49,9 +49,13 @@ the revision row. It declares:
 - `secrets[]` — names of encrypted env keys the agent uses
 - `limits` — per-session caps (`max_turns`, `max_tool_calls`,
   `max_wall_seconds`)
-- `auth` — how a connecting client authenticates (`public`, `pat`,
-  `shared_secret`, `posthog_internal`)
+- `auth` — per-trigger (`triggers[].auth`); how a connecting client
+  authenticates
 - `reasoning` — provider-specific thinking level (`minimal` → `xhigh`)
+
+This is the conceptual map. For the exact field shapes, enums, and
+defaults, call `@posthog/agent-applications-spec-schema` — the live
+schema the API validates against, not this prose.
 
 A **bundle** is the content layer of a revision. A filesystem-like
 tree stored in S3, with a manifest in Postgres. Always contains
