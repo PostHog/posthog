@@ -15,10 +15,12 @@ The instrumentation/PR steps are split into a sync, GitHub-backed core
 (``run_instrumentation_cleanup``) so they can be unit-tested with a mocked GitHub client.
 The briefing is async because it calls the LLM gateway.
 
-TODO(memory): the (separate-worktree) memory store will plug into two places here once it
-lands — (a) reading prior dreaming observations to seed the briefing context, and (b)
-writing this run's organized takeaways back so future runs compound. The hooks are marked
-inline below.
+Memory: the agent_memory product (separate PR) plugs into two places here — (a) reading
+prior dreaming observations to seed the briefing context (still a TODO; that read isn't
+wired yet), and (b) writing this run's dismissal learnings back so future runs compound.
+The write is implemented via a SOFT import in ``write_dismissal_learnings_to_memory``: it
+no-ops gracefully when agent_memory isn't installed, so this stays independent of that PR
+and lights up automatically once agent_memory lands.
 
 TODO(daily-grouping): a daily duplicate-issue-grouping pass belongs alongside this run — it
 would reuse the signals grouping step (`_process_signal_batch` in
@@ -48,6 +50,12 @@ from products.signals.backend.temporal.dreaming.cleanup_content import (
     render_pr_body,
 )
 from products.signals.backend.temporal.dreaming.cleanup_pr import CleanupPRResult, reconcile_cleanup_pr
+from products.signals.backend.temporal.dreaming.dismissals import (
+    DismissalSummary,
+    aggregate_dismissals,
+    known_false_positive_memory_section,
+    summarize_dismissals_for_briefing,
+)
 from products.signals.backend.temporal.dreaming.instrumentation_gaps import (
     PullRequestDiff,
     PullRequestGaps,
@@ -169,11 +177,19 @@ def resolve_since_iso(last_run_at_iso: str | None) -> str:
     return (timezone.now() - DEFAULT_LOOKBACK).isoformat()
 
 
-def gather_briefing_context(team_id: int, project_name: str, scout_skills: list[str]) -> BriefingContext:
-    """Assemble the briefing context from the inbox + (future) profile / memory.
+def gather_briefing_context(
+    team_id: int,
+    project_name: str,
+    scout_skills: list[str],
+    *,
+    last_run_at_iso: str | None = None,
+) -> tuple[BriefingContext, DismissalSummary]:
+    """Assemble the briefing context from the inbox + dismissals (+ future profile / memory).
 
-    Recent inbox reports are the strongest "what mattered" signal we have today. Profile
-    highlights and memory notes will enrich this as those surfaces come online.
+    Recent inbox reports are the strongest "what mattered" signal we have today, and recent
+    dismissals tell us what the pipeline got wrong (noise). Both feed the briefing. Returns
+    the context alongside the raw ``DismissalSummary`` so the caller can also write the
+    dismissal learnings to durable memory without re-querying.
     """
     recent_titles: list[str] = [
         title
@@ -186,14 +202,63 @@ def gather_briefing_context(team_id: int, project_name: str, scout_skills: list[
         if title
     ]
 
+    dismissals = aggregate_dismissals(team_id, last_run_at_iso=last_run_at_iso)
+
     # TODO(memory): read prior dreaming observations from the memory store and fold the most
     # relevant into `profile_highlights` (or a dedicated `memory_notes` slot on
     # BriefingContext) so the briefing compounds across nights instead of starting cold.
     profile_highlights: list[str] = []
 
-    return BriefingContext(
+    context = BriefingContext(
         project_name=project_name,
         scout_skills=tuple(scout_skills),
         recent_report_titles=tuple(recent_titles),
         profile_highlights=tuple(profile_highlights),
+        dismissal_notes=tuple(summarize_dismissals_for_briefing(dismissals)),
     )
+    return context, dismissals
+
+
+# Project-memory file every agent shares, and the heading the dreaming write owns under it.
+# Mirrors the path convention the scout harness uses for the shared agent_memory tree.
+MEMORY_PROJECT_PATH = "project.md"
+MEMORY_DISMISSALS_HEADING = "Known false positives (why users dismiss)"
+
+
+async def write_dismissal_learnings_to_memory(team_id: int, summary: DismissalSummary) -> bool:
+    """Write the dismissal learnings into shared project memory, if agent_memory is present.
+
+    SOFT integration: the ``agent_memory`` facade is imported inside this hook so this PR
+    stays independent of the agent_memory PR. If that product isn't installed/available, or
+    there's nothing worth recording, this no-ops and returns ``False`` — the write simply
+    lights up once agent_memory lands. Best-effort: a memory hiccup never fails a run.
+
+    Returns ``True`` only when a section was actually written.
+    """
+    body = known_false_positive_memory_section(summary)
+    if body is None:
+        return False
+    try:
+        # noqa: PLC0415 — soft/optional dependency; agent_memory may not be installed in this
+        # build, so the import must stay inside the hook to no-op gracefully when absent.
+        from products.agent_memory.backend.facade import api as memory_api  # noqa: PLC0415
+    except Exception:
+        logger.info(
+            "dreaming: agent_memory not available; skipping dismissal-learnings memory write",
+            extra={"team_id": team_id},
+        )
+        return False
+    try:
+        await memory_api.aappend_section(
+            team_id=team_id,
+            path=MEMORY_PROJECT_PATH,
+            heading=MEMORY_DISMISSALS_HEADING,
+            body=body,
+        )
+    except Exception:
+        logger.warning(
+            "dreaming: failed to write dismissal learnings to memory",
+            extra={"team_id": team_id},
+        )
+        return False
+    return True

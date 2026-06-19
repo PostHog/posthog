@@ -66,6 +66,11 @@ class BriefingContext:
     scout_skills: tuple[str, ...]
     recent_report_titles: tuple[str, ...]
     profile_highlights: tuple[str, ...]
+    # Dismissal-derived noise signal: terse lines describing what users dismissed since the
+    # last run and why (counts by reason / source, representative notes). A first-class "what
+    # matters" input — a class of signal being mass-dismissed as not_a_bug is signal-quality
+    # news. Defaults to empty so callers that don't gather it (and existing tests) stay valid.
+    dismissal_notes: tuple[str, ...] = ()
     # TODO(memory): a `memory_notes: tuple[str, ...]` slot will plug in here once the memory
     # store exists in its own worktree. The prompt already leaves room for it; until then it's
     # simply absent and the briefing leans on profile + inbox + skills.
@@ -113,6 +118,15 @@ def build_briefing_prompt(context: BriefingContext) -> str:
         lines.extend(f"- {highlight}" for highlight in context.profile_highlights)
         lines.append("")
 
+    if context.dismissal_notes:
+        lines.append("What users dismissed recently (signal-quality / noise news):")
+        lines.extend(f"- {note}" for note in context.dismissal_notes)
+        lines.append(
+            "If a class of signal is getting mass-dismissed (e.g. lots of not_a_bug from one "
+            "source), that's worth leading with — it means the pipeline is generating noise."
+        )
+        lines.append("")
+
     lines.append("Write the briefing now. Exactly 3 items.")
     return "\n".join(lines)
 
@@ -131,6 +145,16 @@ def _fallback_items(context: BriefingContext) -> list[BriefingItem]:
     """
     candidates: list[BriefingItem] = []
 
+    if context.dismissal_notes:
+        candidates.append(
+            BriefingItem(
+                headline="Users are dismissing reports — check the noise",
+                detail=_clip(
+                    "Recent dismissals: " + " ".join(context.dismissal_notes),
+                    _MAX_DETAIL_LEN,
+                ),
+            )
+        )
     if context.recent_report_titles:
         top = context.recent_report_titles[0]
         candidates.append(

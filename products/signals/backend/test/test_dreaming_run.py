@@ -1,16 +1,21 @@
-from unittest.mock import MagicMock
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from products.signals.backend.temporal.dreaming.cleanup_content import (
     build_cleanup_edits,
     render_cleanup_file,
     render_pr_body,
 )
+from products.signals.backend.temporal.dreaming.dismissals import DismissalSummary
 from products.signals.backend.temporal.dreaming.instrumentation_gaps import (
     InstrumentationGap,
     InstrumentationKind,
     PullRequestGaps,
 )
-from products.signals.backend.temporal.dreaming.run import run_instrumentation_cleanup
+from products.signals.backend.temporal.dreaming.run import (
+    run_instrumentation_cleanup,
+    write_dismissal_learnings_to_memory,
+)
 
 
 def _pr_gaps() -> list[PullRequestGaps]:
@@ -107,3 +112,68 @@ class TestRunInstrumentationCleanup:
 
         assert result.prs_inspected == 0
         assert result.pr_action == "noop"
+
+
+def _summary_with_reasons() -> DismissalSummary:
+    return DismissalSummary(
+        total=3,
+        by_reason={"not_a_bug": 3},
+        by_source_product={"error_tracking": 3},
+        representative_notes=("expected",),
+    )
+
+
+class TestWriteDismissalLearningsToMemory:
+    """The soft/optional agent_memory write hook.
+
+    agent_memory is not installed in this worktree, so the bare import inside the hook
+    fails naturally — these tests assert it no-ops gracefully (the standalone-CI path) and,
+    by injecting a stand-in facade, that it writes when the product IS available.
+    """
+
+    @pytest.mark.asyncio
+    async def test_noop_when_summary_empty(self):
+        empty = DismissalSummary(total=0, by_reason={}, by_source_product={}, representative_notes=())
+        wrote = await write_dismissal_learnings_to_memory(team_id=1, summary=empty)
+        assert wrote is False
+
+    @pytest.mark.asyncio
+    async def test_noop_when_agent_memory_absent(self):
+        # No agent_memory module is installed here, so the soft import fails and the hook
+        # must return False rather than raising — this is the standalone-PR CI guarantee.
+        wrote = await write_dismissal_learnings_to_memory(team_id=1, summary=_summary_with_reasons())
+        assert wrote is False
+
+    @pytest.mark.asyncio
+    async def test_writes_when_agent_memory_available(self):
+        fake_api = MagicMock()
+        fake_api.aappend_section = AsyncMock()
+        fake_facade = MagicMock(api=fake_api)
+        modules = {
+            "products.agent_memory": MagicMock(),
+            "products.agent_memory.backend": MagicMock(),
+            "products.agent_memory.backend.facade": fake_facade,
+        }
+        with patch.dict("sys.modules", modules):
+            wrote = await write_dismissal_learnings_to_memory(team_id=7, summary=_summary_with_reasons())
+
+        assert wrote is True
+        fake_api.aappend_section.assert_awaited_once()
+        kwargs = fake_api.aappend_section.await_args.kwargs
+        assert kwargs["team_id"] == 7
+        assert "not_a_bug: 3" in kwargs["body"]
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_memory_write_raises(self):
+        fake_api = MagicMock()
+        fake_api.aappend_section = AsyncMock(side_effect=RuntimeError("memory down"))
+        fake_facade = MagicMock(api=fake_api)
+        modules = {
+            "products.agent_memory": MagicMock(),
+            "products.agent_memory.backend": MagicMock(),
+            "products.agent_memory.backend.facade": fake_facade,
+        }
+        with patch.dict("sys.modules", modules):
+            wrote = await write_dismissal_learnings_to_memory(team_id=7, summary=_summary_with_reasons())
+
+        assert wrote is False

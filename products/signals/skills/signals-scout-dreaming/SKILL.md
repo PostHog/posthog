@@ -88,8 +88,24 @@ Draw on:
 
 - the team's **custom + canonical scout skills** (what this team cares about watching),
 - the **inbox reports** that surfaced recently (what the pipeline actually found),
+- the **dismissal reasons** on recently suppressed reports (what the pipeline got _wrong_),
 - **real PostHog data** via the analytics MCP tools when a claim needs grounding,
 - _(future)_ the **memory store**, once it lands — see the TODO below.
+
+### Learn from dismissals (what's noise)
+
+Every night you also review the reports users **dismissed** since your last run. When a user
+suppresses a report they can attach a reason code (`not_a_bug`, `wont_fix`, `duplicate`,
+`report_unclear`, `analysis_wrong`) and a free-text note; these persist as dismissal
+artefacts on the report. You aggregate them: count by reason, group by the dismissed
+report's source/product, and keep a few representative notes.
+
+This is first-class "what matters" input, not an afterthought. If a whole class of signal is
+getting mass-dismissed — say, lots of `not_a_bug` from one source — that's signal-quality
+news worth leading the briefing with: the pipeline is generating noise there, and tuning the
+responsible scout (or its grouping) will do more good than any single finding. The dismissal
+summary is the raw material the future daily-grouping pass and scout tuning will act on, so
+you surface recurring false-positive patterns rather than letting them recur silently.
 
 **Exactly three.** Not two, not four. If you genuinely have fewer than three things, surface
 the most useful next thing to look at — never pad with fluff, but always land on three.
@@ -111,10 +127,14 @@ the most useful next thing to look at — never pad with fluff, but always land 
 
 ## Deferred (not yet wired — leave the seams alone)
 
-- **Memory.** `TODO(memory)`: a separate memory store is being built in another worktree.
-  When it lands, read prior dreaming observations to seed the briefing (so it compounds across
-  nights) and write tonight's organized takeaways back. Until then, lean on profile + inbox +
-  skills.
+- **Memory.** A separate memory store (the `agent_memory` product) is being built in another
+  PR. The **write** side is already wired here as a SOFT integration: tonight's dismissal
+  learnings (a "known false positives / why users dismiss" section) are written into shared
+  project memory via the `agent_memory` facade, no-opping gracefully when that product isn't
+  installed — so it lights up automatically once agent_memory lands. The **read** side is
+  still a `TODO(memory)`: reading prior dreaming observations to seed the briefing (so it
+  compounds across nights) lands with that product. Until then, lean on profile + inbox +
+  dismissals + skills.
 - **Daily duplicate-issue grouping.** `TODO(daily-grouping)`: a daily pass that reuses the
   signals grouping step on a 24h window to collapse issues sharing a root cause across sources,
   then feeds the collapsed clusters into the briefing as a single "this keeps happening" item.

@@ -40,6 +40,7 @@ from products.signals.backend.temporal.dreaming.run import (
     gather_briefing_context,
     resolve_since_iso,
     run_instrumentation_cleanup,
+    write_dismissal_learnings_to_memory,
 )
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.repo_selection.agent import resolve_team_github_integration
@@ -163,13 +164,17 @@ async def generate_and_deliver_briefing_activity(input: RunDreamingInput) -> Bri
         project_name, scout_skills = await database_sync_to_async(_gather_context_sync, thread_sensitive=False)(
             input.team_id
         )
-        context = await database_sync_to_async(gather_briefing_context, thread_sensitive=False)(
-            input.team_id, project_name, scout_skills
+        last_run_at_iso = await database_sync_to_async(_previous_run_iso, thread_sensitive=False)(input.team_id)
+        context, dismissals = await database_sync_to_async(gather_briefing_context, thread_sensitive=False)(
+            input.team_id, project_name, scout_skills, last_run_at_iso=last_run_at_iso
         )
         briefing = await generate_briefing(input.team_id, context)
         report_id, slack_posted = await database_sync_to_async(deliver_briefing, thread_sensitive=False)(
             input.team_id, briefing
         )
+        # Soft memory write: durable "why users dismiss" learnings. No-ops if agent_memory
+        # isn't available, so this never affects the briefing's delivery result.
+        await write_dismissal_learnings_to_memory(input.team_id, dismissals)
     logger.info(
         "dreaming: briefing delivered",
         extra={"team_id": input.team_id, "report_id": report_id, "slack_posted": slack_posted},

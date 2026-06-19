@@ -12,12 +12,13 @@ from products.signals.backend.temporal.dreaming.briefing import (
 )
 
 
-def _context() -> BriefingContext:
+def _context(dismissal_notes: tuple[str, ...] = ()) -> BriefingContext:
     return BriefingContext(
         project_name="Acme",
         scout_skills=("signals-scout-error-tracking", "signals-scout-experiments"),
         recent_report_titles=("Checkout funnel dropped 12%", "New error spike in payments"),
         profile_highlights=("Product analytics + error tracking in use", "3 active experiments"),
+        dismissal_notes=dismissal_notes,
     )
 
 
@@ -63,6 +64,23 @@ class TestBriefingContract:
         prompt = build_briefing_prompt(ctx)
         assert "Empty" in prompt
         assert "Exactly 3" in prompt
+
+    def test_prompt_includes_dismissal_notes(self):
+        prompt = build_briefing_prompt(
+            _context(dismissal_notes=("12 report(s) dismissed.", "By reason: not_a_bug (9)."))
+        )
+        assert "not_a_bug (9)" in prompt
+        assert "mass-dismissed" in prompt
+
+    def test_prompt_omits_dismissal_section_when_empty(self):
+        prompt = build_briefing_prompt(_context())
+        assert "dismissed" not in prompt
+
+    def test_dismissals_preserve_exactly_three_contract(self):
+        # Even with a dismissal-driven fallback in play, the contract holds.
+        items = coerce_to_three_items([], _context(dismissal_notes=("8 report(s) dismissed.",)))
+        assert len(items) == BRIEFING_ITEM_COUNT
+        assert any("dismiss" in item.headline.lower() for item in items)
 
 
 class TestGenerateBriefing:
