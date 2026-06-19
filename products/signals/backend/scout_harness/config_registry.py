@@ -127,8 +127,10 @@ def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None
     for name in missing:
         at_cap = enabled >= MAX_ENABLED_SCOUTS_PER_TEAM
         # A canonical scout is gated by the allowlist (when one is set); a custom scout never is.
+        # The explicit `is not None` keeps the membership check well-typed (mypy can't carry the
+        # narrowing through `gated`).
         gated = enabled_skills is not None and name in canonical_names
-        in_allowlist = (not gated) or name in enabled_skills
+        in_allowlist = (not gated) or (enabled_skills is not None and name in enabled_skills)
         seed_enabled = in_allowlist and not at_cap
 
         defaults: dict = {} if seed_enabled else {"enabled": False}
