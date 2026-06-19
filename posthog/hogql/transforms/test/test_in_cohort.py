@@ -54,6 +54,42 @@ class TestInCohort(BaseTest):
         self.assertEqual(len(response.results or []), 1)
         self.assertEqual((response.results or [])[0][0], random_uuid)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_in_cohort_same_cohort_twice(self):
+        random_uuid = self._create_random_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
+        # Referencing the same cohort more than once in a single query must reuse the
+        # already-added join rather than adding a duplicate alias (regression test).
+        response = execute_hogql_query(
+            f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
+            self.team,
+            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN),
+            pretty=False,
+        )
+        self.assertEqual(len(response.results or []), 1)
+        self.assertEqual((response.results or [])[0][0], random_uuid)
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_in_cohort_conjoined_same_cohort_twice(self):
+        random_uuid = self._create_random_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
+        response = execute_hogql_query(
+            f"SELECT event FROM events WHERE person_id IN COHORT {cohort.pk} AND person_id IN COHORT {cohort.pk} AND event='{random_uuid}'",
+            self.team,
+            modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
+            pretty=False,
+        )
+        self.assertEqual(len(response.results or []), 1)
+        self.assertEqual((response.results or [])[0][0], random_uuid)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_in_cohort_static(self):

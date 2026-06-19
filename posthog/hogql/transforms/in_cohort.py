@@ -154,7 +154,7 @@ class MultipleInCohortResolver(TraversingVisitor):
         last_join = select.select_from
 
         while last_join:
-            if isinstance(last_join.table, ast.Field) and last_join.table.chain[0] == "__in_cohort":
+            if last_join.alias == "__in_cohort":
                 must_add_join = False
                 break
             if last_join.next_join:
@@ -378,7 +378,7 @@ class InCohortResolver(TraversingVisitor):
         must_add_join = True
         last_join = select.select_from
         while last_join:
-            if isinstance(last_join.table, ast.Field) and last_join.table.chain[0] == f"in_cohort__{cohort_id}":
+            if last_join.alias == f"in_cohort__{cohort_id}":
                 must_add_join = False
                 break
             if last_join.next_join:
