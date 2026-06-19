@@ -274,12 +274,13 @@ export function EditAlertModal({
                                         isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                                         alertSeries={alertSeries}
                                         formulaNodes={formulaNodes}
-                                        funnelStepLabels={funnelStepLabels}
-                                        funnelPreview={funnelAlertPreview}
-                                        hogqlPreview={hogqlAlertPreview}
-                                        hogqlColumns={hogqlResultColumns}
-                                        hogqlValueColumnOptions={hogqlValueColumnOptions}
-                                        hogqlLabelColumnOptions={hogqlLabelColumnOptions}
+                                        funnel={{ stepLabels: funnelStepLabels, preview: funnelAlertPreview }}
+                                        hogql={{
+                                            preview: hogqlAlertPreview,
+                                            columns: hogqlResultColumns,
+                                            valueColumnOptions: hogqlValueColumnOptions,
+                                            labelColumnOptions: hogqlLabelColumnOptions,
+                                        }}
                                         anomalyDetectionEnabled={
                                             anomalyDetectionEnabled && supportsAnomalyDetection(alertForm.config)
                                         }

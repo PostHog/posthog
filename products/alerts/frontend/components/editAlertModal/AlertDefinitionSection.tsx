@@ -32,6 +32,24 @@ import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertI
 import { FunnelsDefinitionFields, HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
 import { getSimulationRangeOptions } from './editAlertModalUtils'
 
+export interface FunnelDefinitionProps {
+    /** Funnel step labels (real event/series names) for the conversion picker. */
+    stepLabels: string[]
+    /** Conversion rate(s) the alert would evaluate now; null until the result loads. */
+    preview: FunnelAlertPreview | null
+}
+
+export interface HogQLDefinitionProps {
+    /** What a SQL alert would evaluate now; null until the result loads. */
+    preview: HogQLAlertPreview | null
+    /** Result column names, for the column pickers. */
+    columns: string[] | null
+    /** Evaluated-column picker options (numeric columns, with fallbacks). */
+    valueColumnOptions: { label: string; value: string }[]
+    /** Label-column picker options (every column except the evaluated one). */
+    labelColumnOptions: { label: string; value: string }[]
+}
+
 export interface AlertDefinitionSectionProps {
     alertForm: AlertFormType
     alertMode: 'detector' | 'threshold'
@@ -40,18 +58,9 @@ export interface AlertDefinitionSectionProps {
     isNonTimeSeriesDisplay: boolean
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
-    /** The funnel's step labels (real event/series names), used to populate the conversion picker. */
-    funnelStepLabels: string[]
-    /** The conversion rate(s) a funnel alert would evaluate right now; null until the result loads. */
-    funnelPreview: FunnelAlertPreview | null
-    /** What a SQL alert would evaluate right now; null until the insight result loads. */
-    hogqlPreview: HogQLAlertPreview | null
-    /** Result column names of the SQL insight, for the column pickers. */
-    hogqlColumns: string[] | null
-    /** Options for the evaluated-column picker (numeric columns, with fallbacks). */
-    hogqlValueColumnOptions: { label: string; value: string }[]
-    /** Options for the label-column picker (every column except the evaluated one). */
-    hogqlLabelColumnOptions: { label: string; value: string }[]
+    // Kind-specific inputs, grouped so the shared section only carries the bundle for the active kind.
+    funnel: FunnelDefinitionProps
+    hogql: HogQLDefinitionProps
     anomalyDetectionEnabled: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
@@ -77,12 +86,8 @@ export function AlertDefinitionSection({
     isNonTimeSeriesDisplay,
     alertSeries,
     formulaNodes,
-    funnelStepLabels,
-    funnelPreview,
-    hogqlPreview,
-    hogqlColumns,
-    hogqlValueColumnOptions,
-    hogqlLabelColumnOptions,
+    funnel,
+    hogql,
     anomalyDetectionEnabled,
     investigationAgentEnabled,
     simulationResult,
@@ -122,17 +127,17 @@ export function AlertDefinitionSection({
             ) : isFunnelAlert ? (
                 <FunnelsDefinitionFields
                     alertForm={alertForm}
-                    stepLabels={funnelStepLabels}
-                    funnelPreview={funnelPreview}
+                    stepLabels={funnel.stepLabels}
+                    funnelPreview={funnel.preview}
                     onSetAlertFormValue={onSetAlertFormValue}
                 />
             ) : isHogQLAlertConfig(alertForm.config) ? (
                 <HogQLDefinitionFields
                     alertForm={alertForm}
-                    hogqlPreview={hogqlPreview}
-                    hogqlColumns={hogqlColumns}
-                    hogqlValueColumnOptions={hogqlValueColumnOptions}
-                    hogqlLabelColumnOptions={hogqlLabelColumnOptions}
+                    hogqlPreview={hogql.preview}
+                    hogqlColumns={hogql.columns}
+                    hogqlValueColumnOptions={hogql.valueColumnOptions}
+                    hogqlLabelColumnOptions={hogql.labelColumnOptions}
                     onSetAlertFormValue={onSetAlertFormValue}
                 />
             ) : null}
