@@ -107,6 +107,56 @@ impl Fingerprint {
     }
 }
 
+impl FingerprintComponent for crate::frames::Frame {
+    fn update(&self, fp: &mut FingerprintBuilder) {
+        let get_part =
+            |s: &common_types::error_tracking::FrameId, p: Vec<&str>| FingerprintRecordPart::Frame {
+                raw_id: s.to_string(),
+                pieces: p.into_iter().map(String::from).collect(),
+            };
+
+        let mut included_pieces = Vec::new();
+
+        // Include source and module in the fingerprint either way
+        if let Some(source) = &self.source {
+            fp.update(source.as_bytes());
+            included_pieces.push("Source file name");
+        }
+
+        if let Some(module) = &self.module {
+            fp.update(module.as_bytes());
+            included_pieces.push("Module name");
+        }
+
+        // If we've resolved this frame, include function name, and then return
+        if let Some(resolved) = &self.resolved_name {
+            fp.update(resolved.as_bytes());
+            included_pieces.push("Resolved function name");
+
+            fp.add_part(get_part(&self.frame_id, included_pieces));
+            return;
+        }
+
+        // Otherwise, get more granular
+        fp.update(self.mangled_name.as_bytes());
+        included_pieces.push("Mangled function name");
+
+        if let Some(line) = self.line {
+            fp.update(line.to_string().as_bytes());
+            included_pieces.push("Line number");
+        }
+
+        if let Some(column) = self.column {
+            fp.update(column.to_string().as_bytes());
+            included_pieces.push("Column number");
+        }
+
+        fp.update(self.lang.as_bytes());
+        included_pieces.push("Language");
+        fp.add_part(get_part(&self.frame_id, included_pieces));
+    }
+}
+
 #[cfg(test)]
 mod test {
 

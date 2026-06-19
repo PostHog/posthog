@@ -1,6 +1,8 @@
 use reqwest::Url;
 
-use crate::core::frames::Frame;
+use crate::core::frames::{Frame, RawFrame};
+use crate::core::metric_consts::{FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME};
+use crate::core::symbolication::symbol_store::Catalog;
 use crate::core::symbolication::langs::apple::RawAppleFrame;
 use crate::core::symbolication::langs::hermes::{HermesRef, RawHermesFrame};
 use crate::core::symbolication::langs::java::RawJavaFrame;
@@ -105,5 +107,78 @@ where
         debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         self.resolve_frame(team_id, catalog, debug_images).await
+    }
+}
+
+impl Resolve<Catalog> for RawFrame {
+    async fn resolve(
+        &self,
+        team_id: i32,
+        catalog: &Catalog,
+        debug_images: &[DebugImage],
+    ) -> Result<Vec<Frame>, UnhandledError> {
+        let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
+        // Catalog-backed frames resolve via `Resolve`; catalog-free frames convert
+        // directly with `From<&RawX> for Frame` (no symbol resolution needed).
+        let (res, lang_tag): (Result<Vec<Frame>, UnhandledError>, &str) = match self {
+            RawFrame::JavaScriptWeb(frame) => {
+                (frame.resolve(team_id, catalog, debug_images).await, "javascript")
+            }
+            RawFrame::LegacyJS(frame) => {
+                // TODO: monitor this metric and remove the legacy frame type when it hits 0
+                metrics::counter!(LEGACY_JS_FRAME_RESOLVED).increment(1);
+                (frame.resolve(team_id, catalog, debug_images).await, "javascript")
+            }
+            RawFrame::JavaScriptNode(frame) => {
+                (frame.resolve(team_id, catalog, debug_images).await, "javascript")
+            }
+
+            RawFrame::Dart(frame) => (Ok(vec![frame.into()]), "dart"),
+            RawFrame::Apple(frame) => {
+                (frame.resolve(team_id, catalog, debug_images).await, "apple")
+            }
+            RawFrame::Php(frame) => (Ok(vec![frame.into()]), "php"),
+            RawFrame::Python(frame) => (Ok(vec![frame.into()]), "python"),
+            RawFrame::Ruby(frame) => (Ok(vec![frame.into()]), "ruby"),
+            RawFrame::Rust(frame) => (Ok(vec![frame.into()]), "rust"),
+            RawFrame::Custom(frame) => (Ok(vec![frame.into()]), "custom"),
+            RawFrame::Go(frame) => (Ok(vec![frame.into()]), "go"),
+            RawFrame::Hermes(frame) => {
+                (frame.resolve(team_id, catalog, debug_images).await, "hermes")
+            }
+            RawFrame::Java(frame) => (frame.resolve(team_id, catalog, debug_images).await, "java"),
+        };
+
+        // The raw id of the frame is set after it's resolved.
+        let res = res.map(|mut fs| {
+            fs.iter_mut()
+                .enumerate()
+                .for_each(|(index, f)| f.frame_id = self.frame_id(team_id, index, debug_images));
+            fs
+        });
+
+        if res.is_err() {
+            frame_resolve_time.label("outcome", "failed")
+        } else {
+            frame_resolve_time.label("outcome", "success")
+        }
+        .label("lang", lang_tag)
+        .fin();
+
+        if let Ok(frames) = &res {
+            for frame in frames {
+                if frame.resolved {
+                    metrics::counter!(FRAME_RESOLVED, "lang" => lang_tag).increment(1);
+                }
+                // Failure metrics are emitted by the language-specific `From` impls in
+                // `langs/*.rs` at the moment of frame construction, where the typed error
+                // is in scope (so we can call `metric_reason()` directly). This avoids
+                // having to carry the typed error on the `Frame` struct just to recover
+                // the metric label, which previously required a custom serializer plus
+                // `skip_deserializing` and silently dropped failure reasons on PG round-trip.
+            }
+        }
+
+        res
     }
 }
