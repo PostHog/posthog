@@ -12,7 +12,6 @@
         }
         right: {
           end: 7
-          is_sensitive: False
           start: 6
           value: 1
         }
@@ -37,7 +36,6 @@
         }
         right: {
           end: 7
-          is_sensitive: False
           start: 6
           value: 1
         }
@@ -57,13 +55,11 @@
         end: 6
         left: {
           end: 1
-          is_sensitive: False
           start: 0
           value: 1
         }
         right: {
           end: 6
-          is_sensitive: False
           start: 5
           value: 1
         }
@@ -84,13 +80,11 @@
           end: 28
           left: {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
           right: {
             end: 28
-            is_sensitive: False
             start: 27
             value: 1
           }
@@ -99,7 +93,6 @@
         end: 28
         expr: {
           end: 20
-          is_sensitive: False
           start: 14
           value: 488614
         }
@@ -124,13 +117,11 @@
         end: 13
         left: {
           end: 8
-          is_sensitive: False
           start: 7
           value: 1
         }
         right: {
           end: 13
-          is_sensitive: False
           start: 12
           value: 1
         }
@@ -150,13 +141,11 @@
         end: 8
         left: {
           end: 3
-          is_sensitive: False
           start: 0
           value: "s"
         }
         right: {
           end: 8
-          is_sensitive: False
           start: 7
           value: 1
         }
@@ -358,7 +347,6 @@
         }
         right: {
           end: 6
-          is_sensitive: False
           start: 5
           value: 1
         }
@@ -380,14 +368,12 @@
           name: "a"
           value: {
             end: 6
-            is_sensitive: False
             start: 5
             value: 1
           }
         }
         right: {
           end: 11
-          is_sensitive: False
           start: 10
           value: 2
         }
@@ -411,14 +397,12 @@
             end: 10
             left: {
               end: 6
-              is_sensitive: False
               start: 5
               value: 1
             }
             op: "*"
             right: {
               end: 10
-              is_sensitive: False
               start: 9
               value: 2
             }
@@ -427,7 +411,6 @@
         }
         right: {
           end: 15
-          is_sensitive: False
           start: 14
           value: 3
         }
@@ -451,14 +434,12 @@
             end: 10
             left: {
               end: 6
-              is_sensitive: False
               start: 5
               value: 1
             }
             op: "+"
             right: {
               end: 10
-              is_sensitive: False
               start: 9
               value: 2
             }
@@ -467,7 +448,6 @@
         }
         right: {
           end: 15
-          is_sensitive: False
           start: 14
           value: 3
         }
@@ -495,7 +475,6 @@
         }
         right: {
           end: 12
-          is_sensitive: False
           start: 11
           value: 2
         }
@@ -616,14 +595,12 @@
           name: "a"
           value: {
             end: 10
-            is_sensitive: False
             start: 5
             value: "str"
           }
         }
         right: {
           end: 15
-          is_sensitive: False
           start: 14
           value: 2
         }
@@ -653,7 +630,6 @@
           name: "str"
           value: {
             end: 15
-            is_sensitive: False
             start: 14
             value: 2
           }
@@ -776,7 +752,6 @@
     }
     limit: {
       end: 26
-      is_sensitive: False
       start: 25
       value: 1
     }
@@ -826,7 +801,6 @@
     end: 27
     limit: {
       end: 27
-      is_sensitive: False
       start: 26
       value: 1
     }
@@ -894,7 +868,6 @@
     end: 25
     limit: {
       end: 25
-      is_sensitive: False
       start: 24
       value: 1
     }
@@ -1029,7 +1002,6 @@
     replace: {
       event: {
         end: 13
-        is_sensitive: False
         start: 12
         value: 1
       }
@@ -1045,7 +1017,6 @@
     select: [
       {
         end: 10
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -1061,7 +1032,6 @@
     select: [
       {
         end: 11
-        is_sensitive: False
         start: 7
         value: 255
       }
@@ -1077,7 +1047,6 @@
     select: [
       {
         end: 11
-        is_sensitive: False
         start: 7
         value: 171
       }
@@ -1191,7 +1160,6 @@
   '''
   {
     end: 5
-    is_sensitive: False
     start: 0
     value: False
   }
@@ -1228,7 +1196,6 @@
   '''
   {
     end: 4
-    is_sensitive: False
     start: 0
     value: True
   }
@@ -1240,7 +1207,6 @@
     args: [
       {
         end: 6
-        is_sensitive: False
         start: 5
         value: 1
       }
@@ -1285,7 +1251,6 @@
     args: [
       {
         end: 7
-        is_sensitive: False
         start: 6
         value: 1
       }
@@ -1303,7 +1268,6 @@
     args: [
       {
         end: 6
-        is_sensitive: False
         start: 5
         value: 1
       }
@@ -1311,7 +1275,6 @@
     end: 7
     expr: {
       end: 4
-      is_sensitive: False
       start: 0
     }
     start: 0
@@ -1324,7 +1287,6 @@
     args: [
       {
         end: 6
-        is_sensitive: False
         start: 5
         value: 1
       }
@@ -1344,7 +1306,6 @@
         end: 10
         expr: {
           end: 10
-          is_sensitive: False
           start: 9
           value: 1
         }
@@ -1366,7 +1327,6 @@
         select: [
           {
             end: 10
-            is_sensitive: False
             start: 9
             value: 1
           }
@@ -1390,7 +1350,6 @@
         select: [
           {
             end: 11
-            is_sensitive: False
             start: 10
             value: 1
           }
@@ -1416,7 +1375,6 @@
           select: [
             {
               end: 11
-              is_sensitive: False
               start: 10
               value: 1
             }
@@ -1425,13 +1383,11 @@
         }
         high: {
           end: 28
-          is_sensitive: False
           start: 27
           value: 2
         }
         low: {
           end: 22
-          is_sensitive: False
           start: 21
           value: 1
         }
@@ -1457,7 +1413,6 @@
           select: [
             {
               end: 11
-              is_sensitive: False
               start: 10
               value: 1
             }
@@ -1467,7 +1422,6 @@
         op: "ilike"
         right: {
           end: 22
-          is_sensitive: False
           start: 19
           value: "x"
         }
@@ -1492,7 +1446,6 @@
           select: [
             {
               end: 11
-              is_sensitive: False
               start: 10
               value: 1
             }
@@ -1505,13 +1458,11 @@
           exprs: [
             {
               end: 18
-              is_sensitive: False
               start: 17
               value: 1
             },
             {
               end: 21
-              is_sensitive: False
               start: 20
               value: 2
             }
@@ -1540,7 +1491,6 @@
           select: [
             {
               end: 11
-              is_sensitive: False
               start: 10
               value: 1
             }
@@ -1549,7 +1499,7 @@
         }
         op: "!="
         right: {
-          is_sensitive: False
+  
         }
         start: 2
       }
@@ -1573,7 +1523,6 @@
           select: [
             {
               end: 11
-              is_sensitive: False
               start: 10
               value: 1
             }
@@ -1582,7 +1531,7 @@
         }
         op: "=="
         right: {
-          is_sensitive: False
+  
         }
         start: 2
       }
@@ -1605,7 +1554,6 @@
           select: [
             {
               end: 11
-              is_sensitive: False
               start: 10
               value: 1
             }
@@ -1615,7 +1563,6 @@
         op: "like"
         right: {
           end: 21
-          is_sensitive: False
           start: 18
           value: "x"
         }
@@ -1640,7 +1587,6 @@
           select: [
             {
               end: 11
-              is_sensitive: False
               start: 10
               value: 1
             }
@@ -1649,13 +1595,11 @@
         }
         high: {
           end: 32
-          is_sensitive: False
           start: 31
           value: 2
         }
         low: {
           end: 26
-          is_sensitive: False
           start: 25
           value: 1
         }
@@ -1681,7 +1625,6 @@
           select: [
             {
               end: 11
-              is_sensitive: False
               start: 10
               value: 1
             }
@@ -1691,7 +1634,6 @@
         op: "not ilike"
         right: {
           end: 26
-          is_sensitive: False
           start: 23
           value: "x"
         }
@@ -1716,7 +1658,6 @@
           select: [
             {
               end: 11
-              is_sensitive: False
               start: 10
               value: 1
             }
@@ -1729,13 +1670,11 @@
           exprs: [
             {
               end: 22
-              is_sensitive: False
               start: 21
               value: 1
             },
             {
               end: 25
-              is_sensitive: False
               start: 24
               value: 2
             }
@@ -1763,7 +1702,6 @@
           select: [
             {
               end: 11
-              is_sensitive: False
               start: 10
               value: 1
             }
@@ -1773,7 +1711,6 @@
         op: "not like"
         right: {
           end: 25
-          is_sensitive: False
           start: 22
           value: "x"
         }
@@ -1852,7 +1789,6 @@
         }
         right: {
           end: 8
-          is_sensitive: False
           start: 7
           value: 1
         }
@@ -1927,7 +1863,6 @@
         }
         right: {
           end: 9
-          is_sensitive: False
           start: 8
           value: 1
         }
@@ -1983,14 +1918,12 @@
     end: 6
     left: {
       end: 4
-      is_sensitive: False
       start: 3
       value: 1
     }
     op: "+"
     right: {
       end: 6
-      is_sensitive: False
       start: 5
       value: 2
     }
@@ -2002,7 +1935,6 @@
   '''
   {
     end: 7
-    is_sensitive: False
     start: 2
     value: "hello"
   }
@@ -2760,7 +2692,6 @@
         end: 11
         expr: {
           end: 6
-          is_sensitive: False
           start: 5
           value: 1
         }
@@ -2789,7 +2720,6 @@
             op: "+"
             right: {
               end: 24
-              is_sensitive: False
               start: 23
               value: 1
             }
@@ -2834,7 +2764,6 @@
         end: 11
         expr: {
           end: 6
-          is_sensitive: False
           start: 5
           value: 1
         }
@@ -2847,7 +2776,6 @@
         end: 21
         expr: {
           end: 15
-          is_sensitive: False
           start: 14
           value: 1
         }
@@ -2880,7 +2808,6 @@
         end: 11
         expr: {
           end: 6
-          is_sensitive: False
           start: 5
           value: 1
         }
@@ -2896,7 +2823,6 @@
           select: [
             {
               end: 22
-              is_sensitive: False
               start: 21
               value: 1
             }
@@ -2940,7 +2866,6 @@
         end: 11
         expr: {
           end: 6
-          is_sensitive: False
           start: 5
           value: 1
         }
@@ -3004,7 +2929,6 @@
           select: [
             {
               end: 14
-              is_sensitive: False
               start: 13
               value: 1
             }
@@ -3023,7 +2947,6 @@
           select: [
             {
               end: 31
-              is_sensitive: False
               start: 30
               value: 2
             }
@@ -3097,7 +3020,6 @@
             op: "+"
             right: {
               end: 30
-              is_sensitive: False
               start: 29
               value: 1
             }
@@ -3140,7 +3062,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -3205,7 +3126,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -3310,7 +3230,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -3375,7 +3294,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -3440,7 +3358,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -3530,7 +3447,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -3543,7 +3459,6 @@
           end: 48
           left: {
             end: 48
-            is_sensitive: False
             start: 47
             value: 1
           }
@@ -3608,7 +3523,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -3673,7 +3587,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -3799,7 +3712,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -3851,7 +3763,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -4053,7 +3964,6 @@
         op: "+"
         right: {
           end: 32
-          is_sensitive: False
           start: 31
           value: 1
         }
@@ -4104,7 +4014,6 @@
         nullish: False
         property: {
           end: 30
-          is_sensitive: False
           start: 29
           value: 1
         }
@@ -4556,7 +4465,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -4591,7 +4499,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -4616,7 +4523,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -4645,7 +4551,6 @@
         start: 10
         value: {
           end: 14
-          is_sensitive: False
           start: 13
           value: 1
         }
@@ -4667,7 +4572,6 @@
         start: 9
         value: {
           end: 13
-          is_sensitive: False
           start: 12
           value: 1
         }
@@ -4689,7 +4593,6 @@
         start: 15
         value: {
           end: 19
-          is_sensitive: False
           start: 18
           value: 1
         }
@@ -4711,7 +4614,6 @@
         start: 15
         value: {
           end: 19
-          is_sensitive: False
           start: 18
           value: 1
         }
@@ -4752,7 +4654,6 @@
         value: [
           {
             end: 4
-            is_sensitive: False
             start: 3
             value: "\t"
           }
@@ -4774,7 +4675,6 @@
         value: [
           {
             end: 4
-            is_sensitive: False
             start: 3
             value: " "
           }
@@ -4838,7 +4738,6 @@
         value: [
           {
             end: 12
-            is_sensitive: False
             start: 3
             value: "\n hello \n"
           }
@@ -4860,7 +4759,6 @@
         value: [
           {
             end: 14
-            is_sensitive: False
             start: 3
             value: "hello world"
           }
@@ -4916,7 +4814,6 @@
         value: [
           {
             end: 7
-            is_sensitive: False
             start: 6
             value: 1
           }
@@ -4949,7 +4846,6 @@
         start: 8
         value: {
           end: 14
-          is_sensitive: False
           start: 13
           value: 1
         }
@@ -4959,7 +4855,6 @@
         value: [
           {
             end: 17
-            is_sensitive: False
             start: 16
             value: "x"
           }
@@ -4982,7 +4877,6 @@
         start: 5
         value: {
           end: 11
-          is_sensitive: False
           start: 10
           value: 1
         }
@@ -5023,7 +4917,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -5050,7 +4943,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -5077,7 +4969,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -5131,7 +5022,6 @@
         value: [
           {
             end: 8
-            is_sensitive: False
             start: 3
             value: "1 + 2"
           }
@@ -5153,7 +5043,6 @@
         value: [
           {
             end: 11
-            is_sensitive: False
             start: 3
             value: "!@#%^*()"
           }
@@ -5175,7 +5064,6 @@
         value: [
           {
             end: 7
-            is_sensitive: False
             start: 3
             value: "foo!"
           }
@@ -5197,7 +5085,6 @@
         value: [
           {
             end: 10
-            is_sensitive: False
             start: 3
             value: "foo@bar"
           }
@@ -5219,7 +5106,6 @@
         value: [
           {
             end: 10
-            is_sensitive: False
             start: 3
             value: "foo&bar"
           }
@@ -5246,7 +5132,6 @@
                 value: [
                   {
                     end: 21
-                    is_sensitive: False
                     start: 14
                     value: "foo!bar"
                   }
@@ -5259,7 +5144,6 @@
           },
           {
             end: 36
-            is_sensitive: False
             start: 29
             value: "baz&qux"
           }
@@ -5507,7 +5391,6 @@
     end: 26
     limit: {
       end: 26
-      is_sensitive: False
       start: 25
       value: 1
     }
@@ -5578,7 +5461,6 @@
     op: "in cohort"
     right: {
       end: 13
-      is_sensitive: False
       start: 12
       value: 1
     }
@@ -5652,7 +5534,6 @@
     op: "in cohort"
     right: {
       end: 15
-      is_sensitive: False
       start: 12
       value: 1
     }
@@ -5700,7 +5581,6 @@
     op: "not in cohort"
     right: {
       end: 17
-      is_sensitive: False
       start: 16
       value: 1
     }
@@ -5726,7 +5606,6 @@
         start: 33
         value: {
           end: 39
-          is_sensitive: False
           start: 38
           value: 5
         }
@@ -5750,7 +5629,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -5793,7 +5671,6 @@
             op: "+"
             right: {
               end: 51
-              is_sensitive: False
               start: 50
               value: 1
             }
@@ -5821,7 +5698,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -5864,7 +5740,6 @@
             op: "+"
             right: {
               end: 46
-              is_sensitive: False
               start: 45
               value: 1
             }
@@ -5892,7 +5767,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -5981,7 +5855,6 @@
     args: [
       {
         end: 10
-        is_sensitive: False
         start: 9
         value: 1
       }
@@ -5998,7 +5871,6 @@
   {
     args: [
       {
-        is_sensitive: False
         value: 1
       }
     ]
@@ -6015,7 +5887,6 @@
     args: [
       {
         end: 10
-        is_sensitive: False
         start: 9
         value: 1
       }
@@ -6032,7 +5903,6 @@
   {
     args: [
       {
-        is_sensitive: False
         value: 5
       }
     ]
@@ -6341,7 +6211,7 @@
           }
           op: "!="
           right: {
-            is_sensitive: False
+  
           }
           start: 0
         }
@@ -6372,7 +6242,7 @@
           }
           op: "=="
           right: {
-            is_sensitive: False
+  
           }
           start: 0
         }
@@ -6449,7 +6319,6 @@
           end: 51
           expr: {
             end: 51
-            is_sensitive: False
             start: 50
             value: 3
           }
@@ -6463,7 +6332,6 @@
             end: 46
             expr: {
               end: 46
-              is_sensitive: False
               start: 45
               value: 2
             }
@@ -6477,7 +6345,6 @@
               end: 41
               expr: {
                 end: 41
-                is_sensitive: False
                 start: 40
                 value: 1
               }
@@ -6554,7 +6421,6 @@
             end: 36
             expr: {
               end: 36
-              is_sensitive: False
               start: 35
               value: 1
             }
@@ -6618,7 +6484,6 @@
           end: 41
           expr: {
             end: 41
-            is_sensitive: False
             start: 40
             value: 2
           }
@@ -6632,7 +6497,6 @@
             end: 35
             expr: {
               end: 35
-              is_sensitive: False
               start: 34
               value: 1
             }
@@ -6696,7 +6560,6 @@
           end: 39
           expr: {
             end: 39
-            is_sensitive: False
             start: 38
             value: 2
           }
@@ -6710,7 +6573,6 @@
             end: 34
             expr: {
               end: 34
-              is_sensitive: False
               start: 33
               value: 1
             }
@@ -6774,7 +6636,6 @@
           end: 27
           expr: {
             end: 27
-            is_sensitive: False
             start: 26
             value: 1
           }
@@ -6940,7 +6801,6 @@
           end: 32
           expr: {
             end: 32
-            is_sensitive: False
             start: 31
             value: 1
           }
@@ -7039,7 +6899,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7052,7 +6911,6 @@
         select: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -7071,7 +6929,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7085,7 +6942,6 @@
         select: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -7104,7 +6960,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7132,7 +6987,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7440,7 +7294,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7453,7 +7306,6 @@
           end: 37
           expr: {
             end: 37
-            is_sensitive: False
             start: 36
             value: 1
           }
@@ -7492,7 +7344,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7505,7 +7356,6 @@
           end: 32
           expr: {
             end: 32
-            is_sensitive: False
             start: 31
             value: 1
           }
@@ -7544,7 +7394,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7557,7 +7406,6 @@
           end: 37
           expr: {
             end: 37
-            is_sensitive: False
             start: 36
             value: 1
           }
@@ -7596,7 +7444,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7609,7 +7456,6 @@
           end: 32
           expr: {
             end: 32
-            is_sensitive: False
             start: 31
             value: 1
           }
@@ -7648,7 +7494,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7661,7 +7506,6 @@
           end: 38
           expr: {
             end: 38
-            is_sensitive: False
             start: 37
             value: 1
           }
@@ -7700,7 +7544,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7713,7 +7556,6 @@
           end: 37
           expr: {
             end: 37
-            is_sensitive: False
             start: 36
             value: 1
           }
@@ -7752,7 +7594,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7765,7 +7606,6 @@
           end: 33
           expr: {
             end: 33
-            is_sensitive: False
             start: 32
             value: 1
           }
@@ -7804,7 +7644,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7817,7 +7656,6 @@
           end: 27
           expr: {
             end: 27
-            is_sensitive: False
             start: 26
             value: 1
           }
@@ -7856,7 +7694,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7869,7 +7706,6 @@
           end: 32
           expr: {
             end: 32
-            is_sensitive: False
             start: 31
             value: 1
           }
@@ -7908,7 +7744,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7921,7 +7756,6 @@
           end: 38
           expr: {
             end: 38
-            is_sensitive: False
             start: 37
             value: 1
           }
@@ -7960,7 +7794,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -7973,7 +7806,6 @@
           end: 33
           expr: {
             end: 33
-            is_sensitive: False
             start: 32
             value: 1
           }
@@ -8012,7 +7844,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -8025,7 +7856,6 @@
           end: 37
           expr: {
             end: 37
-            is_sensitive: False
             start: 36
             value: 1
           }
@@ -8064,7 +7894,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -8077,7 +7906,6 @@
           end: 32
           expr: {
             end: 32
-            is_sensitive: False
             start: 31
             value: 1
           }
@@ -8116,7 +7944,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -8129,7 +7956,6 @@
           end: 37
           expr: {
             end: 37
-            is_sensitive: False
             start: 36
             value: 1
           }
@@ -8168,7 +7994,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -8181,7 +8006,6 @@
           end: 37
           expr: {
             end: 37
-            is_sensitive: False
             start: 36
             value: 1
           }
@@ -8220,7 +8044,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -8233,7 +8056,6 @@
           end: 37
           expr: {
             end: 37
-            is_sensitive: False
             start: 36
             value: 1
           }
@@ -8275,14 +8097,12 @@
           end: 14
           left: {
             end: 10
-            is_sensitive: False
             start: 9
             value: 1
           }
           op: "+"
           right: {
             end: 14
-            is_sensitive: False
             start: 13
             value: 2
           }
@@ -8305,7 +8125,6 @@
         end: 12
         expr: {
           end: 11
-          is_sensitive: False
           start: 10
           value: 1
         }
@@ -8318,7 +8137,6 @@
           args: [
             {
               end: 17
-              is_sensitive: False
               start: 16
               value: 2
             }
@@ -8336,7 +8154,6 @@
         }
         right: {
           end: 23
-          is_sensitive: False
           start: 22
           value: 3
         }
@@ -8356,7 +8173,6 @@
         end: 10
         expr: {
           end: 10
-          is_sensitive: False
           start: 9
           value: 1
         }
@@ -8379,13 +8195,11 @@
         end: 19
         left: {
           end: 14
-          is_sensitive: False
           start: 13
           value: 2
         }
         right: {
           end: 19
-          is_sensitive: False
           start: 18
           value: 3
         }
@@ -8477,7 +8291,6 @@
             name: "z"
             value: {
               end: 19
-              is_sensitive: False
               start: 18
               value: 1
             }
@@ -8514,7 +8327,6 @@
             name: "z"
             value: {
               end: 19
-              is_sensitive: False
               start: 18
               value: 1
             }
@@ -8573,7 +8385,6 @@
         }
         right: {
           end: 21
-          is_sensitive: False
           start: 20
           value: 3
         }
@@ -8591,7 +8402,6 @@
     end: 45
     limit: {
       end: 45
-      is_sensitive: False
       start: 44
       value: 2
     }
@@ -8609,7 +8419,6 @@
       ]
       n: {
         end: 28
-        is_sensitive: False
         start: 27
         value: 1
       }
@@ -8617,14 +8426,12 @@
     }
     offset: {
       end: 54
-      is_sensitive: False
       start: 53
       value: 3
     }
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -8651,14 +8458,12 @@
     end: 36
     limit: {
       end: 23
-      is_sensitive: False
       start: 22
       value: 1
     }
     limit_with_ties: True
     offset: {
       end: 26
-      is_sensitive: False
       start: 25
       value: 2
     }
@@ -8694,7 +8499,6 @@
     end: 33
     limit: {
       end: 23
-      is_sensitive: False
       start: 22
       value: 1
     }
@@ -8731,14 +8535,12 @@
     end: 33
     limit: {
       end: 23
-      is_sensitive: False
       start: 22
       value: 1
     }
     limit_with_ties: True
     offset: {
       end: 42
-      is_sensitive: False
       start: 41
       value: 2
     }
@@ -8776,7 +8578,6 @@
       end: 22
       left: {
         end: 16
-        is_sensitive: False
         start: 15
         value: 1
       }
@@ -8785,14 +8586,12 @@
         end: 22
         left: {
           end: 18
-          is_sensitive: False
           start: 17
           value: 1
         }
         op: "%"
         right: {
           end: 22
-          is_sensitive: False
           start: 21
           value: 2
         }
@@ -8804,7 +8603,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -8821,14 +8619,12 @@
       end: 18
       left: {
         end: 16
-        is_sensitive: False
         start: 15
         value: 1
       }
       op: "+"
       right: {
         end: 18
-        is_sensitive: False
         start: 17
         value: 1
       }
@@ -8837,14 +8633,12 @@
     limit_percent: True
     offset: {
       end: 29
-      is_sensitive: False
       start: 28
       value: 3
     }
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -8861,14 +8655,12 @@
       end: 18
       left: {
         end: 16
-        is_sensitive: False
         start: 15
         value: 1
       }
       op: "+"
       right: {
         end: 18
-        is_sensitive: False
         start: 17
         value: 1
       }
@@ -8879,7 +8671,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -8898,14 +8689,12 @@
         end: 20
         left: {
           end: 16
-          is_sensitive: False
           start: 15
           value: 5
         }
         op: "%"
         right: {
           end: 20
-          is_sensitive: False
           start: 19
           value: 2
         }
@@ -8914,7 +8703,6 @@
       op: "+"
       right: {
         end: 24
-        is_sensitive: False
         start: 23
         value: 3
       }
@@ -8923,7 +8711,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -8962,7 +8749,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -9043,7 +8829,6 @@
           end: 51
           expr: {
             end: 51
-            is_sensitive: False
             start: 50
             value: 1
           }
@@ -9057,7 +8842,6 @@
             end: 46
             expr: {
               end: 46
-              is_sensitive: False
               start: 45
               value: 1
             }
@@ -9121,7 +8905,6 @@
           end: 51
           expr: {
             end: 51
-            is_sensitive: False
             start: 50
             value: 3
           }
@@ -9135,7 +8918,6 @@
             end: 46
             expr: {
               end: 46
-              is_sensitive: False
               start: 45
               value: 2
             }
@@ -9149,7 +8931,6 @@
               end: 41
               expr: {
                 end: 41
-                is_sensitive: False
                 start: 40
                 value: 1
               }
@@ -9223,7 +9004,6 @@
           end: 39
           expr: {
             end: 39
-            is_sensitive: False
             start: 38
             value: 2
           }
@@ -9237,7 +9017,6 @@
             end: 34
             expr: {
               end: 34
-              is_sensitive: False
               start: 33
               value: 1
             }
@@ -9495,7 +9274,6 @@
           end: 27
           expr: {
             end: 27
-            is_sensitive: False
             start: 26
             value: 1
           }
@@ -9549,7 +9327,6 @@
           end: 27
           expr: {
             end: 27
-            is_sensitive: False
             start: 26
             value: 1
           }
@@ -9563,7 +9340,6 @@
             end: 39
             expr: {
               end: 39
-              is_sensitive: False
               start: 38
               value: 1
             }
@@ -9669,7 +9445,6 @@
         name: "false"
         value: {
           end: 12
-          is_sensitive: False
           start: 11
           value: 1
         }
@@ -9690,7 +9465,6 @@
         name: "return"
         value: {
           end: 13
-          is_sensitive: False
           start: 12
           value: 1
         }
@@ -9711,7 +9485,6 @@
         name: "select"
         value: {
           end: 13
-          is_sensitive: False
           start: 12
           value: 1
         }
@@ -9732,7 +9505,6 @@
         name: "true"
         value: {
           end: 11
-          is_sensitive: False
           start: 10
           value: 1
         }
@@ -9753,7 +9525,6 @@
         name: "x"
         value: {
           end: 8
-          is_sensitive: False
           start: 7
           value: 1
         }
@@ -9774,7 +9545,6 @@
         name: "x"
         value: {
           end: 10
-          is_sensitive: False
           start: 9
           value: 1
         }
@@ -9801,13 +9571,11 @@
     }
     high: {
       end: 19
-      is_sensitive: False
       start: 18
       value: 2
     }
     low: {
       end: 13
-      is_sensitive: False
       start: 12
       value: 1
     }
@@ -9831,7 +9599,6 @@
     op: "ilike"
     right: {
       end: 13
-      is_sensitive: False
       start: 10
       value: "a"
     }
@@ -9847,7 +9614,6 @@
       args: [
         {
           end: 9
-          is_sensitive: False
           start: 8
           value: 1
         }
@@ -9876,7 +9642,7 @@
     }
     op: "!="
     right: {
-      is_sensitive: False
+  
     }
     start: 0
   }
@@ -9897,7 +9663,7 @@
     }
     op: "=="
     right: {
-      is_sensitive: False
+  
     }
     start: 0
   }
@@ -9918,7 +9684,6 @@
     op: "like"
     right: {
       end: 12
-      is_sensitive: False
       start: 9
       value: "a"
     }
@@ -9950,13 +9715,11 @@
       args: [
         {
           end: 9
-          is_sensitive: False
           start: 8
           value: 1
         },
         {
           end: 11
-          is_sensitive: False
           start: 10
           value: 2
         }
@@ -10066,7 +9829,6 @@
         end: 15
         expr: {
           end: 15
-          is_sensitive: False
           start: 14
           value: 1
         }
@@ -10087,7 +9849,6 @@
         end: 13
         expr: {
           end: 13
-          is_sensitive: False
           start: 12
           value: 1
         }
@@ -10264,14 +10025,12 @@
       end: 24
       from_value: {
         end: 18
-        is_sensitive: False
         start: 17
         value: 1
       }
       start: 2
       to_value: {
         end: 24
-        is_sensitive: False
         start: 22
         value: 10
       }
@@ -10307,7 +10066,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -10384,7 +10142,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -10478,7 +10235,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -10559,7 +10315,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -10650,7 +10405,6 @@
         aggregates: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -10714,7 +10468,6 @@
         aggregates: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -10805,7 +10558,6 @@
         aggregates: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -10882,7 +10634,6 @@
         aggregates: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -10972,7 +10723,6 @@
         aggregates: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -11056,7 +10806,6 @@
         aggregates: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -11146,7 +10895,6 @@
         aggregates: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -11230,7 +10978,6 @@
         aggregates: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -11321,7 +11068,6 @@
         aggregates: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -11411,7 +11157,6 @@
         aggregates: [
           {
             end: 23
-            is_sensitive: False
             start: 22
             value: 1
           }
@@ -11543,7 +11288,6 @@
             values: [
               {
                 end: 40
-                is_sensitive: False
                 start: 39
                 value: 1
               }
@@ -11615,7 +11359,6 @@
             values: [
               {
                 end: 40
-                is_sensitive: False
                 start: 39
                 value: 1
               }
@@ -11697,7 +11440,6 @@
             values: [
               {
                 end: 40
-                is_sensitive: False
                 start: 39
                 value: 1
               }
@@ -11779,7 +11521,6 @@
             values: [
               {
                 end: 40
-                is_sensitive: False
                 start: 39
                 value: 1
               }
@@ -11827,7 +11568,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -11867,13 +11607,11 @@
             values: [
               {
                 end: 41
-                is_sensitive: False
                 start: 40
                 value: 1
               },
               {
                 end: 44
-                is_sensitive: False
                 start: 43
                 value: 2
               }
@@ -11903,7 +11641,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -11935,7 +11672,6 @@
             values: [
               {
                 end: 36
-                is_sensitive: False
                 start: 35
                 value: 1
               }
@@ -11953,7 +11689,6 @@
             values: [
               {
                 end: 45
-                is_sensitive: False
                 start: 44
                 value: 2
               }
@@ -11983,7 +11718,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -12023,13 +11757,11 @@
             values: [
               {
                 end: 41
-                is_sensitive: False
                 start: 40
                 value: 1
               },
               {
                 end: 44
-                is_sensitive: False
                 start: 43
                 value: 2
               }
@@ -12059,7 +11791,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -12103,7 +11834,6 @@
                 args: [
                   {
                     end: 45
-                    is_sensitive: False
                     start: 44
                     value: 2
                   }
@@ -12111,7 +11841,6 @@
                 end: 46
                 expr: {
                   end: 41
-                  is_sensitive: False
                   start: 40
                   value: 1
                 }
@@ -12122,7 +11851,6 @@
             values: [
               {
                 end: 52
-                is_sensitive: False
                 start: 51
                 value: 3
               }
@@ -12152,7 +11880,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -12272,7 +11999,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -12349,7 +12075,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -12413,7 +12138,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -12489,7 +12213,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -12565,7 +12288,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -12634,7 +12356,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -12702,7 +12423,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -12769,7 +12489,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -12805,7 +12524,6 @@
             values: [
               {
                 end: 38
-                is_sensitive: False
                 start: 37
                 value: 1
               }
@@ -12835,7 +12553,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -13098,7 +12815,6 @@
                 end: 5
                 expr: {
                   end: 4
-                  is_sensitive: False
                   start: 3
                   value: 1
                 }
@@ -13131,7 +12847,6 @@
             end: 3
             expr: {
               end: 2
-              is_sensitive: False
               start: 1
               value: 1
             }
@@ -13158,7 +12873,6 @@
             end: 3
             expr: {
               end: 2
-              is_sensitive: False
               start: 1
               value: 1
             }
@@ -13167,7 +12881,6 @@
           end: 5
           nullish: False
           property: {
-            is_sensitive: False
             value: "x"
           }
           start: 0
@@ -13536,7 +13249,6 @@
               end: 44
               left: {
                 end: 27
-                is_sensitive: False
                 start: 24
                 value: "a"
               }
@@ -13745,14 +13457,12 @@
           end: 12
           left: {
             end: 8
-            is_sensitive: False
             start: 7
             value: 1
           }
           op: "+"
           right: {
             end: 12
-            is_sensitive: False
             start: 11
             value: 2
           }
@@ -13776,7 +13486,6 @@
           name: "a"
           value: {
             end: 13
-            is_sensitive: False
             start: 12
             value: 1
           }
@@ -13810,7 +13519,6 @@
         }
         right: {
           end: 15
-          is_sensitive: False
           start: 14
           value: 1
         }
@@ -13848,7 +13556,6 @@
         }
         right: {
           end: 26
-          is_sensitive: False
           start: 25
           value: 1
         }
@@ -13880,13 +13587,11 @@
         end: 24
         left: {
           end: 18
-          is_sensitive: False
           start: 15
           value: "a"
         }
         right: {
           end: 24
-          is_sensitive: False
           start: 23
           value: 1
         }
@@ -13920,7 +13625,6 @@
           args: [
             {
               end: 21
-              is_sensitive: False
               start: 18
               value: "e"
             }
@@ -13971,7 +13675,6 @@
           args: [
             {
               end: 21
-              is_sensitive: False
               start: 18
               value: "e"
             }
@@ -13989,7 +13692,6 @@
         }
         right: {
           end: 32
-          is_sensitive: False
           start: 29
           value: "e"
         }
@@ -14030,7 +13732,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -14043,7 +13744,6 @@
           end: 26
           left: {
             end: 26
-            is_sensitive: False
             start: 23
             value: 0.04
           }
@@ -14072,7 +13772,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -14085,13 +13784,11 @@
           end: 30
           left: {
             end: 24
-            is_sensitive: False
             start: 23
             value: 1
           }
           right: {
             end: 30
-            is_sensitive: False
             start: 27
             value: 0.04
           }
@@ -14120,7 +13817,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -14133,7 +13829,6 @@
           end: 25
           left: {
             end: 25
-            is_sensitive: False
             start: 23
             value: 0.5
           }
@@ -14162,7 +13857,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -14175,13 +13869,11 @@
           end: 29
           left: {
             end: 25
-            is_sensitive: False
             start: 23
             value: 0.5
           }
           right: {
             end: 29
-            is_sensitive: False
             start: 28
             value: 2
           }
@@ -14225,7 +13917,6 @@
           end: 26
           left: {
             end: 26
-            is_sensitive: False
             start: 23
             value: 0.5
           }
@@ -14269,7 +13960,6 @@
           end: 24
           left: {
             end: 24
-            is_sensitive: False
             start: 23
             value: 1
           }
@@ -14313,13 +14003,11 @@
           end: 26
           left: {
             end: 24
-            is_sensitive: False
             start: 23
             value: 1
           }
           right: {
             end: 26
-            is_sensitive: False
             start: 25
             value: 2
           }
@@ -14363,7 +14051,6 @@
           end: 33
           left: {
             end: 33
-            is_sensitive: False
             start: 32
             value: 2
           }
@@ -14373,7 +14060,6 @@
           end: 24
           left: {
             end: 24
-            is_sensitive: False
             start: 23
             value: 1
           }
@@ -14472,7 +14158,6 @@
     select: [
       {
         end: 9
-        is_sensitive: False
         start: 8
         value: 1
       }
@@ -14496,7 +14181,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -14534,7 +14218,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -14563,7 +14246,6 @@
         end: 3
         expr: {
           end: 3
-          is_sensitive: False
           start: 2
           value: 2
         }
@@ -14594,7 +14276,6 @@
           op: "=="
           right: {
             end: 5
-            is_sensitive: False
             start: 4
             value: 2
           }
@@ -14616,7 +14297,6 @@
         end: 10
         expr: {
           end: 10
-          is_sensitive: False
           start: 9
           value: 1
         }
@@ -14650,7 +14330,6 @@
           op: "=="
           right: {
             end: 18
-            is_sensitive: False
             start: 17
             value: 2
           }
@@ -14695,7 +14374,6 @@
           op: "=="
           right: {
             end: 7
-            is_sensitive: False
             start: 6
             value: 2
           }
@@ -14728,7 +14406,6 @@
           op: "=="
           right: {
             end: 5
-            is_sensitive: False
             start: 4
             value: 2
           }
@@ -14773,7 +14450,6 @@
           op: "=="
           right: {
             end: 6
-            is_sensitive: False
             start: 5
             value: 2
           }
@@ -14962,7 +14638,6 @@
           op: "*"
           right: {
             end: 16
-            is_sensitive: False
             start: 15
             value: 1
           }
@@ -14985,7 +14660,6 @@
         end: 10
         expr: {
           end: 10
-          is_sensitive: False
           start: 9
           value: 1
         }
@@ -15008,14 +14682,12 @@
           end: 14
           left: {
             end: 10
-            is_sensitive: False
             start: 9
             value: 1
           }
           op: "+"
           right: {
             end: 14
-            is_sensitive: False
             start: 13
             value: 2
           }
@@ -15109,7 +14781,6 @@
   '''
   {
     end: 4
-    is_sensitive: False
     start: 0
     value: "\u0007"
   }
@@ -15131,7 +14802,6 @@
   '''
   {
     end: 6
-    is_sensitive: False
     start: 0
     value: "ab"
   }
@@ -15153,7 +14823,6 @@
   '''
   {
     end: 4
-    is_sensitive: False
     start: 0
     value: "\u000b"
   }
@@ -15163,7 +14832,6 @@
   '''
   {
     end: 4
-    is_sensitive: False
     start: 0
     value: "'"
   }
@@ -15173,7 +14841,6 @@
   '''
   {
     end: 4
-    is_sensitive: False
     start: 0
     value: "\b"
   }
@@ -15183,7 +14850,6 @@
   '''
   {
     end: 4
-    is_sensitive: False
     start: 0
     value: "\\"
   }
@@ -15193,7 +14859,6 @@
   '''
   {
     end: 4
-    is_sensitive: False
     start: 0
     value: "\n"
   }
@@ -15203,7 +14868,6 @@
   '''
   {
     end: 4
-    is_sensitive: False
     start: 0
     value: "\t"
   }
@@ -15213,7 +14877,6 @@
   '''
   {
     end: 6
-    is_sensitive: False
     start: 0
     value: "\\xAB"
   }
@@ -15223,7 +14886,6 @@
   '''
   {
     end: 6
-    is_sensitive: False
     start: 0
     value: "\\xFF"
   }
@@ -15235,7 +14897,6 @@
     args: [
       {
         end: 13
-        is_sensitive: False
         start: 12
         value: 2
       }
@@ -15248,7 +14909,6 @@
           select: [
             {
               end: 10
-              is_sensitive: False
               start: 9
               value: 1
             }
@@ -15277,7 +14937,6 @@
           select: [
             {
               end: 10
-              is_sensitive: False
               start: 9
               value: 1
             }
@@ -15327,7 +14986,6 @@
             select: [
               {
                 end: 10
-                is_sensitive: False
                 start: 9
                 value: 1
               }
@@ -15557,7 +15215,6 @@
           end: 28
           expr: {
             end: 27
-            is_sensitive: False
             start: 26
             value: 1
           }
@@ -15611,7 +15268,6 @@
           end: 27
           expr: {
             end: 27
-            is_sensitive: False
             start: 26
             value: 1
           }
@@ -15625,7 +15281,6 @@
             end: 40
             expr: {
               end: 39
-              is_sensitive: False
               start: 38
               value: 1
             }
@@ -15731,14 +15386,12 @@
       end: 33
       left: {
         end: 29
-        is_sensitive: False
         start: 28
         value: 1
       }
       op: "+"
       right: {
         end: 33
-        is_sensitive: False
         start: 32
         value: 1
       }
@@ -15922,7 +15575,6 @@
       },
       {
         end: 13
-        is_sensitive: False
         start: 10
         value: "x"
       }
@@ -15948,7 +15600,6 @@
       },
       {
         end: 16
-        is_sensitive: False
         start: 15
         value: "x"
       }
@@ -16038,13 +15689,11 @@
           select: [
             {
               end: 32
-              is_sensitive: False
               start: 31
               value: 1
             },
             {
               end: 35
-              is_sensitive: False
               start: 34
               value: 2
             }
@@ -16265,7 +15914,6 @@
   '''
   {
     end: 2
-    is_sensitive: False
     start: 0
     value: 1
   }
@@ -16275,7 +15923,6 @@
   '''
   {
     end: 4
-    is_sensitive: False
     start: 0
     value: 1.5
   }
@@ -16285,7 +15932,6 @@
   '''
   {
     end: 4
-    is_sensitive: False
     start: 0
     value: inf
   }
@@ -16443,7 +16089,6 @@
     end: 4
     left: {
       end: 1
-      is_sensitive: False
       start: 0
       value: 1
     }
@@ -16466,7 +16111,6 @@
     end: 4
     left: {
       end: 1
-      is_sensitive: False
       start: 0
       value: 1
     }
@@ -16489,14 +16133,12 @@
     end: 14
     left: {
       end: 1
-      is_sensitive: False
       start: 0
       value: 1
     }
     op: "+"
     right: {
       end: 14
-      is_sensitive: False
       start: 13
       value: 2
     }
@@ -16714,7 +16356,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -16761,7 +16402,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -16987,7 +16627,6 @@
             frame_type: "PRECEDING"
             frame_value: {
               end: 29
-              is_sensitive: False
               start: 26
               value: 1.5
             }
@@ -17072,7 +16711,6 @@
             frame_type: "PRECEDING"
             frame_value: {
               end: 29
-              is_sensitive: False
               start: 26
               value: "5"
             }
@@ -17190,7 +16828,6 @@
           select: [
             {
               end: 22
-              is_sensitive: False
               start: 21
               value: 1
             }
@@ -17241,7 +16878,6 @@
           select: [
             {
               end: 22
-              is_sensitive: False
               start: 21
               value: 1
             }
@@ -17292,7 +16928,6 @@
           select: [
             {
               end: 21
-              is_sensitive: False
               start: 20
               value: 1
             }
@@ -17343,7 +16978,6 @@
           select: [
             {
               end: 24
-              is_sensitive: False
               start: 23
               value: 1
             }
@@ -17589,7 +17223,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       },
@@ -17614,7 +17247,6 @@
       end: 23
       expr: {
         end: 23
-        is_sensitive: False
         start: 22
         value: 2
       }
@@ -17623,7 +17255,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -17641,7 +17272,6 @@
       end: 24
       expr: {
         end: 24
-        is_sensitive: False
         start: 23
         value: 3
       }
@@ -17650,7 +17280,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -17666,7 +17295,6 @@
     select: [
       {
         end: 8
-        is_sensitive: False
         start: 7
         value: 1
       }
@@ -17677,7 +17305,6 @@
       end: 23
       expr: {
         end: 23
-        is_sensitive: False
         start: 22
         value: 2
       }
