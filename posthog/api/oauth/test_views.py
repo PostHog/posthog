@@ -3998,15 +3998,6 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
             ["urn:ietf:params:oauth:grant-profile:id-jag"],
         )
 
-    def test_openid_configuration_advertises_id_jag_grant_profile(self):
-        response = self.client.get("/.well-known/openid-configuration")
-        metadata = response.json()
-
-        self.assertEqual(
-            metadata["authorization_grant_profiles_supported"],
-            ["urn:ietf:params:oauth:grant-profile:id-jag"],
-        )
-
     def test_metadata_includes_scopes(self):
         response = self.client.get("/.well-known/oauth-authorization-server")
         metadata = response.json()

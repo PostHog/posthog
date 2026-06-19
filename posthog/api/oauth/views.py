@@ -1507,14 +1507,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
 
 class OAuthConnectDiscoveryInfoView(ConnectDiscoveryInfoView):
-    def get(self, request, *args, **kwargs):
-        response = super().get(request, *args, **kwargs)
-        # Mirror the ID-JAG grant profile for clients that read OIDC discovery instead of RFC 8414 metadata.
-        if response.status_code == 200:
-            data = json.loads(response.content)
-            data["authorization_grant_profiles_supported"] = [id_jag.ID_JAG_GRANT_PROFILE]
-            response.content = json.dumps(data)
-        return response
+    pass
 
 
 class OAuthJwksInfoView(JwksInfoView):
