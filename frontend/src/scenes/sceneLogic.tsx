@@ -122,14 +122,13 @@ const DelayedLoadingSpinner = (): JSX.Element => {
     return <>{show ? <Spinner /> : null}</>
 }
 
-const getMainContentElement = (): HTMLElement | null => document.getElementById('main-content')
-const restoreMainContentScrollTop = (scrollTop: number): void => {
-    const element = getMainContentElement()
+const scrollMainContentToTop = (): void => {
+    const element = document.getElementById('main-content')
     if (!element) {
         return
     }
     window.requestAnimationFrame(() => {
-        element.scrollTo({ top: scrollTop })
+        element.scrollTo({ top: 0 })
     })
 }
 
@@ -497,9 +496,9 @@ export const sceneLogic = kea<sceneLogicType>([
 
             const previousScene = selectors.sceneId(previousState)
             if (scrollToTop && sceneId !== previousScene) {
-                // Forward navigation (link click) scrolls to top; back/forward scroll
-                // restoration is left to the browser.
-                restoreMainContentScrollTop(0)
+                // Forward navigation (link click) scrolls to top. There is no back/forward scroll
+                // restoration: #main-content is an inner scroll container the browser won't restore.
+                scrollMainContentToTop()
             }
 
             let newLogicErrored = false
