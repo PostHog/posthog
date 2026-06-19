@@ -52,6 +52,9 @@ pub(super) const CAPTURE_V1_WARNING_METRIC: &str = "capture_v1_analytics_warning
 /// Counter name for body-read timeouts during payload extraction.
 pub(super) const CAPTURE_V1_BODY_READ_TIMEOUT: &str = "capture_v1_body_read_timeout_total";
 
+/// Counter for streaming decompression failures (label: encoding).
+pub(super) const CAPTURE_V1_DECOMPRESSION_ERRORS: &str = "capture_v1_decompression_errors_total";
+
 /// Histogram of events per request batch. The `_batch_size` suffix picks up
 /// the shared BATCH_SIZES buckets configured in prometheus.rs.
 pub(super) const CAPTURE_V1_EVENT_BATCH_SIZE: &str = "capture_v1_event_batch_size";

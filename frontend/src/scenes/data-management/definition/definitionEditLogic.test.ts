@@ -12,9 +12,7 @@ import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinition } from '~/test/mocks'
 
 describe('definitionEditLogic', () => {
-    let logic: ReturnType<typeof definitionEditLogic.build>
-
-    beforeEach(async () => {
+    beforeEach(() => {
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions/:id': mockEventDefinitions[0],
@@ -34,21 +32,43 @@ describe('definitionEditLogic', () => {
             },
         })
         initKeaTests()
-        await expectLogic(definitionLogic({ id: '1' })).toFinishAllListeners()
         eventDefinitionsTableLogic.mount()
         propertyDefinitionsTableLogic.mount()
-        logic = definitionEditLogic({ id: '1', definition: mockEventDefinitions[0] })
-        logic.mount()
     })
 
-    it('save definition', async () => {
-        router.actions.push(urls.eventDefinition('1'))
+    // The property branch reads `propertyAccessControlLogic`, which is only mounted when the
+    // access-control panel renders (behind a feature flag). Saving with it unmounted must still
+    // toast and navigate — guarded by `findMounted` in definitionEditLogic.
+    it.each([
+        {
+            kind: 'event',
+            id: '1',
+            editUrl: urls.eventDefinitionEdit('1'),
+            detailUrl: urls.eventDefinition(mockEventDefinitions[0].id),
+            localAction: (): any =>
+                eventDefinitionsTableLogic.actionCreators.setLocalEventDefinition(mockEventDefinitions[0]),
+        },
+        {
+            kind: 'property',
+            id: mockEventPropertyDefinition.id,
+            editUrl: urls.propertyDefinitionEdit(mockEventPropertyDefinition.id),
+            detailUrl: urls.propertyDefinition(mockEventPropertyDefinition.id),
+            localAction: (): any =>
+                propertyDefinitionsTableLogic.actionCreators.setLocalPropertyDefinition(mockEventPropertyDefinition),
+        },
+    ])('saves a $kind definition and navigates back', async ({ id, editUrl, detailUrl, localAction }) => {
+        // isEvent is derived from the route, so set it before the definition loads
+        router.actions.push(editUrl)
+        await expectLogic(definitionLogic({ id })).toFinishAllListeners()
+
+        const logic = definitionEditLogic({ id })
+        logic.mount()
+
         await expectLogic(logic, () => {
-            logic.actions.saveDefinition(mockEventDefinitions[0])
-        }).toDispatchActionsInAnyOrder([
-            'saveDefinition',
-            'setDefinition',
-            eventDefinitionsTableLogic.actionCreators.setLocalEventDefinition(mockEventDefinitions[0]),
-        ])
+            logic.actions.saveDefinition({})
+        }).toDispatchActionsInAnyOrder(['saveDefinition', 'setDefinition', localAction()])
+
+        // navigated away from the edit page back to the definition detail page
+        expect(router.values.location.pathname.endsWith(detailUrl)).toBe(true)
     })
 })

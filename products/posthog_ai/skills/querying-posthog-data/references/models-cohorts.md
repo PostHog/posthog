@@ -98,7 +98,6 @@ Type | Description
 
 - **Persons**: Many-to-many via `raw_cohort_people` table
 - **Calculation History**: One-to-many via `system.cohort_calculation_history`
-- **Experiments**: Referenced by `system.experiments.exposure_cohort_id`
 
 ### Important Notes
 
@@ -160,9 +159,6 @@ Code | Description
 system.cohorts (main cohort definition)
 ├── <- system.cohort_calculation_history.cohort_id
 └── persons through `IN COHORT`
-
-system.experiments
-└── exposure_cohort_id -> system.cohorts.id
 ```
 
 ---

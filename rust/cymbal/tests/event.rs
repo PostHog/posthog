@@ -6,7 +6,7 @@ use common_types::error_tracking::FrameId;
 use cymbal::{
     error::UnhandledError,
     frames::Frame,
-    symbol_store::saving::SymbolSetRecord,
+    symbolication::symbol_store::saving::SymbolSetRecord,
     types::{
         event::AnyEvent, exception_properties::ExceptionProperties, Exception, ExceptionList,
         Mechanism, Stacktrace,

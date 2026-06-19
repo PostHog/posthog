@@ -124,6 +124,30 @@ const TOOL_CALL_LIST = {
     ],
 }
 
+// Scoped to $mcp_tool_call via eventNames — these populate the property-filter picker.
+const MCP_PROPERTY_DEFINITIONS = {
+    count: 5,
+    results: [
+        { id: 'tool', name: '$mcp_tool_name', property_type: 'String', is_seen_on_filtered_events: true },
+        { id: 'err', name: '$mcp_is_error', property_type: 'Boolean', is_seen_on_filtered_events: true },
+        { id: 'client', name: '$mcp_client_name', property_type: 'String', is_seen_on_filtered_events: true },
+        { id: 'session', name: '$mcp_session_id', property_type: 'String', is_seen_on_filtered_events: true },
+        { id: 'duration', name: '$mcp_duration_ms', property_type: 'Numeric', is_seen_on_filtered_events: true },
+    ],
+}
+
+const MCP_FEATURE_FLAG_DEFINITIONS = {
+    count: 1,
+    results: [
+        {
+            id: 'flag',
+            name: '$feature/mcp-new-thing',
+            property_type: 'String',
+            is_seen_on_filtered_events: true,
+        },
+    ],
+}
+
 const CLUSTER_SNAPSHOT = {
     status: 'ready',
     error_message: '',
@@ -151,24 +175,33 @@ const meta: Meta = {
                 '/api/environments/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
                 '/api/environments/:team_id/mcp_analytics/sessions/': SESSION_LIST,
                 '/api/environments/:team_id/mcp_analytics/sessions/:session_id/tool_calls/': TOOL_CALL_LIST,
+                '/api/projects/:team_id/property_definitions': ({ request }) => {
+                    const isFeatureFlag = new URL(request.url).searchParams.get('is_feature_flag') === 'true'
+                    return [200, isFeatureFlag ? MCP_FEATURE_FLAG_DEFINITIONS : MCP_PROPERTY_DEFINITIONS]
+                },
+                '/api/environments/:team_id/events/values/': [
+                    { name: 'execute-sql' },
+                    { name: 'read-data-schema' },
+                    { name: 'query-trends' },
+                ],
             },
             post: {
-                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
-                    const body = req.body as Record<string, any>
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
                     const query: string = body?.query?.query ?? ''
                     if (query.includes('$mcp_client_name')) {
-                        return res(ctx.json({ results: HARNESS_RESULTS }))
+                        return [200, { results: HARNESS_RESULTS }]
                     }
                     if (query.includes('AS session_id')) {
-                        return res(ctx.json({ results: SESSION_RESULTS }))
+                        return [200, { results: SESSION_RESULTS }]
                     }
                     if (query.includes('p95_duration_ms')) {
-                        return res(ctx.json({ results: TOOL_RESULTS }))
+                        return [200, { results: TOOL_RESULTS }]
                     }
                     if (query.includes('AS bucket')) {
-                        return res(ctx.json({ results: KPI_RESULTS }))
+                        return [200, { results: KPI_RESULTS }]
                     }
-                    return res(ctx.json({ results: [] }))
+                    return [200, { results: [] }]
                 },
             },
         }),

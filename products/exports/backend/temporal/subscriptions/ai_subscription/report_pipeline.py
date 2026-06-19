@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Optional, Union
@@ -52,6 +53,11 @@ _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
 # The executor already truncates; this is defense-in-depth against a giant value.
 _QUERY_RESULT_MAX_CHARS = 50_000
 
+# The marker a failed step renders. The synthesis prompt keys off it to report "could not be computed"
+# instead of "no data"; it's injected into that prompt (the {{{failure_marker}}} placeholder) from this
+# same constant in `_synthesize`, so the rendered marker and the prompt instruction can't drift apart.
+QUERY_FAILED_PREFIX = "Query failed to run"
+
 # Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
 # error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
 # run plus _MAX_QUERY_FIX_RETRIES × (fix LLM + rerun); steps run concurrently via asyncio.gather.
@@ -82,6 +88,23 @@ class AiReportStageError(Exception):
         super().__init__(f"AI report failed at {stage} stage: {original}")
 
 
+@dataclass(frozen=True)
+class QueryStepDiagnostic:
+    # Per-step audit record persisted to the delivery's content_snapshot. The generated HogQL and the
+    # failure type are otherwise discarded once the report renders, leaving a "could not be computed"
+    # line with no way to see which query ran or why it failed.
+    description: str
+    hogql: str
+    ok: bool
+    error_type: Optional[str]
+
+
+@dataclass(frozen=True)
+class AiReportResult:
+    markdown: str
+    diagnostics: tuple[QueryStepDiagnostic, ...]
+
+
 async def generate_ai_report(
     *,
     team: Team,
@@ -89,7 +112,7 @@ async def generate_ai_report(
     prompt: Optional[str],
     window_days: int,
     trace_correlation_id: Optional[Union[int, str]] = None,
-) -> str:
+) -> AiReportResult:
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
 
@@ -107,7 +130,7 @@ async def generate_ai_report(
             spec = await _plan(
                 team=team, user=user, prompt=prompt, window_days=window_days, trace_id=trace_correlation_id
             )
-            rendered_results, failed_count = await _execute_plan(spec, team, user, trace_correlation_id)
+            rendered_results, failed_count, diagnostics = await _execute_plan(spec, team, user, trace_correlation_id)
             report = await _synthesize(spec, rendered_results, team, user, trace_correlation_id)
         except PromptRejectedError:
             # A rejected prompt is the input guard doing its job, not a service failure — keep it out of
@@ -131,7 +154,7 @@ async def generate_ai_report(
                 failed_steps=failed_count,
                 total_steps=total_steps,
             )
-        return report
+        return AiReportResult(markdown=report, diagnostics=tuple(diagnostics))
 
 
 async def _plan(
@@ -156,7 +179,7 @@ async def _execute_plan(
     team: Team,
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
-) -> tuple[list[str], int]:
+) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
     try:
         return await _run_steps(spec, team, user, trace_correlation_id)
     except Exception as exc:
@@ -190,6 +213,9 @@ async def _synthesize(
     synthesis_prompt = await database_sync_to_async(resolve_prompt, thread_sensitive=False)(
         team, SYNTHESIS_PROMPT_NAME, AI_SUBSCRIPTION_SYNTHESIS_PROMPT
     )
+    # Inject the failure marker from the same constant the placeholder renders, so the prompt's
+    # "treat this as an error, not 'no data'" instruction can't drift from what _run_steps emits.
+    synthesis_prompt = render_prompt(synthesis_prompt, {"failure_marker": QUERY_FAILED_PREFIX})
 
     try:
         # database_sync_to_async (not to_thread): MaxChatOpenAI reads billing/quota from the ORM
@@ -222,10 +248,10 @@ async def _run_steps(
     team: Team,
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
-) -> tuple[list[str], int]:
+) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
 
-    async def run_step(step: QueryPlanStep) -> tuple[str, bool]:
+    async def run_step(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
         # planner output — strip framing markers so it can't break the <query_results> envelope
@@ -240,7 +266,10 @@ async def _run_steps(
                 )
                 # result values are attacker-influenceable (public project tokens) — strip framing markers
                 safe_formatted = strip_llm_framing_markers(formatted, _QUERY_RESULT_MAX_CHARS)
-                return (f"### {safe_description}\n\n{safe_formatted}", True)
+                return (
+                    f"### {safe_description}\n\n{safe_formatted}",
+                    QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=True, error_type=None),
+                )
             except Exception as exc:
                 last_exc = exc
                 if attempt >= _MAX_QUERY_FIX_RETRIES or not isinstance(exc, _RETRYABLE_QUERY_ERRORS):
@@ -285,14 +314,15 @@ async def _run_steps(
         # Explicit failure marker, distinct from a genuinely-empty result, so synthesis reports the
         # metric as "could not be computed" instead of paraphrasing the failure into "no data".
         return (
-            f"### {safe_description}\n\n_Query failed to run ({type_name}) — metric not computed, not empty data._",
-            False,
+            f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX} ({type_name}) — metric not computed, not empty data._",
+            QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=False, error_type=type_name),
         )
 
-    step_results: list[tuple[str, bool]] = await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
+    step_results = await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
     rendered = [text for text, _ in step_results]
-    failed_count = sum(1 for _, ok in step_results if not ok)
-    return rendered, failed_count
+    diagnostics = [diag for _, diag in step_results]
+    failed_count = sum(1 for diag in diagnostics if not diag.ok)
+    return rendered, failed_count, diagnostics
 
 
 async def _arequest_hogql_fix(
@@ -342,4 +372,4 @@ async def _arequest_hogql_fix(
     return fixed or None
 
 
-__all__ = ["generate_ai_report", "AiReportStageError", "ReportStage"]
+__all__ = ["generate_ai_report", "AiReportResult", "QueryStepDiagnostic", "AiReportStageError", "ReportStage"]

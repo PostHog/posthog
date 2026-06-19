@@ -170,6 +170,19 @@ class TestVisitor(BaseTest):
         # Just ensure ``IntervalType`` can be visited without throwing ``NotImplementedError``
         TraversingVisitor().visit(ast.IntervalType())
 
+    def test_visit_aggregate_state_type_visits_wrapped_type(self):
+        class TypeCollector(TraversingVisitor):
+            def __init__(self):
+                self.visited_types: list[str] = []
+
+            def visit_string_type(self, node: ast.StringType):
+                self.visited_types.append(node.print_type())
+
+        visitor = TypeCollector()
+        visitor.visit(ast.AggregateStateType(wrapped_type=ast.StringType()))
+
+        assert visitor.visited_types == ["String"]
+
     def test_cached_visit_method_name_matches_legacy_algorithm(self):
         def legacy(cls_name: str) -> str:
             name = camel_case_pattern.sub("_", cls_name).lower()

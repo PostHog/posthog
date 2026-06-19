@@ -1,12 +1,12 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { editor } from 'monaco-editor'
+import type { editor } from 'monaco-editor'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { tryJsonParse } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { tryJsonParse } from 'lib/utils/json'
 
 import { groupsModel } from '~/models/groupsModel'
 import { CyclotronJobInvocationGlobals, CyclotronJobTestInvocationResult } from '~/types'

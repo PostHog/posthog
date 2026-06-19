@@ -10,6 +10,7 @@ the IDE repo dropdown.
 
 from __future__ import annotations
 
+import sys
 import time
 import uuid
 import base64
@@ -25,7 +26,6 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
-import temporalio.activity
 
 from posthog import redis as posthog_redis
 from posthog.helpers.async_concurrency import run_parallel_with_backoff
@@ -416,8 +416,14 @@ async def _acquire_sync_lock(integration_id: int) -> AsyncIterator[None]:
             raise SyncFullCacheTimeoutError(
                 f"Waited {SYNC_LOCK_MAX_WAIT_SECONDS}s for sync lock on integration {integration_id}"
             )
-        if temporalio.activity.in_activity():
-            temporalio.activity.heartbeat()
+        # Only meaningful inside a Temporal activity, and being in one implies temporalio is
+        # imported — this is a models module, so a top-level import would put temporalio on
+        # the django.setup() path
+        if "temporalio" in sys.modules:
+            import temporalio.activity  # noqa: PLC0415
+
+            if temporalio.activity.in_activity():
+                temporalio.activity.heartbeat()
         await asyncio.sleep(SYNC_LOCK_POLL_INTERVAL_SECONDS)
 
     stop_heartbeat = asyncio.Event()

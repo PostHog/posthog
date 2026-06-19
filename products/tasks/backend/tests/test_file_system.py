@@ -9,92 +9,109 @@ class TestTaskFileSystem(BaseTaskAPITest):
     def _task_rows(self, task: Task):
         return FileSystem.objects.filter(team=self.team, type="task", ref=str(task.id)).exclude(shortcut=True)
 
-    def test_creating_a_task_does_not_file_it(self):
+    def test_creating_a_task_auto_files_it_in_unfiled(self):
         task = self.create_task(title="My Task")
-        self.assertFalse(FileSystem.objects.filter(team=self.team, type="task", ref=str(task.id)).exists())
-
-    def test_file_action_files_task_on_desktop_surface(self):
-        task = self.create_task(title="My Task")
-
-        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/file/")
-        self.assertEqual(response.status_code, 200, response.content)
-
         entry = self._task_rows(task).get()
-        self.assertEqual(entry.path, "Tasks/My Task")
-        self.assertEqual(entry.href, f"/tasks/{task.id}")
+        self.assertEqual(entry.path, "Unfiled/Tasks/My Task")
         self.assertEqual(entry.surface, DESKTOP_SURFACE)
-        self.assertEqual(response.json()["path"], "Tasks/My Task")
+        self.assertEqual(entry.href, f"/tasks/{task.id}")
 
-        # Never leaks into the web app tree.
+    def test_task_rows_never_leak_to_web_surface(self):
+        task = self.create_task(title="My Task")
         self.assertFalse(
             FileSystem.objects.filter(surface_q("web"), team=self.team, type="task", ref=str(task.id)).exists()
         )
 
-    def test_file_action_into_custom_folder(self):
+    def test_renaming_task_renames_all_filed_rows(self):
         task = self.create_task(title="My Task")
-
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/file/",
-            {"folder": "Tasks/Bugs"},
-            format="json",
+        # Simulate filing to a channel by creating a second row directly under a channel folder.
+        FileSystem.objects.create(
+            team=self.team,
+            path="Channels/Engineering/My Task",
+            depth=3,
+            type="task",
+            ref=str(task.id),
+            href=f"/tasks/{task.id}",
+            meta={},
+            shortcut=False,
+            surface=DESKTOP_SURFACE,
+            created_by=self.user,
         )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(self._task_rows(task).get().path, "Tasks/Bugs/My Task")
+        task.title = "Renamed"
+        task.save()
 
-    def test_file_action_is_idempotent(self):
+        paths = sorted(self._task_rows(task).values_list("path", flat=True))
+        self.assertEqual(paths, ["Channels/Engineering/Renamed", "Unfiled/Tasks/Renamed"])
+
+    def test_soft_delete_removes_all_rows(self):
         task = self.create_task(title="My Task")
-
-        self.client.post(f"/api/projects/@current/tasks/{task.id}/file/")
-        self.client.post(f"/api/projects/@current/tasks/{task.id}/file/")
-
-        self.assertEqual(self._task_rows(task).count(), 1)
-
-    def test_unfile_action_removes_entry_but_keeps_task(self):
-        task = self.create_task(title="My Task")
-        self.client.post(f"/api/projects/@current/tasks/{task.id}/file/")
-        self.assertEqual(self._task_rows(task).count(), 1)
-
-        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/unfile/")
-        self.assertEqual(response.status_code, 204, response.content)
-
-        self.assertFalse(self._task_rows(task).exists())
-        task.refresh_from_db()
-        self.assertFalse(task.deleted)
-
-    def test_soft_deleting_a_filed_task_removes_entry(self):
-        task = self.create_task(title="My Task")
-        self.client.post(f"/api/projects/@current/tasks/{task.id}/file/")
-        self.assertEqual(self._task_rows(task).count(), 1)
+        FileSystem.objects.create(
+            team=self.team,
+            path="Channels/Engineering/My Task",
+            depth=3,
+            type="task",
+            ref=str(task.id),
+            href=f"/tasks/{task.id}",
+            meta={},
+            shortcut=False,
+            surface=DESKTOP_SURFACE,
+            created_by=self.user,
+        )
+        self.assertEqual(self._task_rows(task).count(), 2)
 
         task.deleted = True
         task.save()
 
         self.assertFalse(self._task_rows(task).exists())
 
-    def test_hard_deleting_a_filed_task_removes_entry(self):
+    def test_hard_delete_removes_all_rows(self):
         task = self.create_task(title="My Task")
-        self.client.post(f"/api/projects/@current/tasks/{task.id}/file/")
         task_id = task.id
-        self.assertEqual(FileSystem.objects.filter(team=self.team, type="task", ref=str(task_id)).count(), 1)
+        self.assertEqual(self._task_rows(task).count(), 1)
 
-        # Task.delete() is blocked; queryset.delete() bypasses the override and fires post_delete.
         Task.objects.filter(pk=task_id).delete()
 
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="task", ref=str(task_id)).exists())
 
-    def test_unfiled_sweep_does_not_file_tasks(self):
-        self.create_task(title="My Task")
+    def test_unfiled_sweep_files_existing_tasks(self):
+        # Older tasks created before the home row existed can be backfilled via the unfiled sweep.
+        task = self.create_task(title="My Task")
+        self._task_rows(task).delete()
+        self.assertFalse(self._task_rows(task).exists())
 
         response = self.client.get(f"/api/projects/{self.team.id}/desktop_file_system/unfiled/?type=task")
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertFalse(FileSystem.objects.filter(team=self.team, type="task").exists())
 
-    def test_tree_delete_and_restore(self):
+        entry = self._task_rows(task).get()
+        self.assertEqual(entry.path, "Unfiled/Tasks/My Task")
+
+    def test_deleting_one_of_many_rows_preserves_task(self):
         task = self.create_task(title="My Task")
-        self.client.post(f"/api/projects/@current/tasks/{task.id}/file/")
+        channel_row = FileSystem.objects.create(
+            team=self.team,
+            path="Channels/Engineering/My Task",
+            depth=3,
+            type="task",
+            ref=str(task.id),
+            href=f"/tasks/{task.id}",
+            meta={},
+            shortcut=False,
+            surface=DESKTOP_SURFACE,
+            created_by=self.user,
+        )
+
+        # Removing one row (e.g. unfiling from a channel) leaves the task and the home row alone.
+        response = self.client.delete(f"/api/projects/{self.team.id}/desktop_file_system/{channel_row.id}/")
+        self.assertEqual(response.status_code, 204, response.content)
+        task.refresh_from_db()
+        self.assertFalse(task.deleted)
+        self.assertEqual(self._task_rows(task).get().path, "Unfiled/Tasks/My Task")
+
+    def test_deleting_last_row_soft_deletes_task(self):
+        task = self.create_task(title="My Task")
         entry = self._task_rows(task).get()
 
-        # Deleting the tree entry soft-deletes the task and removes the row.
+        # Removing the last remaining row treats the file-system action as a delete of the task itself.
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/desktop_file_system/{entry.id}/")
         self.assertEqual(delete_response.status_code, 200, delete_response.content)
         task.refresh_from_db()
@@ -110,18 +127,15 @@ class TestTaskFileSystem(BaseTaskAPITest):
         self.assertEqual(undo_response.status_code, 200, undo_response.content)
         task.refresh_from_db()
         self.assertFalse(task.deleted)
-        self.assertEqual(self._task_rows(task).get().path, "Tasks/My Task")
+        self.assertEqual(self._task_rows(task).get().path, "Unfiled/Tasks/My Task")
 
     def test_tree_delete_blocked_for_other_users_task(self):
-        # A teammate filed a task they own. The current user (admin or not) must not be able to
-        # delete it via the generic file system endpoint, since that would soft-delete the task.
+        # A teammate owns a task. The current user must not be able to delete it via the
+        # generic file system endpoint, since the last-row delete would soft-delete the task.
         other_user = self.create_organization_user("victim")
         task = self.create_task(title="Their Task", created_by=other_user)
-        self.client.force_authenticate(other_user)
-        self.client.post(f"/api/projects/@current/tasks/{task.id}/file/")
         entry = self._task_rows(task).get()
 
-        self.client.force_authenticate(self.user)
         response = self.client.delete(f"/api/projects/{self.team.id}/desktop_file_system/{entry.id}/")
 
         self.assertEqual(response.status_code, 403, response.content)
@@ -132,14 +146,11 @@ class TestTaskFileSystem(BaseTaskAPITest):
     def test_tree_undo_blocked_for_other_users_task(self):
         other_user = self.create_organization_user("victim")
         task = self.create_task(title="Their Task", created_by=other_user)
-        self.client.force_authenticate(other_user)
-        self.client.post(f"/api/projects/@current/tasks/{task.id}/file/")
         entry = self._task_rows(task).get()
         # Soft-delete the task as the owner so undo has something to restore.
         task.deleted = True
         task.save()
 
-        self.client.force_authenticate(self.user)
         undo_response = self.client.post(
             f"/api/projects/{self.team.id}/desktop_file_system/undo_delete/",
             {"items": [{"type": "task", "ref": str(task.id), "path": entry.path}]},

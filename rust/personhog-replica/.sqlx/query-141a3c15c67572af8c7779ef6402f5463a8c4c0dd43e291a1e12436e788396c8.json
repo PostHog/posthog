@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT distinct_id as \"distinct_id!\", COALESCE(version, 0)::bigint as \"version!\"\n            FROM posthog_persondistinctid\n            WHERE team_id = $1 AND person_id = $2 AND distinct_id = ANY($3)\n            FOR UPDATE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "version!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "141a3c15c67572af8c7779ef6402f5463a8c4c0dd43e291a1e12436e788396c8"
+}

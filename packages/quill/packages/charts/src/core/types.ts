@@ -1,3 +1,7 @@
+import type { ReactNode } from 'react'
+
+import type { LegendItem } from '../components/Legend/Legend'
+
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
     colors: string[]
@@ -8,6 +12,8 @@ export interface ChartTheme {
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
+    /** Skip canvas painting while still mounting the canvas. For deterministic visual-snapshot tests. */
+    skipDraw?: boolean
 }
 
 /** Default axis id used when a series doesn't specify one. */
@@ -18,6 +24,12 @@ export const DEFAULT_Y_AXIS_ID = 'left'
  *  those run, `color` is guaranteed to be set. Public consumers should write {@link Series}
  *  with color either supplied or omitted (chart picks one) and let the chart resolve it. */
 export type ResolvedSeries<Meta = unknown> = Series<Meta> & { color: string }
+
+/** How a series is rendered in a mixed-type chart. */
+export type SeriesType = 'line' | 'bar' | 'area'
+
+/** Series type assumed when a `Series` sets no explicit `type`. */
+export const DEFAULT_SERIES_TYPE: SeriesType = 'line'
 
 export interface Series<Meta = unknown> {
     /** Unique identifier used to key React elements and look up stacked data. */
@@ -36,6 +48,10 @@ export interface Series<Meta = unknown> {
     bars?: { color?: string; label?: string; meta?: Meta }[]
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
+    /** Mixed-type charts ({@link ComboChart}) read this to draw the series as a bar, line, or
+     *  area. Falls back to the chart's `defaultSeriesType` when omitted. Ignored by single-type
+     *  charts. */
+    type?: SeriesType
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
      *  so custom tooltip components can access domain-specific information (e.g. breakdown
      *  values, comparison labels, anomaly scores) without the library needing to know about them.
@@ -57,6 +73,10 @@ export interface Series<Meta = unknown> {
             fromIndex?: number
             /** Index up to which the partial pattern applies (inclusive). Clamped to [0, data.length-1]. */
             toIndex?: number
+            /** Split the *final* segment at this fraction (0–1) of its length and dash only the part
+             *  beyond it — everything before stays solid. Lets a two-point line dash just its second
+             *  half without a phantom interior point. Takes precedence over `fromIndex`/`toIndex`. */
+            fromFraction?: number
             /** Dash pattern for the partial range. Defaults to [10, 10]. */
             pattern?: number[]
         }
@@ -123,7 +143,12 @@ export interface TooltipContext<Meta = unknown> {
     label: string
     /** One entry per visible series with its value and color at this index. `fraction` is set
      *  for radial charts (share of total) so renderers don't need to look the slice back up. */
-    seriesData: { series: Series<Meta>; value: number; color: string; fraction?: number }[]
+    seriesData: {
+        series: Series<Meta>
+        value: number
+        color: string
+        fraction?: number
+    }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
      *  populate it with the band width so {@link Tooltip} can anchor at the band edge
@@ -211,6 +236,36 @@ export interface ChartConfig {
     maxCategoryLabelWidth?: number
 }
 
+/** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
+ *  when interactive, owns the toggled-off state — clicking a row hides that series (no draw, no
+ *  scale contribution, no tooltip) and the axes rescale, matching the classic insight legend.
+ *  Pass `hiddenKeys` + `onToggleSeries` to control the state yourself instead. */
+export interface ChartLegendConfig {
+    /** Render the legend. Default false. */
+    show?: boolean
+    /** Where the legend sits relative to the plot. Default 'bottom'. */
+    position?: 'top' | 'bottom' | 'left' | 'right'
+    /** Legend alignment along its axis. Default 'center'. */
+    align?: 'start' | 'center' | 'end'
+    /** Gap in px between the legend and the plot. */
+    gap?: number
+    /** Clicking a legend item hides/shows its series. Default true when the legend is shown;
+     *  set false for a static, read-only legend. */
+    interactive?: boolean
+    /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state;
+     *  omit for chart-managed (uncontrolled) toggling. */
+    hiddenKeys?: string[]
+    /** Initial hidden keys for the chart-managed (uncontrolled) state. Ignored when `hiddenKeys`
+     *  is set (controlled). */
+    defaultHiddenKeys?: string[]
+    /** Called whenever a series is toggled, with its key and resulting hidden state. */
+    onToggleSeries?: (key: string, hidden: boolean) => void
+    /** Wrap each rendered legend row — receives the default row node and its item, returns the
+     *  node to render. Lets consumers augment rows (e.g. a right-click context menu) while keeping
+     *  the default swatch/label/toggle rendering. Return `defaultNode` to leave a row untouched. */
+    renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
+}
+
 export interface TooltipConfig {
     /** Show a tooltip on hover. Defaults to true. Use the `tooltip` render prop on Chart to customize content. */
     enabled?: boolean
@@ -276,6 +331,11 @@ export interface BarsConfig {
     fitToHeight?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Px of headroom reserved past the bars at the value-axis data end(s), so overlays have room
+     *  beyond the bar tip — e.g. a `ValueLabels` overlay can float beside/above each bar instead of
+     *  being flipped onto it (an on-bar label looks like the bar grows when it lifts on hover). The
+     *  axis range converts px → value units, so the gap stays visually constant. Defaults to 0. */
+    valuePadding?: number
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
      *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
      *  rounded rect spanning each band's full extent and drawing the segments square, so the outer
@@ -290,12 +350,30 @@ export interface BarChartConfig extends ChartConfig {
     barLayout?: 'stacked' | 'grouped' | 'percent'
     /** Bar appearance + band-layout details (corner rounding, track, shadow, padding…). */
     bars?: BarsConfig
+    /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
+    legend?: ChartLegendConfig
 }
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
+    legend?: ChartLegendConfig
+}
+
+/** Config for {@link ComboChart}, which draws bar, line, and area series together. `axisOrientation`
+ *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. Percent
+ *  layout is also unsupported: stack-as-percent is only meaningful when every series participates,
+ *  but lines/areas draw unstacked. */
+export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
+    /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
+    defaultSeriesType?: SeriesType
+    /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
+     *  `'stacked'`. */
+    barLayout?: 'stacked' | 'grouped'
+    /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
+    barCornerRadius?: number
 }
 
 /** Arguments passed to a chart type's canvas draw function. */
@@ -321,6 +399,22 @@ export interface ChartDrawArgs {
     /** Restart the hover-fade at progress 0; returns the new value to use this frame.
      *  Call when the chart type detects a visible-state change at the same hoverIndex. */
     resetHoverFade: () => number
+    /** Live pixel range of an in-progress drag-to-zoom selection, x-axis only. Null when
+     *  no drag is active. Only the hover overlay reads this — the static layer ignores it. */
+    dragRect?: DragRect | null
+}
+
+// x0/x1 are canvas pixels, not necessarily ordered.
+export interface DragRect {
+    x0: number
+    x1: number
+}
+
+export interface DateRangeZoomData {
+    startLabel: string
+    endLabel: string
+    startIndex: number
+    endIndex: number
 }
 
 /** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */
@@ -352,6 +446,20 @@ export interface YAxisScale {
 export interface BandSlot {
     x: number
     width: number
+}
+
+/** A laid-out box-and-whisker for a single (series, x) slot — pre-computed pixel coordinates so
+ *  the draw primitives don't touch scales. Same shape contract as a bar's `BarRect`. */
+export interface BoxRect {
+    x: number
+    width: number
+    top: number
+    bottom: number
+    medianY: number
+    mean: { x: number; y: number }
+    whiskerTop: number
+    whiskerBottom: number
+    dataIndex: number
 }
 
 /** Generic scale interface that Chart uses for shared overlays and interaction. */

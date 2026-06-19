@@ -16,12 +16,6 @@ export interface SDKGridProps {
     showTopSkipButton: boolean
 }
 
-/**
- * Props passed to every experiment variant. Not every variant reads every field:
- * WizardHero and WizardTab ignore `sdkInstructionMap` and `selectedSDK` because the
- * shared SDKInstructionsModal in the parent handles instruction rendering for them.
- * WizardOnly owns its own modal and therefore consumes both.
- */
 export interface VariantProps {
     sdkGridProps: SDKGridProps
     sdkInstructionMap: SDKInstructionsMap

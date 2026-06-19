@@ -134,6 +134,11 @@ export function createKafkaMessage(
         { token: Buffer.from(token) },
         { distinct_id: Buffer.from(event.distinct_id!) },
     ]
+    if (event.event) {
+        // Capture sets the event name header on every message; pipeline steps that route by event
+        // type (allow/deny lists) run before the body is parsed and read it from here.
+        headers.push({ event: Buffer.from(event.event) })
+    }
     if (event.timestamp) {
         const timestampMs = DateTime.fromISO(event.timestamp).toMillis()
         headers.push({ timestamp: Buffer.from(timestampMs.toString()) })

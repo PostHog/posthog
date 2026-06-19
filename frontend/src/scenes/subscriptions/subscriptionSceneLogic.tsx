@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import {
     subscriptionsDeliveriesList,
@@ -32,6 +34,11 @@ export type SubscriptionSceneLogicProps = {
     id: string
 }
 
+export type DeliveryFeedback = 'positive' | 'negative'
+export type DeliveryFeedbackSource = 'email' | 'slack' | 'in_app'
+
+export const FEEDBACK_THANKS_DISPLAY_MS = 1000
+
 function parseCursorFromPaginationUrl(url: string | null | undefined): string | undefined {
     if (!url) {
         return undefined
@@ -57,6 +64,12 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
         deliverSubscriptionSuccess: true,
         deliverSubscriptionFailure: true,
         setDeliveryStatusFilter: (status: SubscriptionsDeliveriesListStatus | null) => ({ status }),
+        submitDeliveryFeedback: (deliveryId: string, feedback: DeliveryFeedback, source: DeliveryFeedbackSource) => ({
+            deliveryId,
+            feedback,
+            source,
+        }),
+        expireDeliveryThanks: (deliveryId: string) => ({ deliveryId }),
     }),
     reducers({
         deliveringSubscriptionId: [
@@ -71,6 +84,27 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             null as SubscriptionsDeliveriesListStatus | null,
             {
                 setDeliveryStatusFilter: (_, { status }) => status,
+            },
+        ],
+        deliveryFeedback: [
+            {} as Record<string, DeliveryFeedback>,
+            // localStorage on purpose: feedback is an analytics event, not a DB row — this only keeps
+            // the UI honest (and the capture deduped) across reloads on this browser.
+            { persist: true },
+            {
+                submitDeliveryFeedback: (state, { deliveryId, feedback }) => ({ ...state, [deliveryId]: feedback }),
+            },
+        ],
+        // Transient (not persisted): drives the brief "Thanks!" flash before the row settles
+        // into showing the recorded option.
+        recentlyThankedDeliveries: [
+            {} as Record<string, true>,
+            {
+                submitDeliveryFeedback: (state, { deliveryId }) => ({ ...state, [deliveryId]: true as const }),
+                expireDeliveryThanks: (state, { deliveryId }) => {
+                    const { [deliveryId]: _removed, ...rest } = state
+                    return rest
+                },
             },
         ],
     }),
@@ -164,7 +198,27 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             }
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props, cache, selectors }) => ({
+        submitDeliveryFeedback: ({ deliveryId, feedback, source }, _breakpoint, _action, previousState) => {
+            posthog.capture('ai_report_feedback', {
+                subscription_id: parseInt(props.id, 10),
+                delivery_id: deliveryId,
+                feedback,
+                source,
+                // Lets analysis distinguish first votes from switches; consumers take the latest
+                // event per person + delivery, so a switched vote simply wins.
+                previous_feedback: selectors.deliveryFeedback(previousState)[deliveryId] ?? null,
+            })
+            // In-app thumbs show a per-row "Thanks" state instead of a toast.
+            if (source !== 'in_app') {
+                lemonToast.success('Thanks for your feedback')
+            }
+            // Per-delivery key so spamming replaces the previous timer instead of stacking.
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => actions.expireDeliveryThanks(deliveryId), FEEDBACK_THANKS_DISPLAY_MS)
+                return () => clearTimeout(timerId)
+            }, `deliveryThanks-${deliveryId}`)
+        },
         setDeliveryStatusFilter: () => {
             if (values.deliveriesEnabled && values.subscription) {
                 void actions.loadDeliveriesPage(null)
@@ -217,6 +271,27 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             // sub with no integration) — backend already validates this.
             const detail = errorObject?.detail
             lemonToast.error(typeof detail === 'string' ? detail : 'Could not update subscription')
+        },
+    })),
+    urlToAction(({ actions, props, values }) => ({
+        // Feedback links in delivered emails/Slack messages land here with these params;
+        // capture once, then strip them so a refresh doesn't double-capture.
+        [urls.subscription(':id')]: ({ id }, searchParams) => {
+            if (id !== props.id) {
+                return
+            }
+            const { feedback_delivery, feedback, feedback_source, ...restSearchParams } = searchParams
+            if (!feedback_delivery || (feedback !== 'positive' && feedback !== 'negative')) {
+                return
+            }
+            const deliveryId = String(feedback_delivery)
+            if (values.deliveryFeedback[deliveryId]) {
+                // Persisted state remembers this delivery — don't re-capture from a re-clicked link.
+                lemonToast.info('Your feedback for this report was already recorded')
+            } else {
+                actions.submitDeliveryFeedback(deliveryId, feedback, feedback_source === 'slack' ? 'slack' : 'email')
+            }
+            router.actions.replace(router.values.location.pathname, restSearchParams, router.values.hashParams)
         },
     })),
     afterMount(({ actions }) => {

@@ -8,6 +8,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
@@ -20,7 +21,6 @@ from products.tasks.backend.services.sandbox import (
     SandboxTemplate,
     parse_sandbox_repo_mount_map,
 )
-from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
@@ -254,6 +254,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             snapshot_external_id=resume_snapshot_ext_id,
             snapshot_id=str(snapshot.id) if snapshot and not resume_snapshot_ext_id else None,
             metadata={"task_id": ctx.task_id},
+            **ctx.sandbox_resource_overrides(),
         )
 
         emit_agent_log(

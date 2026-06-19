@@ -91,6 +91,15 @@ class TestBracketIdentifierQuoter:
             ("851", "[851]"),
             ("$col", "[$col]"),
             ("a-b", "[a-b]"),
+            # T-SQL delimited identifiers accept characters the alphanumeric
+            # allowlist rejects; these are all real SQL Server names.
+            ("Orden#", "[Orden#]"),
+            ("Forma Pago", "[Forma Pago]"),
+            ("Presupuesto Vs Ejecución Mes Actual Tiendas ", "[Presupuesto Vs Ejecución Mes Actual Tiendas ]"),
+            ("a[b", "[a[b]"),
+            # A literal `]` is escaped by doubling, exactly like QUOTENAME().
+            ("a]b", "[a]]b]"),
+            ("x]; DROP TABLE foo; --", "[x]]; DROP TABLE foo; --]"),
         ],
     )
     def test_accepts_allowed_identifiers(self, identifier: str, expected: str) -> None:
@@ -99,15 +108,9 @@ class TestBracketIdentifierQuoter:
     @pytest.mark.parametrize(
         "identifier",
         [
-            "bad;id",
-            "drop table x",
-            "a'b",
-            'a"b',
-            "a]b",
-            "a[b",
             "a\nb",
-            "a b",
-            "x]; DROP TABLE foo; --",
+            "a\tb",
+            "a\x00b",
             "",
         ],
     )
@@ -115,9 +118,13 @@ class TestBracketIdentifierQuoter:
         with pytest.raises(InvalidIdentifierError):
             self.quoter.quote(identifier)
 
+    def test_quote_qualified_escapes_closing_bracket(self) -> None:
+        assert self.quoter.quote_qualified("dbo", "Orden#") == "[dbo].[Orden#]"
+        assert self.quoter.quote_qualified("d]o", "t]bl") == "[d]]o].[t]]bl]"
+
     def test_quote_qualified_joins_with_dot(self) -> None:
         assert self.quoter.quote_qualified("dbo", "users") == "[dbo].[users]"
 
     def test_quote_qualified_rejects_any_unsafe_part(self) -> None:
         with pytest.raises(InvalidIdentifierError):
-            self.quoter.quote_qualified("dbo", "bad;table")
+            self.quoter.quote_qualified("dbo", "bad\ntable")
