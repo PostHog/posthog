@@ -2682,6 +2682,14 @@ class SignalsScoutSignalExtra(BaseModel):
             " the harness normalizes and caps these at emit."
         ),
     )
+    task_id: str | None = Field(
+        default=None,
+        description=(
+            "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the"
+            " inbox card to the run in the Tasks UI. Absent on emissions made before"
+            " this linkage was captured."
+        ),
+    )
     task_run_id: str = Field(
         ...,
         description=(
