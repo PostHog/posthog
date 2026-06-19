@@ -565,9 +565,9 @@ snapshots:
     components-hogcharts-combochart--dual-y-axis-bar-and-line--light:
         hash: v1.k794b7964.6a9f32434af77dc1d31226a9da134cf4acf6755aa1f17d2e1e48128b5196e042.Jv1n1TWojcqnGkdkJgNBxSYE_wrY6qH3sXe4XSqeJk4
     components-hogcharts-combochart--empty--dark:
-        hash: v1.k794b7964.f4a02c6786a1fc031877e1581c74c93043890f855bfeec936e129b325f49f76b.21F6xAcfwYF6PdHfpIqr3VCoc7Eqv3hTqu8hFJmxGLU
+        hash: v1.k794b7964.cc46b9978c9f27c17947fd11fbca57d40464c82b5d53c181c698155289c9a01c.wUmvK_uy40IjKtTwnT85ak3m8MX7aU6Y6yrA6sL5n5Q
     components-hogcharts-combochart--empty--light:
-        hash: v1.k794b7964.8003169247a00bdd087cdb86efd11744f27c426f7dcbd0f8fc46ccace7ec5de1.r0Z_eyPmkICfKYBEAZR-I3S-Lof7ljfkGLhHtLjMGVs
+        hash: v1.k794b7964.6420a1aa7258004ec0c39d69ac3b4f3c2274a9e2ee3744030772eaea59b8a3b7.RvNDz29ZdKIdOK4m13394cMLe8R_Br1OvdOLwGKFbYA
     components-hogcharts-combochart--grouped-bars-and-line--dark:
         hash: v1.k794b7964.8a550c027166e56da8c962f6bfd2e958e227fcbafde6eff9f3f8fef2d70c4f25.6kjnUQTu2QGNSGd30u0gSrtC8roD4JvbuESkTctefGs
     components-hogcharts-combochart--grouped-bars-and-line--light:
@@ -641,9 +641,9 @@ snapshots:
     components-hogcharts-linechart--dual-y-axis--light:
         hash: v1.k794b7964.50a657f97d6ca765cbd8480dcf8e76c82016de5f7763bac8b77dc9fa21779a99.nG8oIwGO3pRm3A_SaynxlJRr4MveziW83GOJP2U7Kaw
     components-hogcharts-linechart--empty--dark:
-        hash: v1.k794b7964.ab16f8d4f555a949074c9c1423fa273a8315f147be8a7552e0e4177f3c4a08e9.e6SrqIlxHqrfzUpC4L9N6d5BNxa9ew3dKSF8Fw39gs4
+        hash: v1.k794b7964.93f219b5136f447a39913dba3c0fce4715b520b14c3e803a7d3ebef607537e14.HVIEx8NssY14Mve40sKT_oi9ixJUc4xPuSwnglAfuwY
     components-hogcharts-linechart--empty--light:
-        hash: v1.k794b7964.de2c4548e86b72f409c9eb6cb968915aa3d56f14ebb66947a81eff76a2569ed1.T1jDtKGrJPRIdx4gTNJyr7q4UNFL_b2J7Xkma1zva-E
+        hash: v1.k794b7964.801fa37054d7b46316704bee247012680b2a7d405c262ce07a3b3217fa064a1f.3rAM7c_PIfFCQ_OAnQB_eoQ5TCaSmJ1fz4GmVrqCr9g
     components-hogcharts-linechart--error-boundary--dark:
         hash: v1.k794b7964.985e4fee358d8b78e99b9f44e36cb47d031c9acf2d5fcbeeedfd9df922fc2325.WdrzatVDLo9cB3tkcFBe8jUY0A4WAmYlhFJFdjmOqVM
     components-hogcharts-linechart--error-boundary--light:
