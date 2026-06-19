@@ -719,7 +719,12 @@ class InsightSerializer(InsightBasicSerializer):
                 self._update_insight_dashboards(dashboards, instance)
 
         updated_insight = super().update(instance, validated_data)
-        if not updated_insight.are_alerts_supported:
+        # Delete linked alerts only when the insight can no longer carry any alert. A switch between
+        # alertable kinds (e.g. trends -> SQL) is left alone: the config type no longer matches, but
+        # the alert check cycle re-validates against the current query and auto-disables + notifies on
+        # mismatch (see validate_alert_config + disable_invalid_alert in the alerts temporal activity),
+        # so the alert and its history are preserved and the user can reconfigure rather than lose it.
+        if updated_insight.alertable_query_kind is None:
             for alert in instance.alertconfiguration_set.all():
                 alert.delete()
 
@@ -936,7 +941,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
-        if not insight.are_alerts_supported:
+        if insight.alertable_query_kind is None:
             return []
 
         # Use prefetched alerts data

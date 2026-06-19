@@ -4,6 +4,7 @@ on:
     pull_request:
         paths:
             - .github/workflows/**
+            - .github/actions/**
             - services/**
             - tools/hogli-commands/hogli_commands/workflow_lint/**
             - hogli.yaml
