@@ -2105,9 +2105,14 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         application = AgentApplication.all_teams.filter(team_id=self.team_id, pk=application_id, archived=False).first()
         if application is None:
             raise NotFound("Application not found in this team.")
-        source = AgentRevision.all_teams.filter(application__team_id=self.team_id, pk=source_id).first()
+        # Source must belong to the *same application* — not merely the same team.
+        # new_draft copies the source's `encrypted_env` (secrets) into the new
+        # draft; scoping only by team would let an `agents:write` caller seed a
+        # draft under one application from another application's revision and
+        # siphon its secrets into a draft they then edit/run.
+        source = AgentRevision.all_teams.filter(application=application, pk=source_id).first()
         if source is None:
-            raise NotFound("Source revision not found in this team.")
+            raise NotFound("Source revision not found in this application.")
 
         # bundle_uri convention: the runner-side bundle store resolves this.
         # In dev/CI we use a filesystem prefix derived from the app + new
