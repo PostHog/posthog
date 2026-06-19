@@ -11,6 +11,7 @@ from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.select_repo import (
@@ -101,6 +102,7 @@ def _load_previous_repo_selection(report_id: str) -> RepoSelectionResult | None:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelectionResult:
     """Select the most relevant repository for a report's signals."""
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
@@ -160,6 +162,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 team_id=input.team_id,
                 user_id=user_id,
                 signals=input.signals,
+                signal_report_id=input.report_id,
                 sandbox_environment_id=sandbox_env_id,
             )
             logger.info(

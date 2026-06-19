@@ -201,7 +201,6 @@ The visualization system is designed to be extractable to a standalone `@posthog
 
 - **LineChart** - SVG line chart
 - **BarChart** - SVG vertical bar chart
-- **HorizontalBarChart** - SVG horizontal bar chart (for funnels)
 - **BigNumber** - Large number display
 - **DataTable** - HTML table with pagination
 

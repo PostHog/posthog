@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
 import unittest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -23,9 +24,10 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
-from posthog.models.cohort.cohort import Cohort
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
     _compute_flag_dependencies,
@@ -43,6 +45,7 @@ from products.feature_flags.backend.flags_cache import (
     get_teams_with_flags_queryset,
     update_flags_cache,
 )
+from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -636,6 +639,211 @@ class TestServiceFlagsSignals(BaseTest):
         # Cache should be cleared (this will load from DB and return empty)
         # We can't test directly with the deleted team object, but the signal should have fired
         # In production, this prevents stale cache entries
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestServiceFlagsKafkaDualWrite(BaseTest):
+    """Kafka dual-write side of the signal handlers. Celery enqueue stays
+    unchanged; the Kafka produce sits behind a per-team feature flag and
+    never breaks the signal handler if Kafka is unhappy."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._kafka_dual_write_enabled", return_value=False)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_dual_write_off_skips_kafka_produce(self, mock_task, mock_gate, mock_produce):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="dual-write-off",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        mock_task.delay.assert_called_once_with(self.team.id)
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache._kafka_dual_write_enabled", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_dual_write_on_produces_to_kafka(self, mock_task, mock_gate, mock_producer_scope):
+        mock_producer = MagicMock()
+        mock_producer_scope.return_value.__enter__.return_value = mock_producer
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="dual-write-on",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+        mock_producer_scope.assert_called_once()
+        scope_kwargs = mock_producer_scope.call_args.kwargs
+        assert scope_kwargs["topic"] == KAFKA_FLAGS_CACHE_INVALIDATION
+        assert scope_kwargs["flush_timeout"] == 0
+
+        mock_producer.produce.assert_called_once()
+        produce_kwargs = mock_producer.produce.call_args.kwargs
+        assert produce_kwargs["topic"] == KAFKA_FLAGS_CACHE_INVALIDATION
+        # team_id-keyed partitioning gives the future consumer per-team ordering.
+        assert produce_kwargs["key"] == str(self.team.id)
+
+        # `data` must be a dict — the producer's default serializer does
+        # `json.dumps(data)` and would `TypeError` on bytes.
+        data = produce_kwargs["data"]
+        assert isinstance(data, dict), f"expected dict, got {type(data).__name__}"
+        envelope = FlagsCacheInvalidation.model_validate(data)
+        assert envelope.version == 1
+        assert envelope.team_id == self.team.id
+        assert envelope.operation == "invalidate"
+
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache._kafka_dual_write_enabled", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_dual_write_swallows_produce_errors(self, mock_task, mock_gate, mock_producer_scope):
+        mock_producer_scope.side_effect = RuntimeError("kafka cluster unreachable")
+
+        # Should not raise — Kafka outage must not break flag editing.
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="dual-write-error",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+        mock_gate.assert_called_once_with(self.team.id)
+        mock_producer_scope.assert_called_once()
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._kafka_dual_write_enabled", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_kafka_produces_before_celery_enqueue(self, mock_task, mock_gate, mock_produce):
+        parent = MagicMock()
+        parent.attach_mock(mock_produce, "produce")
+        parent.attach_mock(mock_task.delay, "celery")
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="dual-write-order",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        call_names = [c[0] for c in parent.mock_calls]
+        assert call_names == ["produce", "celery"], f"expected produce before celery, got {call_names}"
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._kafka_dual_write_enabled", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_kafka_produces_even_when_celery_broker_raises(self, mock_task, mock_gate, mock_produce):
+        mock_task.delay.side_effect = RuntimeError("celery broker unreachable")
+
+        with pytest.raises(RuntimeError, match="celery broker unreachable"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                key="dual-write-celery-down",
+                created_by=self.user,
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            )
+
+        mock_gate.assert_called_once_with(self.team.id)
+        mock_produce.assert_called_once_with(self.team.id)
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch(
+        "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("posthoganalytics borked"),
+    )
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_gate_exception_falls_back_to_celery_only(self, mock_task, mock_feature_enabled, mock_produce):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="gate-broken",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        mock_task.delay.assert_called_once_with(self.team.id)
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.TOMBSTONE_COUNTER")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch(
+        "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+        return_value=None,
+    )
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_gate_cache_cold_falls_back_to_celery_and_increments_tombstone(
+        self, mock_task, mock_feature_enabled, mock_produce, mock_tombstone
+    ):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="gate-cache-cold",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        mock_task.delay.assert_called_once_with(self.team.id)
+        mock_produce.assert_not_called()
+        mock_tombstone.labels.assert_called_once_with(
+            namespace="flags",
+            operation="dual_write_gate_cache_cold",
+            component="flags_cache",
+        )
+        mock_tombstone.labels.return_value.inc.assert_called_once()
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._kafka_dual_write_enabled", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_team_create_dual_writes(self, mock_task, mock_gate, mock_produce):
+        new_team = Team.objects.create(organization=self.organization, name="Dual-Write Team")
+        mock_task.delay.assert_called_with(new_team.id)
+        mock_produce.assert_called_with(new_team.id)
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._kafka_dual_write_enabled", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_evaluation_context_save_dual_writes(self, mock_task, mock_gate, mock_produce):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dual-write-ctx-save",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        # Ignore signals from the FeatureFlag create — only assert on the context save.
+        mock_task.reset_mock()
+        mock_produce.reset_mock()
+
+        ctx = EvaluationContext.objects.create(team=self.team, name="ctx-dual-write")
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+
+        mock_task.delay.assert_called_with(self.team.id)
+        mock_produce.assert_called_with(self.team.id)
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._kafka_dual_write_enabled", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_cohort_change_does_not_dual_write(self, mock_task, mock_gate, mock_produce):
+        """Cohort changes flow through their own topic — must bypass _enqueue_invalidation."""
+        Cohort.objects.create(
+            team=self.team,
+            name="cohort-no-kafka",
+            filters={"properties": {"type": "AND", "values": []}},
+        )
+        mock_task.delay.assert_called_with(self.team.id)
+        mock_gate.assert_not_called()
+        mock_produce.assert_not_called()
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

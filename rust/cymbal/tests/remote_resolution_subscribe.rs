@@ -17,15 +17,15 @@ use std::time::Duration;
 use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
-use cymbal::langs::apple::AppleDebugImage;
+use cymbal::langs::native::DebugImage;
+use cymbal::modes::resolution::load_monitor::LoadMonitor;
+use cymbal::modes::resolution::service::{CymbalResolutionService, ServiceConfig};
 use cymbal::stages::resolution::remote::{EndpointPool, RemoteResolutionConfig};
-use cymbal::stages::resolution::symbol::SymbolResolver;
-use cymbal::symbol_store::chunk_id::OrChunkId;
-use cymbal::symbol_store::proguard::ProguardRef;
+use cymbal::symbolication::symbol::SymbolResolver;
+use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
+use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::operator::TeamId;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
-use cymbal_resolution::load_monitor::LoadMonitor;
-use cymbal_resolution::service::{CymbalResolutionService, ServiceConfig};
 use tokio::sync::Semaphore;
 
 #[derive(Default)]
@@ -37,7 +37,7 @@ impl SymbolResolver for EmptyResolver {
         &self,
         _team_id: TeamId,
         _frame: &RawFrame,
-        _debug_images: &[AppleDebugImage],
+        _debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         Ok(Vec::new())
     }

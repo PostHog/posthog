@@ -126,7 +126,7 @@ def render(config: Any, runs_payload: Any, now: datetime | None, *, art: bool = 
 
     banner: list[str] = []
     if art:
-        banner = [HEDGEHOG.strip("\n"), "", " an empty close-out is a healthy scout outcome", ""]
+        banner = [HEDGEHOG.strip("\n"), ""]
 
     if not scouts:
         return "\n".join([*banner,

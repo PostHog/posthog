@@ -149,7 +149,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
-        description: 'Destinations allow you to send your data to external systems in real time.',
+        description:
+            'Destinations allow you to send your data to external systems either in real time or in scheduled batches.',
         activityScope: ActivityScope.HOG_FUNCTION,
         iconType: 'data_pipeline',
     },
@@ -275,6 +276,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Choose the type of insight you want to create',
     },
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
+    [Scene.IntegrationsLanding]: { name: 'Integration', layout: 'plain' },
     [Scene.StripeConfirmInstall]: { name: 'Confirm Stripe install', projectBased: true },
     [Scene.IngestionWarnings]: {
         projectBased: true,
@@ -620,6 +622,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Organization Pending Deletion',
         layout: 'plain',
     },
+    [Scene.ProjectPendingDeletion]: {
+        projectBased: true,
+        name: 'Project Pending Deletion',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -899,6 +906,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
+    [urls.integration(':slug')]: [Scene.IntegrationsLanding, 'integrationsLanding'],
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
@@ -921,7 +929,10 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
     [urls.inbox()]: [Scene.Inbox, 'inbox'],
-    [urls.inbox(':reportId')]: [Scene.Inbox, 'inbox'],
+    [urls.inbox(':tab')]: [Scene.Inbox, 'inbox'],
+    // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.
+    [urls.inboxScout(':skillName')]: [Scene.Inbox, 'inbox'],
+    [urls.inboxReport(':tab', ':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkHealth()]: [Scene.SdkHealth, 'sdkHealth'],
     [urls.healthAlerts()]: [Scene.HealthAlerts, 'healthAlerts'],
@@ -929,6 +940,12 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.subscriptions()]: [Scene.Subscriptions, 'subscriptions'],
+    // Static + edit routes MUST come before `/subscriptions/:subscriptionId`,
+    // otherwise the wildcard captures "new" / "<id>/edit" and mounts the detail
+    // scene → 404 "Subscription not found" with a removeChild reconciliation
+    // error from the racing mounts.
+    [urls.subscriptionNew()]: [Scene.Subscriptions, 'subscriptionNew'],
+    [urls.subscriptionEdit(':subscriptionId')]: [Scene.Subscriptions, 'subscriptionEdit'],
     [urls.subscription(':subscriptionId')]: [Scene.Subscription, 'subscription'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
@@ -945,5 +962,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],
     [urls.organizationPendingDeletion()]: [Scene.OrganizationPendingDeletion, 'organizationPendingDeletion'],
+    [urls.projectPendingDeletion()]: [Scene.ProjectPendingDeletion, 'projectPendingDeletion'],
     ...productRoutes,
 }

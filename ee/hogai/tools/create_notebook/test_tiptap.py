@@ -390,6 +390,22 @@ class TestTiptapDocToText(SimpleTestCase):
         assert 'source_kind="TrendsQuery"' in result
         assert "</insight>" in result
 
+    def test_markdown_notebook_v2_node(self):
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-markdown-notebook",
+                    "attrs": {
+                        "markdown": '# V2 notebook\n\n<Query query={{"kind":"SavedInsightNode","shortId":"abc"}} />'
+                    },
+                }
+            ],
+        }
+        assert (
+            tiptap_doc_to_text(doc) == '# V2 notebook\n\n<Query query={{"kind":"SavedInsightNode","shortId":"abc"}} />'
+        )
+
     def test_multi_node_doc(self):
         doc = {
             "type": "doc",

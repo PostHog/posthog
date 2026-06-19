@@ -1,1 +1,1 @@
-0031_alter_signalscoutconfig_emit
+0041_alter_signalscoutconfig_run_interval_minutes

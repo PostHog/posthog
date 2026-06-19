@@ -45,7 +45,7 @@ export const getDataModelingDagsListUrl = (projectId: string, params?: DataModel
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -133,7 +133,7 @@ export const getDataModelingEdgesListUrl = (projectId: string, params?: DataMode
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -239,7 +239,7 @@ export const getDataModelingNodesListUrl = (projectId: string, params?: DataMode
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -385,11 +385,11 @@ export const getDataModelingNodesRunCreateUrl = (projectId: string, id: string) 
 
 /**
  * Run this node and its upstream or downstream dependencies.
-
-Request body:
-    direction: "upstream" | "downstream" (required)
-        - "upstream": Run all ancestors of this node, plus this node
-        - "downstream": Run this node and all its descendants
+ *
+ * Request body:
+ *     direction: "upstream" | "downstream" (required)
+ *         - "upstream": Run all ancestors of this node, plus this node
+ *         - "downstream": Run this node and all its descendants
  */
 export const dataModelingNodesRunCreate = async (
     projectId: string,

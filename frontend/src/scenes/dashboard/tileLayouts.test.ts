@@ -120,7 +120,19 @@ describe('calculating tile layouts', () => {
             name: 'uses default widget minH when catalog omits minH',
             widgetType: 'unknown_widget',
             expectedMinH: 4,
-            expectedMinW: 6,
+            expectedMinW: 3,
+        },
+        {
+            name: 'uses catalog minW for error tracking list widgets',
+            widgetType: 'error_tracking_list',
+            expectedMinH: 3,
+            expectedMinW: 3,
+        },
+        {
+            name: 'uses catalog minW for session replay list widgets',
+            widgetType: 'session_replay_list',
+            expectedMinH: 3,
+            expectedMinW: 3,
         },
     ])('$name', ({ widgetType, expectedMinH, expectedMinW }) => {
         const tiles: DashboardTile<QueryBasedInsightModel>[] = [

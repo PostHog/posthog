@@ -22,6 +22,7 @@ from posthog.clickhouse.cluster import (
     RetryPolicy,
     T,
     get_cluster,
+    redact_sql_secrets,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
@@ -714,3 +715,45 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     # Should have more mutations after using force=True
     for host in mutations_count_before:
         assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]
+
+
+@pytest.mark.parametrize(
+    "sql,expected",
+    [
+        (
+            "SOURCE(CLICKHOUSE(TABLE 'web_bot_definition' USER 'default' PASSWORD 'sup3r-s3cret'))",
+            "SOURCE(CLICKHOUSE(TABLE 'web_bot_definition' USER 'default' PASSWORD '[REDACTED]'))",
+        ),
+        # case-insensitive keyword
+        ("source(clickhouse(password 'pw'))", "source(clickhouse(password '[REDACTED]'))"),
+        # CREATE USER
+        ("CREATE USER bob IDENTIFIED BY 'hunter2'", "CREATE USER bob IDENTIFIED BY '[REDACTED]'"),
+        (
+            "CREATE USER bob IDENTIFIED WITH sha256_password BY 'hunter2'",
+            "CREATE USER bob IDENTIFIED WITH sha256_password BY '[REDACTED]'",
+        ),
+        # no secret -> unchanged
+        ("SELECT * FROM events WHERE name = 'password'", "SELECT * FROM events WHERE name = 'password'"),
+    ],
+)
+def test_redact_sql_secrets(sql, expected):
+    assert redact_sql_secrets(sql) == expected
+
+
+def test_query_repr_redacts_inline_password():
+    rendered = repr(Query("SOURCE(CLICKHOUSE(TABLE 't' PASSWORD 'sup3r-s3cret'))"))
+    assert "sup3r-s3cret" not in rendered
+    assert "[REDACTED]" in rendered
+
+
+def test_query_repr_redacts_password_parameter():
+    rendered = repr(Query("SOURCE(CLICKHOUSE(DB %(db)s PASSWORD %(password)s))", {"db": "posthog", "password": "pw"}))
+    assert "pw" not in rendered
+    assert "'db': 'posthog'" in rendered
+    assert "'password': '[REDACTED]'" in rendered
+
+
+def test_query_repr_redacts_password_in_list_parameters():
+    rendered = repr(Query("INSERT INTO t VALUES", [{"db": "posthog", "password": "pw"}]))
+    assert "pw" not in rendered
+    assert "'password': '[REDACTED]'" in rendered

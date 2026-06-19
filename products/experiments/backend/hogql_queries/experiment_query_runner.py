@@ -67,11 +67,14 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 
 logger = structlog.get_logger(__name__)
 
-# Variable TTL for experiment exposure lazy computation
-# Current day refreshes frequently (data arriving), old data cached long
+# Variable TTL for experiment exposure lazy computation. Days 2-4 stay
+# recomputable (18h, just under the ~24h warmer cadence) so the daily warmer
+# folds in late-arriving exposure events before a window freezes. Freezing too
+# early keeps a stale first_exposure_time and undercounts the metric window.
 DEFAULT_EXPOSURE_TTL_SECONDS = {
     "0d": 15 * 60,  # 15 min
     "1d": 60 * 60,  # 1 hour
+    "4d": 18 * 60 * 60,  # 18 hours; covers windows 2-4 days old
     "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
 }
 
@@ -139,6 +142,7 @@ class ExperimentQueryRunner(QueryRunner):
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self.feature_flag = self.experiment.feature_flag
+        self.feature_flag_key = self.feature_flag.key_without_tombstone()
         self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.entity_key = get_entity_key(self.group_type_index)
 
@@ -272,6 +276,7 @@ class ExperimentQueryRunner(QueryRunner):
             ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
             table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
             placeholders=placeholders,
+            sentinel_placeholders={"experiment_date_to"},
         )
 
     @cached_property
@@ -323,7 +328,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         builder = ExperimentQueryBuilder(
             team=self.team,
-            feature_flag_key=self.feature_flag.key,
+            feature_flag_key=self.feature_flag_key,
             exposure_config=exposure_config,
             filter_test_accounts=filter_test_accounts,
             multiple_variant_handling=multiple_variant_handling,
@@ -409,7 +414,7 @@ class ExperimentQueryRunner(QueryRunner):
             product=Product.EXPERIMENTS,
             experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
-            experiment_feature_flag_key=self.feature_flag.key,
+            experiment_feature_flag_key=self.feature_flag_key,
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
             experiment_metric_uuid=self.metric.uuid,
             experiment_metric_name=metric_name,
@@ -723,7 +728,7 @@ class ExperimentQueryRunner(QueryRunner):
         if self.actors_query.featureFlagKey:
             feature_flag_key = self.actors_query.featureFlagKey
         else:
-            feature_flag_key = self.feature_flag.key
+            feature_flag_key = self.feature_flag_key
 
         # Import builder here to avoid circular dependencies
         from products.experiments.backend.hogql_queries.experiment_funnel_actors_query_builder import (

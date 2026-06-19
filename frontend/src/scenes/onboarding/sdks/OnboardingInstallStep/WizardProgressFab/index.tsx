@@ -6,7 +6,9 @@ import { useState } from 'react'
 import { IconChevronDown, IconX } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { wizardActiveSessionDetectorLogic } from '../wizardActiveSessionDetectorLogic'
 import { wizardProgressTrackerLogic } from '../wizardProgressTrackerLogic'
 import { ExpandedDetails } from './ExpandedDetails'
 import { headlineFor, simulatedTaskFraction, subLineFor } from './helpers'
@@ -15,6 +17,18 @@ import { ProgressRing } from './ProgressRing'
 export function WizardProgressFab(): JSX.Element | null {
     const isSyncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
     if (!isSyncEnabled) {
+        return null
+    }
+    return <WizardProgressFabGate />
+}
+
+// Gates whether we mount the streaming tracker logic at all. The detector does
+// a cheap REST poll and only flips `shouldStream` once it has evidence that a
+// wizard run is in flight — so the SSE connection isn't held open for every
+// authenticated user just because the flag is on (INC-886).
+function WizardProgressFabGate(): JSX.Element | null {
+    const { shouldStream } = useValues(wizardActiveSessionDetectorLogic)
+    if (!shouldStream) {
         return null
     }
     return <WizardProgressFabInner />
@@ -32,6 +46,7 @@ function WizardProgressFabInner(): JSX.Element | null {
         now,
     } = useValues(wizardProgressTrackerLogic)
     const { dismiss } = useActions(wizardProgressTrackerLogic)
+    const { reportWizardSyncProgressExpanded } = useActions(eventUsageLogic)
 
     const [expanded, setExpanded] = useState(false)
 
@@ -59,7 +74,20 @@ function WizardProgressFabInner(): JSX.Element | null {
             >
                 <button
                     type="button"
-                    onClick={() => setExpanded((v) => !v)}
+                    onClick={() => {
+                        const next = !expanded
+                        setExpanded(next)
+                        // Only the expand direction is an intentful "show me the details"
+                        // signal worth tracking; collapsing is just tidying up.
+                        if (next) {
+                            reportWizardSyncProgressExpanded({
+                                workflowId: latestSession?.workflow_id,
+                                skillId: latestSession?.skill_id,
+                                displayState,
+                                progressPct,
+                            })
+                        }
+                    }}
                     className="w-full text-left flex items-center gap-3 px-3 py-3 hover:bg-bg-3000 transition-colors cursor-pointer"
                     aria-label={expanded ? 'Collapse wizard details' : 'Expand wizard details'}
                     aria-expanded={expanded}

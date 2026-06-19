@@ -4,7 +4,6 @@ import os
 from typing import Any
 
 from django.conf import settings
-from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
@@ -12,6 +11,7 @@ import structlog
 from posthog.storage import object_storage
 
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.redis import get_tasks_cache
 
 STAGED_TASK_ARTIFACT_CACHE_TTL_SECONDS = 24 * 60 * 60
 RUN_ARTIFACT_TTL_DAYS = "30"
@@ -66,7 +66,7 @@ def build_task_artifact_entry(
 
 def cache_task_staged_artifact(task: Task, artifact: dict[str, Any]) -> None:
     artifact_id = str(artifact["id"])
-    cache.set(
+    get_tasks_cache().set(
         build_task_staged_artifact_cache_key(str(task.id), artifact_id),
         artifact,
         timeout=STAGED_TASK_ARTIFACT_CACHE_TTL_SECONDS,
@@ -79,7 +79,7 @@ def get_task_staged_artifacts(task: Task, artifact_ids: list[str]) -> tuple[list
 
     for artifact_id in artifact_ids:
         cache_key = build_task_staged_artifact_cache_key(str(task.id), artifact_id)
-        artifact = cache.get(cache_key)
+        artifact = get_tasks_cache().get(cache_key)
         if not isinstance(artifact, dict):
             missing_ids.append(artifact_id)
             continue
@@ -94,7 +94,7 @@ def consume_task_staged_artifacts(task: Task, artifact_ids: list[str]) -> tuple[
         return [], missing_ids
 
     for artifact_id in artifact_ids:
-        cache.delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
+        get_tasks_cache().delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
 
     return artifacts, []
 

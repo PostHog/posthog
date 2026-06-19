@@ -34,7 +34,10 @@ interface DropdownTemplateMetadata {
     icon: React.ComponentType
 }
 
-const TEMPLATE_METADATA: Record<TemplateKey, DropdownTemplateMetadata> = {
+// Remote config has its own dedicated menu item below, so the preset dropdown excludes it.
+type PresetTemplateKey = Exclude<TemplateKey, 'remote-config'>
+
+const TEMPLATE_METADATA: Record<PresetTemplateKey, DropdownTemplateMetadata> = {
     simple: {
         name: 'Simple flag',
         description: 'On/off for all users',
@@ -57,7 +60,7 @@ const TEMPLATE_METADATA: Record<TemplateKey, DropdownTemplateMetadata> = {
     },
 }
 
-const TEMPLATES: TemplateKey[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
+const TEMPLATES: PresetTemplateKey[] = ['simple', 'targeted', 'multivariate', 'targeted-multivariate']
 
 const AI_TOOL_DEFINITION = getToolDefinition('create_feature_flag')!
 const AI_SUGGESTIONS = [
@@ -67,7 +70,7 @@ const AI_SUGGESTIONS = [
     'Create a beta testing flag for…',
 ]
 
-function IntentSubmenu({ template, onBack }: { template: TemplateKey; onBack: () => void }): JSX.Element {
+function IntentSubmenu({ template, onBack }: { template: PresetTemplateKey; onBack: () => void }): JSX.Element {
     const metadata = TEMPLATE_METADATA[template]
 
     return (
@@ -114,7 +117,7 @@ export function OverlayForNewFeatureFlagMenu(): JSX.Element {
 
     const intentsEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS]
     // useState is intentional — this is an ephemeral popover overlay that unmounts on close
-    const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey | null>(null)
+    const [selectedTemplate, setSelectedTemplate] = useState<PresetTemplateKey | null>(null)
 
     if (intentsEnabled && selectedTemplate) {
         return <IntentSubmenu template={selectedTemplate} onBack={() => setSelectedTemplate(null)} />

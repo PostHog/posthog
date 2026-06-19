@@ -4,6 +4,8 @@ import { useMemo } from 'react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
+import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -37,8 +39,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { insightMode, filtersOverride, variablesOverride, dashboardId } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
 
-    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId, insightLoading } =
-        useValues(insightLogic(insightLogicProps))
+    const {
+        insightProps,
+        canEditInsight,
+        insight,
+        insightChanged,
+        insightSaving,
+        // `dashboardItemId` is legacy naming for the insight's own short_id — this is true when the insight is saved, not when it's on a dashboard
+        hasDashboardItemId: isSavedInsight,
+        insightLoading,
+    } = useValues(insightLogic(insightLogicProps))
     const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight } = useActions(
         insightLogic(insightLogicProps)
     )
@@ -54,13 +64,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const defaultInsightName =
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { hogqlAlertsEnabled })
 
     const insightDisplayName = insight?.name || insight?.derived_name
 
     const readDataMaxToolProps = useMemo(
         () =>
-            hasDashboardItemId && insight?.short_id
+            isSavedInsight && insight?.short_id
                 ? {
                       identifier: 'read_data' as const,
                       context: {
@@ -73,12 +84,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                       },
                   }
                 : undefined,
-        [hasDashboardItemId, insight?.short_id, insight?.id, insightDisplayName, query]
+        [isSavedInsight, insight?.short_id, insight?.id, insightDisplayName, query]
     )
 
     useMaxTool({
         identifier: 'upsert_alert',
-        active: canCreateAlertForInsight && hasDashboardItemId && !!insight.id,
+        active: canCreateAlertForInsight && isSavedInsight && !!insight.id,
         context: useMemo(
             () => ({
                 insight_id: insight.id,
@@ -125,7 +136,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 maxToolProps={readDataMaxToolProps}
                 actions={
                     <>
-                        {insightMode === ItemMode.Edit && hasDashboardItemId && (
+                        {insightMode === ItemMode.Edit && isSavedInsight && (
                             <LemonButton
                                 type="secondary"
                                 onClick={() => {
@@ -137,6 +148,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             >
                                 Cancel
                             </LemonButton>
+                        )}
+
+                        {insightMode !== ItemMode.Edit && isSavedInsight && insight.short_id && (
+                            <InsightSubscribeProminentButton insightShortId={insight.short_id} />
                         )}
 
                         {insightMode !== ItemMode.Edit ? (
@@ -184,7 +199,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         ? saveInsight(redirectToViewMode)
                                         : saveInsight(redirectToViewMode, getLastNewFolder() ?? 'Unfiled/Insights')
                                 }
-                                isSaved={hasDashboardItemId}
+                                isSaved={isSavedInsight}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged || queryChanged}

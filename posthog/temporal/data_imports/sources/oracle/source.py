@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class OracleSource(SimpleSource[OracleSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ORACLE,
+            category=DataWarehouseSourceCategory.DATABASES,
             label="Oracle",
             iconPath="/static/services/oracle.png",
             fields=cast(list[FieldType], []),

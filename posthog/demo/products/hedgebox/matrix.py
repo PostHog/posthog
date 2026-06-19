@@ -45,17 +45,19 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.cloud_utils import is_cloud
 from posthog.constants import PAGEVIEW_EVENT
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Cohort
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
+from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.storage import object_storage
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -290,7 +292,7 @@ class HedgeboxMatrix(Matrix):
             ],
         )
         # Create the standard internal/test users cohort (same as non-demo teams get)
-        from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
+        from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort
 
         test_users_cohort = get_or_create_internal_test_users_cohort(team, initiating_user_email=user.email)
         team.test_account_filters = [
@@ -1776,22 +1778,38 @@ class HedgeboxMatrix(Matrix):
 
         self._set_up_error_tracking_demo_data(team)
 
-        if settings.OIDC_RSA_PRIVATE_KEY:
-            try:
-                OAuthApplication.objects.create(
-                    name="Demo OAuth Application",
-                    client_id="DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
-                    client_secret="GQItUP4GqE6t5kjcWIRfWO9c0GXPCY8QDV4eszH4PnxXwCVxIMVSil4Agit7yay249jasnzHEkkVqHnFMxI1YTXSrh8Bj1sl1IDfNi1S95sv208NOc0eoUBP3TdA7vf0",
-                    redirect_uris="http://localhost:3000/callback https://example.com/callback http://localhost:8237/callback http://localhost:8239/callback",
-                    user=user,
-                    organization=team.organization,
-                    client_type=OAuthApplication.CLIENT_PUBLIC,
-                    authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                    algorithm="RS256",
-                    is_first_party=True,
-                )
-            except (IntegrityError, ValidationError):
-                pass
+        self._set_up_demo_oauth_application(team, user)
+
+    def _set_up_demo_oauth_application(self, team: "Team", user: "User") -> None:
+        # This app is first-party (skips OAuth consent, issues tokens scoped to all of the user's orgs) and
+        # ships with committed public credentials, so it must only ever exist in local dev — never in cloud
+        # production. Demo-data generation is reachable by any authenticated user, so the cloud guard matters.
+        if not (settings.OIDC_RSA_PRIVATE_KEY and settings.DEBUG and not is_cloud()):
+            return
+
+        try:
+            OAuthApplication.objects.create(
+                name="Demo OAuth Application",
+                client_id="DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
+                client_secret="GQItUP4GqE6t5kjcWIRfWO9c0GXPCY8QDV4eszH4PnxXwCVxIMVSil4Agit7yay249jasnzHEkkVqHnFMxI1YTXSrh8Bj1sl1IDfNi1S95sv208NOc0eoUBP3TdA7vf0",
+                redirect_uris="http://localhost:3000/callback http://localhost:8237/callback http://localhost:8239/callback",
+                user=user,
+                organization=team.organization,
+                client_type=OAuthApplication.CLIENT_PUBLIC,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                is_first_party=True,
+                # An empty ceiling resolves to UNPRIVILEGED_SCOPES at /authorize, which
+                # excludes the privileged/hidden scopes the onboarding wizard requests
+                # (llm_gateway:read, wizard_session:*) — so it failed with invalid_scope.
+                # Reproduce the broad default and add those so the wizard works locally.
+                scopes=sorted(
+                    UNPRIVILEGED_SCOPES
+                    | {"llm_gateway:read", "llm_gateway:write", "wizard_session:read", "wizard_session:write"}
+                ),
+            )
+        except (IntegrityError, ValidationError):
+            pass
 
     def _set_up_error_tracking_demo_data(self, team: "Team") -> None:
         issue_specs: list[ErrorTrackingDemoIssueSpec] = [

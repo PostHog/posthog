@@ -50,7 +50,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
-from posthog.models import Cohort, Property, PropertyDefinition, Team
+from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
@@ -58,6 +58,7 @@ from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr
 
 from products.actions.backend.models.action import Action, ActionStepJSON
+from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.models.util import get_view_or_table_by_name

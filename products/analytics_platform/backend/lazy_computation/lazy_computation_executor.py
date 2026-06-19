@@ -19,7 +19,11 @@ from clickhouse_driver.errors import ServerException
 from prometheus_client import Counter
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global_settings
+from posthog.hogql.constants import (
+    MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+    HogQLQuerySettings,
+    get_default_hogql_global_settings,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -127,11 +131,16 @@ LAZY_COMPUTATION_JOBS_FINISHED_TOTAL = Counter(
 )
 
 
-def _get_insert_settings(team_id: int) -> dict:
+def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
     Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
     uses for regular queries, then applies INSERT-specific overrides.
+
+    `spill_to_disk` is opt-in per precompute kind: it only helps inserts whose
+    GROUP BY hash table can grow large (high-cardinality breakdowns), and most
+    kinds never approach the threshold, so callers enable it deliberately rather
+    than paying for it everywhere.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
@@ -139,9 +148,24 @@ def _get_insert_settings(team_id: int) -> dict:
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
             "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
+            # shards by then — not sitting in the initiator's async distribution queue, where they
+            # become visible to readers only minutes later. We set this per-insert rather than
+            # relying on the cluster's global default, which is not guaranteed to be synchronous.
+            # Uses the legacy name of `distributed_foreground_insert` (renamed in ClickHouse 23.x)
+            # for version compatibility.
+            "insert_distributed_sync": 1,
             **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
         }
     )
+    if spill_to_disk:
+        # Spill heavy GROUP BYs to disk instead of OOMing. This is a spill
+        # *threshold*, not a memory reservation — it lowers peak RAM (vs. holding
+        # the whole hash table in memory), so it never over-commits the cluster.
+        # High-traffic teams' breakdown inserts (e.g. frustration metrics) otherwise
+        # build hash tables past the cluster memory limit and fail with
+        # MEMORY_LIMIT_EXCEEDED.
+        settings["max_bytes_before_external_group_by"] = MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
     return settings
 
 
@@ -320,6 +344,10 @@ class LazyComputationTable(StrEnum):
     WEB_VITALS_PATHS_PREAGGREGATED = "web_vitals_paths_preaggregated"
     WEB_STATS_FRUSTRATION_PREAGGREGATED = "web_stats_frustration_preaggregated"
     WEB_GOALS_PREAGGREGATED = "web_goals_preaggregated"
+    # Fixed-dimension tables driven by the scheduled web_dimensional_precompute
+    # Dagster job (the precomputation-framework successor to v2 pre-aggregation).
+    WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
+    WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -996,6 +1024,7 @@ def ensure_precomputed(
     placeholders: dict[str, ast.Expr] | None = None,
     sentinel_placeholders: set[str] | None = None,
     query_type: str | None = None,
+    spill_to_disk: bool = False,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1110,7 +1139,7 @@ def ensure_precomputed(
             sync_execute(
                 insert_sql,
                 values,
-                settings=_get_insert_settings(t.id),
+                settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk),
             )
 
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)

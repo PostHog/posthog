@@ -150,7 +150,7 @@ class GeminiAdapter:
         api_key: str | None,
         analytics: AnalyticsContext,
         _base_url: str | None = None,
-    ) -> Generator[StreamChunk, None, None]:
+    ) -> Generator[StreamChunk]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
         model_id = request.model
@@ -309,7 +309,7 @@ class GeminiAdapter:
         assert result is not None, "tools must be non-empty when calling _convert_tools"
         return result
 
-    def _extract_chunks_from_response(self, chunk) -> Generator[StreamChunk, None, None]:
+    def _extract_chunks_from_response(self, chunk) -> Generator[StreamChunk]:
         """Extract StreamChunks from a Gemini response chunk."""
         if hasattr(chunk, "text") and chunk.text:
             yield StreamChunk(type="text", data={"text": chunk.text})

@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { AnyPropertyFilter, EntityType, EntityTypes, FilterLogicalOperator } from '~/types'

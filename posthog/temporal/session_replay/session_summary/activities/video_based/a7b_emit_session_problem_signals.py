@@ -11,6 +11,12 @@ from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
 
+# A full agentic research run fires per promoted report, and a report promotes once its
+# signals' summed weight crosses 1.0. Emitting below that (0.5) means a single isolated
+# problem no longer triggers research on its own; it has to recur before we pay to research
+# it. (non_blocking_exception is intentionally not classified as a problem at all upstream.)
+SESSION_PROBLEM_SIGNAL_WEIGHT = 0.5
+
 
 @temporalio.activity.defn
 async def emit_session_problem_signals_activity(
@@ -64,7 +70,7 @@ async def emit_session_problem_signals_activity(
                 source_type="session_problem",
                 source_id=source_id,
                 description=problem.description,
-                weight=1.0,  # Always research
+                weight=SESSION_PROBLEM_SIGNAL_WEIGHT,
                 extra=extra,
             )
             signals_emitted += 1

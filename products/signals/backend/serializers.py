@@ -144,12 +144,23 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 
 
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    autostart_base_branches = serializers.DictField(
+        child=serializers.CharField(max_length=255, allow_blank=True),
+        required=False,
+        help_text=(
+            "Per-repository base branch overrides for auto-started inbox PRs, keyed by "
+            "'organization/repository'. The branch is what the auto-PR targets; omit a repo "
+            "(or send {}) to keep targeting the repo default branch."
+        ),
+    )
+
     class Meta:
         model = SignalTeamConfig
         fields = [
             "id",
             "default_autostart_priority",
             "default_slack_notification_channel",
+            "autostart_base_branches",
             "created_at",
             "updated_at",
         ]
@@ -163,6 +174,19 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                 )
             },
         }
+
+    def validate_autostart_base_branches(self, value: dict) -> dict:
+        cleaned: dict[str, str] = {}
+        for repo, branch in value.items():
+            repo_key = (repo or "").strip()
+            if repo_key.count("/") != 1 or any(not part for part in repo_key.split("/")):
+                raise serializers.ValidationError(
+                    f"Repository keys must be in 'organization/repository' form, got '{repo}'."
+                )
+            branch_value = (branch or "").strip()
+            if branch_value:
+                cleaned[repo_key.lower()] = branch_value
+        return cleaned
 
 
 class _UserSerializer(serializers.ModelSerializer):
@@ -252,6 +276,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
     already_addressed = serializers.SerializerMethodField(
         help_text="Whether the issue appears already fixed, from the actionability judgment artefact.",
     )
+    dismissal_reason = serializers.SerializerMethodField(
+        help_text="Reason code from the latest dismissal artefact, set when the report was suppressed (when present).",
+    )
+    dismissal_note = serializers.SerializerMethodField(
+        help_text="Free-form note captured alongside the dismissal reason (when present).",
+    )
     is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)
     source_products = serializers.SerializerMethodField(
         help_text="Distinct source products contributing signals to this report (from ClickHouse).",
@@ -276,6 +306,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "priority",
             "actionability",
             "already_addressed",
+            "dismissal_reason",
+            "dismissal_note",
             "is_suggested_reviewer",
             "source_products",
             "implementation_pr_url",
@@ -334,6 +366,35 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("already_addressed")
         return value if isinstance(value, bool) else None
+
+    def _get_dismissal_artefact_data(self, obj: SignalReport) -> dict | None:
+        prefetched = getattr(obj, "prefetched_dismissal_artefacts", None)
+        if prefetched is not None:
+            art = prefetched[0] if prefetched else None
+        else:
+            art = obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.DISMISSAL).order_by("-created_at").first()
+        if art is None:
+            return None
+        try:
+            data = json.loads(art.content)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def get_dismissal_reason(self, obj: SignalReport) -> str | None:
+        data = self._get_dismissal_artefact_data(obj)
+        if data is None:
+            return None
+        # Reason codes are owned by the client; pass through whatever was stored.
+        value = data.get("reason")
+        return value if isinstance(value, str) and value else None
+
+    def get_dismissal_note(self, obj: SignalReport) -> str | None:
+        data = self._get_dismissal_artefact_data(obj)
+        if data is None:
+            return None
+        value = data.get("note")
+        return value if isinstance(value, str) and value else None
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
         source_products_map: dict[str, list[str]] | None = self.context.get("source_products_map")

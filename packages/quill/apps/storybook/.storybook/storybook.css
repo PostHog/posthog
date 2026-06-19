@@ -65,6 +65,7 @@
 @source "../../../packages/primitives/src/**/*.{ts,tsx}";
 @source "../../../packages/components/src/**/*.{ts,tsx}";
 @source "../../../packages/blocks/src/**/*.{ts,tsx}";
+@source "../../../packages/charts/src/**/*.{ts,tsx}";
 
 @layer base {
     * {

@@ -17,6 +17,7 @@ import {
     ErrorTrackingQueryIssueCreateBody,
     ErrorTrackingQueryIssueEventsCreateBody,
     ErrorTrackingQueryIssuesListCreateBody,
+    ErrorTrackingSettingsUpdateSettingsPartialUpdateBody,
     ErrorTrackingSuppressionRulesCreateBody,
     ErrorTrackingSuppressionRulesListQueryParams,
     ErrorTrackingSuppressionRulesUpdateBody,
@@ -195,15 +196,6 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
             if (params.description !== undefined) {
                 body['description'] = params.description
             }
-            if (params.first_seen !== undefined) {
-                body['first_seen'] = params.first_seen
-            }
-            if (params.assignee !== undefined) {
-                body['assignee'] = params.assignee
-            }
-            if (params.external_issues !== undefined) {
-                body['external_issues'] = params.external_issues
-            }
             const result = await context.api.request<Schemas.ErrorTrackingIssueFull>({
                 method: 'PATCH',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/`,
@@ -232,6 +224,57 @@ const errorTrackingIssuesSplitCreate = (): ToolBase<
         const result = await context.api.request<Schemas.ErrorTrackingIssueSplitResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/split/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSettingsGetSchema = z.object({})
+
+const errorTrackingSettingsGet = (): ToolBase<
+    typeof ErrorTrackingSettingsGetSchema,
+    Schemas.ErrorTrackingSettings
+> => ({
+    name: 'error-tracking-settings-get',
+    schema: ErrorTrackingSettingsGetSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSettingsGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ErrorTrackingSettings>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/settings/retrieve_settings/`,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSettingsUpdateSchema = ErrorTrackingSettingsUpdateSettingsPartialUpdateBody
+
+const errorTrackingSettingsUpdate = (): ToolBase<
+    typeof ErrorTrackingSettingsUpdateSchema,
+    Schemas.ErrorTrackingSettings
+> => ({
+    name: 'error-tracking-settings-update',
+    schema: ErrorTrackingSettingsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSettingsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.project_rate_limit_value !== undefined) {
+            body['project_rate_limit_value'] = params.project_rate_limit_value
+        }
+        if (params.project_rate_limit_bucket_size_minutes !== undefined) {
+            body['project_rate_limit_bucket_size_minutes'] = params.project_rate_limit_bucket_size_minutes
+        }
+        if (params.per_issue_rate_limit_value !== undefined) {
+            body['per_issue_rate_limit_value'] = params.per_issue_rate_limit_value
+        }
+        if (params.per_issue_rate_limit_bucket_size_minutes !== undefined) {
+            body['per_issue_rate_limit_bucket_size_minutes'] = params.per_issue_rate_limit_bucket_size_minutes
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingSettings>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/settings/update_settings/`,
             body,
         })
         return result
@@ -600,6 +643,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
+    'error-tracking-settings-get': errorTrackingSettingsGet,
+    'error-tracking-settings-update': errorTrackingSettingsUpdate,
     'error-tracking-suppression-rules-create': errorTrackingSuppressionRulesCreate,
     'error-tracking-suppression-rules-list': errorTrackingSuppressionRulesList,
     'error-tracking-suppression-rules-update': errorTrackingSuppressionRulesUpdate,

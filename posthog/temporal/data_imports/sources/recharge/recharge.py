@@ -32,9 +32,8 @@ from posthog.temporal.data_imports.sources.recharge.settings import RECHARGE_END
 
 RECHARGE_BASE_URL = "https://api.rechargeapps.com"
 RECHARGE_API_VERSION = "2021-11"
-# Recharge caps page size at 250 (default 50). Larger pages = fewer round-trips
-# against the leaky-bucket rate limit (40 burst, ~2 req/s sustained).
-PAGE_SIZE = 250
+# Per-endpoint page size lives on each `RechargeEndpointConfig` (default 250,
+# Recharge's max); see `settings.py` for why some endpoints request less.
 REQUEST_TIMEOUT_SECONDS = 60
 
 
@@ -86,7 +85,7 @@ def _build_initial_params(
     incremental_field: str | None,
 ) -> dict[str, Any]:
     """Query params for the first page (cursor pages drop everything but limit)."""
-    params: dict[str, Any] = {"limit": PAGE_SIZE}
+    params: dict[str, Any] = {"limit": config.page_size}
 
     use_incremental = (
         config.supports_incremental
@@ -100,9 +99,14 @@ def _build_initial_params(
         # created_at). Filter server-side on `<field>_min` and sort ascending on
         # the same field so the pipeline watermark advances monotonically.
         params[f"{incremental_field}_min"] = _format_incremental_value(db_incremental_field_last_value)
-        params["sort_by"] = f"{incremental_field}-asc"
+        sort_field = incremental_field
     else:
-        params["sort_by"] = f"{config.default_sort_field}-asc"
+        sort_field = config.default_sort_field
+
+    # Some endpoints (e.g. `/products` on the 2021-11 API) reject `sort_by`
+    # outright with a 422 — they rely on cursor pagination for stable ordering.
+    if config.supports_sort:
+        params["sort_by"] = f"{sort_field}-asc"
 
     return params
 
@@ -197,7 +201,7 @@ def get_rows(
         # When following a cursor, Recharge only accepts `cursor` + `limit` —
         # the original sort/filters are baked into the cursor itself. Sending
         # them again returns a 422.
-        request_params: dict[str, Any] = {"cursor": cursor, "limit": PAGE_SIZE} if cursor else params
+        request_params: dict[str, Any] = {"cursor": cursor, "limit": config.page_size} if cursor else params
 
         data = fetch_page(request_params)
         items = _extract_items(data, endpoint)

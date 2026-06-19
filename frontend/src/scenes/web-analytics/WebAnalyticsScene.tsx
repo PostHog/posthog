@@ -25,6 +25,16 @@ export function WebAnalyticsScene(): JSX.Element {
             'Diagnose my reverse proxy setup',
         ],
     })
+    useMaxTool({
+        identifier: 'assess_heatmap',
+        active: true,
+        context: {},
+        suggestions: [
+            'Assess the heatmap for my pricing page',
+            'Why are people not clicking my main CTA?',
+            'Where do users rage-click on my homepage?',
+        ],
+    })
     const { showFocusMode } = useValues(webAnalyticsLogic)
 
     return (

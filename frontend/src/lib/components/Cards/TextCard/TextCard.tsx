@@ -8,7 +8,7 @@ import 'lib/components/Cards/CardMeta.scss'
 import 'lib/components/MarkdownEditor/shared/RichMarkdownEditor.scss'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
-import { EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -24,7 +24,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     /** Whether hovering near the card edge should hint that edit mode is available. */
     canEnterEditModeFromEdge?: boolean
     /** Called when the user clicks an edge hint to enter edit mode. */
-    onEnterEditModeFromEdge?: () => void
+    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     moreButtonOverlay?: MoreProps['overlay']
     /** Called when the user mousedowns on the card body (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>

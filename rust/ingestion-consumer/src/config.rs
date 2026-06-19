@@ -3,6 +3,7 @@ use rdkafka::ClientConfig;
 use tracing::info;
 
 use crate::kafka_config::ConsumerConfigBuilder;
+use crate::routing::RoutingStrategy;
 
 /// Configuration for the ingestion consumer.
 ///
@@ -108,6 +109,11 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
+    /// Maximum Kafka batches to process concurrently. Matches the Node.js
+    /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
+    #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
+    pub consumer_max_background_tasks: usize,
+
     // ---- Worker transport ----
     /// Comma-separated list of worker HTTP URLs
     #[envconfig(default = "http://localhost:9001")]
@@ -133,6 +139,12 @@ pub struct Config {
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    /// How unpinned routing keys are assigned to workers: `binpack` (default,
+    /// least-loaded — accurate for the co-located sidecar) or `p2c`
+    /// (power-of-two-choices — herd-resistant for a shared worker pool).
+    #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
+    pub routing_strategy: RoutingStrategy,
 
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).
@@ -268,6 +280,10 @@ impl Config {
             info!(key = %key, value = %value, "Applying KAFKA_CONSUMER_ env override");
             builder = builder.set(key, value);
         }
+
+        // After all overrides: if KAFKA_CONSUMER_GROUP_PROTOCOL=consumer selected the
+        // KIP-848 protocol, drop the classic-only keys librdkafka would reject.
+        builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
     }

@@ -27,8 +27,7 @@ class TestProductboardSource:
         assert config.name.value == "Productboard"
         assert config.label == "Productboard"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Kept unreleased while the source is still in alpha.
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.iconPath == "/static/services/productboard.png"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

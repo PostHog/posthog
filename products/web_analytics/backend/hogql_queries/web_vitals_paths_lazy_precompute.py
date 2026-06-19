@@ -11,6 +11,7 @@ from prometheus_client import Counter
 
 from posthog.schema import (
     HogQLQueryModifiers,
+    WebAnalyticsPreComputeStrategy,
     WebVitalsMetric,
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQueryResponse,
@@ -211,6 +212,7 @@ def ensure_web_vitals_paths_precomputed(
         table=LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_vitals_paths_lazy_insert",
+        spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
     )
 
 
@@ -321,7 +323,7 @@ def _build_response(
         ],
         timings=runner.timings.to_list() if runner.timings else None,
         modifiers=runner.modifiers,
-        usedLazyPrecompute=True,
+        preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
     )
 
 

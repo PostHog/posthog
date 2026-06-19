@@ -59,6 +59,15 @@ class KnowledgeDocument(UUIDModel):
     # re-queuing (the doc stays excluded). Reset to 0 whenever content changes.
     classification_attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
 
+    # When this doc's chunks were last produced to the embedding pipeline
+    # (Kafka -> worker -> ClickHouse `document_embeddings`). NULL means "not yet
+    # embedded" — the coordinator's embedding pass picks those up. Only ever
+    # stamped for a SAFE doc whose produce succeeded; reset to NULL whenever
+    # content changes (so the new content re-embeds) or when reconciliation
+    # finds the vectors never landed in ClickHouse. "Emitted" means produced to
+    # Kafka, not confirmed-present in ClickHouse — see logic.emit_pending_embeddings.
+    embeddings_emitted_at = models.DateTimeField(null=True, blank=True)
+
     objects = TeamScopedManager()
 
     class Meta:
@@ -76,6 +85,16 @@ class KnowledgeDocument(UUIDModel):
             ),
             # Cross-team scan for the tombstone hard-delete sweep.
             models.Index(fields=["tombstoned_at"], name="bk_doc_tombstoned"),
+            # Backs the cross-team embedding passes. Partial on `safe` (the only
+            # verdict that's ever embedded) so it tracks just the embeddable
+            # working set. Serves BOTH the pending scan (`embeddings_emitted_at
+            # IS NULL`, NULLs clustered in the btree) and the reconciliation
+            # scan (`embeddings_emitted_at < cutoff ORDER BY ASC`).
+            models.Index(
+                fields=["embeddings_emitted_at"],
+                name="bk_doc_embed_state",
+                condition=models.Q(safety_verdict=SafetyVerdict.SAFE),
+            ),
         ]
         constraints = [
             models.UniqueConstraint(fields=["source", "stable_id"], name="bk_doc_unique_per_source"),

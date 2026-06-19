@@ -66,11 +66,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         feature_flag_key = self.query.feature_flag.get("key")
         if not isinstance(feature_flag_key, str) or not feature_flag_key:
             raise ValidationError("feature_flag key is required")
-        self.feature_flag_key: str = feature_flag_key
         self.group_type_index = self.query.feature_flag.get("filters", {}).get("aggregation_group_type_index")
         self.exposure_criteria = self.query.exposure_criteria
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
+        self.feature_flag_key: str = self.experiment.feature_flag.key_without_tombstone()
 
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout

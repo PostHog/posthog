@@ -42,6 +42,22 @@ describe('useDerivedSeries', () => {
         expect(result.current[1].color).toMatch(/^rgba\([^)]*,\s*0\.5\)$/)
     })
 
+    it('propagates a hidden source excluded flag into its derived MA and trend line', () => {
+        const source: Series[] = [
+            { key: 'a', label: 'A', data: [1, 2, 3, 4], color: '#112233', visibility: { excluded: true } },
+            { key: 'b', label: 'B', data: [5, 6, 7, 8], color: '#445566' },
+        ]
+        const { result } = renderHook(() =>
+            useDerivedSeries(source, {
+                movingAverage: [{ seriesKey: 'a', window: 2 }],
+                trendLines: [{ seriesKey: 'a', kind: 'linear' }],
+            })
+        )
+        const byKey = new Map(result.current.map((s) => [s.key, s]))
+        expect(byKey.get('a-ma')?.visibility?.excluded).toBe(true)
+        expect(byKey.get('a__trendline')?.visibility?.excluded).toBe(true)
+    })
+
     it('resolves a trendline whose seriesKey targets a moving-average series', () => {
         const { result } = renderHook(() =>
             useDerivedSeries(SOURCE, {

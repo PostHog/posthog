@@ -31,5 +31,6 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   gh workflow run ci-e2e-playwright.yml \
+                      --repo ${{ github.repository }} \
                       --ref master \
                       --field playwright_retries=0

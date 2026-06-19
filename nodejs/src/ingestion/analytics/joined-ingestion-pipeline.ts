@@ -11,15 +11,17 @@ import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writ
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
+import { createDenyEventsStep } from '../common/steps/deny-events'
 import {
     EventFiltersBatchContext,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
+import { GroupStoreBatchContext, createGroupStoreBeforeBatchStep } from '../common/steps/group-store-batch-step'
+import { PersonsStoreBatchContext, createPersonsStoreBeforeBatchStep } from '../common/steps/persons-store-batch-step'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyEventRestrictionsStep,
-    createDropExceptionEventsStep,
     createEnrichSurveyPersonPropertiesStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -28,6 +30,7 @@ import {
     createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
 } from '../event-preprocessing'
+import { EmitEventStepOutput } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
@@ -37,14 +40,7 @@ import { TopHogRegistry, createTopHogWrapper } from '../pipelines/extensions/top
 import { OkResultWithContext } from '../pipelines/pipeline.interface'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
-import {
-    AiEventOutput,
-    AsyncOutput,
-    EventOutput,
-    HeatmapsOutput,
-    PersonDistinctIdsOutput,
-    PersonsOutput,
-} from './outputs'
+import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
 import {
     PerDistinctIdPipelineConfig,
     PerDistinctIdPipelineInput,
@@ -61,11 +57,9 @@ export interface JoinedIngestionPipelineConfig {
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     cdpHogWatcherSampleRate: number
-    groupId: string
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
-        | HeatmapsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -103,6 +97,8 @@ export interface JoinedIngestionPipelineDeps {
     topHog: TopHogRegistry
 }
 
+type IngestionBatchContext = EventFiltersBatchContext & PersonsStoreBatchContext & GroupStoreBatchContext
+
 export interface JoinedIngestionPipelineInput {
     message: Message
 }
@@ -139,7 +135,6 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         personsPrefetchEnabled,
         cdpHogWatcherSampleRate,
-        groupId,
         outputs,
         splitAiEventsConfig,
         perDistinctIdOptions,
@@ -178,7 +173,6 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
-        personsStore,
         personsPrefetchEnabled,
         hogTransformer,
         cdpHogWatcherSampleRate,
@@ -191,21 +185,22 @@ export function createJoinedIngestionPipeline<
         teamManager,
         groupTypeManager,
         hogTransformer,
-        personsStore,
-        groupStore,
-        groupId,
         topHog: topHogWrapper,
     }
 
     return newBatchingPipeline<
         TInput,
-        void,
+        EmitEventStepOutput,
         TContext,
-        EventFiltersBatchContext,
+        IngestionBatchContext,
         TContext,
         OverflowOutput | AsyncOutput
     >(
-        (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
+        (beforeBatch) =>
+            beforeBatch
+                .pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs))
+                .pipe(createPersonsStoreBeforeBatchStep(personsStore))
+                .pipe(createGroupStoreBeforeBatchStep(groupStore)),
         (batch) =>
             batch
                 .messageAware((b) =>
@@ -213,12 +208,15 @@ export function createJoinedIngestionPipeline<
                         // Header-only steps: parse Kafka headers and apply token-level restrictions.
                         // Cheap; runs per-event before we touch the body.
                         .sequentially((b) =>
-                            b.pipe(createParseHeadersStep()).pipe(
-                                createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                    overflowEnabled,
-                                    preservePartitionLocality,
-                                })
-                            )
+                            b
+                                .pipe(createParseHeadersStep())
+                                .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning', '$$heatmap']))
+                                .pipe(
+                                    createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                                        overflowEnabled,
+                                        preservePartitionLocality,
+                                    })
+                                )
                         )
                         // Rate-limit non-cookieless events to overflow before parsing the body.
                         // Cookieless events (headers.distinct_id === sentinel) pass through and are
@@ -234,7 +232,6 @@ export function createJoinedIngestionPipeline<
                         .sequentially((b) =>
                             b
                                 .pipe(createParseKafkaMessageStep())
-                                .pipe(createDropExceptionEventsStep())
                                 .pipe(createResolveTeamStep(teamManager))
                                 .pipe(createValidateHistoricalMigrationStep())
                                 .pipe(createValidateAiEventTokensStep())
@@ -262,11 +259,12 @@ export function createJoinedIngestionPipeline<
             afterBatch
                 .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
                 .pipe(createFlushEventFiltersBatchAppMetricsStep()),
-        // Batch stores (personsStore, groupStore) are singletons that don't support
-        // concurrent batches yet — they accumulate state across events and flush once.
-        // The Rust consumer's per-worker Semaphore caps in-flight batches at the
-        // same value (INGESTION_WORKER_CONCURRENT_BATCHES); divergence shows up as
-        // HTTP 503s in `ingestion_api_batch_capacity_rejections_total`.
+        // Batch stores are singleton persistent caches, but each batch receives a
+        // batch-bound view so entries can be reference-counted and released after
+        // that batch's flush lifecycle completes. The Rust consumer's per-worker
+        // Semaphore caps in-flight batches at the same value
+        // (INGESTION_WORKER_CONCURRENT_BATCHES); divergence shows up as HTTP 503s
+        // in `ingestion_api_batch_capacity_rejections_total`.
         { concurrentBatches }
     )
 }

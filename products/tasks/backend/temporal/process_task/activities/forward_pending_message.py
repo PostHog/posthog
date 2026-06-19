@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from temporalio import activity
@@ -246,7 +246,7 @@ def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
         return None
 
     _AGENT_MSG_TYPES = {"agent_message", "agent_message_chunk"}
-    cutoff = datetime.utcnow() - timedelta(minutes=5)
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)
     latest_user_timestamp: datetime | None = None
     latest_agent_timestamp: datetime | None = None
 
@@ -336,7 +336,7 @@ def _has_recent_question_tool_failure(task_run: Any) -> bool:
     if not log_content.strip():
         return False
 
-    cutoff = datetime.utcnow() - timedelta(minutes=5)
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)
 
     for line in log_content.strip().split("\n"):
         line = line.strip()

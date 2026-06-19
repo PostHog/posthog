@@ -12,7 +12,7 @@ import {
     FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN,
     type FunnelBarHorizontalSegmentMeta,
     type FunnelBarHorizontalStepData,
-} from './funnelBarHorizontalTransforms'
+} from '../shared/funnelBarHorizontalShared'
 
 const BAR_CORNER_RADIUS = 4
 

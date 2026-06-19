@@ -7,7 +7,7 @@ import base64
 import hashlib
 import secrets
 import unicodedata
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -32,17 +32,14 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.api.email_verification import EmailVerifier
+from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
-from posthog.models.oauth import (
-    OAuthAccessToken,
-    OAuthApplication,
-    OAuthRefreshToken,
-    find_oauth_access_token,
-    find_oauth_refresh_token,
-)
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, find_oauth_access_token
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.models.utils import (
     generate_random_oauth_access_token,
@@ -478,8 +475,8 @@ def _user_has_existing_credentials_from_partner(user: User, partner: OAuthApplic
 def _caller_proved_existing_trust(partner: OAuthApplication, user: User, authenticated_user: User | None) -> bool:
     """True only when the caller proved a prior trust relationship with this user.
 
-    This is what lets a skip-consent partner re-mint silently after the user has reviewed
-    their credentials. The proof differs by auth method:
+    This is what lets a skip-consent partner re-mint silently for an existing user; without
+    it the request falls through to browser consent. The proof differs by auth method:
 
     - HMAC callers authenticate with a partner-level secret, so the partner already holding
       a live OAuth credential for the user is sufficient proof of an existing relationship.
@@ -511,26 +508,28 @@ def _handle_existing_user(
     code_challenge_method: str = "S256",
     authenticated_user: User | None = None,
 ) -> Response:
-    # Pre-hijacking defense: once a user has reviewed their credentials, a partner with
-    # skip_existing_user_consent=True can only mint silently when the caller proved a prior
-    # trust relationship with this user (see _caller_proved_existing_trust). Otherwise we
-    # fall through to consent.
-    silent_blocked_post_review = (
+    # Account-takeover defense: a partner with skip_existing_user_consent=True may only mint
+    # silently for an *existing* account when the caller proved a prior trust relationship with
+    # that user (see _caller_proved_existing_trust). Without proof we fall through to consent,
+    # otherwise any caller could mint a code for an account they don't control. This holds
+    # regardless of whether the user has reviewed their credentials: an unreviewed account is
+    # still a pre-existing account, and the email may belong to a direct signup that never
+    # touched provisioning — silently linking it is the takeover.
+    silent_blocked = (
         partner is not None
         and partner.provisioning_skip_existing_user_consent
-        and user.credentials_reviewed_at is not None
         and not _caller_proved_existing_trust(partner, user, authenticated_user)
     )
 
-    if silent_blocked_post_review:
-        assert partner is not None  # implied by silent_blocked_post_review
+    if silent_blocked:
+        assert partner is not None  # implied by silent_blocked
         _capture_provisioning_event(
             "account_request",
-            "silent_blocked_post_review",
+            "silent_blocked_existing_user",
             partner=partner,
         )
 
-    if partner and (not partner.provisioning_skip_existing_user_consent or silent_blocked_post_review):
+    if partner and (not partner.provisioning_skip_existing_user_consent or silent_blocked):
         if not code_challenge:
             return Response(
                 {
@@ -579,6 +578,7 @@ def _handle_existing_user(
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
+            "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
             "org_id": str(team.organization_id),
             "team_id": team.id,
@@ -705,6 +705,7 @@ def _handle_new_user(
             email=email,
             password=None,
             first_name=first_name,
+            is_email_verified=False,
         )
     except IntegrityError:
         existing = User.objects.filter(email=email).first()
@@ -741,6 +742,19 @@ def _handle_new_user(
         team_id=team.id,
     )
 
+    # Emit the standard signup event so provisioned accounts flow into the shared
+    # signup / activation / billing analyses, segmentable by client. Vercel does the
+    # same (ee/vercel/integration.py); the agentic path previously skipped it entirely.
+    report_user_signed_up(
+        user,
+        is_instance_first_user=False,
+        is_organization_first_user=True,
+        backend_processor="AgenticProvisioning",
+        social_provider=partner.name if partner else "",
+        user_analytics_metadata=user.get_analytics_metadata(),
+        org_analytics_metadata=organization.get_analytics_metadata(),
+    )
+
     try:
         reset_token = password_reset_token_generator.make_token(user)
         send_provisioning_welcome.delay(user.id, reset_token, partner_label)
@@ -752,6 +766,7 @@ def _handle_new_user(
     cache.set(
         cache_key,
         {
+            "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
             "org_id": str(organization.id),
             "team_id": team.id,
@@ -844,6 +859,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         cache.set(
             f"{AUTH_CODE_CACHE_PREFIX}{code}",
             {
+                "issued_at": timezone.now().isoformat(),
                 "user_id": user.id,
                 "org_id": str(organization.id),
                 "team_id": team.id,
@@ -951,6 +967,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
+            "issued_at": timezone.now().isoformat(),
             "user_id": user.id,
             "org_id": str(team.organization_id),
             "team_id": team.id,
@@ -997,6 +1014,18 @@ def oauth_token(request: Request) -> Response:
             {"error": "unsupported_grant_type", "error_description": f"Unsupported grant_type: {grant_type}"},
             status=400,
         )
+
+
+def _lock_application(application_id: uuid.UUID) -> OAuthApplication | None:
+    """Row-lock the OAuthApplication so direct-mint serializes with revoke_application_sessions.
+
+    The revoke updates this row first and holds the lock for its whole transaction before
+    sweeping tokens, so a mint that takes the same lock is forced into one of two safe orders:
+    it holds the lock and its new tokens land before the revoke's sweep (which then catches
+    them), or the revoke committed first and the caller reads the now-visible
+    `sessions_revoked_at` and rejects. Must be called inside `transaction.atomic()`.
+    """
+    return OAuthApplication.objects.select_for_update().filter(pk=application_id).first()
 
 
 def _exchange_authorization_code(request: Request) -> Response:
@@ -1075,49 +1104,94 @@ def _exchange_authorization_code(request: Request) -> Response:
             {"error": "server_error", "error_description": "OAuth application is not configured"}, status=500
         )
 
-    # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
-    # ceiling has to be enforced here before the token is created by hand.
-    requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
-    app_scopes = oauth_app.scopes if oauth_app else []
-    if not scopes_within_ceiling(requested_scopes, app_scopes):
-        _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
-        return Response(
-            {
-                "error": "invalid_scope",
-                "error_description": "Requested scopes exceed the application's allowed scopes",
-            },
-            status=400,
+    # Lock the app row before reading the revoke stamp and minting, so this serializes
+    # with revoke_application_sessions (see _lock_application). Provisioning auth codes
+    # live in the cache, not OAuthGrant, so the revoke's sweep can't reach them — the
+    # `issued_at` carried on the code is what a revoke is checked against. Codes minted
+    # before `issued_at` shipped lack the field; fail closed (they expire in
+    # AUTH_CODE_TTL_SECONDS and the client can re-run the flow).
+    with transaction.atomic():
+        locked_app = _lock_application(oauth_app.pk) if oauth_app else None
+        sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
+        if sessions_revoked_at is not None:
+            issued_at_raw = code_data.get("issued_at")
+            issued_at = datetime.fromisoformat(issued_at_raw) if issued_at_raw else None
+            if issued_at is None or issued_at < sessions_revoked_at:
+                _capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="authorization_code")
+                return Response(
+                    {"error": "invalid_grant", "error_description": "Application sessions were revoked; re-authorize."},
+                    status=400,
+                )
+
+        # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
+        # ceiling has to be enforced here before the token is created by hand.
+        requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
+        app_scopes = locked_app.scopes if locked_app else []
+        if not scopes_within_ceiling(requested_scopes, app_scopes):
+            _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
+            return Response(
+                {
+                    "error": "invalid_scope",
+                    "error_description": "Requested scopes exceed the application's allowed scopes",
+                },
+                status=400,
+            )
+        scope_str = " ".join(requested_scopes)
+
+        token_expiry = (
+            PARTNER_TOKEN_EXPIRY_SECONDS
+            if oauth_app and oauth_app.is_provisioning_partner
+            else ACCESS_TOKEN_EXPIRY_SECONDS
         )
-    scope_str = " ".join(requested_scopes)
 
-    token_expiry = (
-        PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
-    )
+        scoped_teams = _compute_partner_scoped_teams(oauth_app, user, team_id)
+        # A partner token carries its restriction in scoped_teams alone, and the standard
+        # OAuth permission check treats an empty scoped_teams as unrestricted (permissions.py).
+        # _compute_partner_scoped_teams returns [] exactly when the base team is gone or the
+        # user lost access, so minting here would hand out a project-unrestricted bearer.
+        # Fail closed and force re-authorization.
+        if not scoped_teams:
+            _capture_provisioning_event("token_exchange", "no_accessible_teams", grant_type="authorization_code")
+            return Response(
+                {
+                    "error": "invalid_grant",
+                    "error_description": "No accessible teams for this authorization; re-authorize.",
+                },
+                status=400,
+            )
 
-    access_token_value = generate_random_oauth_access_token(None)
-    access_token = OAuthAccessToken.objects.create(
-        application=oauth_app,
-        token=access_token_value,
-        user=user,
-        expires=timezone.now() + timedelta(seconds=token_expiry),
-        scope=scope_str,
-        scoped_teams=[team_id],
-    )
+        access_token_value = generate_random_oauth_access_token(None)
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            token=access_token_value,
+            user=user,
+            expires=timezone.now() + timedelta(seconds=token_expiry),
+            scope=scope_str,
+            scoped_teams=scoped_teams,
+        )
 
-    refresh_token_value = generate_random_oauth_refresh_token(None)
-    OAuthRefreshToken.objects.create(
-        application=oauth_app,
-        token=refresh_token_value,
-        user=user,
-        access_token=access_token,
-        scoped_teams=[team_id],
-    )
+        refresh_token_value = generate_random_oauth_refresh_token(None)
+        OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            token=refresh_token_value,
+            user=user,
+            access_token=access_token,
+            scoped_teams=scoped_teams,
+        )
 
     account_id = str(code_data.get("org_id", ""))
 
     available_teams = _get_available_teams_for_user(user)
 
-    _capture_provisioning_event("token_exchange", "success", partner=oauth_app, grant_type="authorization_code")
+    _capture_provisioning_event(
+        "token_exchange",
+        "success",
+        partner=oauth_app,
+        grant_type="authorization_code",
+        team_id=team_id,
+        user_id=user.id,
+        granted_team_count=len(scoped_teams),
+    )
 
     return Response(
         {
@@ -1140,72 +1214,131 @@ def _exchange_refresh_token(request: Request) -> Response:
         _capture_provisioning_event("token_exchange", "missing_refresh_token", grant_type="refresh_token")
         return Response({"error": "invalid_request", "error_description": "refresh_token is required"}, status=400)
 
-    old_refresh = find_oauth_refresh_token(refresh_token_value)
-    if old_refresh is None:
-        _capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
-        return Response({"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400)
-
-    oauth_app = old_refresh.application
-    user = old_refresh.user
-    scoped_teams = old_refresh.scoped_teams
-    old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
-
-    # Cap the refreshed scope at the app's current ceiling before touching any
-    # token rows — a since-tightened ceiling must drop the removed scopes, and a
-    # token now fully outside the ceiling has to re-authorize rather than refresh.
-    # Done up front so a rejected refresh never revokes the caller's only token.
-    app_scopes = oauth_app.scopes if oauth_app else []
-    narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
-    if narrowed_scopes is None:
-        _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
-        return Response(
-            {
-                "error": "invalid_grant",
-                "error_description": "Token scopes are no longer within the application's allowed scopes; re-authorize.",
-            },
-            status=400,
+    # Lock the app row first (revoke_application_sessions locks it before sweeping tokens),
+    # then re-read the refresh token under that lock, so the rotate-and-mint serializes with
+    # the revoke: either we hold the lock and our new tokens land before its sweep, or it
+    # committed first and we see the token already revoked (or the stamp) and reject. Looking
+    # the app up by id first (without locking the token row) keeps the lock order app→token,
+    # matching the revoke, so the two can't deadlock.
+    with transaction.atomic():
+        application_id = (
+            OAuthRefreshToken.objects.filter(token=refresh_token_value, revoked__isnull=True)
+            .values_list("application_id", flat=True)
+            .first()
         )
-    new_scope = " ".join(narrowed_scopes)
+        locked_app = _lock_application(application_id) if application_id else None
+        old_refresh = (
+            OAuthRefreshToken.objects.select_related("user", "access_token")
+            .filter(token=refresh_token_value, revoked__isnull=True)
+            .first()
+        )
+        if old_refresh is None:
+            _capture_provisioning_event("token_exchange", "invalid_refresh_token", grant_type="refresh_token")
+            return Response(
+                {"error": "invalid_grant", "error_description": "Invalid or revoked refresh token"}, status=400
+            )
 
-    # provisioning_partner_type is a stable marker set at partner registration;
-    # checking it instead of is_provisioning_partner prevents a bypass when an admin
-    # clears provisioning_auth_method to disable a partner without revoking tokens.
-    if oauth_app and oauth_app.provisioning_partner_type:
-        if error := _enforce_partner_rate_limit(oauth_app, "token_exchanges"):
-            return error
+        oauth_app = locked_app
+        user = old_refresh.user
+        old_scoped_teams = old_refresh.scoped_teams or []
+        # base_team_id at refresh: the first team in the prior scope. The consent team
+        # (authorized at grant time) has the lowest id and sorts first at issuance;
+        # partner-provisioned teams are always created later, so they take higher ids
+        # and are only ever appended after it. [0] is therefore the consent team. This
+        # ordering is load-bearing: _compute_partner_scoped_teams re-adds the consent
+        # team only when it is base_team_id (it has no TeamProvisioningConfig for this
+        # app), so a lower-id provisioned team becoming [0] would silently drop the
+        # consent team from the refreshed scope. If the prior token was somehow empty-
+        # scoped, fall back to zero so the helper short-circuits without claiming a team.
+        base_team_id = old_scoped_teams[0] if old_scoped_teams else 0
+        scoped_teams = _compute_partner_scoped_teams(oauth_app, user, base_team_id)
+        # Same fail-closed rule as issuance: an empty scoped_teams is unrestricted under the
+        # standard permission check, so a refresh whose base team vanished or whose access was
+        # revoked must re-authorize rather than rotate into a project-unrestricted token.
+        # Checked before any token row is mutated so a rejected refresh never revokes the
+        # caller's only token.
+        if not scoped_teams:
+            _capture_provisioning_event("token_exchange", "no_accessible_teams", grant_type="refresh_token")
+            return Response(
+                {"error": "invalid_grant", "error_description": "No accessible teams for this token; re-authorize."},
+                status=400,
+            )
+        old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
 
-    old_access = old_refresh.access_token
-    old_refresh.access_token = None
-    old_refresh.revoked = timezone.now()
-    old_refresh.save(update_fields=["access_token", "revoked"])
+        sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
+        if sessions_revoked_at is not None and old_refresh.created < sessions_revoked_at:
+            _capture_provisioning_event("token_exchange", "sessions_revoked", grant_type="refresh_token")
+            return Response(
+                {"error": "invalid_grant", "error_description": "Application sessions were revoked; re-authorize."},
+                status=400,
+            )
 
-    if old_access:
-        old_access.delete()
+        # Cap the refreshed scope at the app's current ceiling before touching any
+        # token rows — a since-tightened ceiling must drop the removed scopes, and a
+        # token now fully outside the ceiling has to re-authorize rather than refresh.
+        # Done up front so a rejected refresh never revokes the caller's only token.
+        app_scopes = oauth_app.scopes if oauth_app else []
+        narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
+        if narrowed_scopes is None:
+            _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
+            return Response(
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Token scopes are no longer within the application's allowed scopes; re-authorize.",
+                },
+                status=400,
+            )
+        new_scope = " ".join(narrowed_scopes)
 
-    token_expiry = (
-        PARTNER_TOKEN_EXPIRY_SECONDS if oauth_app and oauth_app.is_provisioning_partner else ACCESS_TOKEN_EXPIRY_SECONDS
+        # provisioning_partner_type is a stable marker set at partner registration;
+        # checking it instead of is_provisioning_partner prevents a bypass when an admin
+        # clears provisioning_auth_method to disable a partner without revoking tokens.
+        if oauth_app and oauth_app.provisioning_partner_type:
+            if error := _enforce_partner_rate_limit(oauth_app, "token_exchanges"):
+                return error
+
+        old_access = old_refresh.access_token
+        old_refresh.access_token = None
+        old_refresh.revoked = timezone.now()
+        old_refresh.save(update_fields=["access_token", "revoked"])
+
+        if old_access:
+            old_access.delete()
+
+        token_expiry = (
+            PARTNER_TOKEN_EXPIRY_SECONDS
+            if oauth_app and oauth_app.is_provisioning_partner
+            else ACCESS_TOKEN_EXPIRY_SECONDS
+        )
+
+        new_access_value = generate_random_oauth_access_token(None)
+        new_access = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            token=new_access_value,
+            user=user,
+            expires=timezone.now() + timedelta(seconds=token_expiry),
+            scope=new_scope,
+            scoped_teams=scoped_teams,
+        )
+
+        new_refresh_value = generate_random_oauth_refresh_token(None)
+        OAuthRefreshToken.objects.create(
+            application=oauth_app,
+            token=new_refresh_value,
+            user=user,
+            access_token=new_access,
+            scoped_teams=scoped_teams,
+        )
+
+    _capture_provisioning_event(
+        "token_exchange",
+        "success",
+        partner=oauth_app,
+        grant_type="refresh_token",
+        team_id=base_team_id,
+        user_id=user.id if user else None,
+        granted_team_count=len(scoped_teams),
     )
-
-    new_access_value = generate_random_oauth_access_token(None)
-    new_access = OAuthAccessToken.objects.create(
-        application=oauth_app,
-        token=new_access_value,
-        user=user,
-        expires=timezone.now() + timedelta(seconds=token_expiry),
-        scope=new_scope,
-        scoped_teams=scoped_teams,
-    )
-
-    new_refresh_value = generate_random_oauth_refresh_token(None)
-    OAuthRefreshToken.objects.create(
-        application=oauth_app,
-        token=new_refresh_value,
-        user=user,
-        access_token=new_access,
-        scoped_teams=scoped_teams,
-    )
-
-    _capture_provisioning_event("token_exchange", "success", partner=oauth_app, grant_type="refresh_token")
 
     return Response(
         {
@@ -1409,11 +1542,10 @@ def _resolve_or_create_project_team(
     authenticated user lacks team-level access (honors advanced permissions
     / access controls on top of org membership).
     """
-    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
     existing = (
         TeamProvisioningConfig.objects.filter(
             stripe_project_id=project_id,
+            application=access_token.application,
             team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
         )
         .select_related("team")
@@ -1438,13 +1570,14 @@ def _resolve_or_create_project_team(
     try:
         TeamProvisioningConfig.objects.update_or_create(
             team=new_team,
-            defaults={"stripe_project_id": project_id},
+            defaults={"stripe_project_id": project_id, "application": access_token.application},
         )
     except IntegrityError:
         new_team.delete()
         race_winner = (
             TeamProvisioningConfig.objects.filter(
                 stripe_project_id=project_id,
+                application=access_token.application,
                 team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
             )
             .select_related("team")
@@ -1474,6 +1607,66 @@ def _ensure_team_in_token_scopes(
         return team, scoped_teams
     _add_team_to_token_scopes(access_token, team.id)
     return team, [*scoped_teams, team.id]
+
+
+def _compute_partner_scoped_teams(
+    application: OAuthApplication | None,
+    user: User,
+    base_team_id: int,
+) -> list[int]:
+    """Compute the durable scope for a partner OAuth token at issuance/refresh.
+
+    Returns the set of every team where ``TeamProvisioningConfig.application ==
+    application`` (i.e. this partner provisioned the team for this user, attributed
+    at create time) AND the team lives in the same organization as ``base_team_id``
+    AND the user still has team-level access. This is partner-agnostic, not
+    Stripe-specific: ``stripe_project_id`` is the (legacily named) external project
+    id every partner sets, always written alongside ``application`` in
+    ``_resolve_or_create_project_team``, so the ``application`` filter already
+    implies a provisioned team. The organization filter pins the token to the
+    authorization context:
+    a partner with OAuth grants in multiple orgs for the same user must not be
+    able to reach an org-B team via an org-A token just because the user happens
+    to be a member of both.
+
+    Returns ``[]`` when ``application`` is None (legacy refresh tokens with no
+    app binding). A partner-unattributed token cannot be safely scoped, so it
+    gets no teams and the holder must re-authorize. Falling through would let
+    ``filter(application=None)`` match every TPC row with NULL application
+    across every partner.
+
+    Returns ``[]`` if ``base_team_id`` no longer resolves to a team the user
+    can access; stale scope must not grant ongoing access after ACL revocation
+    or org removal.
+    """
+    if application is None:
+        return []
+
+    try:
+        base_team = Team.objects.select_related("organization").get(id=base_team_id)
+    except Team.DoesNotExist:
+        return []
+    if not _user_can_access_team(user, base_team):
+        return []
+
+    candidate_team_ids = set(
+        TeamProvisioningConfig.objects.filter(
+            application=application,
+            team__organization_id=base_team.organization_id,
+        ).values_list("team_id", flat=True)
+    )
+    candidate_team_ids.add(base_team_id)
+
+    granted: set[int] = {base_team_id}
+    other_teams = Team.objects.select_related("organization").filter(
+        id__in=candidate_team_ids - {base_team_id},
+    )
+    for team in other_teams:
+        if _user_can_access_team(user, team):
+            granted.add(team.id)
+
+    # sorted() only for deterministic test assertions and log diffs; scope order is not a correctness requirement
+    return sorted(granted)
 
 
 def _user_can_access_team(user: User, team: Team) -> bool:
@@ -1507,8 +1700,6 @@ def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> N
 
 
 def _get_provisioning_service_id(team: Team) -> str:
-    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
     try:
         config = TeamProvisioningConfig.objects.get(team=team)
         return config.service_id
@@ -1517,8 +1708,6 @@ def _get_provisioning_service_id(team: Team) -> str:
 
 
 def _set_provisioning_service_id(team: Team, service_id: str) -> None:
-    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
     TeamProvisioningConfig.objects.update_or_create(
         team=team,
         defaults={"service_id": service_id},
@@ -1804,6 +1993,17 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     except Team.DoesNotExist:
         return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
 
+    # A config with a non-null application belongs to the partner that provisioned
+    # it; a null application is unclaimed (every team gets one by default) and is
+    # mutable by any in-scope caller. Reject only a cross-partner mutation.
+    owning_application_id = (
+        TeamProvisioningConfig.objects.filter(team_id=team_id).values_list("application_id", flat=True).first()
+    )
+    if owning_application_id is not None and owning_application_id != access_token.application_id:
+        return _error_response(
+            "forbidden", "Resource owned by a different provisioning partner", resource_id=resource_id, status=403
+        )
+
     service_id = request.data.get("service_id", "")
     if not service_id:
         return _error_response("missing_service_id", "service_id is required", resource_id=resource_id)
@@ -1911,10 +2111,13 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
             status=403,
         )
 
-    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
     try:
-        TeamProvisioningConfig.objects.filter(team_id=team_id).delete()
+        # Clear the mapping only if it is unclaimed or owned by the caller's
+        # application; an in-scope partner must not delete another partner's
+        # provisioning mapping for the same team.
+        config = TeamProvisioningConfig.objects.filter(team_id=team_id).first()
+        if config is not None and config.application_id in (None, access_token.application_id):
+            config.delete()
     except Exception:
         capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
         _capture_provisioning_event("resource_removed", "error", team_id=team_id, error_code="remove_config_failed")
@@ -1935,25 +2138,61 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
 
 
 def _remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
-    remaining = [t for t in (access_token.scoped_teams or []) if t != team_id]
+    """Strip ``team_id`` from every access/refresh token for this partner+user combo.
 
-    # Atomic so a refresh token can never be left with the removed team still in
-    # scope while the access token has it stripped — otherwise the orchestrator
-    # could refresh and replay the removed team right back into scope.
+    Removing a resource has to revoke access for any *other* live token the same
+    partner installation might be holding for the same user (e.g. a separate
+    bearer issued via a prior OAuth grant that still has the team in scope).
+    Touching only the calling ``access_token`` would let the partner continue
+    operating on the team via a sibling token after `remove` returned, since
+    operational endpoints accept any team currently in ``scoped_teams``.
+
+    Atomic so a refresh token can never be left with the removed team still in
+    scope while the access token has it stripped — otherwise the orchestrator
+    could refresh and replay the removed team right back into scope.
+    """
+    application = access_token.application
+    user = access_token.user
+    if application is None or user is None:
+        # Defensive: a provisioning bearer token without an app/user shouldn't
+        # exist in practice, but fall back to the single-token strip if it does.
+        application_filter: dict[str, object] = {"pk": access_token.pk}
+        user_filter: dict[str, object] = {}
+    else:
+        application_filter = {"application": application, "user": user}
+        user_filter = {"application": application, "user": user}
+
     with transaction.atomic():
-        refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
+        access_tokens = list(
+            OAuthAccessToken.objects.select_for_update()
+            .filter(scoped_teams__contains=[team_id], **application_filter)
+            .order_by("pk")
+        )
+        for at in access_tokens:
+            remaining = [t for t in (at.scoped_teams or []) if t != team_id]
+            refresh_tokens = OAuthRefreshToken.objects.select_for_update().filter(access_token=at)
+            if not remaining:
+                refresh_tokens.update(access_token=None, revoked=timezone.now(), scoped_teams=[])
+                at.delete()
+                continue
+            at.scoped_teams = remaining
+            at.save(update_fields=["scoped_teams"])
+            for rt in refresh_tokens:
+                rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
+                rt.save(update_fields=["scoped_teams"])
 
-        if not remaining:
-            refresh_tokens.update(access_token=None, revoked=timezone.now(), scoped_teams=[])
-            access_token.delete()
-            return
-
-        access_token.scoped_teams = remaining
-        access_token.save(update_fields=["scoped_teams"])
-
-        for rt in refresh_tokens:
-            rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
-            rt.save(update_fields=["scoped_teams"])
+        if user_filter:
+            # Orphan refresh tokens (where the access token was already rotated
+            # or deleted) still carry scope. Strip the team from those too.
+            orphan_refresh = OAuthRefreshToken.objects.select_for_update().filter(
+                scoped_teams__contains=[team_id],
+                access_token__isnull=True,
+                revoked__isnull=True,
+                **user_filter,
+            )
+            for rt in orphan_refresh:
+                rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
+                rt.save(update_fields=["scoped_teams"])
 
 
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:
@@ -2460,6 +2699,21 @@ def agentic_login(request: Any) -> HttpResponseBase:
         _capture_deep_link_event("user_inactive", user_id=user_id)
         logger.warning("agentic_login.user_inactive", user_id=user_id)
         return HttpResponseRedirect("/?error=user_inactive")
+
+    # Deep-link login has no password challenge and no SSO step, so partner-asserted
+    # email ownership is the only thing standing between an attacker and a session.
+    # Require explicit is_email_verified=True - don't trust the legacy None passthrough
+    # or the org-level email-verification-disabled flag.
+    if user.is_email_verified is not True:
+        try:
+            EmailVerifier.create_token_and_send_email_verification(user)
+        except Exception:
+            # Intentionally swallowed: the login must stay blocked regardless of email delivery.
+            # EmailVerifier captures the exception internally; the verify_email page has a resend button.
+            logger.warning("agentic_login.verification_email_failed", user_id=user.id)
+        _capture_deep_link_event("email_unverified", user_id=user_id)
+        logger.warning("agentic_login.email_unverified", user_id=user_id)
+        return HttpResponseRedirect(f"/verify_email/{user.uuid}")
 
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
