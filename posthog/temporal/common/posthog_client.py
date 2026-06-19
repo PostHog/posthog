@@ -5,6 +5,7 @@ import temporalio.exceptions
 from opentelemetry import trace
 from posthoganalytics import api_key, capture_exception
 from temporalio import activity, workflow
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -65,6 +66,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
+            # Errors an activity deliberately marks BENIGN are expected outcomes (e.g. a user's
+            # invalid query failing an export), already surfaced to the user through other means.
+            # Don't report them to internal error tracking — they're triage noise, not incidents.
+            if isinstance(e, ApplicationError) and e.category == ApplicationErrorCategory.BENIGN:
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -97,6 +103,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
+            if isinstance(e, ApplicationError) and e.category == ApplicationErrorCategory.BENIGN:
+                raise  # Deliberately benign, expected error — not internal-error-tracking-worthy
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {

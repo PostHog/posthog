@@ -12,7 +12,7 @@ import temporalio.workflow
 from asgiref.sync import sync_to_async
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from temporalio.client import Client, WorkflowFailureError
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, ApplicationErrorCategory
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -145,3 +145,33 @@ async def test_export_asset_activity_timeout_errors_are_retryable(
         await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
 
     assert exc_info.value.non_retryable is expected_non_retryable
+
+
+@pytest.mark.parametrize(
+    "exception,expected_category",
+    [
+        # User-query failures are expected and must not reach internal error tracking.
+        (ExcelColumnLimitExceeded(), ApplicationErrorCategory.BENIGN),
+        # System/transient and timeout failures stay UNSPECIFIED so they are still captured.
+        (ValueError("programming error"), ApplicationErrorCategory.UNSPECIFIED),
+        (TimeoutError("page load timeout"), ApplicationErrorCategory.UNSPECIFIED),
+    ],
+)
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_export_asset_activity_marks_user_errors_benign(
+    mock_exporter: MagicMock, activity_environment, team, exception, expected_category
+):
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.PNG,
+    )
+
+    def fake_export(asset_obj, **kwargs):
+        raise exception
+
+    mock_exporter.export_asset_direct = fake_export
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
+
+    assert exc_info.value.category == expected_category
