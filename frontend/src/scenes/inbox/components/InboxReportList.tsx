@@ -1,6 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { ComponentType, JSX, useEffect, useRef } from 'react'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
+import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
 import { reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
 import { InboxFlatListTabKey, SignalReport } from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
@@ -33,6 +36,22 @@ export function InboxReportList(props: InboxReportListProps): JSX.Element {
         <BindLogic logic={reportListLogic} props={{ tabKey: props.tabKey, listParams: props.listParams }}>
             <InboxReportListInner {...props} />
         </BindLogic>
+    )
+}
+
+/** Sleek reminder that the list is filtered, with a one-click reset. Renders nothing when no filter is active. */
+function ActiveFiltersBanner(): JSX.Element | null {
+    const { hasActiveFilters } = useValues(inboxFiltersLogic)
+    const { clearFilters } = useActions(inboxFiltersLogic)
+
+    if (!hasActiveFilters) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="info" action={{ children: 'Clear', onClick: () => clearFilters() }}>
+            Filters are applied – some reports may be hidden.
+        </LemonBanner>
     )
 }
 
@@ -76,6 +95,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     return (
         <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
             <InboxSearchFilterBar onRefresh={() => refresh()} refreshing={reportsResponseLoading} />
+            <ActiveFiltersBanner />
             <InboxBulkSelectionBar />
 
             {showSkeleton ? (
