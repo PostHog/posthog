@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-06-11T08:15:12.733489Z"
+exclude-newer = "2026-06-12T08:22:57.251268Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -6013,7 +6013,7 @@ dev = [
     { name = "pytest-icdiff", specifier = "~=0.9" },
     { name = "pytest-mock", specifier = "~=3.15.1" },
     { name = "pytest-rerunfailures", specifier = "~=16.1" },
-    { name = "pytest-split", git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.1" },
+    { name = "pytest-split", git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.2" },
     { name = "pytest-timeout", specifier = "~=2.4.0" },
     { name = "pytest-xdist", specifier = "~=3.8.0" },
     { name = "python-dateutil", specifier = "~=2.9.0" },
@@ -6817,7 +6817,7 @@ wheels = [
 [[package]]
 name = "pytest-split"
 version = "0.11.0"
-source = { git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.1#83365ed14512bb854d51c917389d3359be360c5c" }
+source = { git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.2#f3de89a17fe580d69c39f33b65e111826f7fa2a7" }
 dependencies = [
     { name = "pytest" },
 ]
