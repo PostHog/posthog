@@ -423,9 +423,7 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
         kind = self._unwrapped_query_kind()
         return (
-            NodeKind(kind)
-            if kind in (NodeKind.TRENDS_QUERY, NodeKind.HOG_QL_QUERY, NodeKind.FUNNELS_QUERY)
-            else None
+            NodeKind(kind) if kind in (NodeKind.TRENDS_QUERY, NodeKind.HOG_QL_QUERY, NodeKind.FUNNELS_QUERY) else None
         )
 
     def generate_query_metadata(self):

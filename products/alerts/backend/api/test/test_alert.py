@@ -708,7 +708,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             assert alert.status_code == status.HTTP_201_CREATED, alert.content
             alert_id = alert.json()["id"]
 
-        config_patch = {"config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_previous", "funnel_step": 1}}
+        config_patch = {
+            "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_previous", "funnel_step": 1}
+        }
         with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
             blocked = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
         assert blocked.status_code == status.HTTP_400_BAD_REQUEST, blocked.content
