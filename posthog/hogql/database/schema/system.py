@@ -409,6 +409,8 @@ endpoint_versions: PostgresTable = PostgresTable(
     name="data_modeling_endpoint_versions",
     postgres_table_name="endpoints_endpointversion",
     access_scope="endpoint",
+    # Child of endpoint: object-level access control applies to the parent endpoint, not the version's own id.
+    access_control_id_field="endpoint_id",
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
