@@ -1,9 +1,16 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { PropsWithChildren, ReactNode, useEffect, useRef, useState } from 'react'
+import { Fragment, PropsWithChildren, ReactNode, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconCheck, IconX } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonSegmentedButton, Popover, PopoverReferenceContext } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDropdown,
+    LemonSegmentedButton,
+    Popover,
+    PopoverReferenceContext,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { quickFiltersLogic, quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
@@ -183,8 +190,13 @@ export const FilterOperatorToggle = (): JSX.Element | null => {
 
 export const UniversalFilterGroup = ({
     taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
+    showConnector = false,
 }: {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    /** Render a clickable and/or word between chips that flips the group operator, instead of a
+     *  separate All/Any control. The operator only matters with 2+ filters, so the connector only
+     *  appears between them. */
+    showConnector?: boolean
 }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
@@ -195,13 +207,13 @@ export const UniversalFilterGroup = ({
     return (
         <>
             {filterGroup.values.map((filterOrGroup: UniversalFiltersGroupValue, index: number) => {
-                return isUniversalGroupFilterLike(filterOrGroup) ? (
-                    <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
+                const connector = showConnector && index > 0 ? <ChipConnector /> : null
+                const node = isUniversalGroupFilterLike(filterOrGroup) ? (
+                    <UniversalFilters.Group index={index} group={filterOrGroup}>
                         <UniversalSearch taxonomicGroupTypes={taxonomicGroupTypes} />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
-                        key={index}
                         index={index}
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
@@ -209,8 +221,35 @@ export const UniversalFilterGroup = ({
                         initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
                     />
                 )
+                return (
+                    <Fragment key={index}>
+                        {connector}
+                        {node}
+                    </Fragment>
+                )
             })}
         </>
+    )
+}
+
+// Lowercase clickable and/or sitting between filter chips; clicking flips the group operator.
+const ChipConnector = (): JSX.Element => {
+    const { filterGroup } = useValues(universalFiltersLogic)
+    const { setGroupType } = useActions(universalFiltersLogic)
+    const isAnd = filterGroup.type === FilterLogicalOperator.And
+
+    return (
+        <Tooltip
+            title={isAnd ? 'Matching all filters — click to match any' : 'Matching any filter — click to match all'}
+        >
+            <button
+                type="button"
+                onClick={() => setGroupType(isAnd ? FilterLogicalOperator.Or : FilterLogicalOperator.And)}
+                className="shrink-0 rounded px-1 py-0.5 text-xs font-medium tracking-wide text-muted hover:bg-fill-highlight-50 hover:text-default"
+            >
+                {isAnd ? 'AND' : 'OR'}
+            </button>
+        </Tooltip>
     )
 }
 

@@ -43,7 +43,6 @@ import {
     AssigneeEditor,
     excludeFilterTypesFromGroup,
     FilterChip,
-    FilterOperatorToggle,
     InternalUsersChip,
     IssueFilterChips,
     QuickFilterChips,
@@ -280,11 +279,10 @@ const BarContents = ({
                         )}
                     />
                 </div>
-                <FilterOperatorToggle />
                 {showIssueControls && <IssueFilterChips />}
                 <InternalUsersChip />
                 {quickFilterContext && <QuickFilterChips context={quickFilterContext} logicKey={logicKey} />}
-                <UniversalFilterGroup taxonomicGroupTypes={taxonomicGroupTypes} />
+                <UniversalFilterGroup taxonomicGroupTypes={taxonomicGroupTypes} showConnector />
                 {showSearch && searchQuery && (
                     <FilterChip onClear={() => setSearchQuery('')}>Search: "{searchQuery}"</FilterChip>
                 )}
