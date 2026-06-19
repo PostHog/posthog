@@ -341,11 +341,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         help_text="Arbitrary key-value metadata.",
     )
     category = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=64,
-        help_text='Optional classification for the skill. Empty for an ordinary skill; "scout" for a Signals scout. '
-        "Used to group and filter skills (e.g. the Scouts tab) independently of the skill name.",
+        read_only=True,
+        help_text='Server-owned classification — set by the producing system (the Signals harness stamps "scout"), '
+        "not writable via the API. Empty for an ordinary skill. Groups skills into their own surface "
+        "(e.g. the Scouts tab) independently of the skill name.",
     )
     files = serializers.SerializerMethodField(
         help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",

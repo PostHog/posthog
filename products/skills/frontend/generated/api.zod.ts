@@ -17,8 +17,6 @@ export const llmSkillsCreateBodyLicenseMax = 255
 
 export const llmSkillsCreateBodyCompatibilityMax = 500
 
-export const llmSkillsCreateBodyCategoryMax = 64
-
 export const llmSkillsCreateBodyFilesItemPathMax = 500
 
 export const llmSkillsCreateBodyFilesItemContentTypeDefault = `text/plain`
@@ -50,13 +48,6 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
         metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
-        category: zod
-            .string()
-            .max(llmSkillsCreateBodyCategoryMax)
-            .optional()
-            .describe(
-                'Optional classification for the skill. Empty for an ordinary skill; \"scout\" for a Signals scout. Used to group and filter skills (e.g. the Scouts tab) independently of the skill name.'
-            ),
         files: zod
             .array(
                 zod.object({

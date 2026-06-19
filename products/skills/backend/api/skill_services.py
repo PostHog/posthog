@@ -402,9 +402,11 @@ def duplicate_skill(
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
 
-        # A duplicate is authored by this user, not seeded by whatever produced the source. Drop the
-        # provenance marker so a fork of a canonical scout isn't mislabeled as canonical downstream
-        # (the category is kept — the copy is still the same kind of skill, just team-owned).
+        # A duplicate is a brand-new, user-authored skill under a new name, so it does not inherit the
+        # source's provenance or classification: drop the harness seed marker, and leave `category`
+        # at its default empty (the copy isn't a registered scout — it would only become one if named
+        # `signals-scout-*` and picked up by scout registration). This keeps non-runnable rows out of
+        # the Scouts tab and avoids mislabeling a fork as canonical.
         duplicated_metadata = dict(source_latest.metadata or {})
         duplicated_metadata.pop("seeded_by", None)
 
@@ -418,7 +420,6 @@ def duplicate_skill(
                 compatibility=source_latest.compatibility,
                 allowed_tools=source_latest.allowed_tools,
                 metadata=duplicated_metadata,
-                category=source_latest.category,
                 version=1,
                 is_latest=True,
                 created_by=user,

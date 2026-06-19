@@ -26221,11 +26221,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
-      /**
-         * Optional classification for the skill. Empty for an ordinary skill; "scout" for a Signals scout. Used to group and filter skills (e.g. the Scouts tab) independently of the skill name.
-         * @maxLength 64
-         */
-      category?: string;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -26292,11 +26289,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillCreateMetadata;
-      /**
-         * Optional classification for the skill. Empty for an ordinary skill; "scout" for a Signals scout. Used to group and filter skills (e.g. the Scouts tab) independently of the skill name.
-         * @maxLength 64
-         */
-      category?: string;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -26422,11 +26416,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
-      /**
-         * Optional classification for the skill. Empty for an ordinary skill; "scout" for a Signals scout. Used to group and filter skills (e.g. the Scouts tab) independently of the skill name.
-         * @maxLength 64
-         */
-      category?: string;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;

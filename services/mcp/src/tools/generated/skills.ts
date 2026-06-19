@@ -43,7 +43,7 @@ const skillArchive = (): ToolBase<typeof SkillArchiveSchema, unknown> => ({
     },
 })
 
-const SkillCreateSchema = LlmSkillsCreateBody.omit({ category: true })
+const SkillCreateSchema = LlmSkillsCreateBody
 
 const skillCreate = (): ToolBase<typeof SkillCreateSchema, Schemas.LLMSkillCreate> => ({
     name: 'skill-create',
