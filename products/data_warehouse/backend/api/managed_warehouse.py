@@ -214,9 +214,19 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
     from posthog.ducklake.common import derive_duckling_bucket, upsert_duckgres_server_for_org  # noqa: PLC0415
 
+    # Best-effort bucket derivation: a region without a managed-warehouse bucket convention
+    # (e.g. EU, where derive_duckling_bucket raises) must not block persisting the connection
+    # row. upsert treats None as "leave unset", so the bucket stays NULL and the backfill
+    # resolver falls back to derivation if it ever needs one.
+    try:
+        bucket: str | None
+        bucket_region: str | None
+        bucket, bucket_region = derive_duckling_bucket(str(organization_id))
+    except NotImplementedError:
+        bucket, bucket_region = None, None
+
     try:
         connection = _present_connection({"database": database_name, "username": body.get("username", "root")})
-        bucket, bucket_region = derive_duckling_bucket(str(organization_id))
         upsert_duckgres_server_for_org(
             organization_id,
             host=connection["host"],

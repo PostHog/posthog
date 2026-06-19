@@ -53,6 +53,26 @@ def test_provision_persists_duckgres_server_on_success(mock_request: MagicMock) 
 
 
 @pytest.mark.django_db
+@override_settings(CLOUD_DEPLOYMENT="EU", DUCKGRES_PG_PORT=5432)
+@patch("products.data_warehouse.backend.api.managed_warehouse._request")
+def test_provision_persists_server_without_bucket_when_region_unsupported(mock_request: MagicMock) -> None:
+    # EU has no managed-warehouse bucket convention, so bucket derivation raises. The
+    # connection row (with the one-time password) must still be persisted.
+    org = Organization.objects.create(name="Org")
+    mock_request.return_value = Response(
+        {"status": "provisioning started", "org": str(org.id), "username": "root", "password": "secret"},
+        status=202,
+    )
+
+    resp = managed_warehouse.provision(org.id, "my-warehouse")
+
+    assert resp.status_code == 202
+    server = DuckgresServer.objects.get(organization_id=org.id)
+    assert server.password == "secret"
+    assert server.bucket is None
+
+
+@pytest.mark.django_db
 @patch("products.data_warehouse.backend.api.managed_warehouse._request")
 def test_provision_does_not_persist_on_failure(mock_request: MagicMock) -> None:
     org = Organization.objects.create(name="Org")
