@@ -13,13 +13,14 @@ Allowed:
 - Standard library imports.
 - Third-party library imports, if they do not require Django/PostHog app setup as a side effect.
 - Imports from `posthog.hogql.*`.
+- Imports from `common.hogvm.*`.
 
 Forbidden:
 
 - `posthog.*` imports outside `posthog.hogql.*`.
 - `products.*` imports.
 - `ee.*` imports.
-- `common.*` imports, unless we explicitly move that dependency into `posthog.hogql` or make it a third-party-style package with its own dependency boundary.
+- `common.*` imports outside `common.hogvm.*`.
 - Lazy imports, `TYPE_CHECKING` imports, stringly model lookups, `apps.get_model`, `get_model`, callbacks that return Django models, or any other way of smuggling PostHog internals into HogQL.
 
 The goal is not to satisfy an import regex while keeping the same coupling hidden behind a function.
@@ -31,18 +32,18 @@ Commands used for the first pass:
 
 ```bash
 find posthog/hogql -type f | wc -l
-rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b'
-rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' -g '!**/test/**' -g '!**/test_*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b'
+rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b|from common\.hogvm\b|import common\.hogvm\b'
+rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' -g '!**/test/**' -g '!**/test_*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b|from common\.hogvm\b|import common\.hogvm\b'
 rg -n '^(from|import) posthog\.hogql' posthog products ee common services -g '*.py' | rg -v '^posthog/hogql/'
 ```
 
 Initial numbers:
 
 - `posthog/hogql` has 318 files.
-- 165 files under `posthog/hogql` currently contain first-party imports outside `posthog.hogql`.
-- There are 630 first-party import statements under `posthog/hogql` that violate the target rule.
-- 78 non-test files currently violate the target rule.
-- There are 240 production violation lines before counting tests.
+- 163 files under `posthog/hogql` currently contain first-party imports outside `posthog.hogql` and allowed `common.hogvm`.
+- There are 620 first-party import statements under `posthog/hogql` that violate the target rule.
+- 76 non-test files currently violate the target rule.
+- There are 232 production violation lines before counting tests.
 - 633 files outside `posthog/hogql` import `posthog.hogql` today, so the public API surface is broad and needs a compatibility plan.
 
 Top production import roots currently pulled into `posthog/hogql`:
@@ -55,7 +56,6 @@ Top production import roots currently pulled into `posthog/hogql`:
 10 products.warehouse_sources
 8  products.event_definitions
 8  posthog.temporal
-8  common.hogvm
 7  products.cohorts
 6  products.revenue_analytics
 6  products.data_modeling
@@ -250,9 +250,10 @@ Those recreate the dependency in disguise.
 
 ### Phase 0: lock down the definition
 
-- Decide whether the strict boundary also bans `common.hogvm`.
-  - If yes, move or duplicate the small needed HogVM interface under `posthog.hogql`, or invert the dependency so `common.hogvm` consumes HogQL-owned contracts.
-  - If no, document it as an explicit exception and enforce that no other `common.*` imports are allowed.
+- Treat `common.hogvm.*` as the only allowed `common.*` dependency.
+  - The boundary checker must allow `common.hogvm.*`.
+  - The boundary checker must still reject every other `common.*` import.
+  - Product folders remain forbidden: no `products.*` imports from `posthog/hogql`.
 - Decide whether Django imports themselves are allowed.
   - The stated rule only bans first-party imports outside `posthog.hogql`, but a clean split should also remove Django/DRF imports from core modules over time.
   - Current Django/DRF imports appear in `property.py`, `autocomplete.py`, `metadata.py`, `parser.py`, `ai.py`, `printer/base.py`, `printer/clickhouse.py`, `database/database.py`, `database/postgres_table.py`, `database/s3_table.py`, `functions/cohort.py`, `taxonomy_validation.py`, `transforms/geoip_dict_fallback.py`, and scripts/tests.
@@ -460,7 +461,7 @@ Add automated enforcement before the final migration ends.
 Candidate checks:
 
 ```bash
-rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b'
+rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b|from common\.hogvm\b|import common\.hogvm\b'
 ```
 
 Better: add a small AST-based check so comments and strings do not produce false positives.
@@ -471,6 +472,7 @@ Import-linter option:
 - Extend `[tool.importlinter]` root packages beyond `products`.
 - Add a forbidden contract where `source_modules = ["posthog.hogql"]`.
 - Forbid `posthog`, `products`, `ee`, and `common`, while allowlisting `posthog.hogql`.
+- Also allowlist `common.hogvm`.
 - Validate that import-linter handles same-root package exceptions correctly before relying on it.
 
 Tach option:
@@ -606,15 +608,15 @@ Product-owned extension registrations should live with the owning product and be
 
 ### `posthog/hogql/compiler/*` and `common.hogvm`
 
-- Decide ownership.
-- If strict, move the needed HogVM bytecode execution interface or constants into a package HogQL may import.
-- If keeping `common.hogvm` as shared infrastructure, record that explicit exception in the boundary checker.
+- `common.hogvm.*` is allowed shared infrastructure.
+- Keep it as an explicit exception in the boundary checker.
+- Do not extend that exception to other `common.*` packages.
 
 ## Enforcement done criteria
 
 The isolation work is complete only when all are true:
 
-- `rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b'` returns no violations, except documented exceptions if any.
+- `rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b|from common\.hogvm\b|import common\.hogvm\b'` returns no violations.
 - No `TYPE_CHECKING` imports from outside `posthog.hogql`.
 - No lazy imports from outside `posthog.hogql`.
 - No `apps.get_model`, `get_model`, string import, or callback escape hatch that hands PostHog internals to HogQL.
@@ -647,14 +649,12 @@ posthog/hogql/property.py:63:from products.event_definitions.backend.models.prop
 posthog/hogql/property.py:64:from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
 posthog/hogql/property.py:282:        from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 posthog/hogql/property.py:391:        from posthog.utils import relative_date_parse
-posthog/hogql/placeholders.py:44:        from common.hogvm.python.execute import execute_bytecode
 posthog/hogql/variables.py:4:from posthog.schema import HogQLVariable
 posthog/hogql/variables.py:10:from posthog.models.team.team import Team
 posthog/hogql/variables.py:12:from products.product_analytics.backend.models.insight_variable import InsightVariable
 posthog/hogql/timings.py:8:    from posthog.schema import QueryTiming
 posthog/hogql/timings.py:61:        from posthog.schema import QueryTiming  # noqa: PLC0415
 posthog/hogql/observability.py:27:from posthog.clickhouse.query_tagging import Product, get_query_tags
-posthog/hogql/cli.py:7:from common.hogvm.python.execute import execute_bytecode
 posthog/hogql/resolver.py:65:from posthog.models.utils import UUIDT
 posthog/hogql/metadata.py:7:from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, HogQLQuery
 posthog/hogql/metadata.py:26:from posthog.hogql_queries.query_runner import get_query_runner
@@ -671,10 +671,6 @@ posthog/hogql/property_planner.py:32:from posthog.clickhouse.property_groups imp
 posthog/hogql/property_planner.py:33:from posthog.models.property import PropertyName, TableColumn
 posthog/hogql/property_planner.py:34:from posthog.schema_enums import PropertyGroupsMode
 posthog/hogql/property_planner.py:36:from products.event_definitions.backend.models.property_definition import PropertyType
-posthog/hogql/compiler/bytecode.py:14:from common.hogvm.python.execute import BytecodeResult, execute_bytecode
-posthog/hogql/compiler/bytecode.py:15:from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_VERSION, Operation
-posthog/hogql/compiler/bytecode.py:16:from common.hogvm.python.stl import STL
-posthog/hogql/compiler/bytecode.py:17:from common.hogvm.python.stl.bytecode import BYTECODE_STL
 posthog/hogql/compiler/bytecode.py:20:    from posthog.models import Team
 posthog/hogql/functions/traffic_type.py:19:from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 posthog/hogql/user_query_validator.py:18:from posthog.models.team import Team
@@ -765,8 +761,6 @@ posthog/hogql/autocomplete.py:49:from posthog.models.team.team import Team
 posthog/hogql/autocomplete.py:50:from posthog.models.user import User
 posthog/hogql/autocomplete.py:52:from products.event_definitions.backend.models.property_definition import PropertyDefinition
 posthog/hogql/autocomplete.py:53:from products.product_analytics.backend.models.insight_variable import InsightVariable
-posthog/hogql/autocomplete.py:55:from common.hogvm.python.stl import STL
-posthog/hogql/autocomplete.py:56:from common.hogvm.python.stl.bytecode import BYTECODE_STL
 posthog/hogql/transforms/events_predicate_pushdown.py:50:from posthog.settings import TEST
 posthog/hogql/transforms/events_predicate_pushdown.py:53:    from posthog.schema import HogQLQueryModifiers
 posthog/hogql/transforms/clickhouse_property_resolution.py:46:from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
@@ -878,13 +872,13 @@ posthog/hogql/database/schema/util/where_clause_extractor.py:293:            fro
 Full violations including tests:
 
 ```bash
-rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b'
+rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b|from common\.hogvm\b|import common\.hogvm\b'
 ```
 
 Production violations only:
 
 ```bash
-rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' -g '!**/test/**' -g '!**/test_*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b'
+rg -n '\b(from|import) (posthog|products|ee|common)\.' posthog/hogql -g '*.py' -g '!**/test/**' -g '!**/test_*.py' | rg -v 'from posthog\.hogql\b|import posthog\.hogql\b|from common\.hogvm\b|import common\.hogvm\b'
 ```
 
 External callers of HogQL:
@@ -907,7 +901,6 @@ rg -n 'apps\.get_model|get_model\(|import_string|ContentType|objects\.|\.objects
 
 ## Open decisions
 
-- Is `common.hogvm` allowed as shared infrastructure, or must HogQL be isolated from `common.*` too?
 - Is the target only "no PostHog first-party imports", or should core HogQL also be free of Django/DRF imports?
 - What is the adapter package name?
 - Which external modules remain public HogQL APIs, and which move to runtime integration APIs?
