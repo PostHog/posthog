@@ -339,9 +339,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         ordered_keys = list(current_by_value.keys()) + [key for key in previous_by_value if key not in current_by_value]
 
         def tagged(group: list[dict[str, Any]], label: str) -> list[dict[str, Any]]:
-            for step in group:
-                step["compare_label"] = label
-            return group
+            return [{**step, "compare_label": label} for step in group]
 
         merged: list[list[dict[str, Any]]] = []
         for key in ordered_keys:

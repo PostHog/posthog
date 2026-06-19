@@ -6164,85 +6164,68 @@ class TestFunnelStepsBreakdownCompareUDF(ClickhouseTestMixin, APIBaseTest):
             {"event": "step two", "timestamp": datetime(2021, 6, day, 11), "properties": {"$browser": browser}},
         ]
 
+    @parameterized.expand(
+        [
+            (
+                # Both values convert in both periods (current 2021-06-07..13, default previous
+                # 2021-05-31..06-06) → 2 values × 2 periods = 4 inner funnels, all populated.
+                "all_values_in_both_periods",
+                {
+                    "current_chrome": ("Chrome", 8),
+                    "current_safari": ("Safari", 9),
+                    "previous_chrome": ("Chrome", 1),
+                    "previous_safari": ("Safari", 2),
+                },
+                {
+                    ("current", ("Chrome",)): [1, 1],
+                    ("current", ("Safari",)): [1, 1],
+                    ("previous", ("Chrome",)): [1, 1],
+                    ("previous", ("Safari",)): [1, 1],
+                },
+            ),
+            (
+                # Chrome converts in both periods, Safari only in current, Firefox only in previous.
+                # Each one-sided value is still represented on the missing side as a zeroed inner
+                # funnel (the union across periods), so the chart draws a pair for every value.
+                "one_sided_values_zeroed_on_missing_period",
+                {
+                    "current_chrome": ("Chrome", 8),
+                    "current_safari": ("Safari", 9),
+                    "previous_chrome": ("Chrome", 1),
+                    "previous_firefox": ("Firefox", 2),
+                },
+                {
+                    ("current", ("Chrome",)): [1, 1],
+                    ("current", ("Safari",)): [1, 1],
+                    ("current", ("Firefox",)): [0, 0],
+                    ("previous", ("Chrome",)): [1, 1],
+                    ("previous", ("Safari",)): [0, 0],
+                    ("previous", ("Firefox",)): [1, 1],
+                },
+            ),
+        ]
+    )
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_breakdown_compare_returns_2n_tagged_inner_funnels(self, _feature_enabled):
-        # Current window 2021-06-07..13 and the default previous window 2021-05-31..06-06 each
-        # contain one Chrome conversion and one Safari conversion.
+    def test_breakdown_compare_aligns_inner_funnels_by_value(self, _name, journeys, expected_counts, _feature_enabled):
         journeys_for(
-            {
-                "current_chrome": self._conversion("Chrome", 8),
-                "current_safari": self._conversion("Safari", 9),
-                "previous_chrome": self._conversion("Chrome", 1),
-                "previous_safari": self._conversion("Safari", 2),
-            },
+            {key: self._conversion(browser, day) for key, (browser, day) in journeys.items()},
             self.team,
         )
 
         results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
 
-        # 2 breakdown values × 2 periods = 4 inner funnels, each a full step list tagged by both
-        # period and value.
-        self.assertEqual(len(results), 4)
+        # One inner funnel per (period, breakdown value), spanning the union of values across both
+        # periods. Every inner funnel — populated or zeroed — carries the full step skeleton tagged
+        # by period and value, so the chart draws a current/previous pair of bars for every value.
+        self.assertEqual(len(results), len(expected_counts))
         for group in results:
             self.assertEqual([s["order"] for s in group], [0, 1])
+            self.assertEqual([s["name"] for s in group], ["step one", "step two"])
             for step in group:
                 self.assertIn(step["compare_label"], ("current", "previous"))
                 self.assertIsNotNone(step["breakdown_value"])
 
         groups = self._by_label_and_value(results)
-        self.assertEqual(
-            set(groups.keys()),
-            {
-                ("current", ("Chrome",)),
-                ("current", ("Safari",)),
-                ("previous", ("Chrome",)),
-                ("previous", ("Safari",)),
-            },
-        )
-        for group in groups.values():
-            self.assertEqual([s["count"] for s in group], [1, 1])
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_breakdown_value_present_in_only_one_period_is_zeroed_on_the_other(self, _feature_enabled):
-        # Chrome converts in both periods. Safari only in current; Firefox only in previous. Each
-        # one-sided value must still be represented on the missing side as a zeroed inner funnel,
-        # not omitted — so the chart can draw a (current, previous) pair for every breakdown value.
-        journeys_for(
-            {
-                "current_chrome": self._conversion("Chrome", 8),
-                "current_safari": self._conversion("Safari", 9),
-                "previous_chrome": self._conversion("Chrome", 1),
-                "previous_firefox": self._conversion("Firefox", 2),
-            },
-            self.team,
-        )
-
-        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
-
-        groups = self._by_label_and_value(results)
-
-        # Every breakdown value is represented in BOTH periods (the union across periods).
-        self.assertEqual(
-            set(groups.keys()),
-            {
-                ("current", ("Chrome",)),
-                ("current", ("Safari",)),
-                ("current", ("Firefox",)),
-                ("previous", ("Chrome",)),
-                ("previous", ("Safari",)),
-                ("previous", ("Firefox",)),
-            },
-        )
-
-        # Populated where the value actually converted; zeroed where it didn't occur that period.
-        self.assertEqual([s["count"] for s in groups[("current", ("Chrome",))]], [1, 1])
-        self.assertEqual([s["count"] for s in groups[("current", ("Safari",))]], [1, 1])
-        self.assertEqual([s["count"] for s in groups[("current", ("Firefox",))]], [0, 0])
-        self.assertEqual([s["count"] for s in groups[("previous", ("Chrome",))]], [1, 1])
-        self.assertEqual([s["count"] for s in groups[("previous", ("Safari",))]], [0, 0])
-        self.assertEqual([s["count"] for s in groups[("previous", ("Firefox",))]], [1, 1])
-
-        # A zeroed side still carries the full step skeleton (names/orders) so the chart draws bars.
-        safari_previous = groups[("previous", ("Safari",))]
-        self.assertEqual([s["name"] for s in safari_previous], ["step one", "step two"])
-        self.assertEqual([s["order"] for s in safari_previous], [0, 1])
+        self.assertEqual(set(groups.keys()), set(expected_counts.keys()))
+        for key, counts in expected_counts.items():
+            self.assertEqual([s["count"] for s in groups[key]], counts)
