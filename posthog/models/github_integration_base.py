@@ -353,6 +353,22 @@ class GitHubIntegrationBase:
         self._record_github_api_response(response, "PUT", endpoint)
         return response
 
+    def _github_api_patch(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        headers: dict[str, str],
+        json_body: Mapping[str, object],
+    ) -> requests.Response:
+        try:
+            response = requests.patch(url, json=json_body, headers=headers)
+        except requests.RequestException:
+            self._record_github_api_exception("PATCH", endpoint)
+            raise
+        self._record_github_api_response(response, "PATCH", endpoint)
+        return response
+
     # --- Installation access token ---
 
     @property

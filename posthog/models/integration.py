@@ -2730,6 +2730,12 @@ class GitHubIntegration(GitHubIntegrationBase):
                         "base_branch": pr["base"]["ref"],
                         "created_at": pr["created_at"],
                         "updated_at": pr["updated_at"],
+                        "body": pr.get("body") or "",
+                        "labels": [
+                            label["name"]
+                            for label in (pr.get("labels") or [])
+                            if isinstance(label, dict) and isinstance(label.get("name"), str)
+                        ],
                     }
                     for pr in prs
                 ],
@@ -2740,6 +2746,146 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "error": f"Failed to list pull requests: {response.text}",
                 "status_code": response.status_code,
             }
+
+    def list_merged_pull_requests_since(self, repository: str, since_iso: str) -> dict[str, Any]:
+        """List PRs merged at or after ``since_iso`` (ISO-8601 UTC), newest merge first.
+
+        Lists closed PRs (which include merged ones), sorted by ``updated`` descending, and
+        keeps those whose ``merged_at`` is at or after ``since_iso``. Stops early once it
+        pages past the window. Bounded to a few pages so a busy repo can't unbound the call.
+        """
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        merged: list[dict[str, Any]] = []
+        max_pages = 5
+        for page in range(1, max_pages + 1):
+            response = self._github_api_get(
+                f"https://api.github.com/repos/{org}/{repository}/pulls",
+                endpoint="/repos/{owner}/{repo}/pulls",
+                params={"state": "closed", "sort": "updated", "direction": "desc", "per_page": 100, "page": page},
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+                },
+            )
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Failed to list merged pull requests: {response.text}",
+                    "status_code": response.status_code,
+                }
+            page_prs = response.json()
+            if not page_prs:
+                break
+            for pr in page_prs:
+                merged_at = pr.get("merged_at")
+                if merged_at and merged_at >= since_iso:
+                    merged.append(
+                        {
+                            "number": pr["number"],
+                            "title": pr["title"],
+                            "url": pr["html_url"],
+                            "merged_at": merged_at,
+                            "author": (pr.get("user") or {}).get("login") or "",
+                        }
+                    )
+            # `updated` desc isn't strictly `merged_at` desc, but once a full page's updates
+            # all predate the window the remaining pages can't contain newer merges.
+            if all((pr.get("updated_at") or "") < since_iso for pr in page_prs):
+                break
+        merged.sort(key=lambda pr: pr["merged_at"], reverse=True)
+        return {"success": True, "pull_requests": merged}
+
+    def get_pull_request_files(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """List the files changed in a PR with their unified-diff patch text."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        files: list[dict[str, str]] = []
+        max_pages = 10
+        for page in range(1, max_pages + 1):
+            response = self._github_api_get(
+                f"https://api.github.com/repos/{org}/{repository}/pulls/{pr_number}/files",
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
+                params={"per_page": 100, "page": page},
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+                },
+            )
+            if response.status_code != 200:
+                return {
+                    "success": False,
+                    "error": f"Failed to list PR files: {response.text}",
+                    "status_code": response.status_code,
+                }
+            page_files = response.json()
+            if not page_files:
+                break
+            for f in page_files:
+                files.append({"filename": f.get("filename", ""), "patch": f.get("patch", "") or ""})
+            if len(page_files) < 100:
+                break
+        return {"success": True, "files": files}
+
+    def add_labels_to_issue(self, repository: str, issue_number: int, labels: list[str]) -> dict[str, Any]:
+        """Add labels to an issue or PR (PRs are issues for the labels endpoint)."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = self._github_api_post(
+            f"https://api.github.com/repos/{org}/{repository}/issues/{issue_number}/labels",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels",
+            json_body={"labels": labels},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+        )
+        if response.status_code in (200, 201):
+            return {"success": True}
+        return {
+            "success": False,
+            "error": f"Failed to add labels: {response.text}",
+            "status_code": response.status_code,
+        }
+
+    def update_pull_request(
+        self, repository: str, pr_number: int, *, title: str | None = None, body: str | None = None
+    ) -> dict[str, Any]:
+        """Update a PR's title and/or body."""
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        payload: dict[str, str] = {}
+        if title is not None:
+            payload["title"] = title
+        if body is not None:
+            payload["body"] = body
+        if not payload:
+            return {"success": True}
+
+        response = self._github_api_patch(
+            f"https://api.github.com/repos/{org}/{repository}/pulls/{pr_number}",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            json_body=payload,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+        )
+        if response.status_code == 200:
+            return {"success": True}
+        return {
+            "success": False,
+            "error": f"Failed to update pull request: {response.text}",
+            "status_code": response.status_code,
+        }
 
 
 class GitLabIntegrationError(Exception):
