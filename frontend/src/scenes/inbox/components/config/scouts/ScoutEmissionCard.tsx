@@ -1,12 +1,13 @@
 import { useState } from 'react'
 
-import { IconChevronDown, IconExternal } from '@posthog/icons'
+import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { urls } from 'scenes/urls'
 
-import { SignalScoutEmission, SignalScoutRunSummary } from '../../../types'
+import { LinkedSignalReport, SignalScoutEmission, SignalScoutRunSummary } from '../../../types'
 import { SignalReportPriorityBadge } from '../../badges/SignalReportPriorityBadge'
 
 /** Truncated mono identifier rendering for the footer finding id. */
@@ -27,9 +28,12 @@ function MonoId({ label, value }: { label: string; value: string }): JSX.Element
 export function ScoutEmissionCard({
     emission,
     run,
+    report,
 }: {
     emission: SignalScoutEmission
     run: SignalScoutRunSummary
+    /** The inbox report this finding grouped into, if resolved — renders the "In report" deep-link chip. */
+    report: LinkedSignalReport | null
 }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const confidencePercent = Math.round((emission.confidence ?? 0) * 100)
@@ -62,6 +66,17 @@ export function ScoutEmissionCard({
                 >
                     {emission.description || '_No description._'}
                 </LemonMarkdown>
+
+                {report && (
+                    <Link
+                        to={urls.inboxReport('reports', report.id)}
+                        className="mt-2 inline-flex max-w-full items-center gap-1 rounded bg-primary-highlight px-2 py-0.5 text-xs font-medium text-primary"
+                    >
+                        <span className="shrink-0 text-muted">In report:</span>
+                        <span className="truncate">{report.title || 'Untitled report'}</span>
+                        <IconArrowRight className="size-3 shrink-0" />
+                    </Link>
+                )}
 
                 {expanded && (
                     <div className="flex items-center flex-wrap gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">

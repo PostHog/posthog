@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     drop_slot,
     drop_slot_and_publication,
     get_max_slot_wal_keep_size_mb,
+    get_publication_tables,
     get_slot_lag_bytes,
     is_slot_invalidation_error,
     publication_exists,
@@ -221,10 +222,16 @@ class PostgresCDCAdapter:
                 publication_exists(conn, cdc_config.publication_name) if cdc_config.publication_name else False
             )
             lag_bytes = get_slot_lag_bytes(conn, cdc_config.slot_name) if cdc_config.slot_name else None
+            published_tables = (
+                get_publication_tables(conn, cdc_config.publication_name)
+                if cdc_config.publication_name and pub_present
+                else []
+            )
         return {
             "slot_exists": slot_present,
             "publication_exists": pub_present,
             "lag_bytes": lag_bytes,
+            "published_tables": published_tables,
         }
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:

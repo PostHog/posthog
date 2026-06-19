@@ -276,6 +276,35 @@ class TestFlushDeferredRuns:
         assert schema.sync_type_config["cdc_deferred_runs"] == []
 
 
+class TestBuildEventNameMap:
+    @pytest.mark.parametrize(
+        "schema_name,schema_metadata,source_schema_config,wal_event_name,expected_canonical",
+        [
+            # Path 1: schema_metadata resolves the source-qualified name.
+            ("orders", {"source_schema": "public", "source_table_name": "orders"}, None, "public.orders", "orders"),
+            # Path 2: no metadata, but `name` is already schema-qualified.
+            ("public.orders", None, None, "public.orders", "public.orders"),
+            # Path 3: no metadata, bare name — falls back to the source's default schema.
+            ("orders", None, "analytics", "analytics.orders", "orders"),
+            # Path 3: no metadata, bare name, no default schema — falls back to "public".
+            ("orders", None, None, "public.orders", "orders"),
+        ],
+    )
+    def test_resolves_wal_event_name_to_canonical_schema_name(
+        self, schema_name, schema_metadata, source_schema_config, wal_event_name, expected_canonical
+    ):
+        source = _make_source(job_inputs={"schema": source_schema_config} if source_schema_config else {})
+        schema = _make_schema(schema_name, cdc_mode="streaming", source=source)
+        schema.sync_type_config = {"cdc_mode": "streaming", "cdc_table_mode": "consolidated"}
+        if schema_metadata is not None:
+            schema.sync_type_config["schema_metadata"] = schema_metadata
+
+        activity_obj = _make_extract_activity(source)
+        activity_obj.cdc_schemas = [schema]
+
+        assert activity_obj._build_event_name_map().get(wal_event_name) == expected_canonical
+
+
 class TestCDCExtractActivity:
     """Integration tests for cdc_extract_activity with mocked external deps."""
 
@@ -328,6 +357,63 @@ class TestCDCExtractActivity:
         mock_producer.flush.assert_called_once()
         mock_reader.confirm_position.assert_called_once_with("0/200")
         mock_reader.close.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_bare_named_schema_matches_schema_qualified_wal_events(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        """A schema whose `name` is stored bare (no `public.` prefix) must still match the
+        schema-qualified table name the WAL stream emits. Otherwise every change is silently
+        dropped and the table goes stale despite a healthy slot."""
+        source = _make_source()
+        # `name` is bare, but schema_metadata resolves the real source location.
+        schema = _make_schema("product_productintegrationevent", cdc_mode="streaming", source=source)
+        schema.sync_type_config["schema_metadata"] = {
+            "source_schema": "public",
+            "source_table_name": "product_productintegrationevent",
+        }
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        # WAL events arrive schema-qualified, as Postgres logical decoding always emits them.
+        events = [
+            _make_event(op="I", table="public.product_productintegrationevent", position="0/100"),
+        ]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        cdc_extract_activity(inputs)
+
+        # The change was captured, not dropped by the table-name filter.
+        mock_s3.write_batch.assert_called()
+        mock_producer.send_batch_notification.assert_called()
+        mock_reader.confirm_position.assert_called_once_with("0/100")
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")

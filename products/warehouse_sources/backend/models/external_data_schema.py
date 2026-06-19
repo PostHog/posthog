@@ -60,7 +60,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -192,6 +192,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def incremental_field_earliest_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_earliest_value", None)
+
+        return None
+
+    @property
+    def incremental_field_lookback_seconds(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("incremental_field_lookback_seconds", None)
 
         return None
 
@@ -446,6 +453,25 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
 
     if field_type == IncrementalFieldType.ObjectID:
         return str(value)
+
+
+def apply_incremental_lookback(
+    value: Any, field_type: IncrementalFieldType | None, lookback_seconds: int | None
+) -> Any:
+    """Shift a processed incremental watermark back by `lookback_seconds` for the source query only.
+
+    Used to re-read a rolling overlap window each incremental run so late or backdated rows (whose
+    incremental field lands at or below the stored watermark) are picked up. The persisted watermark
+    is never mutated — this only adjusts the value bound into the source's WHERE clause. Timestamp/date
+    fields only; for `Date` a sub-day lookback rounds down to whole days.
+    """
+    if value is None or not isinstance(lookback_seconds, int) or lookback_seconds <= 0:
+        return value
+
+    if field_type in (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date):
+        return value - timedelta(seconds=lookback_seconds)
+
+    return value
 
 
 @database_sync_to_async

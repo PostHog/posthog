@@ -183,12 +183,12 @@ class UpsertAccountTool(MaxTool):
     @sync_to_async
     def _create_account(self, action: CreateAccountAction, properties: dict[str, Any]) -> Account:
         with transaction.atomic():
-            account = Account.objects.unscoped().create(
+            account = Account.objects.create_account(
                 team=self._team,
                 created_by=self._user,
-                name=action.name[:400],
-                external_id=(action.external_id[:400] if action.external_id else None),
-                _properties=properties,
+                name=action.name,
+                external_id=(action.external_id or None),
+                properties=properties,
             )
             if action.tags is not None:
                 set_tags_on_object(action.tags, account)
@@ -196,20 +196,17 @@ class UpsertAccountTool(MaxTool):
 
     @sync_to_async
     def _update_account(self, account: Account, action: UpdateAccountAction) -> Account:
+        update_kwargs: dict[str, Any] = {}
+        if action.name is not None:
+            update_kwargs["name"] = action.name
+        if action.external_id is not None:
+            update_kwargs["external_id"] = action.external_id or None
+        if action.properties is not None:
+            properties = account.properties.model_dump(mode="json")
+            properties.update(action.properties.model_dump(exclude_unset=True))
+            update_kwargs["properties"] = properties
         with transaction.atomic():
-            update_fields: list[str] = []
-            if action.name is not None:
-                account.name = action.name[:400]
-                update_fields.append("name")
-            if action.external_id is not None:
-                account.external_id = action.external_id[:400] or None
-                update_fields.append("external_id")
-            if action.properties is not None:
-                merged = {**(account._properties or {}), **action.properties.model_dump(exclude_unset=True)}
-                account._properties = merged
-                update_fields.append("_properties")
-            if update_fields:
-                account.save(update_fields=update_fields)
+            account = Account.objects.update_account(account, **update_kwargs)
             if action.tags is not None:
                 set_tags_on_object(action.tags, account)
         return account
