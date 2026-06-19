@@ -63,7 +63,7 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
         # Each link/pair is its own Parquet part object, matching how the job writes per-run S3
         # datasets. The pair key is deterministic so the rules and logreg links for one orphan
         # share a single candidate_pairs row (truncate-on-insert), avoiding a join fan-out.
-        pair_key = hashlib.md5(f"{orphan}|{anchor}".encode()).hexdigest()[:12]
+        pair_key = hashlib.sha256(f"{orphan}|{anchor}".encode()).hexdigest()[:12]
         links_args = identity_matching_s3_args(
             team_id,
             job_id,

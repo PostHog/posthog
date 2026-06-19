@@ -151,14 +151,13 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _latest_job_id(self) -> str | None:
         # argMax over an empty glob returns one row with the column's default (''); treat as no run.
-        [[job_id]] = (
-            sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — s3 args from team_id (int) and constant structure; values parameterized
-                f"SELECT argMax(job_id, computed_at) FROM s3({self._all_runs_links_read_args()}) WHERE team_id = %(team_id)s",
-                {"team_id": self.team.pk},
-                settings=_S3_READ_SETTINGS,
-                team_id=self.team.pk,
-            )
+        result = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — only the constant s3() structure/format and a team_id-derived path are interpolated; team_id is an int from the URL, all values parameterized
+            f"SELECT argMax(job_id, computed_at) FROM s3({self._all_runs_links_read_args()}) WHERE team_id = %(team_id)s",
+            {"team_id": self.team.pk},
+            settings=_S3_READ_SETTINGS,
+            team_id=self.team.pk,
         )
+        job_id = result[0][0]
         return str(job_id) if job_id else None
 
     @extend_schema(
@@ -204,15 +203,14 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         links_s3 = self._links_read_args(job_id)
         candidate_pairs_s3 = self._candidate_pairs_read_args(job_id)
 
-        [[count]] = (
-            sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — s3 args from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
-                f"SELECT count() FROM s3({links_s3}) AS lk WHERE {where}",
-                query_params,
-                settings=_S3_READ_SETTINGS,
-                team_id=self.team.pk,
-            )
+        count_result = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
+            f"SELECT count() FROM s3({links_s3}) AS lk WHERE {where}",
+            query_params,
+            settings=_S3_READ_SETTINGS,
+            team_id=self.team.pk,
         )
-        rows = sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — s3 args from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
+        count = count_result[0][0]
+        rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
             f"""
             SELECT
                 lk.job_id,
@@ -283,7 +281,7 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["GET"])
     def runs(self, request: Request, **kwargs: Any) -> Response:
-        rows = sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — s3 args from team_id (int) and constant structure; values parameterized
+        rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int); values parameterized
             f"""
             SELECT job_id, max(computed_at) AS computed_at, model_version, count() AS link_count
             FROM s3({self._all_runs_links_read_args()})

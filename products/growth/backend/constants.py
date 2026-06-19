@@ -188,7 +188,9 @@ def identity_matching_s3_args(team_id: int, job_id: str, relative_path: str, str
         # Prod AWS S3: virtual-hosted-style HTTPS URL; the cluster authenticates via its IAM role.
         url = f"https://{settings.IDENTITY_MATCHING_S3_BUCKET}.s3.{settings.IDENTITY_MATCHING_S3_REGION}.amazonaws.com/{key}"
         creds = ""
-    compact_structure = " ".join(structure.split())
+    # The structure is wrapped in a single-quoted SQL literal, so escape the single quotes inside
+    # column types like DateTime64(6, 'UTC') — otherwise they terminate the literal early.
+    compact_structure = " ".join(structure.split()).replace("'", "\\'")
     return f"'{url}', {creds}'Parquet', '{compact_structure}'"
 
 
