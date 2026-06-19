@@ -404,7 +404,7 @@ def finish_upload(team_id: int, symbol_set_id: str, content_hash: str) -> None:
         )
 
     symbol_set = _get_or_raise(team_id, symbol_set_id)
-    s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
+    s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr) if symbol_set.storage_ptr else None
 
     if s3_upload:
         content_length = s3_upload.get("ContentLength")

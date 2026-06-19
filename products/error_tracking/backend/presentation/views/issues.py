@@ -298,7 +298,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        if not facade_api.issue_exists_by_id(self.team_id, pk):
+        if not facade_api.issue_exists_by_id(self.team_id, str(pk)):
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(
