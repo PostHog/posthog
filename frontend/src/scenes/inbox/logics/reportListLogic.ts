@@ -28,9 +28,6 @@ export interface ReportListLogicProps {
  * bodies, the count chips, and the scene. Mirrors the backend filters confirmed in the plan.
  */
 export const INBOX_FLAT_TAB_LIST_PARAMS: Record<InboxFlatListTabKey, ReportListParams> = {
-    // Only `ready` PRs (a draft awaiting review). Without a status filter the backend
-    // returns every non-suppressed status, so merged/closed (`resolved`) PRs piled up in
-    // the list and inflated the count chip with work that was already done.
     pulls: { has_implementation_pr: 'true', status: 'ready' },
     reports: {
         has_implementation_pr: 'false',
