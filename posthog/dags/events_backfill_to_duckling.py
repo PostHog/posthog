@@ -188,13 +188,32 @@ class DucklingTarget:
     organization_id: str
     bucket: str
     bucket_region: str
+    # Default to the shared tables; _resolve_duckling_target sets these per-team from table_suffix.
+    events_table: str = "events"
+    persons_table: str = "persons"
+
+
+def _resolve_table_names(team_id: int) -> tuple[str, str]:
+    """Resolve this team's per-environment events/persons table names.
+
+    A team's `DuckLakeBackfill.table_suffix` (when set) isolates its data into
+    dedicated `events_<suffix>` / `persons_<suffix>` tables so multiple teams sharing one
+    org-scoped duckling don't merge into the shared `posthog.events` / `posthog.persons`.
+    An unset suffix (legacy single-team ducklings) keeps the shared table names.
+    """
+    suffix = DuckLakeBackfill.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
+    if not suffix:
+        return "events", "persons"
+    _validate_identifier(suffix)
+    return f"events_{suffix}", f"persons_{suffix}"
 
 
 def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     """Resolve the per-org duckling target for a backfill partition.
 
     The organization id (team → org) drives both the connection (make_duckgres_conninfo
-    resolves the duckgres server itself) and the S3 bucket.
+    resolves the duckgres server itself) and the S3 bucket. The table names carry the team's
+    per-environment suffix (or the shared defaults).
 
     Bucket resolution order:
       1. The org's DuckLakeCatalog row (hand-entered, older orgs that predate the control
@@ -215,11 +234,19 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
 
     org_id = _get_org_id_for_team(team_id)
+    events_table, persons_table = _resolve_table_names(team_id)
 
     catalog = get_ducklake_catalog_for_organization(org_id)
     if catalog is not None and catalog.bucket:
         bucket, bucket_region = catalog.bucket, catalog.bucket_region
-        return DucklingTarget(team_id=team_id, organization_id=org_id, bucket=bucket, bucket_region=bucket_region)
+        return DucklingTarget(
+            team_id=team_id,
+            organization_id=org_id,
+            bucket=bucket,
+            bucket_region=bucket_region,
+            events_table=events_table,
+            persons_table=persons_table,
+        )
 
     # Control plane first — authoritative, and rejects an org_id-mismatched status body.
     cp_bucket = managed_warehouse.cp_bucket_for(org_id)
@@ -231,7 +258,12 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
             bucket=cp_bucket,
         )
         return DucklingTarget(
-            team_id=team_id, organization_id=org_id, bucket=cp_bucket, bucket_region=DUCKGRES_BUCKET_REGION
+            team_id=team_id,
+            organization_id=org_id,
+            bucket=cp_bucket,
+            bucket_region=DUCKGRES_BUCKET_REGION,
+            events_table=events_table,
+            persons_table=persons_table,
         )
 
     # CP couldn't answer — fall back to the stored row if it knows a bucket.
@@ -244,7 +276,14 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
             organization_id=org_id,
             bucket=bucket,
         )
-        return DucklingTarget(team_id=team_id, organization_id=org_id, bucket=bucket, bucket_region=bucket_region)
+        return DucklingTarget(
+            team_id=team_id,
+            organization_id=org_id,
+            bucket=bucket,
+            bucket_region=bucket_region,
+            events_table=events_table,
+            persons_table=persons_table,
+        )
 
     raise ValueError(
         f"No S3 bucket resolvable for org {org_id}: absent from DuckLakeCatalog, the control "
@@ -613,7 +652,7 @@ duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_per
 # SQL for creating the events table in DuckLake if it doesn't exist
 # Uses TIMESTAMPTZ because ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
 EVENTS_TABLE_DDL = """
-CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
+CREATE TABLE IF NOT EXISTS {catalog}.posthog.{table} (
     uuid VARCHAR,
     event VARCHAR,
     properties VARCHAR,
@@ -646,7 +685,7 @@ CREATE TABLE IF NOT EXISTS {catalog}.posthog.events (
 # Uses TIMESTAMPTZ because ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
 # Note: person_version uses UBIGINT to match ClickHouse's UInt64 type.
 PERSONS_TABLE_DDL = """
-CREATE TABLE IF NOT EXISTS {catalog}.posthog.persons (
+CREATE TABLE IF NOT EXISTS {catalog}.posthog.{table} (
     team_id BIGINT,
     distinct_id VARCHAR,
     id VARCHAR,
@@ -956,14 +995,15 @@ def ensure_events_table_exists(
     idempotent - calling SET PARTITIONED BY multiple times with the same keys succeeds.
     """
     alias = DUCKLAKE_ALIAS
+    table = target.events_table
 
-    if table_exists(conn, alias, "posthog", "events"):
+    if table_exists(conn, alias, "posthog", table):
         context.log.info("Events table already exists in duckling catalog")
         # Ensure partitioning is set even on existing tables (idempotent)
         _set_table_partitioning(
             conn,
             alias,
-            "events",
+            table,
             "year(timestamp), month(timestamp), day(timestamp)",
             context,
             target.team_id,
@@ -974,14 +1014,14 @@ def ensure_events_table_exists(
     conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
 
     context.log.info("Creating events table in duckling catalog...")
-    conn.execute(EVENTS_TABLE_DDL.format(catalog=alias))
+    conn.execute(EVENTS_TABLE_DDL.format(catalog=alias, table=table))
     context.log.info("Successfully created events table")
 
     # Set partitioning by year/month/day for efficient querying
     _set_table_partitioning(
         conn,
         alias,
-        "events",
+        table,
         "year(timestamp), month(timestamp), day(timestamp)",
         context,
         target.team_id,
@@ -1011,14 +1051,15 @@ def ensure_persons_table_exists(
     idempotent - calling SET PARTITIONED BY multiple times with the same keys succeeds.
     """
     alias = DUCKLAKE_ALIAS
+    table = target.persons_table
 
-    if table_exists(conn, alias, "posthog", "persons"):
+    if table_exists(conn, alias, "posthog", table):
         context.log.info("Persons table already exists in duckling catalog")
         # Ensure partitioning is set even on existing tables (idempotent)
         _set_table_partitioning(
             conn,
             alias,
-            "persons",
+            table,
             "year(_timestamp), month(_timestamp)",
             context,
             target.team_id,
@@ -1029,14 +1070,14 @@ def ensure_persons_table_exists(
     conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
 
     context.log.info("Creating persons table in duckling catalog...")
-    conn.execute(PERSONS_TABLE_DDL.format(catalog=alias))
+    conn.execute(PERSONS_TABLE_DDL.format(catalog=alias, table=table))
     context.log.info("Successfully created persons table")
 
     # Set partitioning by year/month of _timestamp for efficient querying
     _set_table_partitioning(
         conn,
         alias,
-        "persons",
+        table,
         "year(_timestamp), month(_timestamp)",
         context,
         target.team_id,
@@ -1063,7 +1104,7 @@ def validate_duckling_schema(
     alias = DUCKLAKE_ALIAS
 
     with conn.cursor() as cur:
-        cur.execute(f"DESCRIBE {alias}.posthog.events")
+        cur.execute(f"DESCRIBE {alias}.posthog.{target.events_table}")
         ducklake_columns = {row[0] for row in cur.fetchall()}
 
     missing_in_ducklake = EXPECTED_DUCKLAKE_EVENTS_COLUMNS - ducklake_columns
@@ -1104,7 +1145,7 @@ def validate_duckling_persons_schema(
     alias = DUCKLAKE_ALIAS
 
     with conn.cursor() as cur:
-        cur.execute(f"DESCRIBE {alias}.posthog.persons")
+        cur.execute(f"DESCRIBE {alias}.posthog.{target.persons_table}")
         ducklake_columns = {row[0] for row in cur.fetchall()}
 
     missing_in_ducklake = EXPECTED_DUCKLAKE_PERSONS_COLUMNS - ducklake_columns
@@ -1224,7 +1265,7 @@ def delete_events_partition_data(
     # to a single day's partition instead of scanning all data files.
     next_date_str = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
     delete_sql = f"""
-    DELETE FROM {alias}.posthog.events
+    DELETE FROM {alias}.posthog.{target.events_table}
     WHERE team_id = %s
       AND timestamp >= %s
       AND timestamp < %s
@@ -1286,7 +1327,7 @@ def delete_persons_partition_data(
     delete_params: tuple[Any, ...]
     if partition_date is None:
         delete_sql = f"""
-        DELETE FROM {alias}.posthog.persons
+        DELETE FROM {alias}.posthog.{target.persons_table}
         WHERE team_id = %s
         """
         delete_params = (team_id,)
@@ -1294,7 +1335,7 @@ def delete_persons_partition_data(
         date_str = partition_date.strftime("%Y-%m-%d")
         next_date_str = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
         delete_sql = f"""
-        DELETE FROM {alias}.posthog.persons
+        DELETE FROM {alias}.posthog.{target.persons_table}
         WHERE team_id = %s
           AND _timestamp >= %s
           AND _timestamp < %s
@@ -1507,10 +1548,9 @@ def register_files_with_duckling(
             # column (team_id/uuid/timestamp) would only arise from an export bug, not
             # normal operation, and would surface as NULL-filled rows in downstream reads.
             conn.execute(
-                psql.SQL(
-                    "CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog', allow_missing => true)"
-                ).format(
+                psql.SQL("CALL ducklake_add_data_files({}, {}, {}, schema => 'posthog', allow_missing => true)").format(
                     psql.Literal(alias),
+                    psql.Literal(target.events_table),
                     psql.Literal(s3_path),
                 )
             )
@@ -1775,10 +1815,9 @@ def register_persons_files_with_duckling(
         for s3_path in files:
             # See the events registration site for the allow_missing rationale.
             conn.execute(
-                psql.SQL(
-                    "CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog', allow_missing => true)"
-                ).format(
+                psql.SQL("CALL ducklake_add_data_files({}, {}, {}, schema => 'posthog', allow_missing => true)").format(
                     psql.Literal(alias),
+                    psql.Literal(target.persons_table),
                     psql.Literal(s3_path),
                 )
             )
@@ -1857,7 +1896,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
                 try:
                     session.run(
                         "drop events table",
-                        lambda c: c.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.events"),
+                        lambda c: c.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.{target.events_table}"),
                     )
                 except Exception:
                     context.log.exception(f"Failed to drop events table for team_id={team_id}")
@@ -2038,7 +2077,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                 try:
                     session.run(
                         "drop persons table",
-                        lambda c: c.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.persons"),
+                        lambda c: c.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.{target.persons_table}"),
                     )
                 except Exception:
                     context.log.exception(f"Failed to drop persons table for team_id={team_id}")

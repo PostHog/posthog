@@ -36,6 +36,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _get_cluster,
     _glob_run_files,
     _resolve_duckling_target,
+    _resolve_table_names,
     _set_table_partitioning,
     _validate_identifier,
     delete_events_partition_data,
@@ -69,11 +70,12 @@ class TestDucklingBackfillAlertRouting:
 
 
 class TestResolveDucklingTarget:
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
     def test_resolves_bucket_from_control_plane(
-        self, mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock
+        self, mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
     ):
         # The control plane is the authoritative owner of the bucket name.
         with patch(
@@ -91,9 +93,12 @@ class TestResolveDucklingTarget:
         mock_org.assert_called_once_with(7)
         mock_cp.assert_called_once_with("org-1")
 
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
-    def test_control_plane_wins_over_stale_stored_server_bucket(self, _mock_org: MagicMock, _mock_catalog: MagicMock):
+    def test_control_plane_wins_over_stale_stored_server_bucket(
+        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_tables: MagicMock
+    ):
         # A row provisioned before the naming fix carries a stale bucket; the CP value
         # must win so the backfill never exports to a bucket that doesn't exist.
         server = MagicMock(bucket="posthog-duckling-stale-prod-us", bucket_region="us-east-1")
@@ -111,10 +116,11 @@ class TestResolveDucklingTarget:
 
         assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
 
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
     def test_falls_back_to_stored_server_when_control_plane_unavailable(
-        self, _mock_org: MagicMock, _mock_catalog: MagicMock
+        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_tables: MagicMock
     ):
         # CP can't answer → use the known-good stored row rather than failing the run.
         server = MagicMock(bucket="posthog-duckling-org-1-mw-prod-us", bucket_region="us-east-1")
@@ -132,11 +138,12 @@ class TestResolveDucklingTarget:
 
         assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
 
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
     def test_raises_when_nothing_can_name_the_bucket(
-        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock
+        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
     ):
         with patch(
             "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
@@ -144,6 +151,38 @@ class TestResolveDucklingTarget:
         ):
             with pytest.raises(ValueError, match="No S3 bucket resolvable"):
                 _resolve_duckling_target(7)
+
+
+class TestResolveTableNames:
+    """Resolution of per-environment table names from a team's stored table_suffix.
+
+    Kept DB-free (the rest of this file is): the stored suffix is mocked at the ORM boundary.
+    """
+
+    def _patch_suffix(self, suffix: str | None) -> MagicMock:
+        model = MagicMock()
+        model.objects.filter.return_value.values_list.return_value.first.return_value = suffix
+        return model
+
+    def test_set_suffix_yields_dedicated_tables(self):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("alpha")):
+            assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
+
+    def test_distinct_suffixes_isolate_two_teams(self):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("alpha")):
+            assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("beta")):
+            assert _resolve_table_names(2) == ("events_beta", "persons_beta")
+
+    @parameterized.expand([("none", None), ("empty", "")])
+    def test_unset_suffix_falls_back_to_shared_tables(self, _name, suffix):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix(suffix)):
+            assert _resolve_table_names(1) == ("events", "persons")
+
+    def test_unsafe_suffix_is_rejected(self):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("a-b; DROP")):
+            with pytest.raises(ValueError):
+                _resolve_table_names(1)
 
 
 class TestParsePartitionKey:
@@ -263,7 +302,7 @@ class TestEventsDDL:
     def test_events_ddl_is_valid_sql(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = EVENTS_TABLE_DDL.format(catalog="memory")
+        ddl = EVENTS_TABLE_DDL.format(catalog="memory", table="events")
         conn.execute(ddl)
 
         # Verify table was created with expected columns
@@ -276,10 +315,19 @@ class TestEventsDDL:
     def test_events_ddl_is_idempotent(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = EVENTS_TABLE_DDL.format(catalog="memory")
+        ddl = EVENTS_TABLE_DDL.format(catalog="memory", table="events")
         # Should not raise on second execution
         conn.execute(ddl)
         conn.execute(ddl)
+        conn.close()
+
+    def test_events_ddl_honors_suffixed_table_name(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        conn.execute(EVENTS_TABLE_DDL.format(catalog="memory", table="events_alpha"))
+
+        result = conn.execute("DESCRIBE memory.posthog.events_alpha").fetchall()
+        assert {row[0] for row in result} == EXPECTED_DUCKLAKE_EVENTS_COLUMNS
         conn.close()
 
 
@@ -287,7 +335,7 @@ class TestPersonsDDL:
     def test_persons_ddl_is_valid_sql(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = PERSONS_TABLE_DDL.format(catalog="memory")
+        ddl = PERSONS_TABLE_DDL.format(catalog="memory", table="persons")
         conn.execute(ddl)
 
         # Verify table was created with expected columns
@@ -300,10 +348,19 @@ class TestPersonsDDL:
     def test_persons_ddl_is_idempotent(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = PERSONS_TABLE_DDL.format(catalog="memory")
+        ddl = PERSONS_TABLE_DDL.format(catalog="memory", table="persons")
         # Should not raise on second execution
         conn.execute(ddl)
         conn.execute(ddl)
+        conn.close()
+
+    def test_persons_ddl_honors_suffixed_table_name(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        conn.execute(PERSONS_TABLE_DDL.format(catalog="memory", table="persons_beta"))
+
+        result = conn.execute("DESCRIBE memory.posthog.persons_beta").fetchall()
+        assert {row[0] for row in result} == EXPECTED_DUCKLAKE_PERSONS_COLUMNS
         conn.close()
 
 
@@ -715,7 +772,7 @@ class TestDuckLakeAddDataFilesPartitioning:
         conn.execute("LOAD ducklake")
         conn.execute(f"ATTACH 'ducklake:{catalog_path}' AS test_lake (DATA_PATH '{data_path}')")
         conn.execute("CREATE SCHEMA IF NOT EXISTS test_lake.posthog")
-        conn.execute(EVENTS_TABLE_DDL.format(catalog="test_lake"))
+        conn.execute(EVENTS_TABLE_DDL.format(catalog="test_lake", table="events"))
         conn.execute(
             "ALTER TABLE test_lake.posthog.events "
             "SET PARTITIONED BY (year(timestamp), month(timestamp), day(timestamp))"
@@ -1391,7 +1448,7 @@ class TestFannedOutLayoutRoundTrip:
         # DUCKLAKE_ALIAS internally) targets this catalog.
         conn.execute(f"ATTACH 'ducklake:{catalog_path}' AS {DUCKLAKE_ALIAS} (DATA_PATH '{data_path}')")
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {DUCKLAKE_ALIAS}.posthog")
-        conn.execute(EVENTS_TABLE_DDL.format(catalog=DUCKLAKE_ALIAS))
+        conn.execute(EVENTS_TABLE_DDL.format(catalog=DUCKLAKE_ALIAS, table="events"))
         conn.execute(
             f"ALTER TABLE {DUCKLAKE_ALIAS}.posthog.events "
             "SET PARTITIONED BY (year(timestamp), month(timestamp), day(timestamp))"
