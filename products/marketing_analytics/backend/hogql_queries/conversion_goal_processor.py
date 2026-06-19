@@ -42,6 +42,12 @@ LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) *
 # This follows the industry standard (Google Analytics, Adobe, Mixpanel all use 7-day half-life).
 TIME_DECAY_HALF_LIFE_DIVISOR = 4
 
+# Variable TTL for the conversion-goal precompute tables: recent windows refresh often, older
+# windows are kept long. The Dagster warming job (products/marketing_analytics/dags/marketing_precompute.py)
+# MUST create jobs with this exact schedule — otherwise the read path's freshness check would treat
+# warmed rows as stale and recompute them inline, defeating the warm-up.
+PRECOMPUTE_TTL_SECONDS = {"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+
 logger = structlog.get_logger(__name__)
 
 
@@ -431,12 +437,7 @@ class ConversionGoalProcessor:
             insert_query=insert_select,
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds={
-                "0d": 15 * 60,
-                "1d": 60 * 60,
-                "7d": 24 * 60 * 60,
-                "default": 7 * 24 * 60 * 60,
-            },
+            ttl_seconds=PRECOMPUTE_TTL_SECONDS,
             table=LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
         )
 
@@ -497,7 +498,7 @@ class ConversionGoalProcessor:
             insert_query=build_touchpoints_precompute_query(),
             time_range_start=date_from - window,
             time_range_end=date_to,
-            ttl_seconds={"0d": 15 * 60, "1d": 60 * 60, "7d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60},
+            ttl_seconds=PRECOMPUTE_TTL_SECONDS,
             table=LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
         )
         if not result.ready:
