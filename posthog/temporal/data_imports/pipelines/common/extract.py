@@ -353,7 +353,12 @@ async def advance_xmin_state(
     Deliberately not the per-batch MAX-of-observed advance, which would store the wrong value and is
     wraparound-unsafe for xmin.
     """
-    if not schema.is_xmin or resource.xmin_ceiling_xid is None:
+    if (
+        not schema.is_xmin
+        or resource.xmin_ceiling_xid is None
+        or resource.xmin_ceiling_xid8 is None
+        or resource.xmin_num_wraparound is None
+    ):
         return
 
     await logger.adebug(f"{log_prefix}Advancing xmin cursor to ceiling {resource.xmin_ceiling_xid8}")

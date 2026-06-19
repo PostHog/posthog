@@ -1614,7 +1614,7 @@ def _build_xmin_query(
     table_name: str,
     select_clause: sql.Composable,
     bounds: XminBounds,
-    row_filter_conditions: list[sql.Composed],
+    row_filter_conditions: list[sql.Composable],
     *,
     add_sampling: bool,
 ) -> sql.Composed:
