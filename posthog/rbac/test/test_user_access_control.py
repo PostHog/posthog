@@ -1,6 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import serializers
@@ -1263,10 +1263,7 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_2.id in filtered_ids
         assert self.notebook_3.id in filtered_ids
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_blocked_resource_ids_by_scope_ignores_rules_without_entitlement(self):
-        # blocked_resource_ids_by_scope gates HogQL object access control behind a flag; enable it
-        # here so this test isolates the entitlement (ACCESS_CONTROL) dimension.
         # Member-level "none" rule blocking notebook_2 for the user
         self._create_access_control(
             resource="notebook",
