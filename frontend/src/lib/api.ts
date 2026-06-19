@@ -23,6 +23,7 @@ import {
     SignalScoutConfig,
     SignalScoutConfigUpdate,
     SignalScoutEmission,
+    SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -5191,6 +5192,11 @@ const api = {
             },
             async emissions(runId: string): Promise<SignalScoutEmission[]> {
                 return await new ApiRequest().signalScoutRun(runId).withAction('emissions').get()
+            },
+            // Per-finding reverse lookup: which inbox report each emitted finding grouped into.
+            // `report` is null when a finding hasn't grouped, was deduped, or its signal was deleted.
+            async emissionReports(runId: string): Promise<SignalScoutEmissionReportLink[]> {
+                return await new ApiRequest().signalScoutRun(runId).withAction('emissions/reports').get()
             },
         },
         configs: {
