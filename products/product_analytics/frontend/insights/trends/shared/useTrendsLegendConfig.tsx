@@ -49,7 +49,7 @@ export function useTrendsLegendConfig({
         const showContextMenu = legendInteractive && legendSeriesIsolationMenuEligible
         return {
             show: !!showLegend,
-            position: legendPosition ?? 'bottom',
+            position: (legendPosition as ChartLegendConfig['position']) ?? 'bottom',
             interactive: legendInteractive,
             hiddenKeys,
             onToggleSeries: (key: string) => {
