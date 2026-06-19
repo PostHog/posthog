@@ -236,7 +236,7 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
-        config::Config,
+        core::config::ResolverConfig,
         frames::RawFrame,
         langs::{hermes::RawHermesFrame, CommonFrameMetadata},
         symbolication::symbol_store::{
@@ -252,7 +252,7 @@ mod test {
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_hermes_resolution(db: PgPool) {
         let team_id = 1;
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
 
         let chunk_id = Uuid::now_v7().to_string();

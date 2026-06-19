@@ -4,10 +4,12 @@
 //! this subtree can later be lifted into its own `cymbal-core` crate.
 
 pub mod analytics;
+pub mod config;
 pub mod error;
 pub mod frames;
 pub mod ids;
 pub mod langs;
 pub mod metric_consts;
+pub mod resolver;
 pub mod sanitize;
 pub mod symbolication;

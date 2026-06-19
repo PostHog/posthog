@@ -533,7 +533,7 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
-        config::Config,
+        core::config::ResolverConfig,
         symbolication::symbol_store::{
             saving::{truncate_ref, Saving, SymbolSetRecord, MAX_REF_BYTES},
             sourcemap::SourcemapProvider,
@@ -587,7 +587,7 @@ mod test {
     async fn test_successful_lookup(db: PgPool) {
         let server = MockServer::start();
 
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
         config.ss_prefix = "test-prefix".to_string();
         config.allow_internal_ips = true; // Gonna be hitting the sourcemap mocks
@@ -649,7 +649,7 @@ mod test {
     async fn test_dynamic_fetch_cleanup_when_existing_blob_wins_race(db: PgPool) {
         let server = MockServer::start();
 
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
         config.ss_prefix = "test-prefix".to_string();
 
@@ -718,7 +718,7 @@ mod test {
     async fn test_symbol_set_404_handling(db: PgPool) {
         let server = MockServer::start();
 
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
         config.ss_prefix = "test-prefix".to_string();
         config.allow_internal_ips = true;
@@ -763,7 +763,7 @@ mod test {
     async fn test_invalid_sourcemap_handling(db: PgPool) {
         let server = MockServer::start();
 
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
         config.ss_prefix = "test-prefix".to_string();
         config.allow_internal_ips = true;
@@ -815,7 +815,7 @@ mod test {
     async fn test_parse_failure_does_not_overwrite_existing_blob(db: PgPool) {
         let server = MockServer::start();
 
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
         config.ss_prefix = "test-prefix".to_string();
         config.allow_internal_ips = true;

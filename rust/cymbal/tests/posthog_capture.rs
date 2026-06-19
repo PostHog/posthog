@@ -46,7 +46,7 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
         .expect("posthog init");
 
     let mut config = Config::init_with_defaults().unwrap();
-    config.object_storage_bucket = STORAGE_BUCKET.to_string();
+    config.resolver.object_storage_bucket = STORAGE_BUCKET.to_string();
 
     let mut s3_client = MockS3Client::new();
     s3_client

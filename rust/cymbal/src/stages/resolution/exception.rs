@@ -103,7 +103,7 @@ mod test {
     async fn test_proguard_resolution(db: PgPool) {
         let team_id = 1;
         let mut config = Config::init_with_defaults().unwrap();
-        config.object_storage_bucket = "test-bucket".to_string();
+        config.resolver.object_storage_bucket = "test-bucket".to_string();
 
         let map_id = "com.posthog.android.sample@3.0+3".to_string();
 
@@ -125,7 +125,7 @@ mod test {
         client
             .expect_get()
             .with(
-                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::eq(config.resolver.object_storage_bucket.clone()),
                 predicate::eq(map_id.clone()), // We set the map id as the storage ptr above, in production it will be a different value with a prefix
             )
             .returning(|_, _| Ok(Some(bytes::Bytes::from(get_symbol_data_bytes()))));
@@ -137,29 +137,29 @@ mod test {
             hmp,
             client.clone(),
             db.clone(),
-            config.object_storage_bucket.clone(),
+            config.resolver.object_storage_bucket.clone(),
         );
 
-        let smp = SourcemapProvider::new(&config);
+        let smp = SourcemapProvider::new(&config.resolver);
         let smp = ChunkIdFetcher::new(
             smp,
             client.clone(),
             db.clone(),
-            config.object_storage_bucket.clone(),
+            config.resolver.object_storage_bucket.clone(),
         );
 
         let pgp = ChunkIdFetcher::new(
             ProguardProvider {},
             client.clone(),
             db.clone(),
-            config.object_storage_bucket.clone(),
+            config.resolver.object_storage_bucket.clone(),
         );
 
         let apple = ChunkIdFetcher::new(
             AppleProvider {},
             client.clone(),
             db.clone(),
-            config.object_storage_bucket.clone(),
+            config.resolver.object_storage_bucket.clone(),
         );
 
         let c = Catalog::new(smp, hmp, pgp, apple);
@@ -174,7 +174,7 @@ mod test {
             meta: CommonFrameMetadata::default(),
         };
 
-        let resolver = LocalSymbolResolver::new(&config, Arc::new(c), db);
+        let resolver = LocalSymbolResolver::new(&config.resolver, Arc::new(c), db);
         let exception = Exception {
             exception_type: "c".to_string(),
             module: Some("a1".to_string()),

@@ -9,7 +9,7 @@ use symbolic::demangle::{Demangle, DemangleOptions};
 use std::sync::atomic::Ordering;
 
 use crate::{
-    config::FRAME_CONTEXT_LINES,
+    core::config::FRAME_CONTEXT_LINES,
     error::{AppleError, FrameError, ResolveError, UnhandledError},
     frames::{record_frame_resolution_failure, Frame},
     langs::native::{self, DebugImage},
@@ -441,7 +441,7 @@ mod test {
         use uuid::Uuid;
 
         use crate::{
-            config::Config,
+            core::config::ResolverConfig,
             frames::RawFrame,
             symbolication::symbol_store::{
                 apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
@@ -451,7 +451,7 @@ mod test {
         };
 
         let team_id = 1;
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
 
         let chunk_id = Uuid::now_v7().to_string();
@@ -604,7 +604,7 @@ mod test {
         use uuid::Uuid;
 
         use crate::{
-            config::Config,
+            core::config::ResolverConfig,
             frames::RawFrame,
             symbolication::symbol_store::{
                 apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
@@ -614,7 +614,7 @@ mod test {
         };
 
         let team_id = 1;
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
 
         let chunk_id = Uuid::now_v7().to_string();

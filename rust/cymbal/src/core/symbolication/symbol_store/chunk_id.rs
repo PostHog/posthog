@@ -343,7 +343,7 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
-        config::Config,
+        core::config::ResolverConfig,
         error::ResolveError,
         frames::RawFrame,
         langs::js::RawJSFrame,
@@ -418,7 +418,7 @@ mod test {
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_successful_chunk_idlookup(db: PgPool) {
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
 
         let chunk_id = Uuid::now_v7().to_string();
@@ -459,7 +459,7 @@ mod test {
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_frame_uses_right_resolver(db: PgPool) {
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
 
         let chunk_id = Uuid::now_v7().to_string();

@@ -10,7 +10,7 @@ use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};
 
 use crate::{
-    config::Config,
+    core::config::ResolverConfig,
     error::{JsResolveErr, ResolveError, UnhandledError},
     metric_consts::{
         CHUNK_ID_RESCUED_FROM_BODY, SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND,
@@ -100,7 +100,7 @@ impl Countable for OwnedSourceMapCache {
 }
 
 impl SourcemapProvider {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &ResolverConfig) -> Self {
         let timeout = Duration::from_secs(config.sourcemap_timeout_seconds);
         let connect_timeout = Duration::from_secs(config.sourcemap_connect_timeout_seconds);
         let mut client = reqwest::Client::builder()
@@ -607,7 +607,7 @@ mod test {
             then.status(200).body(MAP);
         });
 
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         // Needed because we're using mockserver, so hitting localhost
         config.allow_internal_ips = true;
         let store = SourcemapProvider::new(&config);
@@ -641,7 +641,7 @@ mod test {
             then.status(200).body(MAP);
         });
 
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         // Needed because we're using mockserver, so hitting localhost
         config.allow_internal_ips = true;
         let store = SourcemapProvider::new(&config);
@@ -763,7 +763,7 @@ mod test {
             .returning(move |_, _| Ok(Some(saved_payload_for_mock.clone())));
         let s3: Arc<dyn BlobClient> = Arc::new(s3);
 
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.allow_internal_ips = true;
         let provider = SourcemapProvider::new(&config).with_chunk_id_rescue(
             db.clone(),
@@ -797,7 +797,7 @@ mod test {
 
         let s3: Arc<dyn BlobClient> = Arc::new(MockS3Client::default());
 
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.allow_internal_ips = true;
         let provider = SourcemapProvider::new(&config).with_chunk_id_rescue(
             db.clone(),
@@ -859,7 +859,7 @@ mod test {
             .returning(|_, _| Ok(None));
         let s3: Arc<dyn BlobClient> = Arc::new(s3);
 
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.allow_internal_ips = true;
         let provider = SourcemapProvider::new(&config).with_chunk_id_rescue(
             db.clone(),

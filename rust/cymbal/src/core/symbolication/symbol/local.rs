@@ -14,7 +14,7 @@ use moka::{
 use sqlx::PgPool;
 
 use crate::{
-    config::Config,
+    core::config::ResolverConfig,
     error::{JsResolveErr, ProguardError, ResolveError, UnhandledError},
     frames::{
         records::{ErrorTrackingStackFrame, FrameResultTtlPolicy},
@@ -83,7 +83,7 @@ fn expiration_duration(
 }
 
 impl LocalSymbolResolver {
-    pub fn new(config: &Config, catalog: Arc<Catalog>, pool: PgPool) -> Self {
+    pub fn new(config: &ResolverConfig, catalog: Arc<Catalog>, pool: PgPool) -> Self {
         let ttl_policy = FrameResultTtlPolicy::new(
             chrono::Duration::seconds(config.frame_resolved_ttl_seconds as i64),
             chrono::Duration::seconds(config.frame_unresolved_ttl_seconds as i64),
@@ -251,7 +251,7 @@ mod test {
     use symbolic::sourcemapcache::SourceMapCacheWriter;
 
     use crate::{
-        config::Config,
+        core::config::ResolverConfig,
         frames::{records::ErrorTrackingStackFrame, RawFrame},
         symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver},
         symbolication::symbol_store::{
@@ -272,11 +272,11 @@ mod test {
     const EXAMPLE_EXCEPTION: &str =
         include_str!("../../../../tests/static/raw_ch_exception_list.json");
 
-    async fn setup_test_context<S>(pool: PgPool, s3_init: S) -> (Config, Catalog, MockServer)
+    async fn setup_test_context<S>(pool: PgPool, s3_init: S) -> (ResolverConfig, Catalog, MockServer)
     where
-        S: FnOnce(&Config, MockS3Client) -> MockS3Client,
+        S: FnOnce(&ResolverConfig, MockS3Client) -> MockS3Client,
     {
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.object_storage_bucket = "test-bucket".to_string();
         config.ss_prefix = "test-prefix".to_string();
         config.allow_internal_ips = true; // Gonna be hitting the sourcemap mocks
@@ -385,7 +385,7 @@ mod test {
     }
 
     fn expect_puts_and_gets(
-        config: &Config,
+        config: &ResolverConfig,
         mut client: MockS3Client,
         puts: usize,
         gets: usize,

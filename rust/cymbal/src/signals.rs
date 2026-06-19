@@ -72,7 +72,7 @@ impl SignalClient {
                 .build()
                 .expect("Failed to build SignalClient HTTP client"),
             base_url: config.signals_api_base_url.clone(),
-            secret: config.internal_api_secret.clone(),
+            secret: config.resolver.internal_api_secret.clone(),
         }
     }
 

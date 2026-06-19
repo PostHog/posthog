@@ -5,7 +5,7 @@ use sourcemap::Token;
 use symbolic::sourcemapcache::SourceLocation;
 
 use crate::{
-    config::FRAME_CONTEXT_LINES,
+    core::config::FRAME_CONTEXT_LINES,
     frames::{Context, ContextLine, Frame},
 };
 

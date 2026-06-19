@@ -66,7 +66,8 @@ pub async fn serve(config: &CymbalConfig) -> Result<(), Box<dyn std::error::Erro
         service_config,
         draining,
     );
-    let auth_interceptor = InternalApiSecretInterceptor::new(config.internal_api_secret.clone());
+    let auth_interceptor =
+        InternalApiSecretInterceptor::new(config.resolver.internal_api_secret.clone());
 
     let listener = tokio::net::TcpListener::bind(res.grpc_address).await?;
     let incoming = tracked_tcp_incoming(listener);

@@ -57,7 +57,7 @@ impl RemoteResolutionConfig {
                 "remote resolution enabled but CYMBAL_REMOTE_RESOLUTION_HOST is empty".to_string(),
             ));
         }
-        if config.internal_api_secret.trim().is_empty() {
+        if config.resolver.internal_api_secret.trim().is_empty() {
             return Err(UnhandledError::Other(
                 "remote resolution enabled but INTERNAL_API_SECRET is empty".to_string(),
             ));
@@ -65,7 +65,7 @@ impl RemoteResolutionConfig {
         Ok(Self {
             host: config.remote_resolution_host.clone(),
             port: config.remote_resolution_port,
-            internal_api_secret: config.internal_api_secret.clone(),
+            internal_api_secret: config.resolver.internal_api_secret.clone(),
             dns_refresh: Duration::from_secs(config.remote_resolution_dns_refresh_secs.max(1)),
             request_deadline: Duration::from_millis(config.remote_resolution_deadline_ms.max(1)),
             connect_timeout: Duration::from_millis(
