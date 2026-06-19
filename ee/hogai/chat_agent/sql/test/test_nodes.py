@@ -3,10 +3,11 @@ from unittest.mock import patch
 
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 
-from posthog.schema import ArtifactContentType, ArtifactSource, HumanMessage
+from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage, HumanMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
+from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.chat_agent.sql.nodes import SQLGeneratorNode
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
@@ -51,3 +52,35 @@ class TestSQLGeneratorNode(NonAtomicBaseTest):
             self.assertIsNone(new_state.intermediate_steps)
             self.assertIsNone(new_state.plan)
             self.assertIsNone(new_state.rag_context)
+
+    async def test_node_handles_retry_exhaustion_gracefully(self):
+        node = SQLGeneratorNode(self.team, self.user)
+        config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
+
+        async def _raise(*args, **kwargs):
+            raise SchemaGenerationException(
+                "WITH date_end AS toDate(now()) SELECT 1",
+                "HogQL parsing error: this query isn't valid HogQL.",
+            )
+
+        with patch("ee.hogai.chat_agent.schema_generator.nodes.SchemaGeneratorNode._run_with_prompt", new=_raise):
+            new_state = await node(
+                AssistantState(
+                    messages=[HumanMessage(content="Text")],
+                    plan="Plan",
+                    root_tool_call_id="tool_123",
+                    root_tool_insight_plan="question",
+                ),
+                config,
+            )
+
+        assert new_state is not None
+        self.assertEqual(len(new_state.messages), 1)
+        msg = new_state.messages[0]
+        self.assertIsInstance(msg, AssistantToolCallMessage)
+        assert isinstance(msg, AssistantToolCallMessage)
+        self.assertEqual(msg.tool_call_id, "tool_123")
+        self.assertIn("valid SQL query", msg.content)
+        # Node ends gracefully and clears the tool call so the run terminates
+        self.assertIsNone(new_state.root_tool_call_id)
+        self.assertIsNone(new_state.intermediate_steps)
