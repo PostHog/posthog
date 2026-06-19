@@ -199,11 +199,18 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         assert result.error_message
         self.assertRegex(result.error_message, "trailing tokens after expression")
 
+    @parameterized.expand(
+        [
+            # User supplying a String to arrayStringConcat() raises a ClickHouse ILLEGAL_TYPE_OF_ARGUMENT.
+            ("clickhouse_type_error", "SELECT arrayStringConcat('not an array', ',')"),
+            # HogQL parse error before the query ever reaches ClickHouse.
+            ("hogql_parse_error", "SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK"),
+        ]
+    )
     @patch("posthog.clickhouse.client.execute_async.capture_exception")
-    def test_async_query_user_error_not_reported(self, mock_capture_exception):
-        # A user supplying a String to arrayStringConcat() raises a ClickHouse ILLEGAL_TYPE_OF_ARGUMENT,
-        # which is a user-safe error already returned to the user — it must not create error-tracking noise.
-        query = build_query("SELECT arrayStringConcat('not an array', ',')")
+    def test_async_query_user_error_not_reported(self, _name, sql, mock_capture_exception):
+        # User-safe query errors are already returned to the user — they must not create error-tracking noise.
+        query = build_query(sql)
         query_id = uuid.uuid4().hex
         try:
             client.enqueue_process_query_task(
@@ -216,21 +223,6 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.error)
         self.assertTrue(result.complete)
         assert result.error_message  # still surfaced to the user
-        mock_capture_exception.assert_not_called()
-
-    @patch("posthog.clickhouse.client.execute_async.capture_exception")
-    def test_async_query_hogql_parse_error_not_reported(self, mock_capture_exception):
-        query = build_query("SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK")
-        query_id = uuid.uuid4().hex
-        try:
-            client.enqueue_process_query_task(
-                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
-            )
-        except Exception:
-            pass
-
-        result = client.get_query_status(self.team.id, query_id)
-        self.assertTrue(result.error)
         mock_capture_exception.assert_not_called()
 
     @patch("posthog.clickhouse.client.execute_async.capture_exception")
