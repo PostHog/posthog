@@ -193,6 +193,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const [inputValue, setInputValue] = useState(question)
     const debouncedSetQuestion = useDebouncedCallback((value: string) => setQuestion(value), 150)
 
+    // Flush any pending debounce when the component unmounts so that a draft typed just
+    // before programmatic navigation (no blur event) is still persisted to kea.
+    useEffect(() => {
+        return () => debouncedSetQuestion.flush()
+    }, [debouncedSetQuestion])
+
     // Mirror external question changes (draft restore, slash command insertion, clear on submit)
     // back into local state. Writing the same value is a no-op, so the debounced sync below
     // doesn't cause an extra render.
