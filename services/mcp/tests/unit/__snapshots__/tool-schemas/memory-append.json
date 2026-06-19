@@ -15,6 +15,18 @@
             "description": "Relative path of the file to append to, e.g. 'project.md'. Created if it does not exist.",
             "maxLength": 1024,
             "type": "string"
+        },
+        "updated_by_run": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional identifier of the agent run performing this write (e.g. a scout run UUID), recorded for attribution. Omit for human/API writes; the writer's user is attributed automatically."
         }
     },
     "required": ["path", "heading", "body"],

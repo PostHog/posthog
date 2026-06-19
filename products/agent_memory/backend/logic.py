@@ -186,7 +186,7 @@ def write_memory(
     with team_scope(team_id), transaction.atomic():
         existing = AgentMemoryFile.objects.select_for_update().filter(path=normalized).first()
         if existing is None:
-            if expected_version not in (None, 0):
+            if expected_version is not None and expected_version != 0:
                 # Caller thought they were updating an existing file, but it's gone.
                 raise MemoryVersionConflictError(normalized, expected_version, 0)
             try:
