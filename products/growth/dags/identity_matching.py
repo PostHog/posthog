@@ -290,6 +290,42 @@ def _read_settings(context: dagster.OpExecutionContext) -> dict[str, str]:
     return {**settings_with_log_comment(context), "s3_throw_on_zero_files_match": "0"}
 
 
+# Rows the Python ops build (person_timeline, logreg links) are written in small batches as inline
+# VALUES. clickhouse_driver's native-block insert path (`INSERT ... VALUES` with a list of tuples
+# and nothing after VALUES) hangs against `INSERT INTO FUNCTION s3(...)`; embedding the rows as
+# `VALUES (%(..)s), ...` placeholders instead routes through ordinary server-parsed substitution,
+# which writes Parquet to s3 reliably. Batches stay small so each substituted statement stays well
+# under max_query_size (raised here for headroom) and the AST element cap.
+_S3_VALUES_BATCH = 1000
+
+
+def _write_rows_to_s3(
+    context: dagster.OpExecutionContext,
+    cluster: ClickhouseCluster,
+    dataset: "MatchingDataset",
+    run: "MatchingRun",
+    rows: list[tuple[Any, ...]],
+    columns: int,
+    filename_prefix: str = "part",
+) -> None:
+    if not rows:
+        return
+    query_settings = {**_write_settings(context), "max_query_size": "10485760"}
+    for part, offset in enumerate(range(0, len(rows), _S3_VALUES_BATCH)):
+        batch = rows[offset : offset + _S3_VALUES_BATCH]
+        placeholders: list[str] = []
+        parameters: dict[str, Any] = {}
+        for i, row in enumerate(batch):
+            keys = [f"v{i}_{j}" for j in range(columns)]
+            placeholders.append("(" + ", ".join(f"%({key})s" for key in keys) + ")")
+            parameters.update(zip(keys, row, strict=True))
+        query = (
+            f"INSERT INTO FUNCTION s3({dataset.write_args(run, f'{filename_prefix}_{part}.parquet')}) "
+            f"VALUES {', '.join(placeholders)}"
+        )
+        cluster.any_host(partial(_execute, query=query, parameters=parameters, query_settings=query_settings)).result()
+
+
 def _prop(name: str) -> str:
     return f"JSONExtractString(properties, '{name}')"
 
@@ -531,17 +567,8 @@ def extract_person_timeline(
             unrecoverable += 1
         rows.append((run.job_id, config.team_id, other_id, 0, "", label_person_key, target_id, first_seen))
 
-    # Each 100k batch is its own Parquet part object; reads glob `person_timeline/*.parquet`.
-    batch_size = 100_000
-    for part, offset in enumerate(range(0, len(rows), batch_size)):
-        batch = rows[offset : offset + batch_size]
-        insert_query = f"""
-            INSERT INTO FUNCTION s3({PERSON_TIMELINE.write_args(run, f"part_{part}.parquet")})
-            VALUES
-        """
-        cluster.any_host(
-            partial(_execute, query=insert_query, parameters=batch, query_settings=_write_settings(context))
-        ).result()
+    # Each batch is its own Parquet part object; reads glob `person_timeline/*.parquet`.
+    _write_rows_to_s3(context, cluster, PERSON_TIMELINE, run, rows, columns=8)
 
     anchor_persons = len(set(person_key_by_id.values()))
     context.add_output_metadata(
@@ -991,16 +1018,9 @@ def train_logreg_and_score(
 
     # Winners go to their own `links/logreg_v1_part_<n>.parquet` objects (the rules op already
     # wrote `links/rules_v1.parquet`); the read side unions them with `links/*.parquet`.
-    batch_size = 100_000
-    for part, offset in enumerate(range(0, len(link_rows), batch_size)):
-        batch = link_rows[offset : offset + batch_size]
-        insert_query = f"""
-            INSERT INTO FUNCTION s3({LINKS.write_args(run, f"{LOGREG_MODEL_VERSION}_part_{part}.parquet")})
-            VALUES
-        """
-        cluster.any_host(
-            partial(_execute, query=insert_query, parameters=batch, query_settings=_write_settings(context))
-        ).result()
+    _write_rows_to_s3(
+        context, cluster, LINKS, run, link_rows, columns=10, filename_prefix=f"{LOGREG_MODEL_VERSION}_part"
+    )
 
     metadata["logreg_links"] = dagster.MetadataValue.int(len(link_rows))
     context.add_output_metadata(metadata)
