@@ -143,8 +143,6 @@ export type HogFlowEditorActionMetrics = {
 export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
     branchEdges?: number
     output_variable?: HogFlowAction['output_variable']
-    // Computes team-specific input defaults when the action is dropped onto the canvas, for inputs
-    // that can't live as a static `default` in the shared template (e.g. a team's account group key).
     getDefaultInputs?: () => Record<string, CyclotronInputType> | undefined
 }
 

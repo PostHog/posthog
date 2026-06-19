@@ -7,10 +7,6 @@ import { GroupType, GroupTypeIndex } from '~/types'
 import { registerActionNodeCategory } from 'products/workflows/frontend/Workflows/hogflows/registry/actions/actionNodeRegistry'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 
-// Pre-fills the account `external_id` input with the group key for the team's account group type,
-// resolved from `account_group_type_index` → group type name → `{groups.<name>.id}`. Returns
-// undefined when accounts aren't configured or the group type can't be resolved, leaving the field
-// empty for manual entry.
 export const buildAccountExternalIdInputs = (
     accountGroupTypeIndex: number | null | undefined,
     groupTypes: Map<GroupTypeIndex, GroupType>
@@ -38,9 +34,6 @@ registerActionNodeCategory({
             description: 'Fetch a Customer analytics account into a workflow variable.',
             config: { template_id: 'template-posthog-get-account', inputs: {} },
             getDefaultInputs: getAccountExternalIdDefaultInputs,
-            // The account response nests role contacts (csm/account_executive/account_owner) as
-            // {id, email}, so a flat `spread` can't reach them. Map each field explicitly via
-            // result_path instead, while keeping the whole object available under `account`.
             output_variable: [
                 { key: 'account', result_path: null, label: 'Account' },
                 { key: 'account_csm_email', result_path: 'properties.csm.email', label: 'CSM email' },
