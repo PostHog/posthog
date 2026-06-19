@@ -23300,6 +23300,35 @@
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
             "type": "string"
         },
+        "HogQLAlertConfig": {
+            "additionalProperties": false,
+            "description": "Alert config for HogQL/SQL-backed insights. The query owns its own time window.",
+            "properties": {
+                "column": {
+                    "description": "Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).",
+                    "type": ["string", "null"]
+                },
+                "evaluation": {
+                    "$ref": "#/definitions/HogQLAlertEvaluation",
+                    "description": "How to read the result rows — an explicit choice, no implicit default."
+                },
+                "label_column": {
+                    "description": "In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number.",
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "HogQLAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "evaluation"],
+            "type": "object"
+        },
+        "HogQLAlertEvaluation": {
+            "description": "How a SQL alert reads the query result. `last_row` = the query is ordered oldest→newest and the last row is the current value; `first_row` = the query is ordered newest→oldest and the first row is the current value (this mode bounds the fetch with a LIMIT since only the head is read); `any_row` = every row is checked and the alert fires if any value breaches (absolute conditions only).",
+            "enum": ["last_row", "first_row", "any_row"],
+            "type": "string"
+        },
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
