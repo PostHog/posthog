@@ -263,7 +263,8 @@ mod test {
             sourcemap::SourcemapProvider,
             Catalog, MockS3Client,
         },
-        types::{RawErrProps, Stacktrace},
+        core::types::Stacktrace,
+        types::RawErrProps,
     };
 
     const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";

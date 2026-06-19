@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::frames::{Frame, RawFrame};
+use crate::core::frames::{Frame, RawFrame};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]

@@ -18,30 +18,15 @@ use crate::langs::native::DebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 use crate::tokenizer::CL100K_BPE;
 
-mod exception;
-mod stacktrace;
-
 pub mod batch;
 pub mod event;
 pub mod exception_properties;
 pub mod operator;
 pub mod stage;
 
-pub use exception::*;
-pub use stacktrace::*;
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Mechanism {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub handled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "type")]
-    pub mechanism_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub synthetic: Option<bool>,
-}
+// Shared exception/stacktrace types live in core; re-exported here so the
+// processing event model can keep referring to `crate::types::*`.
+pub use crate::core::types::{Exception, Mechanism, Stacktrace};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(transparent)]

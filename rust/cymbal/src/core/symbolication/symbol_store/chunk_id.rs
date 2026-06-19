@@ -356,7 +356,8 @@ mod test {
             sourcemap::{OwnedSourceMapCache, SourcemapProvider},
             Catalog, MockS3Client, Provider,
         },
-        types::{RawErrProps, Stacktrace},
+        core::types::Stacktrace,
+        types::RawErrProps,
     };
 
     const EXAMPLE_EXCEPTION: &str =

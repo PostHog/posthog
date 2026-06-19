@@ -5,8 +5,9 @@ use crate::{
     frames::{Frame, RawFrame},
     langs::native::DebugImage,
     metric_consts::JAVA_EXCEPTION_REMAP_FAILED,
+    core::ids::TeamId,
+    core::types::Exception,
     symbolication::symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef},
-    types::{operator::TeamId, Exception},
 };
 use tracing::warn;
 pub mod local;

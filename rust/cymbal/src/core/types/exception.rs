@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    frames::RawFrame,
-    types::{stacktrace::Stacktrace, Mechanism},
-};
+use crate::core::frames::RawFrame;
+use crate::core::types::{stacktrace::Stacktrace, Mechanism};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Exception {
