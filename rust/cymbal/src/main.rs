@@ -51,7 +51,7 @@ async fn main() {
     match config.mode {
         CymbalMode::Processing => modes::processing::run(config).await,
         CymbalMode::Resolution => {
-            if let Err(e) = modes::resolution::serve(&config).await {
+            if let Err(e) = modes::resolution::serve(&config.resolver, &config.resolution).await {
                 error!("cymbal-resolution server error: {e}");
                 std::process::exit(1);
             }
