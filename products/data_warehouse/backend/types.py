@@ -670,6 +670,7 @@ class ExternalDataSourceType(models.TextChoices):
     LIGHTFIELD = "Lightfield", "Lightfield"
     APPSTACK = "Appstack", "Appstack"
     RAZORPAY = "Razorpay", "Razorpay"
+    NEON = "Neon", "Neon"
     CUSTOM = "Custom", "Custom"
 
 
