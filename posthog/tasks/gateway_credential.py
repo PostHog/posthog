@@ -22,6 +22,7 @@ from posthog.models.team.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_REQUIRED_SCOPE,
+    drain_gateway_credential_last_used,
     project_gateway_credential,
     refresh_all_gateway_credentials,
 )
@@ -91,6 +92,16 @@ def reproject_team_gateway_credentials_task(team_id: int) -> None:
         application_id__isnull=False,
     ):
         project_gateway_credential(token)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
+def drain_gateway_credential_last_used_task() -> None:
+    """Stamp last_used_at for phs_ keys from the gateway's coalesced Valkey hash,
+    since gateway traffic never hits the Django auth path that would stamp it."""
+    updated = drain_gateway_credential_last_used()
+    if updated:
+        logger.info("Drained gateway credential last_used", updated=updated)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

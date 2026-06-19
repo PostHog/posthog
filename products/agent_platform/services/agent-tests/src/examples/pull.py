@@ -3,7 +3,7 @@
 Reverse seed — pull live bundle changes from local PostHog back to disk.
 
 The inverse of `seed.py`. After editing an example agent on the platform —
-e.g. iterating on it through the concierge — run this to pull the live
+e.g. iterating on it through the Agent Builder — run this to pull the live
 revision's bundle (system prompt, skills, spec) back into the on-disk bundle
 so the changes can be reviewed + committed.
 
@@ -15,19 +15,19 @@ For each selected bundle it:
 
 Content vs spec:
   - `agent.md` + skill bodies (and custom-tool sources) are written verbatim —
-    a lossless round-trip, and the common case (concierge edits to the prompt
+    a lossless round-trip, and the common case (Agent Builder edits to the prompt
     and skills). This is what runs by default.
   - `spec.json` is pulled only with `--spec`. The platform stores the FROZEN
     spec — schema defaults filled in and skill descriptions re-derived from
     each SKILL.md frontmatter at freeze — so pulling it rewrites the file into
-    that normalised shape (useful when the concierge changed triggers / tools /
+    that normalised shape (useful when the Agent Builder changed triggers / tools /
     limits, noisy otherwise). Local-only keys `seed.py` strips on upload (e.g.
     `resume`) are preserved from disk. Review the diff.
 
 Idempotent: a file whose on-disk content already matches is left untouched;
 the run prints exactly what changed. Pulls the LIVE revision by default; pass
 `--latest` to pull the newest revision regardless of state (e.g. an
-un-promoted concierge draft).
+un-promoted Agent Builder draft).
 
 Usage:
     # Pull every bundle that has an application on the platform:
@@ -213,7 +213,7 @@ def pull_bundle(bundle_root: Path, latest: bool, prune: bool, pull_spec: bool) -
         changed += 1
 
     # Skills — one folder per skill at the platform-canonical path. Bodies
-    # round-trip exactly; this is the common case (concierge prose edits).
+    # round-trip exactly; this is the common case (Agent Builder prose edits).
     pulled_skill_paths: set[str] = set()
     for s in bundle.get("skills", []):
         sid = s.get("id")
@@ -224,7 +224,7 @@ def pull_bundle(bundle_root: Path, latest: bool, prune: bool, pull_spec: bool) -
         if write_if_changed(bundle_root, rel, s.get("body", "")):
             changed += 1
 
-    # Custom tool sources (seed.py doesn't push these, but the concierge may
+    # Custom tool sources (seed.py doesn't push these, but the Agent Builder may
     # have added one on the platform).
     pulled_tool_dirs: set[str] = set()
     for t in bundle.get("tools", []):
@@ -239,7 +239,7 @@ def pull_bundle(bundle_root: Path, latest: bool, prune: bool, pull_spec: bool) -
     # spec.json — opt-in. The platform stores the FROZEN spec: schema defaults
     # filled in and skill descriptions re-derived from each SKILL.md frontmatter
     # at freeze. That normalisation can't be cleanly un-applied, so pulling it
-    # rewrites spec.json into the normalised shape — handy when the concierge
+    # rewrites spec.json into the normalised shape — handy when the Agent Builder
     # changed triggers/tools/limits, noisy otherwise. Off by default; review the
     # diff. Local-only keys seed.py strips (e.g. `resume`) are preserved.
     if pull_spec:

@@ -256,10 +256,60 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             const alignPrimary = alignByMetricPosition(props.experiment, 'primary')
             const alignSecondary = alignByMetricPosition(props.experiment, 'secondary')
 
-            actions.setPrimaryMetricsResults(alignPrimary(resultFor))
-            actions.setSecondaryMetricsResults(alignSecondary(resultFor))
-            actions.setPrimaryMetricsResultsErrors(alignPrimary(errorFor))
-            actions.setSecondaryMetricsResultsErrors(alignSecondary(errorFor))
+            /**
+             * Merge, don't overwrite: keep whatever is already shown for a metric until its real result or
+             * error lands. A run that is still pending (or a cold_run mid-flight) carries an empty `results`
+             * list, so a plain overwrite would blank cells we already populated (e.g. timeseries cold-start
+             * placeholders), flipping them back to a loading spinner. A slot is updated only when this payload
+             * has a result OR an error for that metric; a new error clears the old result and vice versa, so a
+             * cell never shows a stale result alongside a fresh error.
+             */
+            const nextResults = alignPrimary(resultFor)
+            const nextSecondaryResults = alignSecondary(resultFor)
+            const nextErrors = alignPrimary(errorFor)
+            const nextSecondaryErrors = alignSecondary(errorFor)
+
+            const mergeResults = (
+                current: CachedNewExperimentQueryResponse[],
+                nextResult: (CachedNewExperimentQueryResponse | undefined)[],
+                nextError: MetricErrorState[]
+            ): CachedNewExperimentQueryResponse[] =>
+                nextResult.map((value, i) => {
+                    if (value !== undefined) {
+                        return value
+                    }
+                    // A fresh error for this slot supersedes any previously shown result.
+                    if (nextError[i]) {
+                        return undefined as unknown as CachedNewExperimentQueryResponse
+                    }
+                    return current[i]
+                })
+            const mergeErrors = (
+                current: (unknown | null)[],
+                nextError: MetricErrorState[],
+                nextResult: (CachedNewExperimentQueryResponse | undefined)[]
+            ): (unknown | null)[] =>
+                nextError.map((value, i) => {
+                    if (value) {
+                        return value
+                    }
+                    // A fresh result for this slot clears any previously shown error.
+                    if (nextResult[i] !== undefined) {
+                        return null
+                    }
+                    return current[i] ?? null
+                })
+
+            actions.setPrimaryMetricsResults(mergeResults(values.primaryMetricsResults, nextResults, nextErrors))
+            actions.setSecondaryMetricsResults(
+                mergeResults(values.secondaryMetricsResults, nextSecondaryResults, nextSecondaryErrors)
+            )
+            actions.setPrimaryMetricsResultsErrors(
+                mergeErrors(values.primaryMetricsResultsErrors, nextErrors, nextResults)
+            )
+            actions.setSecondaryMetricsResultsErrors(
+                mergeErrors(values.secondaryMetricsResultsErrors, nextSecondaryErrors, nextSecondaryResults)
+            )
         }
 
         return {
@@ -298,6 +348,16 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     )
                     actions.setCurrentRecalculation(recalculation)
                     applyResults(recalculation)
+
+                    /**
+                     * Timeseries fallback is a placeholder: it may cover only some metrics and is cumulative
+                     * daily data, not a fresh point-in-time result. Always trigger a real cold_run to fill the
+                     * gaps and refresh; the placeholder stays visible and cells update in place as it polls.
+                     */
+                    if (recalculation.result_source === 'timeseries_fallback') {
+                        actions.triggerRecalculation('cold_run')
+                        return
+                    }
 
                     /**
                      * if the recalculation resutls are stale, trigger a new recalculation

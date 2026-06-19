@@ -225,6 +225,18 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Data type of the incremental field.",
     )
+    incremental_field_lookback_seconds = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=5_184_000,  # 60 days — larger windows defeat incremental efficiency
+        help_text=(
+            "Seconds to subtract from the stored incremental watermark at sync time, so each "
+            "incremental run re-reads a rolling overlap window and catches late or backdated rows. "
+            "Applies to timestamp/date incremental fields only. The stored watermark is unchanged. "
+            "Maximum 5184000 (60 days)."
+        ),
+    )
     sync_frequency = serializers.ChoiceField(
         choices=[
             ("never", "never"),
@@ -309,6 +321,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "sync_type",
             "incremental_field",
             "incremental_field_type",
+            "incremental_field_lookback_seconds",
             "sync_frequency",
             "sync_time_of_day",
             "description",
@@ -431,6 +444,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ret["incremental_field_type"] = (
             instance.sync_type_config.get("incremental_field_type") if instance.sync_type_config else None
         )
+        ret["incremental_field_lookback_seconds"] = instance.incremental_field_lookback_seconds
         ret["primary_key_columns"] = instance.primary_key_columns
         ret["cdc_table_mode"] = instance.cdc_table_mode
         return ret
@@ -470,6 +484,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         validated_data.pop("sync_time_of_day", None)
         validated_data.pop("incremental_field", None)
         validated_data.pop("incremental_field_type", None)
+        validated_data.pop("incremental_field_lookback_seconds", None)
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
 
@@ -584,6 +599,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 payload["incremental_field"] = incremental_field
             if "incremental_field_type" in data:
                 payload["incremental_field_type"] = data.get("incremental_field_type")
+
+            # Lookback only applies to incremental — merge-by-PK makes re-reading the overlap window
+            # idempotent. `null` clears it.
+            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and "incremental_field_lookback_seconds" in data:
+                payload["incremental_field_lookback_seconds"] = data.get("incremental_field_lookback_seconds")
 
             if incremental_field_changed:
                 if instance.table is not None and isinstance(incremental_field, str):

@@ -18,6 +18,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
         """Visibility of the dashboard template"""
 
         ONLY_TEAM = "team", "Only team"
+        ORGANIZATION = "organization", "Organization"
         GLOBAL = "global", "Global"
         FEATURE_FLAG = "feature_flag", "Feature Flag"
 
