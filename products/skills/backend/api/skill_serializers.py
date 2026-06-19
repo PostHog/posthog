@@ -12,7 +12,10 @@ from products.ai_observability.backend.markdown_outline import get_markdown_outl
 
 from ..models.skills import LLMSkill, LLMSkillFile
 
-RESERVED_SKILL_NAMES = {"new"}
+# Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
+# form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
+# products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
+RESERVED_SKILL_NAMES = {"new", "scouts"}
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
@@ -26,7 +29,7 @@ SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 def validate_skill_name_value(value: str) -> str:
     if value.lower() in RESERVED_SKILL_NAMES:
         raise serializers.ValidationError(
-            "'new' is a reserved name and cannot be used.",
+            f"'{value}' is a reserved name and cannot be used.",
             code="reserved_name",
         )
     if len(value) > 64:

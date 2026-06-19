@@ -292,39 +292,24 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_list_skills_filter_by_category_returns_only_that_category(self, mock_feature_enabled):
+    @parameterized.expand(
+        [
+            # (label, query_suffix, expected names) — scouts only, uncategorized only, all categories.
+            ("scout_only", "?category=scout", ["signals-scout-errors", "signals-scout-web"]),
+            ("uncategorized_only", "?category=", ["ordinary-skill"]),
+            ("no_param_returns_all", "", ["ordinary-skill", "signals-scout-errors", "signals-scout-web"]),
+        ]
+    )
+    def test_list_skills_filter_by_category(self, mock_feature_enabled, _label, query_suffix, expected_names):
         self.create_skill(name="ordinary-skill", description="Plain.")
         self.create_skill(name="signals-scout-errors", description="A scout.", category="scout")
         self.create_skill(name="signals-scout-web", description="Another scout.", category="scout")
 
-        response = self.client.get(self._url() + "?category=scout")
+        response = self.client.get(self._url() + query_suffix)
 
         assert response.status_code == status.HTTP_200_OK
-        results = response.json()["results"]
-        assert response.json()["count"] == 2
-        assert sorted(r["name"] for r in results) == ["signals-scout-errors", "signals-scout-web"]
-        assert all(r["category"] == "scout" for r in results)
-
-    def test_list_skills_filter_by_empty_category_returns_only_uncategorized(self, mock_feature_enabled):
-        self.create_skill(name="ordinary-skill", description="Plain.")
-        self.create_skill(name="signals-scout-errors", description="A scout.", category="scout")
-
-        response = self.client.get(self._url() + "?category=")
-
-        assert response.status_code == status.HTTP_200_OK
-        results = response.json()["results"]
-        assert response.json()["count"] == 1
-        assert results[0]["name"] == "ordinary-skill"
-        assert results[0]["category"] == ""
-
-    def test_list_skills_without_category_param_returns_all_categories(self, mock_feature_enabled):
-        self.create_skill(name="ordinary-skill", description="Plain.")
-        self.create_skill(name="signals-scout-errors", description="A scout.", category="scout")
-
-        response = self.client.get(self._url())
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["count"] == 2
+        assert response.json()["count"] == len(expected_names)
+        assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected_names)
 
     # --- Get by name ---
 

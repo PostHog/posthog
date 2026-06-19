@@ -486,6 +486,7 @@ export function LLMSkillsScene(): JSX.Element {
                     <>
                         <LemonButton
                             type="secondary"
+                            size="small"
                             onClick={() => setConnectModalOpen(true)}
                             data-attr="connect-coding-agent-button"
                         >
@@ -497,6 +498,7 @@ export function LLMSkillsScene(): JSX.Element {
                         >
                             <LemonButton
                                 type="secondary"
+                                size="small"
                                 icon={<IconUpload />}
                                 onClick={() => fileInputRef.current?.click()}
                                 loading={importing}
@@ -512,6 +514,7 @@ export function LLMSkillsScene(): JSX.Element {
                         >
                             <LemonButton
                                 type="primary"
+                                size="small"
                                 to={skillUrl('new')}
                                 icon={<IconPlusSmall />}
                                 data-attr="new-skill-button"

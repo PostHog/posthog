@@ -236,6 +236,9 @@ def publish_skill_version(
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
             allowed_tools=_carry_forward(allowed_tools, current_latest.allowed_tools),
             metadata=_carry_forward(metadata, current_latest.metadata),
+            # Categorization is a property of the skill, not the version — carry it forward so editing
+            # a scout (or any categorized skill) doesn't drop it out of its tab.
+            category=current_latest.category,
             version=current_latest.version + 1,
             is_latest=True,
             created_by=user,
@@ -399,6 +402,12 @@ def duplicate_skill(
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
 
+        # A duplicate is authored by this user, not seeded by whatever produced the source. Drop the
+        # provenance marker so a fork of a canonical scout isn't mislabeled as canonical downstream
+        # (the category is kept — the copy is still the same kind of skill, just team-owned).
+        duplicated_metadata = dict(source_latest.metadata or {})
+        duplicated_metadata.pop("seeded_by", None)
+
         try:
             new_skill = LLMSkill.objects.create(
                 team=team,
@@ -408,7 +417,8 @@ def duplicate_skill(
                 license=source_latest.license,
                 compatibility=source_latest.compatibility,
                 allowed_tools=source_latest.allowed_tools,
-                metadata=source_latest.metadata,
+                metadata=duplicated_metadata,
+                category=source_latest.category,
                 version=1,
                 is_latest=True,
                 created_by=user,
@@ -460,6 +470,7 @@ def _create_next_version_with_files(
         compatibility=current_latest.compatibility,
         allowed_tools=current_latest.allowed_tools,
         metadata=current_latest.metadata,
+        category=current_latest.category,
         version=current_latest.version + 1,
         is_latest=True,
         created_by=user,
