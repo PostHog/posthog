@@ -10,7 +10,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import DIRECT_ENGINE_BY_SOURCE_TYPE, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -88,6 +88,11 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_direct_mysql(self) -> bool:
         return self.is_direct_query and self.source_type == ExternalDataSourceType.MYSQL
+
+    @property
+    def direct_engine(self) -> str | None:
+        """The direct-SQL engine for this source's type, or None if the type can't be queried live."""
+        return DIRECT_ENGINE_BY_SOURCE_TYPE.get(self.source_type)
 
     @property
     def supports_scheduled_sync(self) -> bool:
