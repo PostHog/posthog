@@ -62,9 +62,7 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
         const initDurationMs = requestContext.requestStartTime
             ? Date.now() - requestContext.requestStartTime
             : undefined
-        const sessionUuid = requestContext.sessionId
-            ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
-            : undefined
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
@@ -129,9 +127,7 @@ export async function trackToolCall(
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
-        const sessionUuid = requestContext.sessionId
-            ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
-            : undefined
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
@@ -196,9 +192,7 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
     try {
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
-        const sessionUuid = requestContext.sessionId
-            ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
-            : undefined
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
