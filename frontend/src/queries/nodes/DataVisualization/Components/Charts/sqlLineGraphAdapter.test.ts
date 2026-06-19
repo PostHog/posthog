@@ -1,3 +1,5 @@
+import { type TrendLineConfig } from '@posthog/quill-charts'
+
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
@@ -7,6 +9,7 @@ import { LineGraphProps } from './LineGraph'
 import {
     AREA_FILL_OPACITY,
     MAX_SERIES,
+    type SqlLineYSeries,
     barLayoutForDisplay,
     buildBarChartConfig,
     buildLineChartConfig,
