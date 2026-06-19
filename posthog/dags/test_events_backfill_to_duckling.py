@@ -25,6 +25,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _DuckgresSession,
     _get_cluster,
     _resolve_duckling_target,
+    _resolve_table_names,
     _set_table_partitioning,
     _validate_identifier,
     duckling_events_full_backfill_sensor,
@@ -38,14 +39,57 @@ from posthog.dags.events_backfill_to_duckling import (
 
 
 class TestResolveDucklingTarget:
+    @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.derive_duckling_bucket", return_value=("bkt", "us-west-2"))
     @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
-    def test_builds_target_from_org_and_derived_bucket(self, mock_org: MagicMock, mock_derive: MagicMock):
+    def test_builds_target_from_org_and_derived_bucket(
+        self, mock_org: MagicMock, mock_derive: MagicMock, mock_tables: MagicMock
+    ):
         target = _resolve_duckling_target(7)
 
-        assert target == DucklingTarget(team_id=7, organization_id="org-1", bucket="bkt", bucket_region="us-west-2")
+        assert target == DucklingTarget(
+            team_id=7,
+            organization_id="org-1",
+            bucket="bkt",
+            bucket_region="us-west-2",
+            events_table="events",
+            persons_table="persons",
+        )
         mock_org.assert_called_once_with(7)
         mock_derive.assert_called_once_with("org-1")
+        mock_tables.assert_called_once_with(7)
+
+
+class TestResolveTableNames:
+    """Resolution of per-environment table names from a team's stored events_table_suffix.
+
+    Kept DB-free (the rest of this file is): the stored suffix is mocked at the ORM boundary.
+    """
+
+    def _patch_suffix(self, suffix: str | None) -> MagicMock:
+        model = MagicMock()
+        model.objects.filter.return_value.values_list.return_value.first.return_value = suffix
+        return model
+
+    def test_set_suffix_yields_dedicated_tables(self):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("alpha")):
+            assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
+
+    def test_distinct_suffixes_isolate_two_teams(self):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("alpha")):
+            assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("beta")):
+            assert _resolve_table_names(2) == ("events_beta", "persons_beta")
+
+    @parameterized.expand([("none", None), ("empty", "")])
+    def test_unset_suffix_falls_back_to_shared_tables(self, _name, suffix):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix(suffix)):
+            assert _resolve_table_names(1) == ("events", "persons")
+
+    def test_unsafe_suffix_is_rejected(self):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("a-b; DROP")):
+            with pytest.raises(ValueError):
+                _resolve_table_names(1)
 
 
 class TestParsePartitionKey:
@@ -165,7 +209,7 @@ class TestEventsDDL:
     def test_events_ddl_is_valid_sql(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = EVENTS_TABLE_DDL.format(catalog="memory")
+        ddl = EVENTS_TABLE_DDL.format(catalog="memory", table="events")
         conn.execute(ddl)
 
         # Verify table was created with expected columns
@@ -178,10 +222,19 @@ class TestEventsDDL:
     def test_events_ddl_is_idempotent(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = EVENTS_TABLE_DDL.format(catalog="memory")
+        ddl = EVENTS_TABLE_DDL.format(catalog="memory", table="events")
         # Should not raise on second execution
         conn.execute(ddl)
         conn.execute(ddl)
+        conn.close()
+
+    def test_events_ddl_honors_suffixed_table_name(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        conn.execute(EVENTS_TABLE_DDL.format(catalog="memory", table="events_alpha"))
+
+        result = conn.execute("DESCRIBE memory.posthog.events_alpha").fetchall()
+        assert {row[0] for row in result} == EXPECTED_DUCKLAKE_EVENTS_COLUMNS
         conn.close()
 
 
@@ -189,7 +242,7 @@ class TestPersonsDDL:
     def test_persons_ddl_is_valid_sql(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = PERSONS_TABLE_DDL.format(catalog="memory")
+        ddl = PERSONS_TABLE_DDL.format(catalog="memory", table="persons")
         conn.execute(ddl)
 
         # Verify table was created with expected columns
@@ -202,10 +255,19 @@ class TestPersonsDDL:
     def test_persons_ddl_is_idempotent(self):
         conn = duckdb.connect()
         conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
-        ddl = PERSONS_TABLE_DDL.format(catalog="memory")
+        ddl = PERSONS_TABLE_DDL.format(catalog="memory", table="persons")
         # Should not raise on second execution
         conn.execute(ddl)
         conn.execute(ddl)
+        conn.close()
+
+    def test_persons_ddl_honors_suffixed_table_name(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        conn.execute(PERSONS_TABLE_DDL.format(catalog="memory", table="persons_beta"))
+
+        result = conn.execute("DESCRIBE memory.posthog.persons_beta").fetchall()
+        assert {row[0] for row in result} == EXPECTED_DUCKLAKE_PERSONS_COLUMNS
         conn.close()
 
 
@@ -617,7 +679,7 @@ class TestDuckLakeAddDataFilesPartitioning:
         conn.execute("LOAD ducklake")
         conn.execute(f"ATTACH 'ducklake:{catalog_path}' AS test_lake (DATA_PATH '{data_path}')")
         conn.execute("CREATE SCHEMA IF NOT EXISTS test_lake.posthog")
-        conn.execute(EVENTS_TABLE_DDL.format(catalog="test_lake"))
+        conn.execute(EVENTS_TABLE_DDL.format(catalog="test_lake", table="events"))
         conn.execute(
             "ALTER TABLE test_lake.posthog.events "
             "SET PARTITIONED BY (year(timestamp), month(timestamp), day(timestamp))"
