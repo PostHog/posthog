@@ -73,3 +73,22 @@ class TestTriggerRecordingExport(BaseTest):
         assert persisted.status == ExportedRecording.Status.FAILED
         assert persisted.error_message == "Failed to start the export workflow"
         mock_log_activity.assert_not_called()
+
+    def test_activity_log_failure_does_not_fail_the_export(self) -> None:
+        mock_temporal = MagicMock()
+        mock_temporal.start_workflow = AsyncMock(return_value=None)
+
+        with (
+            patch(f"{SERVICE}.sync_connect", return_value=mock_temporal),
+            patch(f"{SERVICE}.log_activity", side_effect=RuntimeError("activity log down")),
+        ):
+            record = trigger_recording_export(
+                team=self.team,
+                session_id="session-789",
+                reason="debugging",
+                user=self.user,
+                was_impersonated=False,
+            )
+
+        persisted = ExportedRecording.objects.get(id=record.id)
+        assert persisted.status == ExportedRecording.Status.PENDING

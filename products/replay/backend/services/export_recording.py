@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from django.conf import settings
 
+import structlog
 from temporalio import common
 
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
@@ -14,6 +15,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.session_replay.export_recording.types import ExportRecordingInput
 
 from products.replay.backend.models.exported_recording import ExportedRecording
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -59,20 +62,25 @@ def trigger_recording_export(
         export_record.save(update_fields=["status", "error_message"])
         raise
 
-    log_activity(
-        organization_id=team.organization_id,
-        team_id=team.id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=session_id,
-        scope="Replay",
-        activity="exported",
-        detail=Detail(
-            name=f"Session replay {session_id}",
-            short_id=session_id,
-            type="admin_export",
-            context=ReplayActivityContext(reason=reason),
-        ),
-    )
+    # The workflow has started; an audit-log write failure must not fail the export
+    # (which would 502 and prompt a retry that starts a duplicate workflow).
+    try:
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=session_id,
+            scope="Replay",
+            activity="exported",
+            detail=Detail(
+                name=f"Session replay {session_id}",
+                short_id=session_id,
+                type="admin_export",
+                context=ReplayActivityContext(reason=reason),
+            ),
+        )
+    except Exception:
+        logger.exception("export_recording_activity_log_failed", team_id=team.id, session_id=session_id)
 
     return export_record

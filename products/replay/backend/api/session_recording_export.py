@@ -10,7 +10,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
-from posthog.permissions import IsStaffUserOrImpersonating
+from posthog.permissions import IsStaffUser
 
 from products.replay.backend.models.exported_recording import ExportedRecording
 from products.replay.backend.services.export_recording import trigger_recording_export
@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 
 class ExportTriggerFailed(APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
-    default_detail = "Failed to start the export workflow. The export was recorded but did not begin; please retry."
+    default_detail = "Failed to start the export workflow; please retry."
     default_code = "export_trigger_failed"
 
 
@@ -77,7 +77,7 @@ class SessionRecordingExportViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "session_recording"
-    permission_classes = [IsStaffUserOrImpersonating]
+    permission_classes = [IsStaffUser]
     queryset = ExportedRecording.objects.all().select_related("created_by")
     serializer_class = ExportedRecordingSerializer
 
