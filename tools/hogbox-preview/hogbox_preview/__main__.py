@@ -43,6 +43,7 @@ def build_backend(args: argparse.Namespace) -> HoglandBackend:
         cpus=args.cpus,
         memory_mib=args.memory_mib,
         disk_gib=args.disk_gib,
+        ttl_seconds=args.ttl_seconds,
     )
 
 
@@ -167,6 +168,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cpus", type=int, default=8, help="vCPUs (must match the golden's size)")
     p.add_argument("--memory-mib", type=int, default=16384, help="memory MiB (must match the golden's size)")
     p.add_argument("--disk-gib", type=int, default=100, help="rootfs GiB (must match the golden's size)")
+    p.add_argument("--ttl-seconds", type=int, default=1800,
+                   help="idle TTL in seconds; hogland's reaper hibernates this on_idle=hibernate preview "
+                        "after it's been idle this long (default 1800 = 30 min). A reviewer's next visit "
+                        "wakes it in ~30s. Min 60.")
 
     sub = p.add_subparsers(dest="cmd", required=True)
 
