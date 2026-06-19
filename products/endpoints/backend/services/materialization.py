@@ -393,8 +393,23 @@ class EndpointMaterializationService:
                     )
                 return q
 
-            # Each call builds a fresh SelectQuery, so WHERE mutations don't leak between calls
-            execution_query_str = to_printed_hogql(_build_exec_preview(version.materialized_view_name), team=self.team)
+            # Each call builds a fresh SelectQuery, so WHERE mutations don't leak between calls.
+            # Type resolution (to_printed_hogql) needs the materialized table to exist in the
+            # database, which only holds once materialization has completed. Previewing a
+            # not-yet-materialized version means that table is absent, so we'd otherwise hit
+            # "Unknown table". Fall back to printing without type resolution in that case — the
+            # frontend uses execution_query only as a presence flag and renders the display variant.
+            if version.is_materialized:
+                execution_query_str = to_printed_hogql(
+                    _build_exec_preview(version.materialized_view_name), team=self.team
+                )
+            else:
+                execution_query_str = print_prepared_ast(
+                    node=_build_exec_preview(version.materialized_view_name),
+                    context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                    dialect="hogql",
+                    pretty=True,
+                )
 
             # Display variant uses the friendly endpoint name — printed without type resolution
             # since the friendly name isn't a real table in the database
