@@ -63,11 +63,10 @@ function widestCategoryLabelWidth(
 
 function widestValueLabelWidth(series: Series[], yTickFormatter: ((value: number) => string) | undefined): number {
     const range = seriesValueRange(series)
-    if (range.count === 0) {
-        return 0
-    }
-    const min = range.min > 0 ? 0 : range.min
-    const max = range.max < 0 ? 0 : range.max
+    // No data: the scale falls back to a [0, 1] domain (see `buildValueScale`), whose ticks render
+    // as "0.00".."1.00". Measure those so the empty-state margin still fits its labels — returning 0
+    // here collapses the margin to its floor and clips the labels against the wrapper's overflow.
+    const [min, max] = range.count === 0 ? [0, 1] : [range.min > 0 ? 0 : range.min, range.max < 0 ? 0 : range.max]
     const ticks = scaleLinear().domain([min, max]).nice(6).ticks(6)
     if (ticks.length === 0) {
         return 0

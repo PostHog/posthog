@@ -27,21 +27,15 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token }}
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
+                  install-command: pnpm install
 
             - name: Update Browserslist database
               env:
                   NO_COLOR: '1'
-              run: |
-                  pnpm install
-                  npx --yes update-browserslist-db@latest 2>&1 | tee /tmp/browserslist-output.txt
+              run: npx --yes update-browserslist-db@latest 2>&1 | tee /tmp/browserslist-output.txt
 
             - name: Check for changes
               id: check-changes

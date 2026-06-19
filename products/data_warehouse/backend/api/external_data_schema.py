@@ -1,6 +1,6 @@
 import datetime as dt
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import structlog
 import temporalio
@@ -15,6 +15,7 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.user import User
 from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter, source_type_supports_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
@@ -198,6 +199,18 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Data type of the incremental field.",
     )
+    incremental_field_lookback_seconds = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=5_184_000,  # 60 days — larger windows defeat incremental efficiency
+        help_text=(
+            "Seconds to subtract from the stored incremental watermark at sync time, so each "
+            "incremental run re-reads a rolling overlap window and catches late or backdated rows. "
+            "Applies to timestamp/date incremental fields only. The stored watermark is unchanged. "
+            "Maximum 5184000 (60 days)."
+        ),
+    )
     sync_frequency = serializers.ChoiceField(
         choices=[
             ("never", "never"),
@@ -282,6 +295,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "sync_type",
             "incremental_field",
             "incremental_field_type",
+            "incremental_field_lookback_seconds",
             "sync_frequency",
             "sync_time_of_day",
             "description",
@@ -382,7 +396,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         hogql_context = self.context.get("database", None)
         if not hogql_context:
-            hogql_context = Database.create_for(team_id=self.context["team_id"])
+            hogql_context = Database.create_for(
+                team_id=self.context["team_id"],
+                user=cast(User, self.context["request"].user),
+            )
 
         if schema.table and schema.table.deleted:
             return None
@@ -404,6 +421,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ret["incremental_field_type"] = (
             instance.sync_type_config.get("incremental_field_type") if instance.sync_type_config else None
         )
+        ret["incremental_field_lookback_seconds"] = instance.incremental_field_lookback_seconds
         ret["primary_key_columns"] = instance.primary_key_columns
         ret["cdc_table_mode"] = instance.cdc_table_mode
         return ret
@@ -443,6 +461,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         validated_data.pop("sync_time_of_day", None)
         validated_data.pop("incremental_field", None)
         validated_data.pop("incremental_field_type", None)
+        validated_data.pop("incremental_field_lookback_seconds", None)
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
 
@@ -539,6 +558,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 payload["incremental_field"] = incremental_field
             if "incremental_field_type" in data:
                 payload["incremental_field_type"] = data.get("incremental_field_type")
+
+            # Lookback only applies to incremental — merge-by-PK makes re-reading the overlap window
+            # idempotent. `null` clears it.
+            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and "incremental_field_lookback_seconds" in data:
+                payload["incremental_field_lookback_seconds"] = data.get("incremental_field_lookback_seconds")
 
             if incremental_field_changed:
                 if instance.table is not None and isinstance(incremental_field, str):
@@ -940,7 +964,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
         context["include_source"] = self.action == "retrieve"
         return context

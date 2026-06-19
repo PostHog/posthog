@@ -62,10 +62,6 @@ class AgentApplication(ProductTeamModel, UUIDModel):
     slug = models.SlugField(max_length=63)
     description = models.TextField(blank=True, default="", db_default="")
 
-    # Encrypted JSON env block. Decrypted at runtime by the worker via
-    # `EncryptedFields` (see services/agent-shared/src/runtime/encryption.ts).
-    encrypted_env: EncryptedTextField = EncryptedTextField(null=True, blank=True)
-
     live_revision = models.ForeignKey(
         "AgentRevision",
         on_delete=models.SET_NULL,
@@ -129,6 +125,16 @@ class AgentRevision(ProductTeamModel, UUIDModel):
     bundle_sha256 = models.CharField(max_length=64, null=True, blank=True)
 
     spec = models.JSONField(default=dict)
+
+    # Encrypted JSON env block — the secret values this revision runs with.
+    # Decrypted at runtime by the worker via `EncryptedFields` (see
+    # services/agent-shared/src/runtime/encryption.ts). Lives on the revision
+    # (not the application) so a draft can be previewed with its own secret
+    # values without touching the live revision's, and a promote carries the
+    # secrets it was tested with. Mutable in place (key rotation must not
+    # require cutting a new revision) and copied forward when a new draft is
+    # forked from a parent. NULL means "no secrets set".
+    encrypted_env: EncryptedTextField = EncryptedTextField(null=True, blank=True)
 
     created_by_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())

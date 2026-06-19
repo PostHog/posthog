@@ -441,6 +441,12 @@ class Display(StrEnum):
     SLOPE_GRAPH = "SlopeGraph"
 
 
+class MetricSummary(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    LATEST = "latest"
+
+
 class YAxisScaleType(StrEnum):
     LOG10 = "log10"
     LINEAR = "linear"
@@ -1782,6 +1788,8 @@ class ExternalDataSourceType(StrEnum):
     STREAMLABS = "Streamlabs"
     DATORAMA = "Datorama"
     AHREFS = "Ahrefs"
+    LIGHTFIELD = "Lightfield"
+    APPSTACK = "Appstack"
     CUSTOM = "Custom"
 
 
@@ -2020,6 +2028,12 @@ class HogLanguage(StrEnum):
     LIQUID = "liquid"
 
 
+class HogQLAlertEvaluation(StrEnum):
+    LAST_ROW = "last_row"
+    FIRST_ROW = "first_row"
+    ANY_ROW = "any_row"
+
+
 class BounceRatePageViewMode(StrEnum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"
@@ -2163,6 +2177,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_APP = "customerio-app"
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
+    POSTGRESQL = "postgresql"
 
 
 class IntervalType(StrEnum):
@@ -2822,6 +2837,7 @@ class RecordingOrder(StrEnum):
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
     RECORDING_TTL = "recording_ttl"
+    SURFACING_SCORE = "surfacing_score"
 
 
 class RecordingOrderDirection(StrEnum):
@@ -3263,6 +3279,13 @@ class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class UsageMetricDisplay(StrEnum):

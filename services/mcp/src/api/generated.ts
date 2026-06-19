@@ -2299,6 +2299,25 @@ export namespace Schemas {
       value: number;
     }
 
+    export type LegendPosition = typeof LegendPosition[keyof typeof LegendPosition];
+
+
+    export const LegendPosition = {
+      Top: 'top',
+      Bottom: 'bottom',
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
+    export type MetricSummary = typeof MetricSummary[keyof typeof MetricSummary];
+
+
+    export const MetricSummary = {
+      Total: 'total',
+      Average: 'average',
+      Latest: 'latest',
+    } as const;
+
     export type ResultCustomizationBy = typeof ResultCustomizationBy[keyof typeof ResultCustomizationBy];
 
 
@@ -2384,6 +2403,8 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       hiddenLegendIndexes?: number[] | null;
       hideWeekends?: boolean | null;
+      /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+      legendPosition?: LegendPosition | null;
       /** Metric display: change pill color when the metric decreased. Defaults to red. */
       metricChangeDecreaseColor?: string | null;
       /** Metric display: change pill color when the metric increased. Defaults to green. */
@@ -2396,6 +2417,8 @@ export namespace Schemas {
       metricLineIncreaseColor?: string | null;
       /** Show the period-over-period change pill on the Metric display. */
       metricShowChange?: boolean | null;
+      /** Metric display: which summary the resting headline shows — the period total, the average, or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives the change pill: total/average compare against the previous period when "compare to previous" is on; latest compares first→last of the series. */
+      metricSummary?: MetricSummary | null;
       minDecimalPlaces?: number | null;
       movingAverageIntervals?: number | null;
       /** Wether result datasets are associated by their values or by their order. */
@@ -4996,6 +5019,7 @@ export namespace Schemas {
       CustomerioApp: 'customerio-app',
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
+      Postgresql: 'postgresql',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -7574,17 +7598,6 @@ export namespace Schemas {
       results: AgentApprovalRequest[];
     }
 
-    export interface AgentApplicationEnvKeyStatus {
-      key: string;
-      /** True if the key is present in the env block. The value itself is never returned. */
-      is_set: boolean;
-    }
-
-    export interface AgentApplicationEnvKeysResponse {
-      /** Names of env variables currently set on the application. Values are never returned. */
-      keys: string[];
-    }
-
     export interface AgentApplicationPreviewTokenResponse {
       /** HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly. */
       token: string;
@@ -8402,6 +8415,17 @@ export namespace Schemas {
       request_id: string;
     }
 
+    export interface AgentRevisionEnvKeyStatus {
+      key: string;
+      /** True if the key is present in the env block. The value itself is never returned. */
+      is_set: boolean;
+    }
+
+    export interface AgentRevisionEnvKeysResponse {
+      /** Names of env variables currently set on the revision. Values are never returned. */
+      keys: string[];
+    }
+
     export interface AgentRevisionSlackManifestResponse {
       revision_id: string;
       /** Slack app manifest (JSON) ready to paste into https://api.slack.com/apps?new_app=1 → 'From an app manifest'. Scopes and event subscriptions are derived from the agent's slack trigger config + tools. */
@@ -8621,13 +8645,52 @@ export namespace Schemas {
       readonly notification_suppressed_by_agent: boolean;
     }
 
+    export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
+
+
+    export const TrendsAlertConfigType = {
+      TrendsAlertConfig: 'TrendsAlertConfig',
+    } as const;
+
     export interface TrendsAlertConfig {
       /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
       check_ongoing_interval?: boolean | null;
       /** Zero-based index of the series in the insight's query to monitor. */
       series_index: number;
-      type?: 'TrendsAlertConfig';
+      type: TrendsAlertConfigType;
     }
+
+    export type HogQLAlertEvaluation = typeof HogQLAlertEvaluation[keyof typeof HogQLAlertEvaluation];
+
+
+    export const HogQLAlertEvaluation = {
+      LastRow: 'last_row',
+      FirstRow: 'first_row',
+      AnyRow: 'any_row',
+    } as const;
+
+    export type HogQLAlertConfigType = typeof HogQLAlertConfigType[keyof typeof HogQLAlertConfigType];
+
+
+    export const HogQLAlertConfigType = {
+      HogQLAlertConfig: 'HogQLAlertConfig',
+    } as const;
+
+    export interface HogQLAlertConfig {
+      /** Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column). */
+      column?: string | null;
+      /** How to read the result rows — an explicit choice, no implicit default. */
+      evaluation: HogQLAlertEvaluation;
+      /** In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number. */
+      label_column?: string | null;
+      type: HogQLAlertConfigType;
+    }
+
+    /**
+     * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
+     * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
+     */
+    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig;
 
     export interface PreprocessingConfig {
       /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -8875,8 +8938,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total: number | null;
-      /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-      config?: TrendsAlertConfig | null;
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
@@ -9423,6 +9486,10 @@ export namespace Schemas {
      * * `test_endpoint` - test_endpoint
      * * `create_early_access_feature` - create_early_access_feature
      * * `update_feature_stage` - update_feature_stage
+     * * `use_posthog_ai` - use_posthog_ai
+     * * `use_posthog_code` - use_posthog_code
+     * * `use_posthog_mcp` - use_posthog_mcp
+     * * `use_posthog_in_slack` - use_posthog_in_slack
      */
     export type AvailableSetupTaskIdsEnum = typeof AvailableSetupTaskIdsEnum[keyof typeof AvailableSetupTaskIdsEnum];
 
@@ -9493,6 +9560,10 @@ export namespace Schemas {
       TestEndpoint: 'test_endpoint',
       CreateEarlyAccessFeature: 'create_early_access_feature',
       UpdateFeatureStage: 'update_feature_stage',
+      UsePosthogAi: 'use_posthog_ai',
+      UsePosthogCode: 'use_posthog_code',
+      UsePosthogMcp: 'use_posthog_mcp',
+      UsePosthogInSlack: 'use_posthog_in_slack',
     } as const;
 
     export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
@@ -10108,13 +10179,39 @@ export namespace Schemas {
       type: BigQueryDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig;
+    export type PostgresDestinationConfigType = typeof PostgresDestinationConfigType[keyof typeof PostgresDestinationConfigType];
+
+
+    export const PostgresDestinationConfigType = {
+      Postgres: 'Postgres',
+    } as const;
+
+    /**
+     * Typed configuration for a PostgreSQL batch-export destination.
+     *
+     * Connection credentials may live in a linked Integration (when one is provided) or
+     * inline in this config (legacy). Mirrors the non-credential fields of
+     * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface PostgresDestinationConfig {
+      /** PostgreSQL database name to connect to. */
+      database: string;
+      /** PostgreSQL schema name containing the destination table. */
+      schema?: string;
+      /** PostgreSQL table name to write exported rows into. */
+      table_name?: string;
+      /** Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration. */
+      has_self_signed_cert?: boolean;
+      type: PostgresDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
-     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
+     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).
      * Other destination types accept the same JSON shape but without a typed
      * OpenAPI schema. Secret fields are stripped from `config` on read.
      */
@@ -10135,7 +10232,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -10143,7 +10240,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -11077,7 +11174,24 @@ export namespace Schemas {
       config: BigQueryDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest;
+    export type PostgresDestinationRequestType = typeof PostgresDestinationRequestType[keyof typeof PostgresDestinationRequestType];
+
+
+    export const PostgresDestinationRequestType = {
+      Postgres: 'Postgres',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a PostgreSQL batch-export destination.
+     */
+    export interface PostgresDestinationRequest {
+      type: PostgresDestinationRequestType;
+      /** ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
+      config: PostgresDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -14068,6 +14182,7 @@ export namespace Schemas {
 
     /**
      * * `team` - Only team
+     * * `organization` - Organization
      * * `global` - Global
      * * `feature_flag` - Feature Flag
      */
@@ -14076,9 +14191,19 @@ export namespace Schemas {
 
     export const DashboardTemplateScopeEnum = {
       Team: 'team',
+      Organization: 'organization',
       Global: 'global',
       FeatureFlag: 'feature_flag',
     } as const;
+
+    export interface NonPortableReferences {
+      /** Count of distinct action references in the template's tiles that are specific to the source project. */
+      actions: number;
+      /** Count of distinct cohort references in the template's tiles that are specific to the source project. */
+      cohorts: number;
+      /** Names of data warehouse tables referenced by the template's tiles that are specific to the source project. */
+      warehouse_tables: string[];
+    }
 
     export interface DashboardTemplate {
       readonly id: string;
@@ -14120,6 +14245,8 @@ export namespace Schemas {
       availability_contexts?: string[] | null;
       /** Manually curated; used to highlight templates in the UI. */
       is_featured?: boolean;
+      /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
+      readonly non_portable_references: NonPortableReferences;
     }
 
     /**
@@ -15410,6 +15537,8 @@ export namespace Schemas {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
+     * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -16041,6 +16170,8 @@ export namespace Schemas {
       Streamlabs: 'Streamlabs',
       Datorama: 'Datorama',
       Ahrefs: 'Ahrefs',
+      Lightfield: 'Lightfield',
+      Appstack: 'Appstack',
       Custom: 'Custom',
     } as const;
 
@@ -16679,6 +16810,8 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
+       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -20299,7 +20432,12 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Mixin for serializers to add user access control fields
+     * Full experiment representation for the detail, create, and update endpoints.
+     *
+     * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+     * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+     * fields, and refreshes stale action names while serializing. The list endpoint uses the
+     * leaner ``ExperimentBasicSerializer`` instead.
      */
     export interface Experiment {
       readonly id: number;
@@ -20384,6 +20522,87 @@ export namespace Schemas {
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
+      /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+      readonly is_legacy: boolean;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+    }
+
+    /**
+     * Lightweight, read-only serializer for the experiment list endpoint.
+     *
+     * The list view (and the MCP list tool) render only the scalar and feature-flag fields
+     * shared via ``ExperimentBaseSerializer`` — never the metric definitions. Omitting
+     * ``metrics``/``metrics_secondary``/``saved_metrics`` lets the list query defer the large
+     * JSON columns and skip the saved-metric prefetch plus per-row fingerprinting; that work
+     * belongs to the detail response served by ``ExperimentSerializer``.
+     *
+     * Because the metric fields, the write-side machinery, and the action-name-refreshing
+     * ``to_representation`` all live on ``ExperimentSerializer`` rather than the shared base,
+     * this serializer needs no overrides: it gets DRF's default ``get_fields`` (no write-only
+     * ``holdout_id`` to configure), default ``to_representation`` (no metrics to normalize), and
+     * a plain ``ListSerializer`` that never touches the deferred columns. See
+     * ``EnterpriseExperimentsViewSet.safely_get_queryset``.
+     */
+    export interface ExperimentBasic {
+      readonly id: number;
+      /**
+         * Name of the experiment.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Description of the experiment hypothesis and expected outcomes.
+         * @maxLength 3000
+         * @nullable
+         */
+      description?: string | null;
+      /** @nullable */
+      start_date?: string | null;
+      /** @nullable */
+      end_date?: string | null;
+      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
+      feature_flag_key: string;
+      readonly feature_flag: MinimalFeatureFlag;
+      readonly holdout: ExperimentHoldout;
+      /** @nullable */
+      readonly exposure_cohort: number | null;
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+      parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
+      /** Whether the experiment is archived. */
+      archived?: boolean;
+      /** @nullable */
+      deleted?: boolean | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** Experiment type: web for frontend UI changes, product for backend/API changes.
+       *
+       * * `web` - web
+       * * `product` - product */
+      type?: ExperimentTypeEnum | null;
+      /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
+       *
+       * * `won` - won
+       * * `lost` - lost
+       * * `inconclusive` - inconclusive
+       * * `stopped_early` - stopped_early
+       * * `invalid` - invalid */
+      conclusion?: ConclusionEnum | null;
+      /**
+         * Comment about the experiment conclusion.
+         * @nullable
+         */
+      conclusion_comment?: string | null;
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      readonly status: ExperimentStatusEnum;
+      /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+      readonly is_legacy: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -20517,6 +20736,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `recalculation` - recalculation
+     * * `timeseries_fallback` - timeseries_fallback
+     */
+    export type ResultSourceEnum = typeof ResultSourceEnum[keyof typeof ResultSourceEnum];
+
+
+    export const ResultSourceEnum = {
+      Recalculation: 'recalculation',
+      TimeseriesFallback: 'timeseries_fallback',
+    } as const;
+
+    /**
      * * `pending` - pending
      * * `completed` - completed
      * * `failed` - failed
@@ -20604,6 +20835,11 @@ export namespace Schemas {
       readonly query_to: string | null;
       /** True if returning an existing job rather than a newly created one */
       readonly is_existing: boolean;
+      /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
+       *
+       * * `recalculation` - recalculation
+       * * `timeseries_fallback` - timeseries_fallback */
+      readonly result_source: ResultSourceEnum;
       /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
       readonly results: readonly MetricRecalculationResult[];
     }
@@ -20785,6 +21021,7 @@ export namespace Schemas {
      * * `append` - append
      * * `webhook` - webhook
      * * `cdc` - cdc
+     * * `xmin` - xmin
      */
     export type SyncTypeEnum = typeof SyncTypeEnum[keyof typeof SyncTypeEnum];
 
@@ -20795,6 +21032,7 @@ export namespace Schemas {
       Append: 'append',
       Webhook: 'webhook',
       Cdc: 'cdc',
+      Xmin: 'xmin',
     } as const;
 
     /**
@@ -20804,6 +21042,7 @@ export namespace Schemas {
      * * `date` - date
      * * `timestamp` - timestamp
      * * `objectid` - objectid
+     * * `xid` - xid
      */
     export type IncrementalFieldTypeEnum = typeof IncrementalFieldTypeEnum[keyof typeof IncrementalFieldTypeEnum];
 
@@ -20815,6 +21054,7 @@ export namespace Schemas {
       Date: 'date',
       Timestamp: 'timestamp',
       Objectid: 'objectid',
+      Xid: 'xid',
     } as const;
 
     /**
@@ -20871,7 +21111,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Column name used to track sync progress.
@@ -20885,8 +21126,16 @@ export namespace Schemas {
        * * `datetime` - datetime
        * * `date` - date
        * * `timestamp` - timestamp
-       * * `objectid` - objectid */
+       * * `objectid` - objectid
+       * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
+      /**
+         * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
+         * @minimum 0
+         * @maximum 5184000
+         * @nullable
+         */
+      incremental_field_lookback_seconds?: number | null;
       /** How often to sync.
        *
        * * `never` - never
@@ -20957,7 +21206,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Incremental cursor field for incremental or append syncs.
@@ -21642,6 +21892,8 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
+       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -25016,6 +25268,7 @@ export namespace Schemas {
       MouseActivityCount: 'mouse_activity_count',
       ActivityScore: 'activity_score',
       RecordingTtl: 'recording_ttl',
+      SurfacingScore: 'surfacing_score',
     } as const;
 
     export type RecordingOrderDirection = typeof RecordingOrderDirection[keyof typeof RecordingOrderDirection];
@@ -27205,7 +27458,7 @@ export namespace Schemas {
       readonly intent_count: number;
       /** Number of MCP sessions whose summarised intent belongs to this cluster. */
       readonly session_count: number;
-      /** Total number of mcp_tool_call events represented by this cluster. */
+      /** Total number of $mcp_tool_call events represented by this cluster. */
       readonly call_count: number;
       /** Total number of error responses observed across the cluster. */
       readonly error_count: number;
@@ -27407,13 +27660,13 @@ export namespace Schemas {
     }
 
     export interface MCPSession {
-      /** $mcp_session_id grouping all mcp_tool_call events in the session. */
+      /** $mcp_session_id grouping all $mcp_tool_call events in the session. */
       readonly session_id: string;
-      /** Total number of mcp_tool_call events in the session. */
+      /** Total number of $mcp_tool_call events in the session. */
       readonly tool_calls: number;
-      /** Timestamp of the first mcp_tool_call event in the session. */
+      /** Timestamp of the first $mcp_tool_call event in the session. */
       readonly session_start: string;
-      /** Timestamp of the most recent mcp_tool_call event in the session. */
+      /** Timestamp of the most recent $mcp_tool_call event in the session. */
       readonly session_end: string;
       /** Number of distinct PostHog distinct_ids that produced events in the session. */
       readonly distinct_id_count: number;
@@ -27439,7 +27692,7 @@ export namespace Schemas {
     }
 
     export interface MCPToolCall {
-      /** ClickHouse uuid of the mcp_tool_call event. */
+      /** ClickHouse uuid of the $mcp_tool_call event. */
       readonly event_id: string;
       /** When the tool call was captured. */
       readonly timestamp: string;
@@ -29372,6 +29625,15 @@ export namespace Schemas {
       results: EventSchema[];
     }
 
+    export interface PaginatedExperimentBasicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ExperimentBasic[];
+    }
+
     export interface PaginatedExperimentHoldoutList {
       count: number;
       /** @nullable */
@@ -29379,15 +29641,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ExperimentHoldout[];
-    }
-
-    export interface PaginatedExperimentList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Experiment[];
     }
 
     export interface PaginatedExperimentSavedMetricList {
@@ -33709,8 +33962,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total?: number | null;
-      /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-      config?: TrendsAlertConfig | null;
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
@@ -34172,6 +34425,8 @@ export namespace Schemas {
       availability_contexts?: string[] | null;
       /** Manually curated; used to highlight templates in the UI. */
       is_featured?: boolean;
+      /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
+      readonly non_portable_references?: NonPortableReferences;
     }
 
     export interface PatchedDataColorTheme {
@@ -34995,7 +35250,12 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * Full experiment representation for the detail, create, and update endpoints.
+     *
+     * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+     * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+     * fields, and refreshes stale action names while serializing. The list endpoint uses the
+     * leaner ``ExperimentBasicSerializer`` instead.
      */
     export interface PatchedExperiment {
       readonly id?: number;
@@ -35080,6 +35340,8 @@ export namespace Schemas {
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status?: ExperimentStatusEnum;
+      /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+      readonly is_legacy?: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -35186,7 +35448,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Column name used to track sync progress.
@@ -35200,8 +35463,16 @@ export namespace Schemas {
        * * `datetime` - datetime
        * * `date` - date
        * * `timestamp` - timestamp
-       * * `objectid` - objectid */
+       * * `objectid` - objectid
+       * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
+      /**
+         * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
+         * @minimum 0
+         * @maximum 5184000
+         * @nullable
+         */
+      incremental_field_lookback_seconds?: number | null;
       /** How often to sync.
        *
        * * `never` - never
@@ -40083,6 +40354,16 @@ export namespace Schemas {
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
+
+    /**
+     * * `Postgres` - Postgres
+     */
+    export type PostgresDestinationRequestTypeEnum = typeof PostgresDestinationRequestTypeEnum[keyof typeof PostgresDestinationRequestTypeEnum];
+
+
+    export const PostgresDestinationRequestTypeEnum = {
+      Postgres: 'Postgres',
+    } as const;
 
     export interface PreviewInviteRequest {
       /**
@@ -46171,6 +46452,8 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
+       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -46835,6 +47118,8 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
+       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -56249,7 +56534,7 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
-     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `feature_flag`: feature-flag dashboard templates only. Omit for both official and this project's templates (default dashboard template picker behavior).
+     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior).
      */
     scope?: DashboardTemplatesListScope;
     };
@@ -56260,6 +56545,7 @@ export namespace Schemas {
     export const DashboardTemplatesListScope = {
       FeatureFlag: 'feature_flag',
       Global: 'global',
+      Organization: 'organization',
       Team: 'team',
     } as const;
 
