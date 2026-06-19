@@ -20,17 +20,18 @@ class MockProviderError(Exception):
         self.status_code = status_code
 
 
-class TestStreamingErrorHandling:
-    @pytest.fixture
-    def mock_user(self) -> AuthenticatedUser:
-        return AuthenticatedUser(
-            user_id=123,
-            team_id=456,
-            auth_method="personal_api_key",
-            distinct_id="test-distinct-id",
-            scopes=["llm_gateway:read"],
-        )
+@pytest.fixture
+def mock_user() -> AuthenticatedUser:
+    return AuthenticatedUser(
+        user_id=123,
+        team_id=456,
+        auth_method="personal_api_key",
+        distinct_id="test-distinct-id",
+        scopes=["llm_gateway:read"],
+    )
 
+
+class TestStreamingErrorHandling:
     @pytest.mark.asyncio
     async def test_timeout_non_streaming_raises_504(self, mock_user: AuthenticatedUser) -> None:
         async def slow_llm_call(**kwargs):
@@ -120,16 +121,6 @@ class TestStreamingErrorHandling:
 
 
 class TestErrorTrackingGating:
-    @pytest.fixture
-    def mock_user(self) -> AuthenticatedUser:
-        return AuthenticatedUser(
-            user_id=123,
-            team_id=456,
-            auth_method="personal_api_key",
-            distinct_id="test-distinct-id",
-            scopes=["llm_gateway:read"],
-        )
-
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "error_status",
@@ -218,18 +209,60 @@ class TestErrorTrackingGating:
         assert exc_info.value.status_code == 400
         mock_capture.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_client_error_mid_stream_not_captured(self, mock_user: AuthenticatedUser) -> None:
+        async def error_stream() -> AsyncGenerator[dict[str, Any]]:
+            yield {"type": "content_block_delta", "delta": {"text": "Hello"}}
+            raise MockProviderError("reasoning_effort=minimal is not supported", status_code=400)
+
+        async def mock_llm_call(**kwargs: Any) -> AsyncGenerator[dict[str, Any]]:
+            return error_stream()
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            response = await handle_llm_request(
+                request_data={"model": "test", "messages": [], "stream": True},
+                user=mock_user,
+                model="test-model",
+                is_streaming=True,
+                provider_config=ANTHROPIC_CONFIG,
+                llm_call=mock_llm_call,
+            )
+
+            assert isinstance(response, StreamingResponse)
+            with pytest.raises(MockProviderError):
+                async for _ in response.body_iterator:
+                    pass
+
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_server_error_mid_stream_is_captured(self, mock_user: AuthenticatedUser) -> None:
+        async def error_stream() -> AsyncGenerator[dict[str, Any]]:
+            yield {"type": "content_block_delta", "delta": {"text": "Hello"}}
+            raise MockProviderError("upstream exploded", status_code=500)
+
+        async def mock_llm_call(**kwargs: Any) -> AsyncGenerator[dict[str, Any]]:
+            return error_stream()
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            response = await handle_llm_request(
+                request_data={"model": "test", "messages": [], "stream": True},
+                user=mock_user,
+                model="test-model",
+                is_streaming=True,
+                provider_config=ANTHROPIC_CONFIG,
+                llm_call=mock_llm_call,
+            )
+
+            assert isinstance(response, StreamingResponse)
+            with pytest.raises(MockProviderError):
+                async for _ in response.body_iterator:
+                    pass
+
+        mock_capture.assert_called_once()
+
 
 class TestPreStreamErrors:
-    @pytest.fixture
-    def mock_user(self) -> AuthenticatedUser:
-        return AuthenticatedUser(
-            user_id=123,
-            team_id=456,
-            auth_method="personal_api_key",
-            distinct_id="test-distinct-id",
-            scopes=["llm_gateway:read"],
-        )
-
     @pytest.mark.asyncio
     async def test_streaming_timeout_before_first_chunk_raises_504(self, mock_user: AuthenticatedUser) -> None:
         async def slow_llm_call(**kwargs: Any) -> None:
@@ -284,16 +317,6 @@ class TestPreStreamErrors:
 
 
 class TestStreamingLifecycle:
-    @pytest.fixture
-    def mock_user(self) -> AuthenticatedUser:
-        return AuthenticatedUser(
-            user_id=123,
-            team_id=456,
-            auth_method="personal_api_key",
-            distinct_id="test-distinct-id",
-            scopes=["llm_gateway:read"],
-        )
-
     @pytest.mark.asyncio
     async def test_successful_stream_completes(self, mock_user: AuthenticatedUser) -> None:
         chunks_yielded = []
@@ -364,16 +387,6 @@ def _get_request_count(status_code: str, model: str = "test-model") -> float:
 
 
 class TestRequestCountMetrics:
-    @pytest.fixture
-    def mock_user(self) -> AuthenticatedUser:
-        return AuthenticatedUser(
-            user_id=123,
-            team_id=456,
-            auth_method="personal_api_key",
-            distinct_id="test-distinct-id",
-            scopes=["llm_gateway:read"],
-        )
-
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "error_status",
