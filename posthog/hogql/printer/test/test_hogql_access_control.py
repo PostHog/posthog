@@ -181,6 +181,49 @@ class TestAccessControlGuard(BaseTest):
             assert raw not in rendered
         assert "[HIDDEN]" in rendered
 
+    def test_child_table_guard_filters_parent_fk_not_own_pk(self):
+        # system.dashboard_tiles inherits the "dashboard" scope and sets access_control_id_field="dashboard_id".
+        # Denying a dashboard must filter the tile rows on their dashboard_id FK, not the tile's own id -
+        # otherwise a denied dashboard's tiles leak (the deny set holds dashboard ids, never tile ids).
+        from posthog.hogql.parser import parse_select
+
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="dash-99", access_level="none")
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            user=self.user,
+            enable_select_queries=True,
+        )
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT id FROM system.dashboard_tiles"),
+            context=context,
+            dialect="clickhouse",
+        )
+        assert prepared is not None
+        sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        deny_keys = [k for k in context.values if k.endswith("_sensitive") and isinstance(context.values[k], list)]
+        assert len(deny_keys) == 1
+        deny_key = deny_keys[0]
+        assert context.values[deny_key] == ["dash-99"]
+        # The guard targets the parent FK, never the child's own primary key.
+        assert f"notIn(toString(system__dashboard_tiles.dashboard_id), %({deny_key})s)" in sql
+        assert "notIn(toString(system__dashboard_tiles.id)" not in sql
+
 
 class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""
