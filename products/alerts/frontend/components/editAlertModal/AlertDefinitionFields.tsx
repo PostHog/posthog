@@ -1,7 +1,7 @@
 import { Group } from 'kea-forms'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
 import {
@@ -65,9 +65,7 @@ export function TrendsDefinitionFields({
     )
 }
 
-/** A read-out of the conversion rate the funnel alert would evaluate right now plus, once a threshold
- * is set, whether it would currently breach — so the threshold can be sanity-checked before the first
- * check (mirrors the SQL alert's breach/ok preview). */
+/** Conversion-rate read-out + breach/ok status (mirrors the SQL alert's preview). */
 function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | null }): JSX.Element | null {
     if (preview === null) {
         return (
@@ -87,11 +85,18 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
     const format = (rate: number): string => `${rate.toFixed(1)}%`
     const breaching = preview.values.filter((value) => value.breaching)
     const wouldFire = breaching.length > 0
+    // Same at-a-glance breach/ok tag as the SQL alert preview; only meaningful once a threshold is set.
+    const statusTag = preview.hasBounds ? (
+        <LemonTag type={wouldFire ? 'warning' : 'success'} className="mr-2">
+            {wouldFire ? 'breach' : 'ok'}
+        </LemonTag>
+    ) : null
 
     if (preview.isBreakdown) {
         const rates = preview.values.map((value) => value.rate)
         return (
             <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+                {statusTag}
                 Across {preview.values.length} breakdown values, conversion is currently{' '}
                 <strong>
                     {format(Math.min(...rates))}–{format(Math.max(...rates))}
@@ -113,6 +118,7 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
 
     return (
         <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+            {statusTag}
             This funnel currently converts at <strong>{format(preview.values[0].rate)}</strong>
             {!preview.hasBounds ? (
                 <> — set a threshold to preview whether it would fire.</>
