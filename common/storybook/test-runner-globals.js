@@ -5,6 +5,10 @@
 // re-expose the runtime `jest` object on globalThis for those hooks. Must run
 // before the test-runner's own setup hook (it is listed first in
 // setupFilesAfterEnv).
-const { jest } = require('@jest/globals')
+//
+// Jest injects `jest` as a module-scoped identifier, so binding it to a
+// different name here avoids an "Identifier 'jest' has already been declared"
+// redeclaration error.
+const jestGlobals = require('@jest/globals')
 
-globalThis.jest = jest
+globalThis.jest = jestGlobals.jest
