@@ -11,8 +11,7 @@ from posthog.models import OrganizationMembership
 from posthog.permissions import IsStaffUserOrImpersonating, PostHogFeatureFlagPermission
 
 from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
-
-from .serializers import AccountOrganizationMemberSerializer
+from products.customer_analytics.backend.presentation.views.serializers import AccountOrganizationMemberSerializer
 
 
 # Excluded from the generated OpenAPI clients: this is an INTERNAL, staff-only endpoint

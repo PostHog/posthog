@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.models import Team
 
-from products.customer_analytics.backend.max_tools.upsert_account_notebook import (
+from products.customer_analytics.backend.max_tools import (
     CreateAccountNotebookAction,
     UpdateAccountNotebookAction,
     UpsertAccountNotebookTool,

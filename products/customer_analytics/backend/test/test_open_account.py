@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.models import Team
 
-from products.customer_analytics.backend.max_tools.open_account import OpenAccountTool
+from products.customer_analytics.backend.max_tools import OpenAccountTool
 from products.customer_analytics.backend.models import Account
 
 

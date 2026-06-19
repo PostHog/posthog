@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.models import TaggedItem, Team
 
-from products.customer_analytics.backend.max_tools.upsert_account import (
+from products.customer_analytics.backend.max_tools import (
     AccountAssignment,
     AccountPropertiesInput,
     CreateAccountAction,
