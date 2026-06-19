@@ -16,7 +16,11 @@ from products.conversations.backend.support_teams import (
     refresh_graph_token,
     store_teams_service_url,
 )
-from products.conversations.backend.tasks import poll_team_shared_channels, poll_teams_shared_channels
+from products.conversations.backend.tasks import (
+    _sync_shared_channel_thread_replies,
+    poll_team_shared_channels,
+    poll_teams_shared_channels,
+)
 from products.conversations.backend.teams import (
     graph_message_to_activity,
     graph_reply_to_activity,
@@ -99,7 +103,9 @@ class TestGraphReplyToActivity(BaseTest):
             ("normal_reply", _graph_message(reply_to_id="root-1"), True),
             ("deleted_reply", _graph_message(reply_to_id="root-1", deleted=True), False),
             ("app_authored", _graph_message(reply_to_id="root-1", user_id=None), False),
-            ("wrong_root", _graph_message(reply_to_id="other-root"), False),
+            # The /replies endpoint is already scoped to the root thread, so a replyToId
+            # that differs from the root (nested quote-reply) is still ingested.
+            ("nested_reply_to_id", _graph_message(reply_to_id="other-root"), True),
             ("empty_body", _graph_message(reply_to_id="root-1", content="   "), False),
         ]
     )
@@ -366,6 +372,155 @@ class TestPollSharedChannelThreadReplies(BaseTest):
         self.assertEqual(reply_comment.item_context.get("teams_graph_message_id"), "reply-1")
         ticket.refresh_from_db()
         self.assertIsNotNone(ticket.teams_thread_replies_synced_at)
+
+    def _prime_and_create_root_ticket(self, mock_get: MagicMock) -> Ticket:
+        """Prime the channel, create a single root-message ticket, and reset its
+        reply watermark to a fixed early time (the empty post-creation sweep otherwise
+        stamps it with ``now()``, which would skip fixed-timestamp test replies)."""
+        from datetime import UTC, datetime
+
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        mock_get.side_effect = [
+            _resp(json_data={"value": [_graph_message(msg_id="root-1")], "@odata.deltaLink": "DELTA2"}),
+            _resp(json_data={"value": []}),
+        ]
+        poll_team_shared_channels(self.team.id)
+        ticket = Ticket.objects.filter(team=self.team).get()
+        ticket.teams_thread_replies_synced_at = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+        ticket.save(update_fields=["teams_thread_replies_synced_at"])
+        return ticket
+
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_reply_with_mismatched_reply_to_id_is_ingested(self, mock_get: MagicMock, *_: Any) -> None:
+        from posthog.models.comment import Comment
+
+        ticket = self._prime_and_create_root_ticket(mock_get)
+
+        mock_get.side_effect = [
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA3"}),
+            _resp(
+                json_data={
+                    "value": [
+                        _graph_message(
+                            msg_id="reply-nested",
+                            reply_to_id="some-other-message",
+                            content="<p>nested quote reply</p>",
+                            created_at="2024-06-01T12:00:00Z",
+                        )
+                    ]
+                }
+            ),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
+
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_reply_within_watermark_lookback_is_ingested(self, mock_get: MagicMock, *_: Any) -> None:
+        from datetime import UTC, datetime
+
+        from posthog.models.comment import Comment
+
+        ticket = self._prime_and_create_root_ticket(mock_get)
+        # Watermark slightly ahead of the reply's createdDateTime: without the lookback
+        # buffer the reply would be skipped as "already synced".
+        ticket.teams_thread_replies_synced_at = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        ticket.save(update_fields=["teams_thread_replies_synced_at"])
+
+        mock_get.side_effect = [
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA3"}),
+            _resp(
+                json_data={
+                    "value": [
+                        _graph_message(
+                            msg_id="reply-skew",
+                            reply_to_id="root-1",
+                            content="<p>arrived a touch before the watermark</p>",
+                            created_at="2024-06-01T11:58:00Z",
+                        )
+                    ]
+                }
+            ),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
+
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_reply_dedupe_holds_across_runs(self, mock_get: MagicMock, *_: Any) -> None:
+        from posthog.models.comment import Comment
+
+        ticket = self._prime_and_create_root_ticket(mock_get)
+
+        reply_page = {
+            "value": [
+                _graph_message(
+                    msg_id="reply-dupe",
+                    reply_to_id="root-1",
+                    content="<p>same reply twice</p>",
+                    created_at="2024-06-01T12:00:00Z",
+                )
+            ]
+        }
+        for delta in ("DELTA3", "DELTA4"):
+            mock_get.side_effect = [
+                _resp(json_data={"value": [], "@odata.deltaLink": delta}),
+                _resp(json_data=reply_page),
+            ]
+            poll_team_shared_channels(self.team.id)
+
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
+
+    @patch("products.conversations.backend.tasks.TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL", 0)
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_delta_surfaced_ticket_synced_outside_round_robin(self, mock_get: MagicMock, *_: Any) -> None:
+        from posthog.models.comment import Comment
+
+        ticket = self._prime_and_create_root_ticket(mock_get)
+        conversation_id = ticket.teams_conversation_id
+
+        reply_page = _resp(
+            json_data={
+                "value": [
+                    _graph_message(
+                        msg_id="reply-delta",
+                        reply_to_id="root-1",
+                        content="<p>surfaced by delta</p>",
+                        created_at="2024-06-01T12:00:00Z",
+                    )
+                ]
+            }
+        )
+
+        # Round-robin selection is empty (max=0): without the surfaced id nothing syncs.
+        mock_get.side_effect = None
+        mock_get.return_value = reply_page
+        _sync_shared_channel_thread_replies(
+            team=self.team,
+            tenant_id="tenant-abc",
+            token="graph-token",
+            teams_team_id=TEAMS_TEAM_ID,
+            channel_id=CHANNEL_ID,
+            service_url=TRUSTED_SERVICE_URL,
+        )
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 1)
+
+        # Passing the surfaced conversation id pulls the reply despite the empty window.
+        _sync_shared_channel_thread_replies(
+            team=self.team,
+            tenant_id="tenant-abc",
+            token="graph-token",
+            teams_team_id=TEAMS_TEAM_ID,
+            channel_id=CHANNEL_ID,
+            service_url=TRUSTED_SERVICE_URL,
+            surfaced_conversation_ids={conversation_id},
+        )
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
 
 
 class TestStoreTeamsServiceUrl(BaseTest):
