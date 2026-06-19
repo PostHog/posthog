@@ -282,18 +282,18 @@ export function InsightVizDisplay({
         return null
     })()
 
-    // Charts that draw their own legend inside the chart opt out of the side-legend column: the
-    // slope graph always, and trends line/area/cumulative when the quill in-chart legend is enabled.
-    // Mirror Trends.tsx's renderer choice — an unset display defaults to the line chart.
-    const trendsInChartLegend =
+    // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
+    // don't render two legends. The slope graph always does; trends line/area/cumulative do when the
+    // quill in-chart legend is on (an unset display is the line chart, matching Trends.tsx's renderer).
+    const isQuillLegendTrendsChart =
         !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND] &&
         activeView === InsightType.TRENDS &&
         (!display ||
             display === ChartDisplayType.ActionsLineGraph ||
             display === ChartDisplayType.ActionsLineGraphCumulative ||
             display === ChartDisplayType.ActionsAreaGraph)
-    const showSideLegend =
-        supportsDisplay && showLegend && display !== ChartDisplayType.SlopeGraph && !trendsInChartLegend
+    const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || isQuillLegendTrendsChart
+    const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
