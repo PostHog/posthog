@@ -16,7 +16,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 """
 
 from collections.abc import Iterable, Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.db import transaction
@@ -30,9 +30,13 @@ from posthog.event_usage import groups
 from posthog.models import User
 from posthog.models.integration import Integration
 
+from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
+from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
 from products.tasks.backend.models import (
     CodeInvite,
     CodeInviteRedemption,
+    CodeWorkflowConfig,
+    CodeWorkstream,
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
@@ -60,10 +64,25 @@ CODE_INVITE_REDEEMED = "redeemed"
 CODE_INVITE_INVALID_CODE = "invalid_code"
 CODE_INVITE_NOT_REDEEMABLE = "not_redeemable"
 
+# --- Code-workflow save outcomes ---
+# Returned on ``CodeWorkflowSaveResult.outcome``; the presentation layer maps each to an
+# HTTP status (saved -> 200, conflict -> 409, invalid -> 422).
+CODE_WORKFLOW_SAVED = "saved"
+CODE_WORKFLOW_CONFLICT = "conflict"
+CODE_WORKFLOW_INVALID = "invalid"
+
+# --- Code-home tuning ---
+# An agent run counts as "active" only if it updated within this window.
+CODE_HOME_ACTIVE_AGENT_WINDOW = timedelta(minutes=30)
+_CODE_HOME_RUNNING_STATUSES = (TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
+
 __all__ = [
     "CODE_INVITE_INVALID_CODE",
     "CODE_INVITE_NOT_REDEEMABLE",
     "CODE_INVITE_REDEEMED",
+    "CODE_WORKFLOW_CONFLICT",
+    "CODE_WORKFLOW_INVALID",
+    "CODE_WORKFLOW_SAVED",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
@@ -79,6 +98,8 @@ __all__ = [
     "delete_sandbox_environment",
     "delete_task_automation",
     "fail_task_run",
+    "get_code_home",
+    "get_code_workflow_config",
     "get_latest_pr_url_by_task",
     "get_latest_run_by_task",
     "get_sandbox_environment",
@@ -92,7 +113,10 @@ __all__ = [
     "list_sandbox_environments",
     "list_task_automations",
     "redeem_code_invite",
+    "refresh_team_code_workstreams",
+    "reset_code_workflow_bindings",
     "run_task_automation_now",
+    "save_code_workflow_bindings",
     "send_cancel",
     "send_user_message",
     "task_exists",
@@ -818,6 +842,196 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
     )
 
     sync_automation_schedule(automation)
+
+
+# --- Code workflow config (presentation CRUD) ---
+# A user's per-team binding configuration. Reads seed a default config on first access;
+# saves are optimistic-locked on ``version`` and validate the bindings before persisting.
+
+
+def _epoch_ms(dt: datetime) -> int:
+    return int(dt.timestamp() * 1000)
+
+
+def _code_workflow_config_to_dto(config: CodeWorkflowConfig) -> contracts.CodeWorkflowConfigDTO:
+    return contracts.CodeWorkflowConfigDTO(
+        id=str(config.id),
+        version=config.version,
+        updated_at=config.updated_at,
+        bindings=config.bindings,
+    )
+
+
+def get_code_workflow_config(team_id: int, user_id: int) -> contracts.CodeWorkflowConfigDTO:
+    """Return the user's config for the team, seeding a default one on first access."""
+    config, _ = CodeWorkflowConfig.objects.get_or_create(
+        team_id=team_id,
+        user_id=user_id,
+        defaults={"bindings": build_default_bindings(), "version": 1},
+    )
+    return _code_workflow_config_to_dto(config)
+
+
+def save_code_workflow_bindings(
+    team_id: int, user_id: int, *, bindings: dict, expected_version: object
+) -> contracts.CodeWorkflowSaveResult:
+    """Validate and save bindings under optimistic locking.
+
+    Returns a ``conflict`` result when ``expected_version`` is not an int or does not match
+    the stored version, an ``invalid`` result (with diagnostics) when validation fails, or a
+    ``saved`` result with the version-bumped config.
+    """
+    with transaction.atomic():
+        current, _ = CodeWorkflowConfig.objects.select_for_update().get_or_create(
+            team_id=team_id,
+            user_id=user_id,
+            defaults={"bindings": build_default_bindings(), "version": 1},
+        )
+        if not isinstance(expected_version, int) or current.version != expected_version:
+            return contracts.CodeWorkflowSaveResult(
+                outcome=CODE_WORKFLOW_CONFLICT,
+                config=_code_workflow_config_to_dto(current),
+            )
+
+        result = validate_bindings(bindings)
+        if not result.can_save:
+            return contracts.CodeWorkflowSaveResult(
+                outcome=CODE_WORKFLOW_INVALID,
+                config=_code_workflow_config_to_dto(current),
+                diagnostics=[
+                    contracts.CodeWorkflowDiagnosticDTO(
+                        severity=d.severity,
+                        code=d.code,
+                        message=d.message,
+                        situation_id=d.situation_id,
+                        action_id=d.action_id,
+                    )
+                    for d in result.diagnostics
+                ],
+            )
+
+        current.bindings = bindings
+        current.version = current.version + 1
+        current.save(update_fields=["bindings", "version", "updated_at"])
+
+    return contracts.CodeWorkflowSaveResult(
+        outcome=CODE_WORKFLOW_SAVED,
+        config=_code_workflow_config_to_dto(current),
+    )
+
+
+def reset_code_workflow_bindings(team_id: int, user_id: int) -> contracts.CodeWorkflowConfigDTO:
+    """Reset the user's bindings back to the defaults and bump the version."""
+    with transaction.atomic():
+        config, _ = CodeWorkflowConfig.objects.select_for_update().get_or_create(
+            team_id=team_id,
+            user_id=user_id,
+            defaults={"bindings": build_default_bindings(), "version": 1},
+        )
+        config.bindings = build_default_bindings()
+        config.version = config.version + 1
+        config.save(update_fields=["bindings", "version", "updated_at"])
+    return _code_workflow_config_to_dto(config)
+
+
+# --- Code home board ---
+# Active agents are computed live off in-flight runs; workstreams are persisted by the
+# worker and split into board columns by their stored ``state``.
+
+
+def _code_home_workstream_to_dto(ws: CodeWorkstream) -> contracts.CodeHomeWorkstreamDTO:
+    return contracts.CodeHomeWorkstreamDTO(
+        id=ws.key,
+        repo_name=ws.repo_name,
+        repo_full_path=ws.repo_full_path,
+        branch=ws.branch,
+        pr_url=ws.pr_url,
+        pr=ws.pr,
+        primary_situation=ws.primary_situation,
+        last_activity_at=_epoch_ms(ws.last_activity_at),
+        tasks=[
+            contracts.CodeHomeWorkstreamTaskDTO(
+                id=t.get("id"),
+                title=t.get("title"),
+                status=t.get("status"),
+                is_generating=False,
+                needs_permission=False,
+            )
+            for t in (ws.tasks or [])
+        ],
+        situations=ws.situations or [],
+    )
+
+
+def _code_home_active_agents(team_id: int, user_id: int) -> list[contracts.CodeHomeActiveAgentDTO]:
+    cutoff = django_timezone.now() - CODE_HOME_ACTIVE_AGENT_WINDOW
+    runs = (
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__created_by_id=user_id,
+            task__archived=False,
+            task__deleted=False,
+            status__in=_CODE_HOME_RUNNING_STATUSES,
+            updated_at__gte=cutoff,
+        )
+        .select_related("task")
+        .order_by("-updated_at")
+    )
+
+    seen_tasks: set[str] = set()
+    agents: list[contracts.CodeHomeActiveAgentDTO] = []
+    for run in runs.iterator():
+        task = run.task
+        if str(task.id) in seen_tasks:
+            continue
+        if (run.output or {}).get("pr_url"):
+            continue
+        seen_tasks.add(str(task.id))
+        agents.append(
+            contracts.CodeHomeActiveAgentDTO(
+                task_id=str(task.id),
+                title=task.title,
+                repo_name=task.repository.split("/")[-1] if task.repository else None,
+                branch=run.branch,
+                status=run.status,
+                last_activity_at=_epoch_ms(run.updated_at),
+                needs_permission=False,
+                cloud_pr_url=None,
+            )
+        )
+    return agents
+
+
+def get_code_home(team_id: int, user_id: int) -> contracts.CodeHomeDTO:
+    """Assemble the code-home board: live active agents plus persisted workstreams by column."""
+    workstreams = CodeWorkstream.objects.filter(team_id=team_id, user_id=user_id)
+    needs_attention: list[contracts.CodeHomeWorkstreamDTO] = []
+    in_progress: list[contracts.CodeHomeWorkstreamDTO] = []
+    for ws in workstreams.iterator():
+        dto = _code_home_workstream_to_dto(ws)
+        if ws.state == CodeWorkstream.WorkstreamState.ATTENTION:
+            needs_attention.append(dto)
+        else:
+            in_progress.append(dto)
+
+    return contracts.CodeHomeDTO(
+        active_agents=_code_home_active_agents(team_id, user_id),
+        needs_attention=needs_attention,
+        in_progress=in_progress,
+    )
+
+
+def refresh_team_code_workstreams(team_id: int) -> bool:
+    """Trigger an on-demand evaluation of the team's code workstreams.
+
+    Returns whether a new evaluation workflow was started (``False`` if one was already
+    running).
+    """
+    from products.tasks.backend.temporal.code_workstreams.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        trigger_team_code_workstreams_evaluation,
+    )
+
+    return trigger_team_code_workstreams_evaluation(team_id)
 
 
 # --- Id-based bridges to the sandbox/agent-command surface ---
