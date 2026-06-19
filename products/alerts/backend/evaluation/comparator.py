@@ -60,10 +60,14 @@ def _breach_messages(
         context = ""
 
     if bounds.lower is not None and calculated_value < bounds.lower:
-        return [f"{subject}{context} ({formatted_value}) {condition_text} less than lower threshold ({_fmt(bounds.lower)})"]
+        return [
+            f"{subject}{context} ({formatted_value}) {condition_text} less than lower threshold ({_fmt(bounds.lower)})"
+        ]
 
     if bounds.upper is not None and calculated_value > bounds.upper:
-        return [f"{subject}{context} ({formatted_value}) {condition_text} more than upper threshold ({_fmt(bounds.upper)})"]
+        return [
+            f"{subject}{context} ({formatted_value}) {condition_text} more than upper threshold ({_fmt(bounds.upper)})"
+        ]
 
     return []
 
