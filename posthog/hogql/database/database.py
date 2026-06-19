@@ -1187,8 +1187,8 @@ class Database(BaseModel):
                 except Exception as e:
                     capture_exception(e)
 
-        # A materialized view's backing table shares the view's name. Exclude it so the view owns
-        # the access decision - otherwise the backing table would shadow the view and stay
+        # A materialized view's backing table shares the view's name. Exclude every backing table so the
+        # view owns the access decision - otherwise the backing table would shadow the view and stay
         # queryable even when the view is denied.
         backing_table_ids = {sq.table_id for sq in (*saved_queries, *endpoint_saved_queries) if sq.table_id is not None}
 
