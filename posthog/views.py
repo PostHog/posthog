@@ -29,7 +29,7 @@ from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_a
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
-from posthog.health import is_clickhouse_connected
+from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -197,7 +197,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "clickhouse": in_cloud
         or _traced("preflight.is_clickhouse_connected", is_clickhouse_connected)
         or settings.TEST,
-        "kafka": in_cloud or settings.TEST,
+        "kafka": in_cloud or _traced("preflight.is_kafka_connected", is_kafka_connected),
         "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
         "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
         "cloud": in_cloud,
