@@ -1016,8 +1016,15 @@ class SignalReportViewSet(
         # passed explicitly rather than splatting caller-supplied kwargs.
         snooze_for = data.get("snooze_for") if target == "potential" else None
 
+        # "potential" on a suppressed report means "restore" (un-archive): return it to the state it
+        # held before suppression when that was a researched, user-visible report, instead of always
+        # dropping back to potential. snooze_for is irrelevant here and ignored by transition_to.
+        target_status = SignalReport.Status(target)
+        if report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL:
+            target_status = report.restore_target_status()
+
         try:
-            updated_fields = report.transition_to(SignalReport.Status(target), snooze_for=snooze_for)
+            updated_fields = report.transition_to(target_status, snooze_for=snooze_for)
         except InvalidStatusTransition as e:
             logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
             return Response(

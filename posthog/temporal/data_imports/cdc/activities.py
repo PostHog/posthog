@@ -24,6 +24,7 @@ from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.data_imports.cdc.adapters import cdc_supported_source_types, get_cdc_adapter
 from posthog.temporal.data_imports.cdc.batcher import (
     ChangeEventBatcher,
@@ -1001,101 +1002,109 @@ def cleanup_orphan_slots_activity() -> None:
     log = logger.bind()
     log.info("cleanup_orphan_slots_started")
 
-    # Scope the query narrowly: only sources that have CDC enabled, have both a slot
-    # and publication name set (otherwise there's nothing to clean up), and are of a
-    # source type we know how to handle. We include deleted sources because the whole
-    # point of this sweeper is to clean up slots for sources that were deleted.
-    cdc_sources = list(
-        ExternalDataSource.objects.filter(
-            source_type__in=cdc_supported_source_types(),
-            job_inputs__cdc_enabled=True,
-        )
-        .exclude(job_inputs__cdc_slot_name__isnull=True)
-        .exclude(job_inputs__cdc_slot_name="")
-        .exclude(job_inputs__cdc_publication_name__isnull=True)
-        .exclude(job_inputs__cdc_publication_name="")
-    )
+    # The CDC fields live in `job_inputs`, an EncryptedJSONField: every leaf value is
+    # Fernet-encrypted at rest, so `job_inputs__cdc_enabled=True` (and the slot/publication
+    # filters) can never match. We must scope by the unencrypted `source_type` column and
+    # decode each source's CDC config in Python. Deleted sources are included on purpose —
+    # cleaning up their orphaned slots is the whole point of this sweep.
+    sources = ExternalDataSource.objects.filter(source_type__in=cdc_supported_source_types()).iterator(chunk_size=100)
 
-    for source in cdc_sources:
-        try:
-            adapter = get_cdc_adapter(source)
-        except ValueError:
-            continue
-
-        cdc_config = adapter.parse_cdc_config(source)
-
-        source_log = log.bind(
-            source_id=str(source.id),
-            team_id=source.team_id,
-            slot_name=cdc_config.slot_name,
-            management_mode=cdc_config.management_mode,
-        )
-
-        # 1. Deleted sources — drop the Temporal schedule (always; PostHog-side)
-        #    and PostHog-managed slot/publication (only when we own them).
-        if source.deleted:
+    sources_checked = 0
+    # A single source's management connection (10s connect_timeout × several ops) can stall the
+    # loop, so heartbeat from a background thread rather than once per iteration — otherwise a
+    # stalled source would starve heartbeats and Temporal would kill the whole sweep.
+    with HeartbeaterSync(logger=log):
+        for source in sources:
             try:
-                from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+                adapter = get_cdc_adapter(source)
+            except ValueError:
+                continue
 
-                delete_cdc_extraction_schedule(str(source.id))
+            try:
+                cdc_config = adapter.parse_cdc_config(source)
             except Exception:
-                source_log.exception("failed_to_delete_cdc_extraction_schedule")
+                log.exception("failed_to_parse_cdc_config", source_id=str(source.id))
+                continue
 
-            if cdc_config.management_mode == "posthog":
-                source_log.info("cleaning_up_deleted_source_slot")
-                try:
-                    with adapter.management_connection(source, connect_timeout=10) as conn:
-                        adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
-                except Exception:
-                    source_log.exception("failed_to_cleanup_deleted_source_slot")
-            continue
+            # Restore the original filter semantics on decrypted values: skip sources that
+            # don't have CDC enabled with both a slot and publication name to clean up.
+            if not (cdc_config.enabled and cdc_config.slot_name and cdc_config.publication_name):
+                continue
 
-        # 2. Active sources — check WAL lag
-        try:
-            with adapter.management_connection(source, connect_timeout=10) as conn:
-                lag_bytes = adapter.get_lag_bytes(conn, cdc_config.slot_name)
-                retention_cap_mb = adapter.get_retention_cap_mb(conn)
-        except Exception:
-            source_log.exception("failed_to_check_slot_lag")
-            continue
+            sources_checked += 1
 
-        if lag_bytes is None:
-            source_log.warning("slot_not_found_or_no_flush_lsn")
-            continue
-
-        lag_mb = lag_bytes / (1024 * 1024)
-
-        critical_threshold_mb = cdc_config.lag_critical_threshold_mb
-        if retention_cap_mb is not None:
-            critical_threshold_mb = min(critical_threshold_mb, int(retention_cap_mb * RETENTION_CAP_SAFETY_FACTOR))
-
-        if lag_mb >= critical_threshold_mb:
-            source_log.error(
-                "slot_lag_critical",
-                lag_mb=round(lag_mb, 1),
-                threshold_mb=critical_threshold_mb,
-                retention_cap_mb=retention_cap_mb,
+            source_log = log.bind(
+                source_id=str(source.id),
+                team_id=source.team_id,
+                slot_name=cdc_config.slot_name,
+                management_mode=cdc_config.management_mode,
             )
 
-            if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
-                source_log.warning("auto_dropping_slot_critical_lag")
+            # 1. Deleted sources — drop the Temporal schedule (always; PostHog-side)
+            #    and PostHog-managed slot/publication (only when we own them).
+            if source.deleted:
                 try:
-                    with adapter.management_connection(source, connect_timeout=10) as conn:
-                        adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                    from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
 
+                    delete_cdc_extraction_schedule(str(source.id))
+                except Exception:
+                    source_log.exception("failed_to_delete_cdc_extraction_schedule")
+
+                if cdc_config.management_mode == "posthog":
+                    source_log.info("cleaning_up_deleted_source_slot")
+                    try:
+                        with adapter.management_connection(source, connect_timeout=10) as conn:
+                            adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                    except Exception:
+                        source_log.exception("failed_to_cleanup_deleted_source_slot")
+                continue
+
+            # 2. Active sources — check WAL lag
+            try:
+                with adapter.management_connection(source, connect_timeout=10) as conn:
+                    lag_bytes = adapter.get_lag_bytes(conn, cdc_config.slot_name)
+                    retention_cap_mb = adapter.get_retention_cap_mb(conn)
+            except Exception:
+                source_log.exception("failed_to_check_slot_lag")
+                continue
+
+            if lag_bytes is None:
+                source_log.warning("slot_not_found_or_no_flush_lsn")
+                continue
+
+            lag_mb = lag_bytes / (1024 * 1024)
+
+            critical_threshold_mb = cdc_config.lag_critical_threshold_mb
+            if retention_cap_mb is not None:
+                critical_threshold_mb = min(critical_threshold_mb, int(retention_cap_mb * RETENTION_CAP_SAFETY_FACTOR))
+
+            if lag_mb >= critical_threshold_mb:
+                source_log.error(
+                    "slot_lag_critical",
+                    lag_mb=round(lag_mb, 1),
+                    threshold_mb=critical_threshold_mb,
+                    retention_cap_mb=retention_cap_mb,
+                )
+
+                if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
+                    source_log.warning("auto_dropping_slot_critical_lag")
+                    try:
+                        with adapter.management_connection(source, connect_timeout=10) as conn:
+                            adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+
+                        source.status = ExternalDataSource.Status.ERROR
+                        source.save(update_fields=["status", "updated_at"])
+                    except Exception:
+                        source_log.exception("failed_to_auto_drop_slot")
+                elif cdc_config.management_mode == "self_managed":
                     source.status = ExternalDataSource.Status.ERROR
                     source.save(update_fields=["status", "updated_at"])
-                except Exception:
-                    source_log.exception("failed_to_auto_drop_slot")
-            elif cdc_config.management_mode == "self_managed":
-                source.status = ExternalDataSource.Status.ERROR
-                source.save(update_fields=["status", "updated_at"])
 
-        elif lag_mb >= cdc_config.lag_warning_threshold_mb:
-            source_log.warning(
-                "slot_lag_warning",
-                lag_mb=round(lag_mb, 1),
-                threshold_mb=cdc_config.lag_warning_threshold_mb,
-            )
+            elif lag_mb >= cdc_config.lag_warning_threshold_mb:
+                source_log.warning(
+                    "slot_lag_warning",
+                    lag_mb=round(lag_mb, 1),
+                    threshold_mb=cdc_config.lag_warning_threshold_mb,
+                )
 
-    log.info("cleanup_orphan_slots_completed", sources_checked=len(cdc_sources))
+    log.info("cleanup_orphan_slots_completed", sources_checked=sources_checked)

@@ -489,6 +489,7 @@
           ExternalDataSourceType.RKICOVID: RKICovidSourceConfig,
           ExternalDataSourceType.RAILZ: RailzSourceConfig,
           ExternalDataSourceType.RAMP: RampSourceConfig,
+          ExternalDataSourceType.RAZORPAY: RazorpaySourceConfig,
           ExternalDataSourceType.RECHARGE: RechargeSourceConfig,
           ExternalDataSourceType.RECREATION: RecreationSourceConfig,
           ExternalDataSourceType.RECRUITEE: RecruiteeSourceConfig,

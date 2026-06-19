@@ -4,13 +4,13 @@ from posthog.test.base import TestMigrations
 
 
 class BackfillDirectQueryEnabledMigrationTest(TestMigrations):
-    """0026 defaults every row to True. The backfill must opt existing synced (warehouse) sources out so
+    """0028 defaults every row to True. The backfill must opt existing synced (warehouse) sources out so
     the direct-connect capability gate only lights up sources a user explicitly enables; direct sources
     keep True.
     """
 
-    migrate_from = "0027_externaldatasource_direct_query_enabled"
-    migrate_to = "0028_backfill_externaldatasource_direct_query_enabled"
+    migrate_from = "0028_externaldatasource_direct_query_enabled"
+    migrate_to = "0029_backfill_externaldatasource_direct_query_enabled"
 
     @property
     def app(self) -> str:

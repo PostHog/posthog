@@ -21291,6 +21291,7 @@
                 "Ahrefs",
                 "Lightfield",
                 "Appstack",
+                "Razorpay",
                 "Custom"
             ],
             "type": "string"

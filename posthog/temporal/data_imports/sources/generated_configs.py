@@ -2467,6 +2467,11 @@ class RampSourceConfig(config.Config):
 
 
 @config.config
+class RazorpaySourceConfig(config.Config):
+    pass
+
+
+@config.config
 class RechargeSourceConfig(config.Config):
     api_key: str
 
@@ -3893,6 +3898,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.RKICOVID: RKICovidSourceConfig,
         ExternalDataSourceType.RAILZ: RailzSourceConfig,
         ExternalDataSourceType.RAMP: RampSourceConfig,
+        ExternalDataSourceType.RAZORPAY: RazorpaySourceConfig,
         ExternalDataSourceType.RECHARGE: RechargeSourceConfig,
         ExternalDataSourceType.RECREATION: RecreationSourceConfig,
         ExternalDataSourceType.RECRUITEE: RecruiteeSourceConfig,

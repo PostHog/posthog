@@ -8,8 +8,8 @@ This job targets individual customer "ducklings" - isolated DuckLake instances w
 own RDS catalog and S3 bucket.
 
 Architecture:
-    DuckgresServer (connection) + derived S3 bucket name
-        │ team_id → organization_id → connection; bucket = posthog-duckling-{org}-{suffix}
+    DuckgresServer (connection) + DuckLakeCatalog (S3 bucket name)
+        │ team_id → organization_id → connection; bucket from the stored DuckLakeCatalog row
         ▼
     ClickHouse (events table)
         │ export via s3() - bucket policy allows ClickHouse EC2 role
@@ -67,7 +67,7 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.ducklake.client import make_duckgres_conninfo
-from posthog.ducklake.common import _get_org_id_for_team, derive_duckling_bucket
+from posthog.ducklake.common import _get_org_id_for_team, derive_duckling_bucket, get_ducklake_catalog_for_organization
 from posthog.ducklake.models import DuckLakeBackfill
 
 logger = structlog.get_logger(__name__)
@@ -172,10 +172,10 @@ def _get_cluster() -> ClickhouseCluster:
 class DucklingTarget:
     """Resolved per-org duckling backfill target: connection identity + S3 storage.
 
-    Replaces DuckLakeCatalog in the backfill path — built once per run from the team's
-    organization id (which drives both the duckgres connection, via make_duckgres_conninfo,
-    and the deterministically derived S3 bucket). Duckgres owns catalog attachment, so no
-    catalog-DB connection is needed here.
+    Built once per run from the team's organization id. The duckgres connection is driven by
+    make_duckgres_conninfo (duckgres owns catalog attachment on the connection); the S3 bucket
+    is read from the org's stored DuckLakeCatalog row — the provisioning source of truth — and
+    only falls back to deterministic derivation when no catalog row exists (e.g. dev mode).
     """
 
     team_id: int
@@ -188,10 +188,28 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     """Resolve the per-org duckling target for a backfill partition.
 
     The organization id (team → org) drives both the connection (make_duckgres_conninfo
-    resolves the duckgres server itself) and the deterministically derived S3 bucket.
+    resolves the duckgres server itself) and the S3 bucket. The bucket name is read from
+    the org's stored DuckLakeCatalog — the source of truth written at provisioning time —
+    and only falls back to the deterministic derivation for orgs with no catalog row yet
+    (e.g. dev mode, where the catalog lookup returns None).
     """
     org_id = _get_org_id_for_team(team_id)
-    bucket, bucket_region = derive_duckling_bucket(org_id)
+
+    catalog = get_ducklake_catalog_for_organization(org_id)
+    if catalog is not None and catalog.bucket:
+        bucket, bucket_region = catalog.bucket, catalog.bucket_region
+    else:
+        # No stored catalog row (dev mode, or an org provisioned with only a DuckgresServer):
+        # the derived name is an unverified guess at the provisioned bucket. Log it so the
+        # "bucket does not exist" failure mode is observable rather than silent.
+        bucket, bucket_region = derive_duckling_bucket(org_id)
+        logger.warning(
+            "duckling_bucket_derived_no_catalog",
+            team_id=team_id,
+            organization_id=org_id,
+            bucket=bucket,
+        )
+
     return DucklingTarget(team_id=team_id, organization_id=org_id, bucket=bucket, bucket_region=bucket_region)
 
 
