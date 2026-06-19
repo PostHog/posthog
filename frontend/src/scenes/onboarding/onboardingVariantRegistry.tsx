@@ -1,6 +1,7 @@
 import { LegacyOnboarding } from './legacy/LegacyOnboarding'
 import type { OnboardingFlowVariant } from './onboardingVariants'
-import { RedesignOnboarding } from './redesign/RedesignOnboarding'
+// The redesign host is the canonical `Onboarding`; aliased here so it reads distinctly next to `LegacyOnboarding`.
+import { Onboarding as RedesignOnboarding } from './redesign/Onboarding'
 
 /**
  * Maps each shipped variant to its host component. Add a variant here and in

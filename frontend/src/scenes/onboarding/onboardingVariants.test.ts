@@ -41,8 +41,8 @@ describe('onboardingVariants', () => {
             expect(onboardingVariantChrome('legacy')).toBe('minimal')
         })
 
-        it('redesign keeps the minimal top bar', () => {
-            expect(onboardingVariantChrome('redesign')).toBe('minimal')
+        it('redesign owns the viewport with no navbar', () => {
+            expect(onboardingVariantChrome('redesign')).toBe('none')
         })
     })
 })
