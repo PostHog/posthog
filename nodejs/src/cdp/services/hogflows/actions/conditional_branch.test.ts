@@ -249,4 +249,70 @@ describe('action.conditional_branch', () => {
             expect(result.nextAction).toBeUndefined()
         })
     })
+
+    describe('wait_until_condition safety poll cadence', () => {
+        // The subscription matcher wakes these steps in real time, so the periodic re-check is only a
+        // backstop and runs on a much longer cadence than a plain conditional_branch.
+        const buildWaitInvocation = (maxWaitDuration: string): CyclotronJobInvocationHogFlow => {
+            const waitFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        wait_until_condition: {
+                            type: 'wait_until_condition',
+                            config: {
+                                condition: {
+                                    filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters, // no match
+                                },
+                                max_wait_duration: maxWaitDuration,
+                            },
+                        },
+                        matched_target: { type: 'delay', config: { delay_duration: '2h' } },
+                    },
+                    edges: [{ from: 'wait_until_condition', to: 'matched_target', type: 'branch', index: 0 }],
+                })
+                .build()
+
+            const waitAction = findActionByType(waitFlow, 'wait_until_condition')!
+            const inv = createExampleHogFlowInvocation(waitFlow)
+            inv.state.currentAction = { id: waitAction.id, startedAtTimestamp: DateTime.utc().toMillis() }
+            return inv
+        }
+
+        const run = async (
+            inv: CyclotronJobInvocationHogFlow,
+            handler: ConditionalBranchHandler
+        ): Promise<ReturnType<ConditionalBranchHandler['execute']>> => {
+            const waitAction = findActionByType(inv.hogFlow, 'wait_until_condition')!
+            return handler.execute({ invocation: inv, action: waitAction, result: createInvocationResult(inv) })
+        }
+
+        it('reschedules at the configured safety-poll interval, not the conditional_branch cadence', async () => {
+            const inv = buildWaitInvocation('2h')
+            const handler = new ConditionalBranchHandler(15 * 60)
+
+            const result = await run(inv, handler)
+
+            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 15 }))
+            expect(result.nextAction).toBeUndefined()
+        })
+
+        it('defaults to a 1 hour safety poll', async () => {
+            const inv = buildWaitInvocation('2h')
+            const handler = new ConditionalBranchHandler()
+
+            const result = await run(inv, handler)
+
+            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ hours: 1 }))
+        })
+
+        it('clamps the wake to the deadline when max_wait_duration is shorter than the poll interval', async () => {
+            const inv = buildWaitInvocation('10m')
+            const handler = new ConditionalBranchHandler(60 * 60)
+
+            const result = await run(inv, handler)
+
+            // A wait shorter than the poll interval fires exactly once, at its deadline.
+            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
+        })
+    })
 })

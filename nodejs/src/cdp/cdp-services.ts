@@ -163,6 +163,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
+        | 'CDP_HOGFLOW_WAIT_UNTIL_SAFETY_POLL_SECONDS'
     >
 
 export interface CdpCoreServicesDeps {
@@ -428,7 +429,8 @@ export function createCdpCoreServices(
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
-        hogFlowDuplicateObserver
+        hogFlowDuplicateObserver,
+        config.CDP_HOGFLOW_WAIT_UNTIL_SAFETY_POLL_SECONDS
     )
 
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)

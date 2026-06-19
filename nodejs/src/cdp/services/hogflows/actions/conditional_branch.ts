@@ -8,9 +8,27 @@ import { findContinueAction, findNextAction, isEvaluableCondition } from '../hog
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
-const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
+// Plain conditional_branch re-checks are not woken by the subscription matcher, so they keep the
+// original tight poll cadence.
+const CONDITIONAL_BRANCH_POLL_SECONDS = 10 * 60
+
+// wait_until_condition steps ARE woken in real time by the subscription matcher
+// (cdp-hogflow-subscription-matcher) the moment an incoming event matches their `events` or their
+// person-property `condition`, so this periodic re-check is no longer the primary wake path — it is
+// a safety backstop. It still matters for:
+//   - group-property conditions, which the matcher cannot wake on: it finds parked jobs by the
+//     waiting person's distinct_id/person_id, but a `$groupidentify` that changes a group property
+//     is not tied to that person, so only this re-check (which reloads current group props) sees it
+//   - matcher downtime / missed events on the live event stream
+//   - firing the max_wait_duration timeout (calculatedScheduledAt clamps the wake to the deadline,
+//     so a wait shorter than this interval still fires exactly once, at its deadline)
+// Hence a much longer default than CONDITIONAL_BRANCH_POLL_SECONDS; tunable via
+// CDP_HOGFLOW_WAIT_UNTIL_SAFETY_POLL_SECONDS.
+export const DEFAULT_WAIT_UNTIL_SAFETY_POLL_SECONDS = 60 * 60
 
 export class ConditionalBranchHandler implements ActionHandler {
+    constructor(private readonly waitUntilSafetyPollSeconds: number = DEFAULT_WAIT_UNTIL_SAFETY_POLL_SECONDS) {}
+
     async execute({
         invocation,
         action,
@@ -44,7 +62,8 @@ export class ConditionalBranchHandler implements ActionHandler {
                           conditions: isEvaluableCondition(action.config.condition) ? [action.config.condition] : [],
                           delay_duration: action.config.max_wait_duration,
                       },
-                  }
+                  },
+            action.type === 'wait_until_condition' ? this.waitUntilSafetyPollSeconds : CONDITIONAL_BRANCH_POLL_SECONDS
         )
 
         if (conditionResult.scheduledAt) {
@@ -59,7 +78,8 @@ export class ConditionalBranchHandler implements ActionHandler {
 
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
-    action: Extract<HogFlowAction, { type: 'conditional_branch' }>
+    action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
+    pollSeconds: number = CONDITIONAL_BRANCH_POLL_SECONDS
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
@@ -81,11 +101,12 @@ export async function checkConditions(
     }
 
     if (action.config.delay_duration) {
-        // Calculate the scheduledAt based on the delay duration - max we will wait for is 10 minutes which means we check every 10 minutes until the condition is met
+        // Re-check on a timer until the condition matches or delay_duration elapses. `pollSeconds`
+        // caps the gap between checks; calculatedScheduledAt clamps the final wake to the deadline.
         const scheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
             invocation.state.currentAction?.startedAtTimestamp,
-            DEFAULT_WAIT_DURATION_SECONDS
+            pollSeconds
         )
 
         if (scheduledAt) {

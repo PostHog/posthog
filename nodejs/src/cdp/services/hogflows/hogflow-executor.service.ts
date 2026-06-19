@@ -21,7 +21,7 @@ import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
-import { ConditionalBranchHandler } from './actions/conditional_branch'
+import { ConditionalBranchHandler, DEFAULT_WAIT_UNTIL_SAFETY_POLL_SECONDS } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
@@ -84,7 +84,8 @@ export class HogFlowExecutorService {
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
-        duplicateObserver?: HogFlowDuplicateObserverService
+        duplicateObserver?: HogFlowDuplicateObserverService,
+        waitUntilSafetyPollSeconds: number = DEFAULT_WAIT_UNTIL_SAFETY_POLL_SECONDS
     ) {
         this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
@@ -97,7 +98,7 @@ export class HogFlowExecutorService {
         this.actionHandlers = {
             trigger: new TriggerHandler(),
             conditional_branch: new ConditionalBranchHandler(),
-            wait_until_condition: new ConditionalBranchHandler(),
+            wait_until_condition: new ConditionalBranchHandler(waitUntilSafetyPollSeconds),
             delay: new DelayHandler(),
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),

@@ -146,6 +146,11 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: number
     CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: number
 
+    // How often a parked wait_until_condition step re-checks its condition as a safety backstop.
+    // The subscription matcher wakes these steps in real time on a matching event, so this is no
+    // longer the primary wake path — see conditional_branch.ts for what it still covers.
+    CDP_HOGFLOW_WAIT_UNTIL_SAFETY_POLL_SECONDS: number
+
     // Cyclotron Node (node postgres job queue)
     CYCLOTRON_NODE_MAX_CONNECTIONS: number
     CYCLOTRON_NODE_IDLE_TIMEOUT_MS: number
@@ -283,6 +288,8 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         CDP_BATCH_WORKFLOW_PRODUCER_BATCH_SIZE: 1,
         CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 5000,
+
+        CDP_HOGFLOW_WAIT_UNTIL_SAFETY_POLL_SECONDS: 60 * 60,
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,
