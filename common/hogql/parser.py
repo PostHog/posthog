@@ -8,8 +8,6 @@ from enum import StrEnum
 from types import FrameType
 from typing import Any, Literal, cast
 
-from django.conf import settings
-
 from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
 from cachetools import LRUCache
@@ -24,6 +22,7 @@ from common.hogql.constants import RESERVED_KEYWORDS, HogQLParserBackend
 from common.hogql.errors import BaseHogQLError, ExposedHogQLError, NotImplementedError, SyntaxError
 from common.hogql.grammar.HogQLLexer import HogQLLexer
 from common.hogql.grammar.HogQLParser import HogQLParser
+from common.hogql.hooks import get_optional_hogql_backend_hooks
 from common.hogql.json_ast import deserialize_ast
 from common.hogql.parse_string import parse_string_literal_ctx, parse_string_literal_text, parse_string_text_ctx
 from common.hogql.parser_modes import ParserMode
@@ -324,10 +323,15 @@ _PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBac
 _SHADOW_SAMPLE_RATE = 0.001
 
 
+def _is_test_mode() -> bool:
+    hooks = get_optional_hogql_backend_hooks()
+    return hooks.is_test_mode() if hooks is not None else False
+
+
 def _shadow_sample_rate() -> float:
     """Shadow sampling fraction: 100% in tests (every parse compared, regressions fail loud), `_SHADOW_SAMPLE_RATE` in
     prod. Divergence behavior also differs by env (TEST raises, prod records) in `_run_shadow_comparison`."""
-    return 1.0 if settings.TEST else _SHADOW_SAMPLE_RATE
+    return 1.0 if _is_test_mode() else _SHADOW_SAMPLE_RATE
 
 
 def _resolve_parser_mode(
@@ -414,7 +418,7 @@ def _run_shadow_comparison(
     """
     if random.random() >= _shadow_sample_rate():
         return
-    test_mode = settings.TEST
+    test_mode = _is_test_mode()
     rule_label = str(rule)
     primary_version = _BACKEND_VERSION.get(primary_backend, "unknown")
     shadow_version = _BACKEND_VERSION.get(shadow_backend, "unknown")

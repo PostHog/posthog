@@ -17,6 +17,8 @@ class HogQLBackendHooks(Protocol):
 
     def get_query_provider(self) -> "HogQLQueryProvider": ...
 
+    def is_test_mode(self) -> bool: ...
+
 
 _backend_hooks: HogQLBackendHooks | None = None
 _loading_backend_hooks = False
@@ -55,3 +57,11 @@ def get_hogql_backend_hooks() -> HogQLBackendHooks:
         raise RuntimeError(f"HogQL backend hooks module {module_name!r} did not register hooks")
 
     return hooks  # type: ignore[unreachable]
+
+
+def get_optional_hogql_backend_hooks() -> HogQLBackendHooks | None:
+    if _backend_hooks is not None:
+        return _backend_hooks
+    if environ.get(BACKEND_HOOKS_MODULE_ENV):
+        return get_hogql_backend_hooks()
+    return None

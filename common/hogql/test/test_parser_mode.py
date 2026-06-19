@@ -34,8 +34,7 @@ class TestParserMode(BaseTest):
         self.assertEqual(_resolve_parser_mode(mode, backend), expected)
 
     def test_resolve_parser_mode_default_shadows_in_prod_not_only_in_test(self):
-        with patch("common.hogql.parser.settings") as mock_settings:
-            mock_settings.TEST = False
+        with patch("common.hogql.parser._is_test_mode", return_value=False):
             self.assertEqual(_resolve_parser_mode(None, None), ("rust-py", "cpp-json"))
 
     def test_resolve_parser_mode_drops_shadow_when_rust_unavailable(self):
@@ -79,8 +78,7 @@ class TestParserMode(BaseTest):
             return real_invoke(backend, rule, statement, start)
 
         with patch("common.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
-            with patch("common.hogql.parser.settings") as mock_settings:
-                mock_settings.TEST = False
+            with patch("common.hogql.parser._is_test_mode", return_value=False):
                 with patch("common.hogql.parser._invoke_parser", side_effect=only_shadow_diverges):
                     with patch("common.hogql.parser.report_parser_exception") as captured:
                         node = parse_select(
@@ -116,8 +114,7 @@ class TestParserMode(BaseTest):
                 raise HogQLSyntaxError("simulated rust-py rejection")
             return real_invoke(backend, rule, statement, start)
 
-        with patch("common.hogql.parser.settings") as mock_settings:
-            mock_settings.TEST = False
+        with patch("common.hogql.parser._is_test_mode", return_value=False):
             with patch("common.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
                 with patch("common.hogql.parser._invoke_parser", side_effect=shadow_throws_parser_class):
                     with patch("common.hogql.parser._SHADOW_COMPARISONS") as counter:
@@ -168,8 +165,7 @@ class TestParserMode(BaseTest):
                 return decoy
             return real_invoke(backend, rule, statement, start)
 
-        with patch("common.hogql.parser.settings") as mock_settings:
-            mock_settings.TEST = False
+        with patch("common.hogql.parser._is_test_mode", return_value=False):
             with patch("common.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
                 with patch("common.hogql.parser._invoke_parser", side_effect=only_shadow_diverges):
                     with patch("common.hogql.parser._SHADOW_COMPARISONS") as counter:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 from typing import Any
 
@@ -13,6 +13,46 @@ class HogLanguage(StrEnum):
     HOG_QL_EXPR = "hogQLExpr"
     HOG_TEMPLATE = "hogTemplate"
     LIQUID = "liquid"
+
+
+@dataclass(slots=True)
+class StandaloneHogQLQueryModifiers:
+    bounceRateDurationSeconds: float | None = None
+    bounceRatePageViewMode: Any | None = None
+    convertToProjectTimezone: bool | None = None
+    customChannelTypeRules: list[Any] | None = None
+    dataWarehouseEventsModifiers: list[Any] | None = None
+    debug: bool | None = None
+    forceClickhouseDataSkippingIndexes: list[str] | None = None
+    formatCsvAllowDoubleQuotes: bool | None = None
+    inCohortVia: Any | None = None
+    inlineCohortCalculation: Any | None = None
+    materializationMode: Any | None = None
+    materializedColumnsOptimizationMode: Any | None = None
+    optimizeJoinedFilters: bool | None = None
+    optimizeProjections: bool | None = None
+    parserMode: Any | None = None
+    personsArgMaxVersion: Any | None = None
+    personsJoinMode: Any | None = None
+    personsOnEventsMode: Any | None = None
+    propertyGroupsMode: Any | None = None
+    pushDownPredicates: bool | None = None
+    s3TableUseInvalidColumns: bool | None = None
+    sessionIdPushdown: bool | None = None
+    sessionPropertyPreAggregation: bool | None = None
+    sessionTableVersion: Any | None = None
+    sessionsV2JoinMode: Any | None = None
+    timings: bool | None = None
+    useMaterializedViews: bool | None = None
+    usePreaggregatedIntermediateResults: bool | None = None
+    usePreaggregatedTableTransforms: bool | None = None
+    useWebAnalyticsPreAggregatedTables: bool | None = None
+
+    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return asdict(self)
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, **kwargs: Any) -> StandaloneHogQLQueryModifiers:
+        return replace(self, **dict(update or {}))
 
 
 @dataclass(slots=True)

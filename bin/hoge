@@ -2,9 +2,9 @@
 set -e
 
 if [[ "$@" == *".hog"* ]]; then
-  exec python3 -m posthog.hogql.cli --compile "$@"
+  exec python3 -m common.hogql.cli --compile "$@"
 elif [[ "$@" == *".js"* ]]; then
-  exec python3 -m posthog.hogql.cli --compile "$@"
+  exec python3 -m common.hogql.cli --compile "$@"
 else
   echo "$0 - the Hog compilër! 🦔+🕶️= Hoge"
   echo ""

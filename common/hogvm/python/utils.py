@@ -6,6 +6,7 @@ _CASE_INSENSITIVE_OPTS = re2.Options()
 _CASE_INSENSITIVE_OPTS.case_sensitive = False
 
 COST_PER_UNIT = 8
+_LIKE_PATTERN_SPECIAL_CHARS = frozenset(r"-/\^$*+?.()|[]{}")
 
 
 class HogVMException(Exception):
@@ -47,9 +48,13 @@ class HogVMMemoryExceededException(HogVMException):
 
 
 def like(string, pattern, case_insensitive: bool = False):
-    pattern = re2.escape(pattern).replace("%", ".*").replace("_", ".")
+    pattern = (
+        "".join(f"\\{char}" if char in _LIKE_PATTERN_SPECIAL_CHARS else char for char in str(pattern))
+        .replace("%", ".*")
+        .replace("_", ".")
+    )
     re_pattern = re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
-    return re_pattern.search(string) is not None
+    return re_pattern.search(str(string)) is not None
 
 
 def get_nested_value(obj, chain, nullish=False) -> Any:

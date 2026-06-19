@@ -30,6 +30,11 @@ class PostHogHogQLBackendHooks(HogQLBackendHooks):
 
         return PostHogQueryProvider()
 
+    def is_test_mode(self) -> bool:
+        from django.conf import settings  # noqa: PLC0415 - keeps Django settings behind the host adapter
+
+        return bool(settings.TEST)
+
 
 def install_hogql_backend_hooks() -> None:
     set_hogql_backend_hooks(PostHogHogQLBackendHooks())
