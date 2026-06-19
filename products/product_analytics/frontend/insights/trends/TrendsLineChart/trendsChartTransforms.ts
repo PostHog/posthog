@@ -197,6 +197,7 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
 
     showCrosshair?: boolean
     tooltip?: TooltipConfig
+    legend?: TimeSeriesLineChartConfig['legend']
 }
 
 export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
@@ -236,5 +237,6 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         percentStackView: opts.isPercentStackView,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
+        legend: opts.legend,
     }
 }

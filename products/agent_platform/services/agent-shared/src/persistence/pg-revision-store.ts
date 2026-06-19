@@ -25,7 +25,7 @@ export class PgRevisionStore implements RevisionStore {
 
     async getApplication(applicationId: string): Promise<AgentApplication | null> {
         const r = await this.pool.query(
-            `SELECT id, team_id, slug, name, description, encrypted_env, live_revision_id, archived
+            `SELECT id, team_id, slug, name, description, live_revision_id, archived
              FROM agent_application WHERE id = $1`,
             [applicationId]
         )
@@ -37,7 +37,7 @@ export class PgRevisionStore implements RevisionStore {
         // archived = FALSE guarantees at most one row. LIMIT 1 is belt-and-
         // braces against a stray duplicate, never a real disambiguation.
         const r = await this.pool.query(
-            `SELECT id, team_id, slug, name, description, encrypted_env, live_revision_id, archived
+            `SELECT id, team_id, slug, name, description, live_revision_id, archived
              FROM agent_application WHERE slug = $1 AND archived = FALSE LIMIT 1`,
             [slug]
         )
@@ -46,7 +46,7 @@ export class PgRevisionStore implements RevisionStore {
 
     async listApplications(teamId: number): Promise<AgentApplication[]> {
         const r = await this.pool.query(
-            `SELECT id, team_id, slug, name, description, encrypted_env, live_revision_id, archived
+            `SELECT id, team_id, slug, name, description, live_revision_id, archived
              FROM agent_application WHERE team_id = $1 AND archived = FALSE
              ORDER BY created_at ASC`,
             [teamId]
@@ -57,9 +57,9 @@ export class PgRevisionStore implements RevisionStore {
     async createApplication(input: NewApplication): Promise<AgentApplication> {
         const id = uuidv4()
         await this.pool.query(
-            `INSERT INTO agent_application (id, team_id, slug, name, description, encrypted_env)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [id, input.team_id, input.slug, input.name, input.description, input.encrypted_env ?? null]
+            `INSERT INTO agent_application (id, team_id, slug, name, description)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [id, input.team_id, input.slug, input.name, input.description]
         )
         const r = await this.getApplication(id)
         if (!r) {
@@ -77,7 +77,7 @@ export class PgRevisionStore implements RevisionStore {
     async getRevision(revisionId: string): Promise<AgentRevision | null> {
         const r = await this.pool.query(
             `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,
-                    bundle_uri, bundle_sha256, spec
+                    bundle_uri, bundle_sha256, spec, encrypted_env
              FROM agent_revision WHERE id = $1`,
             [revisionId]
         )
@@ -90,7 +90,7 @@ export class PgRevisionStore implements RevisionStore {
         // resolve another tenant's revision. Returns null on app mismatch.
         const r = await this.pool.query(
             `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,
-                    bundle_uri, bundle_sha256, spec
+                    bundle_uri, bundle_sha256, spec, encrypted_env
              FROM agent_revision WHERE id = $1 AND application_id = $2`,
             [revisionId, applicationId]
         )
@@ -100,7 +100,7 @@ export class PgRevisionStore implements RevisionStore {
     async getRevisionRaw(revisionId: string): Promise<AgentRevisionRaw | null> {
         const r = await this.pool.query(
             `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,
-                    bundle_uri, bundle_sha256, spec
+                    bundle_uri, bundle_sha256, spec, encrypted_env
              FROM agent_revision WHERE id = $1`,
             [revisionId]
         )
@@ -110,7 +110,7 @@ export class PgRevisionStore implements RevisionStore {
     async listRevisions(applicationId: string): Promise<AgentRevision[]> {
         const r = await this.pool.query(
             `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,
-                    bundle_uri, bundle_sha256, spec
+                    bundle_uri, bundle_sha256, spec, encrypted_env
              FROM agent_revision WHERE application_id = $1
              ORDER BY created_at ASC`,
             [applicationId]
@@ -131,7 +131,7 @@ export class PgRevisionStore implements RevisionStore {
         }
         const r = await this.pool.query(
             `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,
-                    bundle_uri, bundle_sha256, spec
+                    bundle_uri, bundle_sha256, spec, encrypted_env
              FROM agent_revision
              WHERE application_id = $1
                AND replace(lower(id::text), '-', '') LIKE $2 || '%'`,
@@ -144,8 +144,8 @@ export class PgRevisionStore implements RevisionStore {
         const id = uuidv4()
         await this.pool.query(
             `INSERT INTO agent_revision
-                (id, application_id, parent_revision_id, created_by_id, bundle_uri, spec)
-             VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+                (id, application_id, parent_revision_id, created_by_id, bundle_uri, spec, encrypted_env)
+             VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
             [
                 id,
                 input.application_id,
@@ -153,6 +153,7 @@ export class PgRevisionStore implements RevisionStore {
                 input.created_by_id,
                 input.bundle_uri,
                 JSON.stringify(input.spec),
+                input.encrypted_env ?? null,
             ]
         )
         const r = await this.getRevision(id)
@@ -209,7 +210,7 @@ export class PgRevisionStore implements RevisionStore {
         // gets hot.
         const r = await this.pool.query(
             `SELECT r.id, r.application_id, r.parent_revision_id, r.created_by_id,
-                    r.created_at, r.state, r.bundle_uri, r.bundle_sha256, r.spec
+                    r.created_at, r.state, r.bundle_uri, r.bundle_sha256, r.spec, r.encrypted_env
              FROM agent_revision r
              JOIN agent_application a ON a.live_revision_id = r.id
              WHERE a.archived = false`
@@ -230,7 +231,6 @@ function rowToApp(row: {
     slug: string
     name: string
     description: string
-    encrypted_env: string | null
     live_revision_id: string | null
     archived: boolean
 }): AgentApplication {
@@ -242,7 +242,6 @@ function rowToApp(row: {
         description: row.description,
         live_revision_id: row.live_revision_id,
         archived: row.archived,
-        encrypted_env: row.encrypted_env,
     }
 }
 
@@ -256,6 +255,7 @@ type RevisionRow = {
     bundle_uri: string
     bundle_sha256: string | null
     spec: unknown
+    encrypted_env: string | null
 }
 
 function rowToRev(row: RevisionRow): AgentRevision {
@@ -276,6 +276,7 @@ function rowToRevRaw(row: RevisionRow): AgentRevisionRaw {
         bundle_uri: row.bundle_uri,
         bundle_sha256: row.bundle_sha256,
         spec: row.spec ?? {},
+        encrypted_env: row.encrypted_env ?? null,
     }
 }
 

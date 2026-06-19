@@ -17,6 +17,7 @@ import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDe
 import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
+import { ArchivedTab } from './components/tabs/ArchivedTab'
 import { NotActionableTab } from './components/tabs/NotActionableTab'
 import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
@@ -34,7 +35,7 @@ const SETUP_RAIL_MIN_PX = 1024
 
 /** Tabs that show the centered report list (scope chrome in the header). Runs/Configuration are special. */
 function isReportListTab(tab: InboxTabKey): boolean {
-    return tab === 'pulls' || tab === 'reports' || tab === 'not-actionable'
+    return tab === 'pulls' || tab === 'reports' || tab === 'not-actionable' || tab === 'archived'
 }
 
 function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: SignalReport[] }): JSX.Element {
@@ -45,6 +46,8 @@ function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: Si
             return <ReportsTab />
         case 'not-actionable':
             return <NotActionableTab />
+        case 'archived':
+            return <ArchivedTab />
         case 'runs':
             return <RunsTab reports={runsReports} />
         case 'config':

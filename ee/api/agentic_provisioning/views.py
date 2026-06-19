@@ -32,6 +32,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.api.email_verification import EmailVerifier
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
@@ -704,6 +705,7 @@ def _handle_new_user(
             email=email,
             password=None,
             first_name=first_name,
+            is_email_verified=False,
         )
     except IntegrityError:
         existing = User.objects.filter(email=email).first()
@@ -2697,6 +2699,21 @@ def agentic_login(request: Any) -> HttpResponseBase:
         _capture_deep_link_event("user_inactive", user_id=user_id)
         logger.warning("agentic_login.user_inactive", user_id=user_id)
         return HttpResponseRedirect("/?error=user_inactive")
+
+    # Deep-link login has no password challenge and no SSO step, so partner-asserted
+    # email ownership is the only thing standing between an attacker and a session.
+    # Require explicit is_email_verified=True - don't trust the legacy None passthrough
+    # or the org-level email-verification-disabled flag.
+    if user.is_email_verified is not True:
+        try:
+            EmailVerifier.create_token_and_send_email_verification(user)
+        except Exception:
+            # Intentionally swallowed: the login must stay blocked regardless of email delivery.
+            # EmailVerifier captures the exception internally; the verify_email page has a resend button.
+            logger.warning("agentic_login.verification_email_failed", user_id=user.id)
+        _capture_deep_link_event("email_unverified", user_id=user_id)
+        logger.warning("agentic_login.email_unverified", user_id=user_id)
+        return HttpResponseRedirect(f"/verify_email/{user.uuid}")
 
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 

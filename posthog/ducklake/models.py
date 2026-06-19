@@ -88,6 +88,13 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     username = models.CharField(max_length=255)
     password = EncryptedTextField(max_length=500)
 
+    # S3 bucket backing the org's managed warehouse (no secrets — access is via IRSA / the
+    # ClickHouse EC2 role). Written at provision time so the duckling backfill reads the
+    # authoritative bucket name instead of re-deriving it. Nullable for rows provisioned
+    # before this field existed.
+    bucket = models.CharField(max_length=255, null=True, blank=True)
+    bucket_region = models.CharField(max_length=50, default="us-east-1")
+
     class Meta:
         db_table = "posthog_duckgresserver"
         verbose_name = "Duckgres server"

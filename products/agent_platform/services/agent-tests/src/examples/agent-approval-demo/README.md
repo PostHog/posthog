@@ -48,7 +48,7 @@ spec match) or branches a new draft and re-promotes.
 
 You can also point Claude at this directory via the MCP — the spec is
 real, the bundle files are real, and they'll round-trip through the
-authoring API the same way the concierge fixture does.
+authoring API the same way the Agent Builder fixture does.
 
 ## Driving the demo
 
