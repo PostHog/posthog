@@ -355,9 +355,10 @@ function SyncMethodSection({
         incrementalField: string | null,
         incrementalFieldType: string | null,
         primaryKeyColumns: string[] | null,
-        cdcTableMode?: 'consolidated' | 'cdc_only' | 'both'
+        cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
+        incrementalFieldLookbackSeconds?: number | null
     ): Promise<void> => {
-        const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc'
+        const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
         setSaving(true)
         try {
             await api.externalDataSchemas.update(schema.id, {
@@ -365,6 +366,8 @@ function SyncMethodSection({
                 sync_type: syncType,
                 incremental_field: noIncrementalField ? null : incrementalField,
                 incremental_field_type: noIncrementalField ? null : incrementalFieldType,
+                incremental_field_lookback_seconds:
+                    syncType === 'incremental' ? (incrementalFieldLookbackSeconds ?? null) : null,
                 primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
                 ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
             })
@@ -406,9 +409,11 @@ function SyncMethodSection({
                                 sync_time_of_day: schema.sync_time_of_day ?? null,
                                 incremental_field: schema.incremental_field ?? null,
                                 incremental_field_type: schema.incremental_field_type ?? null,
+                                incremental_field_lookback_seconds: schema.incremental_field_lookback_seconds ?? null,
                                 incremental_available: schemaIncrementalFields.incremental_available,
                                 append_available: schemaIncrementalFields.append_available,
                                 cdc_available: schemaIncrementalFields.cdc_available,
+                                xmin_available: schemaIncrementalFields.xmin_available,
                                 cdc_table_mode: schema.cdc_table_mode,
                                 incremental_fields: schemaIncrementalFields.incremental_fields,
                                 supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
@@ -856,7 +861,7 @@ function DangerZoneSection({
     deleteTable: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const hasFullCdcResync = schema.sync_type === 'cdc'
-    const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook'
+    const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook' || schema.sync_type === 'xmin'
     const canDeleteTable = !!schema.table
 
     if (!hasFullCdcResync && !hasDeleteAndResync && !canDeleteTable) {

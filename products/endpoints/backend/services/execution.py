@@ -447,7 +447,9 @@ class EndpointExecutionService(PydanticModelMixin):
                     result = None
             elif self._should_use_ducklake(endpoint, version_obj):
                 try:
-                    result = self._execute_ducklake_endpoint(endpoint, version_obj.query.copy(), debug=debug)
+                    result = self._execute_ducklake_endpoint(
+                        endpoint, data, version_obj, version_obj.query.copy(), debug=debug
+                    )
                     execution_type = "ducklake"
                 except Exception:
                     logger.warning(
@@ -841,16 +843,28 @@ class EndpointExecutionService(PydanticModelMixin):
     def _execute_ducklake_endpoint(
         self,
         endpoint: Endpoint,
+        data: EndpointRunRequest,
+        version: EndpointVersion,
         query: dict,
         debug: bool = False,
     ) -> Response:
         from posthog.ducklake.client import execute_ducklake_query
 
         try:
+            strategy = strategy_for(endpoint, version, self.team)
+            plan = strategy.build_inline_plan(query, data)
+
+            hogql_query = HogQLQuery(query=query["query"], variables=query.get("variables"))
+            if plan.variables_override and hogql_query.variables:
+                for override in plan.variables_override:
+                    if hogql_query.variables.get(override.variableId):
+                        hogql_query.variables[override.variableId] = override
+
             result = execute_ducklake_query(
                 self.team.pk,
-                query=HogQLQuery(query=query["query"]),
+                query=hogql_query,
                 organization_id=str(self.team.organization_id),
+                team=self.team,
             )
             response_data: dict = {
                 "results": result.results,

@@ -23,9 +23,14 @@ import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
+import { LegendPositionFilter } from 'scenes/insights/EditorFilters/LegendPositionFilter'
 import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
-import { MetricColorFilter, MetricShowChangeFilter } from 'scenes/insights/EditorFilters/MetricFilters'
+import {
+    MetricColorFilter,
+    MetricShowChangeFilter,
+    MetricSummaryFilter,
+} from 'scenes/insights/EditorFilters/MetricFilters'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
@@ -116,6 +121,7 @@ export function InsightDisplayConfig(): JSX.Element {
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
+    const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
     // The slope graph shows the first vs last interval, so it keeps the group-by interval picker but
     // drops the options that need the points between them (compare, smoothing, multiple axes,
     // alert/annotation overlays, statistical analysis).
@@ -234,6 +240,7 @@ export function InsightDisplayConfig(): JSX.Element {
                             : [
                                   ...(isMetric
                                       ? [
+                                            { label: () => <MetricSummaryFilter /> },
                                             { label: () => <MetricShowChangeFilter /> },
                                             { label: () => <MetricColorFilter /> },
                                         ]
@@ -245,6 +252,11 @@ export function InsightDisplayConfig(): JSX.Element {
                                   ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
                                   ...(hasLegend || showFunnelLegendConfig
                                       ? [{ label: () => <ShowLegendFilter /> }]
+                                      : []),
+                                  // The in-chart quill legend supports placement; the legacy side
+                                  // legend doesn't, so only offer it for trends line/area/cumulative.
+                                  ...(quillLegendEnabled && isTrends && isLineDisplay && showLegend
+                                      ? [{ label: () => <LegendPositionFilter /> }]
                                       : []),
                                   ...(display === ChartDisplayType.ActionsPie
                                       ? [{ label: () => <ShowPieTotalFilter /> }]
@@ -435,7 +447,8 @@ export function InsightDisplayConfig(): JSX.Element {
         (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
         (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
-        (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0)
+        (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
+        (isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total' ? 1 : 0)
 
     return (
         <div

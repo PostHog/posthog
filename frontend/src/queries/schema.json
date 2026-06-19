@@ -4352,8 +4352,14 @@
                 },
                 "metricShowChange": {
                     "default": true,
-                    "description": "Only applies when `display` is `Metric`. Show the change pill next to the big number — the percentage change from the first to the last point of the series over the selected date range.",
+                    "description": "Only applies when `display` is `Metric`. Show the change pill next to the big number. What it compares follows `metricSummary`: `total`/`average` compare against the previous period when \"compare to previous\" is on (otherwise first→last of the series), and `latest` is always first→last of the series.",
                     "type": "boolean"
+                },
+                "metricSummary": {
+                    "default": "total",
+                    "description": "Only applies when `display` is `Metric`. Which summary the resting big number shows: `total` (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the sparkline always shows the hovered point's value regardless of this setting. Also drives the change pill: `total`/`average` compare against the previous period when \"compare to previous\" is on; `latest` compares first→last of the series.",
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
                 },
                 "showAlertThresholdLines": {
                     "default": false,
@@ -21283,7 +21289,13 @@
                 "Streamlabs",
                 "Datorama",
                 "Ahrefs",
-                "Custom"
+                "Lightfield",
+                "Appstack",
+                "Razorpay",
+                "Neon",
+                "NewRelic",
+                "Custom",
+                "Tile38"
             ],
             "type": "string"
         },
@@ -23300,6 +23312,35 @@
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
             "type": "string"
         },
+        "HogQLAlertConfig": {
+            "additionalProperties": false,
+            "description": "Alert config for HogQL/SQL-backed insights. The query owns its own time window.",
+            "properties": {
+                "column": {
+                    "description": "Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).",
+                    "type": ["string", "null"]
+                },
+                "evaluation": {
+                    "$ref": "#/definitions/HogQLAlertEvaluation",
+                    "description": "How to read the result rows — an explicit choice, no implicit default."
+                },
+                "label_column": {
+                    "description": "In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number.",
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "HogQLAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "evaluation"],
+            "type": "object"
+        },
+        "HogQLAlertEvaluation": {
+            "description": "How a SQL alert reads the query result. `last_row` = the query is ordered oldest→newest and the last row is the current value; `first_row` = the query is ordered newest→oldest and the first row is the current value (this mode bounds the fetch with a LIMIT since only the head is read); `any_row` = every row is checked and the alert fires if any value breaches (absolute conditions only).",
+            "enum": ["last_row", "first_row", "any_row"],
+            "type": "string"
+        },
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
@@ -24856,7 +24897,8 @@
                 "pinterest-ads",
                 "customerio-app",
                 "customerio-webhook",
-                "customerio-track"
+                "customerio-track",
+                "postgresql"
             ],
             "type": "string"
         },
@@ -37142,7 +37184,8 @@
                 "keypress_count",
                 "mouse_activity_count",
                 "activity_score",
-                "recording_ttl"
+                "recording_ttl",
+                "surfacing_score"
             ],
             "type": "string"
         },
@@ -40519,6 +40562,10 @@
                     },
                     "type": "array"
                 },
+                "task_id": {
+                    "description": "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the inbox card to the run in the Tasks UI. Absent on emissions made before this linkage was captured.",
+                    "type": "string"
+                },
                 "task_run_id": {
                     "description": "The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not).",
                     "type": "string"
@@ -43564,6 +43611,12 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
+                },
                 "metricChangeDecreaseColor": {
                     "description": "Metric display: change pill color when the metric decreased. Defaults to red.",
                     "type": "string"
@@ -43589,6 +43642,12 @@
                     "default": true,
                     "description": "Show the period-over-period change pill on the Metric display.",
                     "type": "boolean"
+                },
+                "metricSummary": {
+                    "default": "total",
+                    "description": "Metric display: which summary the resting headline shows — the period total, the average, or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives the change pill: total/average compare against the previous period when \"compare to previous\" is on; latest compares first→last of the series.",
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
                 },
                 "minDecimalPlaces": {
                     "type": "number"

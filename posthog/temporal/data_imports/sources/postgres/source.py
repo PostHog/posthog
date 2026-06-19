@@ -33,6 +33,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgresImplementation,
     SSLRequiredError,
     _rls_active_from_conn,
+    _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
@@ -46,7 +47,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
 )
 
 from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
 log = logging.getLogger(__name__)
 
@@ -210,6 +211,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # xmin can't run against this relation (server < PG13, no primary key, or a partitioned
+            # parent) — deterministic, so don't retry. `XminUnsupportedError` matches once Temporal
+            # wraps the failure; the message fragment matches the raw activity-level `str(e)`.
+            "XminUnsupportedError": None,
+            "xmin replication": None,
             "NoSuchTableError": None,
             "is not permitted to log in": None,
             "Tenant or user not found connection to server": None,
@@ -300,6 +306,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # Match that message substring so the role-lacks-SELECT case is caught at both layers
             # and we stop retrying instead of re-reading into the same denial every attempt.
             "InsufficientPrivilege": None,
+            # A view selected for sync calls a function the connecting role can't execute (SQLSTATE
+            # 42501) — most often a view that decrypts secrets via Supabase Vault / pgsodium
+            # (`crypto_aead_det_decrypt`). Distinct from the table/view SELECT denial below: granting
+            # SELECT won't help, so it needs its own EXECUTE-oriented message and must precede the
+            # generic "permission denied for" so that message is the one selected.
+            "permission denied for function": (
+                "PostHog's database role isn't allowed to execute a function used by one or more of the "
+                'tables or views you selected to sync (PostgreSQL reported "permission denied for function"). '
+                "This often happens when a view decrypts secrets (for example Supabase Vault's "
+                "crypto_aead_det_decrypt). Grant the connecting role EXECUTE on that function, or remove the "
+                "view that uses it from the sync, then re-enable the sync."
+            ),
             "permission denied for": (
                 "PostHog's database role isn't allowed to read one or more of the tables you selected to sync "
                 '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
@@ -523,6 +541,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             indexed_columns_by_table: dict[str, set[str]] | None = {}
             tables_with_pks: set[str] = set()
             rls_active_by_table: dict[str, bool] = {}
+            xmin_capable_tables: set[str] = set()
 
             try:
                 with pg_connection(
@@ -592,6 +611,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
                     # Row-level security check powers the advisory warning in the table picker.
                     rls_active_by_table = _rls_active_from_conn(conn, config.schema, names)
+
+                    # xmin availability (heap tables + matviews, PG13+). Postgres-only: the generic
+                    # `supports_xmin` default stays False for every other source.
+                    xmin_capable_tables = _xmin_capable_tables_from_conn(conn, config.schema, names)
             except Exception as e:
                 # Connection-level failure for the best-effort PK/index/RLS metadata lookup. The
                 # schema listing already succeeded above (`db_schemas`), so degrade quietly — log a
@@ -605,6 +628,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 indexed_columns_by_table = None
                 tables_with_pks = set()
                 rls_active_by_table = {}
+                xmin_capable_tables = set()
 
         for table_name, discovered_schema in db_schemas.items():
             incremental_field_tuples = filter_postgres_incremental_fields(discovered_schema.columns)
@@ -622,13 +646,32 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 }
                 for field_name, field_type, nullable in incremental_field_tuples
             ]
+            # `supports_incremental`/`supports_append` must reflect the real cursor fields only —
+            # compute them before appending the synthetic xmin entry.
+            supports_real_cursor = len(incremental_fields) > 0
+
+            # xmin is advertised synthetically: it's never in information_schema (negative attnum),
+            # so `filter_postgres_incremental_fields` can't produce it. It's always unindexed
+            # (`xmin::text::bigint` is an expression), so the UI warns about the full seq scan.
+            supports_xmin = table_name in xmin_capable_tables
+            if supports_xmin:
+                incremental_fields.append(
+                    {
+                        "label": "xmin",
+                        "type": IncrementalFieldType.XID,
+                        "field": "xmin",
+                        "field_type": IncrementalFieldType.XID,
+                        "is_indexed": False,
+                    }
+                )
 
             schemas.append(
                 SourceSchema(
                     name=table_name,
-                    supports_incremental=len(incremental_fields) > 0,
-                    supports_append=len(incremental_fields) > 0,
+                    supports_incremental=supports_real_cursor,
+                    supports_append=supports_real_cursor,
                     supports_cdc=table_name in tables_with_pks,
+                    supports_xmin=supports_xmin,
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
                     columns=discovered_schema.columns,
@@ -800,6 +843,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             is_initial_sync=not schema.initial_sync_complete,
             enabled_columns=inputs.enabled_columns,
             row_filters=inputs.row_filters,
+            # xmin state is read straight off the schema here (the generic `SourceInputs` stays
+            # Postgres-agnostic). xmin rides the normal full per-schema path — no CDC dispatch.
+            is_xmin=schema.is_xmin,
+            xmin_last_value=schema.xmin_last_value,
+            xmin_num_wraparound=schema.xmin_num_wraparound,
         )
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.

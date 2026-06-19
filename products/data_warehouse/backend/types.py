@@ -667,7 +667,13 @@ class ExternalDataSourceType(models.TextChoices):
     STREAMLABS = "Streamlabs", "Streamlabs"
     DATORAMA = "Datorama", "Datorama"
     AHREFS = "Ahrefs", "Ahrefs"
+    LIGHTFIELD = "Lightfield", "Lightfield"
+    APPSTACK = "Appstack", "Appstack"
+    RAZORPAY = "Razorpay", "Razorpay"
+    NEON = "Neon", "Neon"
+    NEWRELIC = "NewRelic", "NewRelic"
     CUSTOM = "Custom", "Custom"
+    TILE38 = "Tile38", "Tile38"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

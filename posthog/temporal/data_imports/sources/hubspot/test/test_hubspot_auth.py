@@ -3,13 +3,22 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.temporal.data_imports.sources.hubspot.auth import HubspotRetryableError, hubspot_refresh_access_token
+from posthog.temporal.data_imports.sources.hubspot.auth import (
+    MAX_RETRY_AFTER_SECONDS,
+    HubspotRetryableError,
+    _parse_retry_after,
+    _wait_strategy,
+    hubspot_refresh_access_token,
+)
 
 
-def _make_response(status: int, payload: dict[str, Any] | None = None) -> MagicMock:
+def _make_response(
+    status: int, payload: dict[str, Any] | None = None, headers: dict[str, str] | None = None
+) -> MagicMock:
     response = MagicMock()
     response.status_code = status
     response.json.return_value = payload or {}
+    response.headers = headers or {}
     return response
 
 
@@ -65,6 +74,7 @@ def test_transient_status_with_non_json_body_still_retryable() -> None:
     response.status_code = 429
     response.json.side_effect = ValueError("not json")
     response.text = "<html>rate limited</html>"
+    response.headers = {}
     with _patch_post(response):
         with pytest.raises(HubspotRetryableError, match="rate limited"):
             hubspot_refresh_access_token("refresh-token")
@@ -126,3 +136,46 @@ def test_non_transient_status_is_not_retried() -> None:
             hubspot_refresh_access_token("refresh-token")
         assert not isinstance(exc_info.value, HubspotRetryableError)
     assert session.post.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "headers,expected",
+    [
+        ({"Retry-After": "7"}, 7.0),
+        ({"Retry-After": "0"}, 0.0),
+        ({"Retry-After": "-3"}, 0.0),
+        ({}, None),
+        ({"Retry-After": "not-a-number"}, None),
+        ({"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"}, None),
+    ],
+)
+def test_parse_retry_after(headers: dict[str, str], expected: float | None) -> None:
+    assert _parse_retry_after(_make_response(429, headers=headers)) == expected
+
+
+def test_429_retry_after_carried_on_exception_and_capped_by_wait_strategy() -> None:
+    session = MagicMock()
+    session.post.return_value = _make_response(
+        429,
+        {"message": "You have reached your rate limit."},
+        headers={"Retry-After": str(MAX_RETRY_AFTER_SECONDS + 30)},
+    )
+    with patch(
+        "posthog.temporal.data_imports.sources.hubspot.auth.make_tracked_session",
+        return_value=session,
+    ):
+        with pytest.raises(HubspotRetryableError) as exc_info:
+            hubspot_refresh_access_token("refresh-token")
+
+    assert exc_info.value.retry_after == MAX_RETRY_AFTER_SECONDS + 30
+    # An oversized Retry-After is clamped so a single header can't pin the activity open.
+    state = MagicMock()
+    state.outcome.exception.return_value = exc_info.value
+    assert _wait_strategy(state) == MAX_RETRY_AFTER_SECONDS
+
+
+def test_wait_strategy_falls_back_to_backoff_without_retry_after() -> None:
+    state = MagicMock()
+    state.outcome.exception.return_value = HubspotRetryableError("rate limited", retry_after=None)
+    state.attempt_number = 1
+    assert _wait_strategy(state) >= 0

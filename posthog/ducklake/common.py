@@ -25,8 +25,6 @@ import duckdb
 import psycopg
 from psycopg import sql
 
-from posthog.utils import get_instance_region
-
 if TYPE_CHECKING:
     from posthog.ducklake.models import DuckgresServer, DuckLakeCatalog
 
@@ -248,24 +246,33 @@ def upsert_duckgres_server_for_org(
     database: str,
     username: str,
     password: str,
+    bucket: str | None = None,
+    bucket_region: str | None = None,
 ) -> DuckgresServer:
     """Create or update the org's DuckgresServer connection row.
 
     Called at managed-warehouse provision time so the org is immediately backfill-ready:
-    the Dagster duckling backfill resolves its connection from this row (via
-    get_duckgres_config_for_org). Idempotent — re-provisioning updates the existing row.
+    the Dagster duckling backfill resolves both its connection and its S3 bucket from this
+    row. Idempotent — re-provisioning updates the existing row. The bucket is persisted here
+    so the backfill reads the authoritative name rather than re-deriving it at read time.
     """
     from posthog.ducklake.models import DuckgresServer
 
+    defaults: dict[str, object] = {
+        "host": host,
+        "port": port,
+        "database": database,
+        "username": username,
+        "password": password,
+    }
+    if bucket is not None:
+        defaults["bucket"] = bucket
+    if bucket_region is not None:
+        defaults["bucket_region"] = bucket_region
+
     server, _ = DuckgresServer.objects.update_or_create(
         organization_id=organization_id,
-        defaults={
-            "host": host,
-            "port": port,
-            "database": database,
-            "username": username,
-            "password": password,
-        },
+        defaults=defaults,
     )
     return server
 
@@ -285,6 +292,10 @@ def _duckling_env_suffix() -> str:
     enabled yet, so that path is a no-op (raises rather than fabricating a bucket name);
     everything that isn't prod-US — hosted dev/staging, local dev — maps to "dev".
     """
+    # Lazy import so this module can be loaded standalone (see bin/check_ducklake_up)
+    # without the full posthog package on sys.path.
+    from posthog.utils import get_instance_region  # noqa: PLC0415
+
     region = (get_instance_region() or "").upper()
     if region == "EU":
         raise NotImplementedError("Managed warehouse is not enabled in the EU region")
