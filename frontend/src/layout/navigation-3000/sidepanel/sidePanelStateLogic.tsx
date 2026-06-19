@@ -62,14 +62,18 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             actions.setSidePanelOpen(true)
         },
         closeSidePanel: ({ tab }) => {
-            posthog.capture('sidebar closed', { tab })
-            if (!tab) {
-                // If we aren't specifiying the tab we always close
-                actions.setSidePanelOpen(false)
-            } else if (values.selectedTab === tab) {
-                // Otherwise we only close it if the tab is the currently open one
-                actions.setSidePanelOpen(false)
+            // Only act on a genuine open→closed transition. Spurious no-op closes —
+            // from resizer/layout flicker or URL hash feedback loops — would otherwise
+            // flood 'sidebar closed' analytics events while the panel is already closed.
+            if (!values.sidePanelOpen) {
+                return
             }
+            // If a tab is specified, only close when it's the currently open one.
+            if (tab && values.selectedTab !== tab) {
+                return
+            }
+            posthog.capture('sidebar closed', { tab })
+            actions.setSidePanelOpen(false)
         },
     })),
 
@@ -107,6 +111,11 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             if (values.selectedTabOptions) {
                 panelHash += `:${values.selectedTabOptions}`
             }
+            // Bail when the URL already reflects this panel — a redundant replace would
+            // re-trigger urlToAction and keep the open/close oscillation alive.
+            if (router.values.hashParams['panel'] === panelHash) {
+                return undefined
+            }
             return [
                 router.values.location.pathname,
                 router.values.searchParams,
@@ -121,6 +130,11 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             openSidePanel: () => updateUrl(),
             setSidePanelOptions: () => updateUrl(),
             closeSidePanel: () => {
+                // Bail when there's no panel hash to remove — a no-op replace would
+                // re-trigger urlToAction and keep the open/close oscillation alive.
+                if (!('panel' in router.values.hashParams)) {
+                    return undefined
+                }
                 const hashParams = { ...router.values.hashParams }
                 delete hashParams['panel']
                 return [router.values.location.pathname, router.values.searchParams, hashParams, { replace: true }]

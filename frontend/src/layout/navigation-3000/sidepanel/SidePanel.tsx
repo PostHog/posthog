@@ -100,7 +100,15 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         closeThreshold: 200,
         placement: 'left',
         onToggleClosed: (shouldBeClosed) => {
-            shouldBeClosed ? closeSidePanel() : selectedTab ? openSidePanel(selectedTab) : undefined
+            if (shouldBeClosed) {
+                // Only dispatch a close when the panel is actually open — layout/width
+                // recalculations during editing can flicker this repeatedly otherwise.
+                if (sidePanelOpen) {
+                    closeSidePanel()
+                }
+            } else if (selectedTab) {
+                openSidePanel(selectedTab)
+            }
         },
     }
 

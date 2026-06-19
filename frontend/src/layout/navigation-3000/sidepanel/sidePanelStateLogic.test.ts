@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -15,6 +16,7 @@ describe('sidePanelStateLogic', () => {
         featureFlagLogic.mount()
         logic = sidePanelStateLogic.build()
         logic.mount()
+        jest.spyOn(posthog, 'capture').mockClear()
     })
 
     it('starts closed', async () => {
@@ -51,5 +53,29 @@ describe('sidePanelStateLogic', () => {
         // Closing the selected tab closes the panel
         logic.actions.closeSidePanel(SidePanelTab.Max)
         await expectLogic(logic).toMatchValues({ sidePanelOpen: false })
+    })
+
+    it("does not emit 'sidebar closed' when the panel is already closed", async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        // Repeated no-op closes (e.g. from resizer/layout flicker) must not emit events
+        logic.actions.closeSidePanel()
+        logic.actions.closeSidePanel()
+        logic.actions.closeSidePanel(SidePanelTab.Max)
+        await expectLogic(logic).toMatchValues({ sidePanelOpen: false })
+
+        expect(captureSpy).not.toHaveBeenCalledWith('sidebar closed', expect.anything())
+    })
+
+    it("emits 'sidebar closed' only once per genuine open→closed transition", async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        logic.actions.openSidePanel(SidePanelTab.Max)
+        logic.actions.closeSidePanel()
+        // A second close while already closed must be a no-op for analytics
+        logic.actions.closeSidePanel()
+        await expectLogic(logic).toMatchValues({ sidePanelOpen: false })
+
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'sidebar closed')).toHaveLength(1)
     })
 })
