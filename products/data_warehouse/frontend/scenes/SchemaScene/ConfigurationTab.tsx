@@ -355,7 +355,8 @@ function SyncMethodSection({
         incrementalField: string | null,
         incrementalFieldType: string | null,
         primaryKeyColumns: string[] | null,
-        cdcTableMode?: 'consolidated' | 'cdc_only' | 'both'
+        cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
+        incrementalFieldLookbackSeconds?: number | null
     ): Promise<void> => {
         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
         setSaving(true)
@@ -365,6 +366,8 @@ function SyncMethodSection({
                 sync_type: syncType,
                 incremental_field: noIncrementalField ? null : incrementalField,
                 incremental_field_type: noIncrementalField ? null : incrementalFieldType,
+                incremental_field_lookback_seconds:
+                    syncType === 'incremental' ? (incrementalFieldLookbackSeconds ?? null) : null,
                 primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
                 ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
             })
@@ -406,6 +409,7 @@ function SyncMethodSection({
                                 sync_time_of_day: schema.sync_time_of_day ?? null,
                                 incremental_field: schema.incremental_field ?? null,
                                 incremental_field_type: schema.incremental_field_type ?? null,
+                                incremental_field_lookback_seconds: schema.incremental_field_lookback_seconds ?? null,
                                 incremental_available: schemaIncrementalFields.incremental_available,
                                 append_available: schemaIncrementalFields.append_available,
                                 cdc_available: schemaIncrementalFields.cdc_available,

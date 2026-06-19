@@ -36,7 +36,11 @@ from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandled
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    apply_incremental_lookback,
+    process_incremental_value,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
@@ -139,6 +143,17 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 schema.incremental_field_earliest_value,
                 schema.incremental_field_type,
             )
+
+            # Shift the watermark back by the user-configured lookback for the source query only
+            # (the stored watermark is untouched), so each incremental run re-reads a rolling
+            # overlap window and catches late or backdated rows. Incremental merge makes the
+            # re-read idempotent — append would duplicate, so it's gated to incremental.
+            if schema.is_incremental:
+                processed_incremental_last_value = apply_incremental_lookback(
+                    processed_incremental_last_value,
+                    schema.incremental_field_type,
+                    schema.incremental_field_lookback_seconds,
+                )
 
         if schema.should_use_incremental_field:
             await logger.adebug(f"Incremental last value being used is: {processed_incremental_last_value}")

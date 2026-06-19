@@ -318,10 +318,12 @@ export const FEATURE_FLAGS = {
     FIELD_NOTES: 'field-notes', // owner: @adamleith
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
+    FUNNEL_INSIGHT_ALERTS: 'funnel-insight-alerts', // owner: @vdekrijger, gates alerts on funnel insights (conversion rate)
     GROUP_PROFILE_EXPERIMENT: 'group-profile-experiment', // owner: @arthurdedeus #team-customer-analytics
     HACKATHONS_SUBSCRIPTIONS: 'hackathons_subscriptions', // owner: #team-analytics-platform, gates listing subscription delivery history and AI change summaries
     HEALTH_ALERTS: 'health-alerts', // owner: #team-growth, gates the central /health/alerts scene and per-page Alerts buttons
     HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
+    HOGQL_INSIGHT_ALERTS: 'hogql-insight-alerts', // owner: @vdekrijger, gates alerts on SQL-backed (HogQL) insights
     IDENTITY_MATCHING: 'identity-matching', // owner: #team-growth
     INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
     INTER_PROJECT_TRANSFERS: 'inter-project-transfers', // owner: @reecejones #team-platform-features
@@ -429,7 +431,9 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_FUNNELS_COMPARE: 'product-analytics-funnels-compare', // owner: @thmsobrmlr #team-product-analytics, gates "Compare to previous" toggle on funnel insights
     PRODUCT_ANALYTICS_HIDE_WEEKENDS: 'product-analytics-hide-weekends', // owner: @kliment-slice #team-irl-events
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
+    INSIGHT_ADD_TO_DASHBOARD_AAB: 'insight-add-to-dashboard-aab', // owner: @pauldambra #team-product-analytics multivariate=control,control_2,test
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
+    PRODUCT_ANALYTICS_QUILL_LEGEND: 'product-analytics-quill-legend', // owner: #team-product-analytics, gates the in-chart quill legend replacing the legacy side InsightLegend
     PRODUCT_ANALYTICS_QUILL_SQL_CHARTS: 'product-analytics-quill-sql-charts', // owner: #team-data-tools, gates rendering DataVisualization line/area charts via @posthog/quill-charts
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_DWH: 'retention-dwh', // owner: @thmsobrmlr #team-product-analytics

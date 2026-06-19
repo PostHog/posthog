@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
-use cymbal::{app_context::AppContext, config::Config, server::start_server};
+use cymbal::config::Config;
+use cymbal::modes::{self, CymbalMode};
 use tracing::level_filters::LevelFilter;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -37,15 +36,25 @@ async fn main() {
         }
     };
 
+    let service_name = match config.mode {
+        CymbalMode::Processing => "cymbal",
+        CymbalMode::Resolution => "cymbal-resolution",
+    };
     common_posthog::init(
-        "cymbal",
+        service_name,
         config.posthog_api_key.as_deref(),
         &config.posthog_endpoint,
     )
     .await
     .unwrap();
 
-    let context = Arc::new(AppContext::from_config(&config).await.unwrap());
-
-    start_server(config.clone(), context.clone()).await;
+    match config.mode {
+        CymbalMode::Processing => modes::processing::run(config).await,
+        CymbalMode::Resolution => {
+            if let Err(e) = modes::resolution::serve(&config).await {
+                error!("cymbal-resolution server error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
 }

@@ -107,7 +107,7 @@ export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/th
 export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
-export { DefaultTooltip } from './overlays/DefaultTooltip'
+export { DefaultTooltip, type DefaultTooltipProps } from './overlays/DefaultTooltip'
 // Shared tooltip surface — reuse to build custom tooltips with the quill look
 export { TooltipSurface, TooltipSwatch } from './overlays/TooltipSurface'
 

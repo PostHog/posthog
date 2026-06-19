@@ -49,6 +49,21 @@ describe('Legend', () => {
         expect(onClick).toHaveBeenCalledWith('returning')
     })
 
+    it('wraps each row via renderItem while preserving the default node', () => {
+        const onClick = jest.fn()
+        const { container } = render(
+            <Legend
+                items={ITEMS}
+                onItemClick={onClick}
+                renderItem={(node, item) => <div data-attr={`wrap-${item.key}`}>{node}</div>}
+            />
+        )
+        expect(container.querySelectorAll('[data-attr^="wrap-"]')).toHaveLength(ITEMS.length)
+        const wrapped = container.querySelector('[data-attr="wrap-returning"] button')!
+        fireEvent.click(wrapped)
+        expect(onClick).toHaveBeenCalledWith('returning')
+    })
+
     it('dims only rows whose key is in hiddenKeys', () => {
         const { container } = render(<Legend items={ITEMS} hiddenKeys={['returning']} />)
         const dimmedLabels = rowsOf(container)
