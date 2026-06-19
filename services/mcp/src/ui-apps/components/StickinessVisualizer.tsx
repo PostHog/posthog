@@ -20,9 +20,10 @@ const TITLE = 'Stickiness'
 const STICKINESS_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
 
 // The backend returns absolute actor counts per bucket; stickiness reads each bucket as its share
-// of the series' total users (`count`). Mirrors the main app's `toPercentData` so the chart matches.
+// of the series' total users (`count`). A zero-total series contributes 0% — never a raw count —
+// so it can't plot unscaled values onto the percentage axis.
 function toPercent(value: number, count: number): number {
-    return count ? (value / count) * 100 : value
+    return count ? (value / count) * 100 : 0
 }
 
 function formatPercent(value: number): string {
