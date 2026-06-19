@@ -1,133 +1,93 @@
 from typing import Any
 
+from django.db.models import QuerySet
+
 import structlog
 from rest_framework.request import Request
 
 from posthog.models import Team
 
+from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.replay_vision.backend.models.vision_action import VisionAction
-from products.workflows.backend.api.hog_flow import HogFlowSerializer
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 
-# The scheduled child of a vision action captures this event with `vision_action_id` and `slack_text`
-# properties; the delivery flow triggers on it (filtered to one action) and posts `slack_text` to Slack.
+# The scheduled child of a vision action emits this as a PRIVATE internal event (cdp_internal_events
+# topic) with `vision_action_id` + `slack_text`. Per-action `internal_destination` HogFunctions filter
+# on it and post `slack_text` to their channel. Using the internal channel (not the public capture
+# pipeline) makes the trigger non-forgeable with the project's client token — the Alerts pattern.
 EVENT_NAME = "$replay_vision_action_ready"
+_INTERNAL_DESTINATION = "internal_destination"
+_SLACK_TEMPLATE = "template-slack"
 
 
-def _serializer_context(*, request: Request, team: Team) -> dict[str, Any]:
-    return {"request": request, "team_id": team.id, "get_team": lambda: team}
+def _managed_destinations(action: VisionAction, team: Team) -> QuerySet[HogFunction]:
+    """The internal_destination HogFunctions this action owns.
 
-
-def build_flow_payload(action: VisionAction) -> dict[str, Any]:
-    """Build the writable HogFlowSerializer payload that delivers this action's summary to Slack.
-
-    Graph: trigger (filtered to this action's event) -> one function node per Slack target -> exit,
-    chained with continue edges.
+    There's no FK on the action — the trigger filter IS the binding, so we find them by the
+    `vision_action_id` property the filter carries (the same bind-by-filter pattern alerts use).
     """
-    trigger_node = {
-        "id": "trigger_node",
-        "name": "trigger",
-        "type": "trigger",
-        "config": {
-            "type": "event",
-            "filters": {
-                "events": [
-                    {
-                        "id": EVENT_NAME,
-                        "name": EVENT_NAME,
-                        "type": "events",
-                        "order": 0,
-                        "properties": [
-                            {
-                                "key": "vision_action_id",
-                                "type": "event",
-                                "value": [str(action.id)],
-                                "operator": "exact",
-                            }
-                        ],
-                    }
-                ]
-            },
+    return HogFunction.objects.filter(
+        team_id=team.id,
+        type=_INTERNAL_DESTINATION,
+        deleted=False,
+        filters__contains={"properties": [{"key": "vision_action_id", "value": str(action.id)}]},
+    )
+
+
+def _slack_destination_payload(action: VisionAction, target: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": _INTERNAL_DESTINATION,
+        "enabled": action.enabled,
+        "template_id": _SLACK_TEMPLATE,
+        "name": f"Replay Vision · {action.name}",
+        "filters": {
+            "events": [{"id": EVENT_NAME, "type": "events"}],
+            "properties": [
+                {"key": "vision_action_id", "value": str(action.id), "operator": "exact", "type": "event"},
+            ],
+        },
+        "inputs": {
+            "slack_workspace": {"value": target["integration_id"]},
+            "channel": {"value": target["channel"]},
+            # Hog-templated pass-through of the pre-formatted Slack text carried on the event.
+            "text": {"value": "{event.properties.slack_text}"},
         },
     }
 
-    slack_nodes = [
-        {
-            "id": f"slack_{i}",
-            "name": f"Slack {i}",
-            "type": "function",
-            "config": {
-                "template_id": "template-slack",
-                "inputs": {
-                    "slack_workspace": {"value": target["integration_id"], "order": 0},
-                    "channel": {"value": target["channel"]},
-                    "text": {"value": "{event.properties.slack_text}"},
-                },
-            },
-        }
-        for i, target in enumerate(action.delivery_config)
-    ]
 
-    exit_node = {"id": "exit_node", "name": "exit", "type": "exit", "config": {}}
+def provision_delivery(action: VisionAction, *, request: Request, team: Team) -> None:
+    """Reconcile this action's `internal_destination` HogFunctions to its `delivery_config`.
 
-    actions = [trigger_node, *slack_nodes, exit_node]
-
-    # Chain trigger -> slack_0 -> ... -> exit_node with continue edges.
-    edges = [
-        {"from": actions[i]["id"], "to": actions[i + 1]["id"], "type": "continue"} for i in range(len(actions) - 1)
-    ]
-
-    return {
-        "name": f"Replay Vision · {action.name}",
-        "status": "active" if action.enabled else "archived",
-        "actions": actions,
-        "edges": edges,
-    }
-
-
-def provision_delivery_flow(action: VisionAction, *, request: Request, team: Team) -> None:
-    """Create or update the delivery HogFlow for this action.
-
-    With no delivery targets there's nothing to deliver: archive any existing flow, else no-op. A flow
-    save failure propagates so the caller learns delivery wasn't wired up.
+    Archive-and-recreate: drop the action's managed destinations, then create one per delivery target
+    when the action is enabled. A provisioning failure propagates so the caller learns delivery wasn't
+    wired up — the viewset runs this inside its atomic block.
     """
-    if not action.delivery_config:
-        if action.hog_flow_id:
-            archive_delivery_flow(action, request=request, team=team)
+    _archive_managed(action, team)
+    if not action.enabled or not action.delivery_config:
         return
 
-    context = _serializer_context(request=request, team=team)
-    payload = build_flow_payload(action)
-
-    serializer = HogFlowSerializer(data=payload, context=context)
-    if action.hog_flow_id:
-        try:
-            # Update the existing flow in place; fall through to a fresh one if it was deleted
-            # out of band (a stale hog_flow_id must not fail the action update).
-            flow = HogFlow.objects.get(id=action.hog_flow_id, team=team)
-            serializer = HogFlowSerializer(flow, data=payload, context=context)
-        except HogFlow.DoesNotExist:
-            pass
-
-    serializer.is_valid(raise_exception=True)
-    flow = serializer.save()
-
-    if action.hog_flow_id != flow.id:
-        action.hog_flow = flow
-        action.save(update_fields=["hog_flow", "updated_at"])
-
-
-def archive_delivery_flow(action: VisionAction, *, request: Request, team: Team) -> None:
-    """Best-effort archive of the action's delivery flow — a failure here never blocks the action delete."""
-    if not action.hog_flow_id:
-        return
-    try:
-        flow = HogFlow.objects.get(id=action.hog_flow_id, team=team)
-        context = _serializer_context(request=request, team=team)
-        serializer = HogFlowSerializer(flow, data={"status": "archived"}, partial=True, context=context)
+    # HogFunctionSerializer.create() reads context["request"].user, so provisioning stays in the viewset.
+    context = {"request": request, "team_id": team.id, "get_team": lambda: team, "is_create": True}
+    for target in action.delivery_config:
+        serializer = HogFunctionSerializer(data=_slack_destination_payload(action, target), context=context)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+
+
+def archive_delivery(action: VisionAction, *, team: Team) -> None:
+    """Best-effort archive of the action's delivery destinations — a failure never blocks the delete."""
+    try:
+        _archive_managed(action, team)
     except Exception:
-        logger.exception("replay_vision_delivery_flow_archive_failed", vision_action_id=str(action.id))
+        logger.exception("replay_vision_delivery_archive_failed", vision_action_id=str(action.id))
+
+
+def _archive_managed(action: VisionAction, team: Team) -> None:
+    # Per-row .save() (not a bulk .update()) so the post_save signal deregisters each function from the
+    # workers — a soft-deleted destination must stop firing.
+    for fn in _managed_destinations(action, team):
+        fn.enabled = False
+        fn.deleted = True
+        fn.save()

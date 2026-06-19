@@ -15,7 +15,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.models.user import User
 
-from products.replay_vision.backend.api.delivery import archive_delivery_flow, provision_delivery_flow
+from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionActionsEnabledPermission,
     ReplayVisionEnabledPermission,
@@ -310,28 +310,28 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.filter(team_id=self.team_id).select_related("scanner", "created_by").order_by("name", "id")
 
     def perform_create(self, serializer: BaseSerializer) -> None:
-        # Atomic so a delivery-flow build failure rolls back the action row rather than leaving an
+        # Atomic so a destination-provisioning failure rolls back the action row rather than leaving an
         # action that looks created but never delivers.
         with transaction.atomic():
             action = serializer.save()
-            provision_delivery_flow(action, request=self.request, team=self.team)
+            provision_delivery(action, request=self.request, team=self.team)
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         instance = cast(VisionAction, serializer.instance)
-        # Snapshot the flow-affecting fields BEFORE save() — DRF mutates `instance` in place, so these
-        # must be read pre-save for the change comparison to be meaningful.
+        # Snapshot the destination-affecting fields BEFORE save() — DRF mutates `instance` in place, so
+        # these must be read pre-save for the change comparison to be meaningful.
         old_delivery = instance.delivery_config
         old_enabled = instance.enabled
         old_name = instance.name
         # Atomic so a re-provision failure rolls the action edit back too (parity with perform_create).
         with transaction.atomic():
             action = serializer.save()
-            # Re-provision only when something the flow reflects changed: delivery targets, the enabled
-            # flag, or the name (the flow is named after the action). Cadence/selection edits don't
-            # touch the flow, so they must not churn it (bump its version / updated_at).
+            # Re-provision only when something the destinations reflect changed: delivery targets, the
+            # enabled flag, or the name (each destination is named after the action). Cadence/selection
+            # edits don't touch the destinations, so they must not churn them.
             if action.delivery_config != old_delivery or action.enabled != old_enabled or action.name != old_name:
-                provision_delivery_flow(action, request=self.request, team=self.team)
+                provision_delivery(action, request=self.request, team=self.team)
 
     def perform_destroy(self, instance: VisionAction) -> None:
-        archive_delivery_flow(instance, request=self.request, team=self.team)
+        archive_delivery(instance, team=self.team)
         super().perform_destroy(instance)

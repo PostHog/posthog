@@ -10,10 +10,10 @@ from posthog.cdp.templates.slack.template_slack import template as template_slac
 from posthog.models import Team
 from posthog.models.integration import Integration
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.replay_vision.backend.api.delivery import EVENT_NAME
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
 class TestVisionActionDelivery(APIBaseTest):
@@ -25,9 +25,9 @@ class TestVisionActionDelivery(APIBaseTest):
             return_value=True,
         )
         self.flag_patcher.start()
-        # The post_save hook pushes flows to workers; there are none in tests.
+        # Saving a HogFunction pushes it to the CDP workers; there are none in tests.
         self.reload_patcher = patch(
-            "products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers",
+            "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers",
         )
         self.reload_patcher.start()
         self.scanner = self._create_scanner()
@@ -80,63 +80,56 @@ class TestVisionActionDelivery(APIBaseTest):
         self.assertEqual(resp.status_code, 201, resp.content)
         return VisionAction.all_teams.get(id=resp.json()["id"])
 
-    def _trigger_event_filter(self, flow: HogFlow) -> dict[str, Any]:
-        trigger = next(a for a in flow.actions if a["type"] == "trigger")
-        return trigger["config"]["filters"]["events"][0]
+    def _destinations(self, action: VisionAction) -> list[HogFunction]:
+        """The action's live internal_destination HogFunctions — found by the vision_action_id filter
+        (no FK; the trigger filter is the binding), mirroring delivery._managed_destinations."""
+        return list(
+            HogFunction.objects.filter(
+                team_id=self.team.id,
+                type="internal_destination",
+                deleted=False,
+                filters__contains={"properties": [{"key": "vision_action_id", "value": str(action.id)}]},
+            ).order_by("created_at")
+        )
 
-    def _slack_nodes(self, flow: HogFlow) -> list[dict[str, Any]]:
-        return [a for a in flow.actions if a["type"] == "function"]
-
-    def _get_flow(self, flow_id: Any) -> HogFlow:
-        assert flow_id is not None
-        return HogFlow.objects.get(id=flow_id)
-
-    def test_create_provisions_flow(self) -> None:
+    def test_create_provisions_destination(self) -> None:
         action = self._create_action()
-        self.assertIsNotNone(action.hog_flow_id)
 
-        flow = self._get_flow(action.hog_flow_id)
-        self.assertEqual(flow.status, "active")
-        self.assertEqual(flow.name, "Replay Vision · daily-summary")
+        destinations = self._destinations(action)
+        self.assertEqual(len(destinations), 1)
+        fn = destinations[0]
+        self.assertEqual(fn.type, "internal_destination")
+        self.assertEqual(fn.template_id, "template-slack")
+        self.assertTrue(fn.enabled)
+        self.assertEqual(fn.name, "Replay Vision · daily-summary")
 
-        event_filter = self._trigger_event_filter(flow)
+        event_filter = fn.filters["events"][0]
         self.assertEqual(event_filter["id"], EVENT_NAME)
-        self.assertEqual(event_filter["properties"][0]["key"], "vision_action_id")
-        self.assertEqual(event_filter["properties"][0]["value"], [str(action.id)])
+        prop = fn.filters["properties"][0]
+        self.assertEqual(prop["key"], "vision_action_id")
+        self.assertEqual(prop["value"], str(action.id))
 
-        slack_nodes = self._slack_nodes(flow)
-        self.assertEqual(len(slack_nodes), 1)
-        inputs = slack_nodes[0]["config"]["inputs"]
-        self.assertEqual(inputs["slack_workspace"]["value"], self.integration.id)
-        self.assertEqual(inputs["channel"]["value"], "#general")
-        self.assertEqual(inputs["text"]["value"], "{event.properties.slack_text}")
+        self.assertEqual(fn.inputs["slack_workspace"]["value"], self.integration.id)
+        self.assertEqual(fn.inputs["channel"]["value"], "#general")
+        self.assertEqual(fn.inputs["text"]["value"], "{event.properties.slack_text}")
 
-    def test_create_two_targets_chained(self) -> None:
+    def test_create_two_targets_makes_two_destinations(self) -> None:
         action = self._create_action(
             delivery_config=[
                 {"type": "slack", "integration_id": self.integration.id, "channel": "#one"},
                 {"type": "slack", "integration_id": self.other_integration.id, "channel": "#two"},
             ],
         )
-        flow = self._get_flow(action.hog_flow_id)
-        slack_nodes = self._slack_nodes(flow)
-        self.assertEqual(len(slack_nodes), 2)
+        destinations = self._destinations(action)
+        self.assertEqual(len(destinations), 2)
+        self.assertEqual({d.inputs["channel"]["value"] for d in destinations}, {"#one", "#two"})
 
-        # Chained trigger -> slack_0 -> slack_1 -> exit_node.
-        edge_map = {e["from"]: e["to"] for e in flow.edges}
-        self.assertEqual(edge_map["trigger_node"], "slack_0")
-        self.assertEqual(edge_map["slack_0"], "slack_1")
-        self.assertEqual(edge_map["slack_1"], "exit_node")
-
-    def test_create_empty_delivery_no_flow(self) -> None:
+    def test_create_empty_delivery_no_destination(self) -> None:
         action = self._create_action(delivery_config=[])
-        self.assertIsNone(action.hog_flow_id)
-        self.assertEqual(HogFlow.objects.count(), 0)
+        self.assertEqual(self._destinations(action), [])
 
-    def test_update_delivery_reprovisions_same_flow(self) -> None:
+    def test_update_delivery_reprovisions(self) -> None:
         action = self._create_action()
-        flow_id = action.hog_flow_id
-
         resp = self.client.patch(
             f"{self.actions_url}{action.id}/",
             data={"delivery_config": [{"type": "slack", "integration_id": self.integration.id, "channel": "#changed"}]},
@@ -144,10 +137,9 @@ class TestVisionActionDelivery(APIBaseTest):
         )
         self.assertEqual(resp.status_code, 200, resp.content)
 
-        action.refresh_from_db()
-        self.assertEqual(action.hog_flow_id, flow_id)
-        flow = self._get_flow(flow_id)
-        self.assertEqual(self._slack_nodes(flow)[0]["config"]["inputs"]["channel"]["value"], "#changed")
+        destinations = self._destinations(action)
+        self.assertEqual(len(destinations), 1)
+        self.assertEqual(destinations[0].inputs["channel"]["value"], "#changed")
 
     @parameterized.expand(
         [
@@ -158,55 +150,42 @@ class TestVisionActionDelivery(APIBaseTest):
     )
     def test_update_non_delivery_does_not_reprovision(self, _field: str, patch_data: dict[str, Any]) -> None:
         action = self._create_action()
-        flow_before = self._get_flow(action.hog_flow_id)
+        before = self._destinations(action)[0].id
 
-        # Editing any field the flow doesn't reflect (cadence, selection, synthesis) must not churn it.
-        with patch("products.replay_vision.backend.api.vision_actions.provision_delivery_flow") as mock_provision:
+        # Editing a field the destinations don't reflect (cadence/selection/synthesis) must not churn them.
+        with patch("products.replay_vision.backend.api.vision_actions.provision_delivery") as mock_provision:
             resp = self.client.patch(f"{self.actions_url}{action.id}/", data=patch_data, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
         mock_provision.assert_not_called()
 
-        flow_after = self._get_flow(action.hog_flow_id)
-        self.assertEqual(flow_after.updated_at, flow_before.updated_at)
-        self.assertEqual(flow_after.version, flow_before.version)
+        after = self._destinations(action)
+        self.assertEqual(len(after), 1)
+        self.assertEqual(after[0].id, before)
 
-    def test_rename_reprovisions_and_updates_flow_name(self) -> None:
-        # The flow is named after the action, so a rename must re-provision to keep the name in sync.
+    def test_rename_reprovisions_and_updates_destination_name(self) -> None:
+        # Each destination is named after the action, so a rename re-provisions to keep the name in sync.
         action = self._create_action()
         resp = self.client.patch(f"{self.actions_url}{action.id}/", data={"name": "renamed action"}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
 
-        flow = self._get_flow(action.hog_flow_id)
-        assert flow.name is not None
-        self.assertIn("renamed action", flow.name)
+        destinations = self._destinations(action)
+        self.assertEqual(len(destinations), 1)
+        self.assertEqual(destinations[0].name, "Replay Vision · renamed action")
 
-    def test_disable_archives_flow(self) -> None:
+    def test_disable_archives_destinations(self) -> None:
         action = self._create_action()
-        flow_id = action.hog_flow_id
-
         resp = self.client.patch(f"{self.actions_url}{action.id}/", data={"enabled": False}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(self._destinations(action), [])
 
-        flow = self._get_flow(flow_id)
-        self.assertEqual(flow.status, "archived")
-
-    def test_delete_archives_flow(self) -> None:
+    def test_delete_archives_destinations(self) -> None:
         action = self._create_action()
-        flow_id = action.hog_flow_id
-
         resp = self.client.delete(f"{self.actions_url}{action.id}/")
         self.assertEqual(resp.status_code, 204, resp.content)
+        self.assertEqual(self._destinations(action), [])
 
-        flow = self._get_flow(flow_id)
-        self.assertEqual(flow.status, "archived")
-
-    def test_update_to_empty_delivery_archives_flow(self) -> None:
-        # Clearing delivery targets on an action that already has a flow archives that flow.
+    def test_update_to_empty_delivery_archives_destinations(self) -> None:
         action = self._create_action()
-        flow_id = action.hog_flow_id
-
         resp = self.client.patch(f"{self.actions_url}{action.id}/", data={"delivery_config": []}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
-
-        flow = self._get_flow(flow_id)
-        self.assertEqual(flow.status, "archived")
+        self.assertEqual(self._destinations(action), [])

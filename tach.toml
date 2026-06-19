@@ -522,6 +522,7 @@ path = "products.replay_vision"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
     "products.exports",
     "products.signals",
     "products.workflows",
