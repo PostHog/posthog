@@ -50300,6 +50300,8 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
       searchTerm?: string;
+      /** Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies. */
+      facetSearch?: string;
       /** Property filters for the query. */
       filterGroup?: _LogPropertyFilter[];
     }
