@@ -438,7 +438,9 @@ class TestScoutSourceCanonicalization(APIBaseTest):
         assert config.source_type == "session_analysis_cluster"
         # No stranded scout row exists on either team.
         assert not SignalSourceConfig.objects.filter(
-            source_product="signals_scout", source_type="cross_source_issue"
+            team_id__in=[self.team.id, self.child_team.id],
+            source_product="signals_scout",
+            source_type="cross_source_issue",
         ).exists()
 
     def test_non_scout_source_stays_environment_scoped(self):
