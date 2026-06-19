@@ -1849,7 +1849,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return [permission() for permission in permissions]
 
     def safely_get_object(self, queryset):
-        lookup_value = self.kwargs[self.lookup_field]
+        lookup_value = self.kwargs.get(self.lookup_field)
+        if lookup_value is None:
+            # The permission check reads `view.team` (which calls get_object) even on routes
+            # without an `id`/`pk` URL kwarg. Surface a clean 404 instead of an unhandled KeyError.
+            raise exceptions.NotFound()
         if lookup_value == "@current":
             team = getattr(self.request.user, "team", None)
             if team is None:

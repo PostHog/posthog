@@ -15,12 +15,13 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status, test
+from rest_framework import exceptions, status, test
 from temporalio.service import RPCError
 
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    TeamViewSet,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
@@ -2886,6 +2887,14 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 
 
 class TestTeamAPI(team_api_test_factory()):  # type: ignore
+    def test_safely_get_object_without_lookup_kwarg_raises_not_found(self):
+        # The permission check reads `view.team` even on routes without an `id` URL kwarg,
+        # which previously surfaced as an unhandled KeyError (500) instead of a clean 404.
+        view = TeamViewSet()
+        view.kwargs = {}
+        with self.assertRaises(exceptions.NotFound):
+            view.safely_get_object(Team.objects.all())
+
     def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
         other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
         _, team_in_other_project = Project.objects.create_with_team(
