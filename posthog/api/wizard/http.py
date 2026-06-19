@@ -84,8 +84,20 @@ class SetupWizardQuerySerializer(serializers.Serializer):
 
 class SetupWizardViewSet(viewsets.ViewSet):
     permission_classes = ()
+    # Required by APIScopePermission to derive the scope for the authenticate action.
+    scope_object = "project"
     lookup_field = "hash"
     lookup_url_kwarg = "hash"
+
+    def get_permissions(self):
+        # This viewset does not inherit PostHog's routing mixin, so DRF's stock
+        # get_permissions() is used and dangerously_get_permissions() would otherwise be
+        # ignored, leaving the authenticate action unauthenticated. Enforce it here.
+        try:
+            return self.dangerously_get_permissions()
+        except NotImplementedError:
+            # All other actions authenticate via a cache key / OAuth token in the handler.
+            return []
 
     def dangerously_get_permissions(self):
         # API Level permissions are only required during the authentication step.
@@ -95,7 +107,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
         raise NotImplementedError()
 
-    def dangerously_get_required_scopes(self):
+    def dangerously_get_required_scopes(self, request, view):
         if self.action == "authenticate":
             return ["project:read"]
 
@@ -321,6 +333,12 @@ class SetupWizardViewSet(viewsets.ViewSet):
         throttle_classes=[SetupWizardAuthenticationRateThrottle],
     )
     def authenticate(self, request, **kwargs):
+        # Defense in depth: get_permissions() already enforces IsAuthenticated, but guard
+        # against an anonymous user reaching UserPermissions() below (which crashes trying to
+        # cast AnonymousUser to an int pk) so we always return a clean 401 instead of a 500.
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
         hash = request.data.get("hash")
         project_id = request.data.get("projectId")
 

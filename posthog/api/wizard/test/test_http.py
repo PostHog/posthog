@@ -445,6 +445,25 @@ class SetupWizardTests(APIBaseTest):
         self.assertEqual(response_data["detail"], "You don't have access to this project.")
         self.assertEqual(response_data["attr"], "projectId")
 
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            },
+        }
+    )
+    def test_authenticate_anonymous_returns_401_not_500(self):
+        self.client.logout()
+        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}valid_hash"
+        cache.set(cache_key, {}, SETUP_WIZARD_CACHE_TIMEOUT)
+
+        response = self.client.post(
+            f"/api/wizard/authenticate",
+            data={"hash": "valid_hash", "projectId": self.team.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+
     def tearDown(self):
         super().tearDown()
         cache.clear()  # Clears out all DRF throttle data
