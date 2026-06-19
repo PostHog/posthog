@@ -119,6 +119,7 @@ const meta: Meta = {
     title: 'Scenes-App/Web Analytics/Achievements',
     component: WebAnalyticsAchievementsModal,
     parameters: {
+        layout: 'fullscreen',
         testOptions: { waitForSelector: '[data-attr="web-analytics-achievement-streak"]' },
     },
 }
