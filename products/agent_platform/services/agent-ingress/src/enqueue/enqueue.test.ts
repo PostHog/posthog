@@ -213,6 +213,85 @@ describe('enqueueOrResume', () => {
         }
     })
 
+    it('isolates preview from live: a preview request does not resume a live session on the same external_key', async () => {
+        // Preview/live isolation contract. The runner reads suppression off
+        // the session row (`is_preview`), so a preview-authed request that
+        // resumed a live row would drive live secrets and un-suppressed
+        // external writes under preview auth. `findByExternalKey` is scoped to
+        // the request's preview/live boundary; a cross-scope match falls
+        // through to creating a new session.
+        const queue = new PgSessionQueue(pool)
+        const { app, rev } = makePair()
+        const draftRev: AgentRevision = { ...rev, id: randomUUID(), state: 'draft' }
+        const live = await enqueueOrResume(
+            { queue },
+            {
+                application: app,
+                revision: rev,
+                externalKey: 'slack:C01:thread-iso',
+                seed: { role: 'user', content: 'live opens thread', timestamp: Date.now() },
+                principal: ALICE,
+                trigger: 'slack',
+                isPreview: false,
+            }
+        )
+        const preview = await enqueueOrResume(
+            { queue },
+            {
+                application: app,
+                revision: draftRev,
+                externalKey: 'slack:C01:thread-iso',
+                seed: { role: 'user', content: 'preview author tests draft', timestamp: Date.now() },
+                principal: ALICE,
+                trigger: 'slack',
+                isPreview: true,
+            }
+        )
+        expect(preview.kind).toBe('created')
+        expect(preview.sessionId).not.toBe(live.sessionId)
+        // The new preview session is its own row with `is_preview = true` and
+        // the draft revision — the live session is untouched.
+        const previewSession = await queue.get(preview.sessionId)
+        expect(previewSession!.is_preview).toBe(true)
+        expect(previewSession!.revision_id).toBe(draftRev.id)
+        const liveSession = await queue.get(live.sessionId)
+        expect(liveSession!.is_preview).toBe(false)
+        expect(liveSession!.pending_inputs).toHaveLength(0)
+        // A second live request on the same key still resumes the live row —
+        // the new preview row doesn't poach it.
+        const liveAgain = await enqueueOrResume(
+            { queue },
+            {
+                application: app,
+                revision: rev,
+                externalKey: 'slack:C01:thread-iso',
+                seed: { role: 'user', content: 'live follow-up', timestamp: Date.now() },
+                principal: ALICE,
+                trigger: 'slack',
+                isPreview: false,
+            }
+        )
+        expect(liveAgain.kind).toBe('resumed')
+        expect(liveAgain.sessionId).toBe(live.sessionId)
+        // Two different draft revisions previewing the same external_key get
+        // distinct sessions — their conversation histories don't bleed.
+        const secondDraftRev: AgentRevision = { ...rev, id: randomUUID(), state: 'draft' }
+        const otherPreview = await enqueueOrResume(
+            { queue },
+            {
+                application: app,
+                revision: secondDraftRev,
+                externalKey: 'slack:C01:thread-iso',
+                seed: { role: 'user', content: 'other draft', timestamp: Date.now() },
+                principal: ALICE,
+                trigger: 'slack',
+                isPreview: true,
+            }
+        )
+        expect(otherPreview.kind).toBe('created')
+        expect(otherPreview.sessionId).not.toBe(preview.sessionId)
+    })
+
     it('expires the oldest pending elevation request once the cap is exceeded', async () => {
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
@@ -242,7 +321,9 @@ describe('enqueueOrResume', () => {
                 }
             )
         }
-        const session = await queue.get((await queue.findByExternalKey(app.id, 'slack:C01:thread5'))!.id)
+        const session = await queue.get(
+            (await queue.findByExternalKey(app.id, 'slack:C01:thread5', { isPreview: false, revisionId: rev.id }))!.id
+        )
         const pendings = session!.pending_elevation_requests.filter((r) => r.state === 'pending')
         expect(pendings).toHaveLength(5)
         const expired = session!.pending_elevation_requests.filter((r) => r.state === 'expired')

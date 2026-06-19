@@ -52,6 +52,7 @@ import {
     RedisSessionEventBus,
     S3BundleStore,
     S3JsonlTabularStore,
+    DEV_INTERNAL_SIGNING_KEY,
     EncryptedEnvSecretResolver,
     EncryptedFields,
     HttpClient,
@@ -470,6 +471,11 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // slack.com calls from the ingress (ack_reaction, identity bridge)
         // can route them through a single recorder.
         http: opts.http,
+        // Wire the JWT gate so preview-mode tests exercise the real claim
+        // verification (audience, signature, app/rev binding). Without this the
+        // resolver short-circuits and a non-live revision routes without a
+        // token. Same key `mintInternalJwt` uses in the preview-mode fixtures.
+        internalSigningKey: DEV_INTERNAL_SIGNING_KEY,
     })
 
     const janitor = buildJanitorApp({

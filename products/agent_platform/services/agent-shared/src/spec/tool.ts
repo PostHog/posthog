@@ -125,6 +125,17 @@ export interface ToolContext {
      * reads inside tool code.
      */
     posthogApiBaseUrl: string
+    /**
+     * Mirrors `agent_session.is_preview` for the currently-executing session.
+     * Tools that publish externally (Slack post / update / react, webhook
+     * delivery, anything else with a real-world side effect) MUST short-
+     * circuit via `isPreviewSideEffect(...)` from this package when this is
+     * true. Read-only tools (slack read-channel / read-thread, query tools)
+     * are unaffected. The runner stamps the same flag from
+     * `session.is_preview`; tests can construct a context with `isPreview:
+     * true` to exercise the noop branch.
+     */
+    isPreview: boolean
 }
 
 export interface IntegrationCredentials {
@@ -164,6 +175,30 @@ export function defineNativeTool<TArgsSchema extends TSchema, TReturnSchema exte
         },
         run: def.run,
     }
+}
+
+/**
+ * Author-iteration guard for write-side native tools. Tools that publish
+ * externally (`@posthog/slack-post-message`, future webhook-publish tools,
+ * etc.) call this at the top of `run` to log a structured skip event when
+ * the session is in preview mode. The tool then returns a shape-valid
+ * synthetic response so the model's next turn sees a "successful" call and
+ * keeps reasoning naturally — the preview UX is "the agent acts like the
+ * side effect happened" while the platform keeps a `tool_preview_skipped`
+ * log entry for the author to inspect.
+ *
+ * Read-only tools (slack read-channel / read-thread, query tools, etc.) do
+ * NOT use this — reads have no external side effect, and treating them as
+ * such would defeat the author's ability to verify their agent's read paths.
+ *
+ * Returns true when the side effect should be suppressed.
+ */
+export function isPreviewSideEffect(ctx: ToolContext, toolId: string, args: Record<string, unknown>): boolean {
+    if (!ctx.isPreview) {
+        return false
+    }
+    ctx.log('info', 'tool_preview_skipped', { tool: toolId, args })
+    return true
 }
 
 /** Re-export TypeBox `Type` so tool authors have one import. */

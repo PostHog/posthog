@@ -55,6 +55,7 @@ function buildInput(overrides: Partial<UpsertApprovalRequestInput> = {}): Upsert
             allow_edit: false,
             allow_agent_approver: false,
         },
+        is_preview: false,
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         ...overrides,
     }

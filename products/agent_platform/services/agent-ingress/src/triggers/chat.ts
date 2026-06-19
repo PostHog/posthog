@@ -47,6 +47,7 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
             trigger: 'chat',
             requesterDisplay: principalDisplay(sessionPrincipal),
             triggerMetadata: clientKind ? { client_kind: clientKind } : undefined,
+            isPreview: resolved.isPreview,
         }
     )
     if (outcome.kind === 'elevation_required') {
@@ -192,7 +193,7 @@ async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySc
 }
 
 async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQuerySchema>>): Promise<void> {
-    const { req, res, deps } = ctx
+    const { req, res, deps, resolved } = ctx
     const { session_id: sessionId } = ctx.parsed
     const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
@@ -210,7 +211,17 @@ async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQueryS
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
     res.flushHeaders()
+    // `closed` is the single flag that gates both the bus callback and the
+    // expiry timer. The bus delivers events synchronously into the subscribe
+    // callback, but a publish that's already in flight when we unsubscribe
+    // can still land here — guarding `res.write` on `closed` is what makes
+    // it safe to end the response from the expiry path.
+    let closed = false
+    let expiryTimer: NodeJS.Timeout | undefined
     const unsubscribe = deps.bus.subscribe(sessionId, (event) => {
+        if (closed) {
+            return
+        }
         res.write(`data: ${JSON.stringify(event)}\n\n`)
     })
     // Keepalive: a comment frame every 20s keeps bytes flowing while the agent
@@ -218,12 +229,59 @@ async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQueryS
     // (Envoy stream-idle, ALB) can't reset the stream and surface as a "network
     // error" in the client. The client's SSE parser keeps only `data:` lines,
     // so comment frames are discarded. unref() so it never blocks shutdown.
-    const heartbeat = setInterval(() => res.write(': keepalive\n\n'), 20_000)
+    const heartbeat = setInterval(() => {
+        if (closed) {
+            return
+        }
+        res.write(': keepalive\n\n')
+    }, 20_000)
     heartbeat.unref()
-    req.on('close', () => {
-        clearInterval(heartbeat)
+    const cleanup = (): void => {
+        if (closed) {
+            return
+        }
+        closed = true
         unsubscribe()
-    })
+        clearInterval(heartbeat)
+        if (expiryTimer) {
+            clearTimeout(expiryTimer)
+        }
+    }
+    // Preview-mode streams: pre-emit `preview_token_required` at the JWT's
+    // expiry instead of letting the connection drop silently. The client
+    // (posthog/code agent-builder) handles the event by re-minting via
+    // `POST .../preview-token/` and re-attaching `/listen` transparently —
+    // the agent builder UI never shows a generic disconnect during a long
+    // author session.
+    //
+    // Skew margin (5s): fire just before the upstream `exp` so the client
+    // has a window to re-mint while its existing JWT is still valid for the
+    // POST. Caps the scheduled delay at the v8 setTimeout 32-bit ceiling
+    // (~24.8 days) — the 15-min TTL never approaches it, but a future
+    // longer-lived token wouldn't silently overflow into "fire immediately."
+    if (resolved.previewJwtExp !== null) {
+        const skewMs = 5_000
+        const delayMs = Math.min(Math.max(0, resolved.previewJwtExp * 1000 - Date.now() - skewMs), 2_147_483_647)
+        expiryTimer = setTimeout(() => {
+            if (closed) {
+                return
+            }
+            res.write(
+                `data: ${JSON.stringify({
+                    session_id: sessionId,
+                    kind: 'preview_token_required',
+                    data: { reason: 'expired' },
+                    ts: new Date().toISOString(),
+                })}\n\n`
+            )
+            // Unsubscribe before `res.end()` so a bus event arriving in the
+            // window between end-of-response and the `close` event firing
+            // can't reach `res.write` on the ended stream.
+            cleanup()
+            res.end()
+        }, delayMs)
+    }
+    req.on('close', cleanup)
 }
 
 async function clientToolResultHandler(

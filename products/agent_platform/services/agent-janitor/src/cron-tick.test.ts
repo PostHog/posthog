@@ -338,7 +338,7 @@ describe('cronTick', () => {
     it('expands placeholders in external_key — same set as prompt', async () => {
         const revisions = new PgRevisionStore(pool)
         const queue = new PgSessionQueue(pool)
-        const { app } = await deploy(revisions, {
+        const { app, rev } = await deploy(revisions, {
             triggers: [
                 minimalCron({
                     schedule: '0 9 * * MON',
@@ -352,7 +352,10 @@ describe('cronTick', () => {
         await cronTick({ revisions, queue, now: () => t0 }, state)
         const t1 = new Date('2026-06-01T09:30:00Z')
         await cronTick({ revisions, queue, now: () => t1 }, state)
-        const byExternal = await queue.findByExternalKey(app.id, 'digest-2026-W23')
+        const byExternal = await queue.findByExternalKey(app.id, 'digest-2026-W23', {
+            isPreview: false,
+            revisionId: rev.id,
+        })
         expect(byExternal).not.toBeNull()
     })
 
