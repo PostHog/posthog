@@ -53,6 +53,29 @@ if [ -z "$merge_base" ]; then
 fi
 changed_test_files=$(git diff --name-only --diff-filter=AM "$merge_base..HEAD" -- 'playwright/**/*.spec.ts' 'products/*/frontend/e2e/**/*.spec.ts')
 
+# Also detect spec files affected by changed test helpers (page models, utils, fixtures).
+# A page-model or utility change can introduce flakiness in every test that imports it,
+# so we resolve the reverse dependencies and add those spec files to the verification set.
+changed_helpers=$(git diff --name-only --diff-filter=AM "$merge_base..HEAD" -- \
+    'playwright/**/*.ts' 'products/*/frontend/e2e/**/*.ts' \
+    | grep -v '\.spec\.ts$' || true)
+
+if [ -n "$changed_helpers" ]; then
+    echo "Detecting spec files that import changed helpers..."
+    while IFS= read -r helper; do
+        [ -z "$helper" ] && continue
+        helper_basename=$(basename "$helper" .ts)
+        # Find spec files that reference this helper by its module name
+        consuming=$(grep -rl --include='*.spec.ts' "$helper_basename" \
+            playwright/e2e/ products/*/frontend/e2e/ 2>/dev/null || true)
+        if [ -n "$consuming" ]; then
+            num_consuming=$(echo "$consuming" | wc -l | tr -d ' ')
+            echo "  $helper → $num_consuming consuming spec(s)"
+            changed_test_files=$(printf '%s\n%s' "$changed_test_files" "$consuming" | sort -u | sed '/^$/d')
+        fi
+    done <<< "$changed_helpers"
+fi
+
 if [ -z "$changed_test_files" ]; then
     echo "No changed Playwright test files found — skipping flake verification"
     exit 0
