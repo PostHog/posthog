@@ -17,7 +17,12 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorTooManySimultaneousQueries,
+    ExposedCHQueryError,
+    QueryErrorCategory,
+    classify_query_error,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
 
@@ -249,8 +254,14 @@ def execute_process_query(
         ):
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
-        logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        capture_exception(err)
+        # User-caused query errors (e.g. a malformed HogQL expression) are already surfaced to the user as a
+        # 4xx; reporting them would create error-tracking noise for a mistake we can't act on.
+        is_user_error = classify_query_error(err) == QueryErrorCategory.USER_ERROR
+        if is_user_error:
+            logger.warning("User error processing query async", team_id=team_id, query_id=query_id, error=str(err))
+        else:
+            logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
+            capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
