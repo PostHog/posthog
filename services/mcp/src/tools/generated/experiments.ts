@@ -432,13 +432,16 @@ const ExperimentListSchema = ExperimentsListQueryParams.extend({
     feature_flag_id: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['feature_flag_id']).optional(),
 })
 
-const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<Schemas.PaginatedExperimentList>> =>
+const experimentList = (): ToolBase<
+    typeof ExperimentListSchema,
+    WithPostHogUrl<Schemas.PaginatedExperimentBasicList>
+> =>
     withUiApp('experiment-list', {
         name: 'experiment-list',
         schema: ExperimentListSchema,
         handler: async (context: Context, params: z.infer<typeof ExperimentListSchema>) => {
             const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.PaginatedExperimentList>({
+            const result = await context.api.request<Schemas.PaginatedExperimentBasicList>({
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
                 query: {
