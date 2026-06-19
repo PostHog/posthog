@@ -18,6 +18,8 @@ export interface MainLaneOverflowRedirectConfig {
     localCacheTTLSeconds: number
     bucketCapacity: number
     replenishRate: number
+    /** Redis keyspace this service operates on. Fixed per pipeline. */
+    overflowType: OverflowType
 }
 
 interface CacheEntry {
@@ -43,6 +45,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
     private localCacheTTLSeconds: number
     private statefulEnabled: boolean
     private redisRepository: OverflowRedisRepository
+    private overflowType: OverflowType
 
     constructor(config: MainLaneOverflowRedirectConfig) {
         this.redisRepository = config.redisRepository
@@ -50,6 +53,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         this.rateLimiter = new MemoryRateLimiter(config.bucketCapacity, config.replenishRate)
         this.localCacheTTLSeconds = config.localCacheTTLSeconds
         this.statefulEnabled = config.statefulEnabled
+        this.overflowType = config.overflowType
     }
 
     private localCacheKey(type: OverflowType, token: string, distinctId: string): string {
@@ -75,7 +79,8 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         })
     }
 
-    async handleEventBatch(type: OverflowType, batch: OverflowEventBatch[]): Promise<Set<string>> {
+    async handleEventBatch(batch: OverflowEventBatch[]): Promise<Set<string>> {
+        const type = this.overflowType
         const toRedirect = new Set<string>()
         const redirectSource = new Map<string, 'redis' | 'rate_limiter'>()
         const needsRateLimitCheck: OverflowEventBatch[] = []

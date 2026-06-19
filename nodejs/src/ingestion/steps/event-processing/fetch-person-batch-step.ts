@@ -4,7 +4,7 @@ import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
 
-export interface PersonPropertiesInput {
+export interface FetchPersonBatchStepInput {
     event: PluginEvent
     team: Team
 }
@@ -14,7 +14,8 @@ function personKey(teamId: number, distinctId: string): string {
 }
 
 /**
- * Creates a batch step that fetches person data for error tracking events.
+ * Creates a batch step that fetches person data for read-only pipelines
+ * (error tracking, AI).
  *
  * This is a read-only step that fetches person data from the database
  * and passes it downstream. It does not create or update persons, and
@@ -25,9 +26,12 @@ function personKey(teamId: number, distinctId: string): string {
  * fields on the ClickHouse event.
  *
  * This is a batch step to avoid N+1 queries when processing multiple events.
+ * `source` is the query-source tag forwarded to the repository for
+ * per-pipeline observability.
  */
-export function createFetchPersonBatchStep<T extends PersonPropertiesInput>(
-    personRepository: PersonReadRepository
+export function createFetchPersonBatchStep<T extends FetchPersonBatchStepInput>(
+    personRepository: PersonReadRepository,
+    source: string
 ): BatchProcessingStep<T, T & { person: Person | null }> {
     return async function fetchPersonBatchStep(inputs: T[]): Promise<PipelineResult<T & { person: Person | null }>[]> {
         if (inputs.length === 0) {
@@ -40,10 +44,7 @@ export function createFetchPersonBatchStep<T extends PersonPropertiesInput>(
             .map((input) => ({ teamId: input.team.id, distinctId: input.event.distinct_id }))
 
         // Batch fetch all persons in a single query
-        const persons =
-            lookups.length > 0
-                ? await personRepository.fetchPersonsByDistinctIds(lookups, 'error-tracking/person-properties')
-                : []
+        const persons = lookups.length > 0 ? await personRepository.fetchPersonsByDistinctIds(lookups, source) : []
 
         // Build lookup map
         const personMap = new Map(persons.map((p) => [personKey(p.team_id, p.distinct_id), p as Person]))
