@@ -23,7 +23,7 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.web_analytics.backend.achievements.definitions import (
-    STREAK_ARM_HOLDOUT,
+    STREAK_ARM_CONTROL,
     TRACKS,
     AchievementScope,
     TrackDefinition,
@@ -87,7 +87,7 @@ def recompute_web_analytics_achievements(team_id: int, user_id: int | None = Non
     if user_id is not None:
         user = User.objects.get(id=user_id)
         arm = streak_arm_for_user(user)
-        if arm == STREAK_ARM_HOLDOUT:
+        if arm == STREAK_ARM_CONTROL:
             return
     ctx = EvalContext(team=team, user=user, today=today, arm=arm)
     for track in TRACKS.values():
