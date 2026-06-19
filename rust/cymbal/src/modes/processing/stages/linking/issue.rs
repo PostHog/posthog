@@ -7,15 +7,15 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
+    analytics::capture_issue_created,
     app_context::AppContext,
-    modes::processing::rules::assignment::{try_assignment_rules, Assignment},
     error::UnhandledError,
     issue_resolution::{
         send_fingerprint_issue_state, send_issue_created_alert, send_issue_reopened_alert,
         send_new_fingerprint_event, Issue, IssueFingerprintOverride,
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
-    analytics::capture_issue_created,
+    modes::processing::rules::assignment::{try_assignment_rules, Assignment},
     stages::{linking::LinkingStage, pipeline::HandledError},
     teams::TeamManager,
     types::{

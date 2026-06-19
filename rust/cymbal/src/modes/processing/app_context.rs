@@ -10,10 +10,10 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::{
-    config::{init_global_state, Config},
     core::config::get_aws_config,
     core::resolver::build_catalog,
     error::UnhandledError,
+    modes::processing::config::{init_global_state, ProcessingConfig},
     signals::{MaybeSignalClient, SignalClient},
     stages::resolution::remote::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
@@ -42,7 +42,7 @@ pub struct AppContext {
     /// the background.
     pub remote_resolution: Option<RemoteResolutionContext>,
     remote_resolution_refresh_task: Option<JoinHandle<()>>,
-    pub config: Config,
+    pub config: ProcessingConfig,
 
     pub team_manager: TeamManager,
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
@@ -63,7 +63,7 @@ impl Drop for AppContext {
 }
 
 impl AppContext {
-    pub async fn from_config(config: &Config) -> Result<Self, UnhandledError> {
+    pub async fn from_config(config: &ProcessingConfig) -> Result<Self, UnhandledError> {
         let options = PgPoolOptions::new().max_connections(config.resolver.max_pg_connections);
         let posthog_pool = options.connect(&config.resolver.database_url).await?;
 
@@ -95,7 +95,7 @@ impl AppContext {
     }
 
     pub async fn new(
-        config: &Config,
+        config: &ProcessingConfig,
         s3_client: Arc<dyn BlobClient>,
         posthog_pool: PgPool,
         issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
@@ -152,8 +152,9 @@ impl AppContext {
             catalog.clone(),
             posthog_pool.clone(),
         ));
-        let symbol_resolution_limiter =
-            Arc::new(Semaphore::new(config.resolver.symbol_resolution_concurrency.max(1)));
+        let symbol_resolution_limiter = Arc::new(Semaphore::new(
+            config.resolver.symbol_resolution_concurrency.max(1),
+        ));
         let process_request_limiter =
             Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
 
@@ -185,7 +186,7 @@ impl AppContext {
 }
 
 async fn build_remote_resolution(
-    config: &Config,
+    config: &ProcessingConfig,
 ) -> Result<(Option<RemoteResolutionContext>, Option<JoinHandle<()>>), UnhandledError> {
     if !config.remote_resolution_enabled {
         return Ok((None, None));

@@ -5,15 +5,15 @@ use tracing::info;
 
 use crate::{
     app_context::AppContext,
-    config::Config,
     metric_consts::{
         BYTE_HISTOGRAM_BUCKETS, S3_FETCHED_BYTES, S3_PUT_BYTES, SOURCEMAP_EXTERNAL_BYTES,
         SYMBOL_SET_DECOMPRESSED_BYTES,
     },
+    modes::processing::config::ProcessingConfig,
     router::get_router,
 };
 
-pub async fn start_server(config: Config, context: Arc<AppContext>) -> () {
+pub async fn start_server(config: ProcessingConfig, context: Arc<AppContext>) -> () {
     let router = get_router(context);
     let bucket_overrides: &[(Matcher, &[f64])] = &[
         (

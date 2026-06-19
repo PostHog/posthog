@@ -31,8 +31,9 @@ impl ResolutionAppContext {
     ) -> Result<Self, UnhandledError> {
         let symbol_resolver = build_symbol_resolver(resolver).await?;
         // Symbol-resolution concurrency is the shared knob on the resolver config.
-        let symbol_resolution_limiter =
-            Arc::new(Semaphore::new(resolver.symbol_resolution_concurrency.max(1)));
+        let symbol_resolution_limiter = Arc::new(Semaphore::new(
+            resolver.symbol_resolution_concurrency.max(1),
+        ));
         let load_monitor = LoadMonitor::new(service.max_item_concurrency.max(1) as u32);
         let service_instance_id = service
             .service_instance_id

@@ -101,7 +101,8 @@ mod tests {
 
     use super::*;
 
-    const PROGUARD_MAP: &str = include_str!("../../../../tests/static/proguard/mapping_example.txt");
+    const PROGUARD_MAP: &str =
+        include_str!("../../../../tests/static/proguard/mapping_example.txt");
 
     #[test]
     fn fetched_mapping_uses_proguard_cache_for_lookups() {

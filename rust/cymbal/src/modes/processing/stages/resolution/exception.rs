@@ -85,9 +85,9 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
-        config::Config,
         frames::RawFrame,
         langs::{java::RawJavaFrame, CommonFrameMetadata},
+        modes::processing::config::ProcessingConfig,
         symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver},
         symbolication::symbol_store::{
             apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
@@ -97,12 +97,13 @@ mod test {
         types::{Exception, Stacktrace},
     };
 
-    const PROGUARD_MAP: &str = include_str!("../../../../../tests/static/proguard/mapping_example.txt");
+    const PROGUARD_MAP: &str =
+        include_str!("../../../../../tests/static/proguard/mapping_example.txt");
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_proguard_resolution(db: PgPool) {
         let team_id = 1;
-        let mut config = Config::init_with_defaults().unwrap();
+        let mut config = ProcessingConfig::init_with_defaults().unwrap();
         config.resolver.object_storage_bucket = "test-bucket".to_string();
 
         let map_id = "com.posthog.android.sample@3.0+3".to_string();

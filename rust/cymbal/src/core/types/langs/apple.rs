@@ -560,7 +560,8 @@ mod test {
     fn get_dsym_bytes() -> Vec<u8> {
         use posthog_symbol_data::write_symbol_data;
 
-        const DSYM_ZIP: &[u8] = include_bytes!("../../../../tests/static/apple/test_binary.dSYM.zip");
+        const DSYM_ZIP: &[u8] =
+            include_bytes!("../../../../tests/static/apple/test_binary.dSYM.zip");
         write_symbol_data(posthog_symbol_data::AppleDsym {
             data: DSYM_ZIP.to_vec(),
         })

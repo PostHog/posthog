@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use cymbal::{
-    modes::processing::rules::assignment::{AssignmentRule, NewAssignment},
-    config::Config,
     fingerprinting::Fingerprint,
     issue_resolution::{process_assignment, Issue, IssueStatus},
+    modes::processing::rules::assignment::{AssignmentRule, NewAssignment},
+    modes::processing::ProcessingConfig,
     teams::TeamManager,
     types::{ExceptionList, FingerprintedErrProps},
 };
@@ -77,7 +77,7 @@ fn test_issue() -> Issue {
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_assignment_processing(db: PgPool) {
-    let config = Config::init_with_defaults().unwrap();
+    let config = ProcessingConfig::init_with_defaults().unwrap();
 
     let fingerprint = test_fingerprint();
     let test_team_id = 1;

@@ -3,9 +3,9 @@ use std::sync::Arc;
 use serde::Serialize;
 use tracing::warn;
 
-use crate::config::Config;
 use crate::issue_resolution::Issue;
 use crate::metric_consts::{SIGNAL_EMITTED, SIGNAL_EMIT_FAILED, SIGNAL_EMIT_RESPONSE};
+use crate::modes::processing::config::ProcessingConfig;
 use crate::tokenizer::CL100K_BPE;
 use crate::types::OutputErrProps;
 
@@ -65,7 +65,7 @@ pub struct SignalClient {
 }
 
 impl SignalClient {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &ProcessingConfig) -> Self {
         Self {
             http: reqwest::Client::builder()
                 .no_proxy()

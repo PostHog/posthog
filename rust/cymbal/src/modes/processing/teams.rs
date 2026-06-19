@@ -5,9 +5,12 @@ use moka::sync::{Cache, CacheBuilder};
 use tracing::warn;
 
 use crate::{
-    modes::processing::rules::assignment::AssignmentRule, config::Config, error::UnhandledError,
-    modes::processing::rules::grouping::GroupingRule, metric_consts::ANCILLARY_CACHE,
-    modes::processing::rules::spike::SpikeDetectionConfig, modes::processing::rules::suppression::SuppressionRule,
+    error::UnhandledError, metric_consts::ANCILLARY_CACHE,
+    modes::processing::config::ProcessingConfig,
+    modes::processing::rules::assignment::AssignmentRule,
+    modes::processing::rules::grouping::GroupingRule,
+    modes::processing::rules::spike::SpikeDetectionConfig,
+    modes::processing::rules::suppression::SuppressionRule,
 };
 
 #[derive(Clone)]
@@ -21,7 +24,7 @@ pub struct TeamManager {
 }
 
 impl TeamManager {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &ProcessingConfig) -> Self {
         let cache = CacheBuilder::new(config.max_team_cache_size)
             .time_to_live(Duration::from_secs(config.team_cache_ttl_secs))
             .build();

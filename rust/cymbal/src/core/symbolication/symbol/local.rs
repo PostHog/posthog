@@ -17,13 +17,13 @@ use crate::{
     core::config::ResolverConfig,
     error::{JsResolveErr, ProguardError, ResolveError, UnhandledError},
     frames::{releases::ReleaseRecord, Frame, RawFrame},
-    symbolication::symbol::records::{ErrorTrackingStackFrame, FrameResultTtlPolicy},
     langs::native::DebugImage,
-    symbolication::resolve::Resolve,
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
         SUSPICIOUS_FRAMES_DETECTED,
     },
+    symbolication::resolve::Resolve,
+    symbolication::symbol::records::{ErrorTrackingStackFrame, FrameResultTtlPolicy},
     symbolication::symbol::SymbolResolver,
     symbolication::symbol_store::{
         chunk_id::OrChunkId,
@@ -250,6 +250,7 @@ mod test {
 
     use crate::{
         core::config::ResolverConfig,
+        core::types::Stacktrace,
         frames::RawFrame,
         symbolication::symbol::records::ErrorTrackingStackFrame,
         symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver},
@@ -262,7 +263,6 @@ mod test {
             sourcemap::SourcemapProvider,
             Catalog, MockS3Client,
         },
-        core::types::Stacktrace,
         types::RawErrProps,
     };
 
@@ -272,7 +272,10 @@ mod test {
     const EXAMPLE_EXCEPTION: &str =
         include_str!("../../../../tests/static/raw_ch_exception_list.json");
 
-    async fn setup_test_context<S>(pool: PgPool, s3_init: S) -> (ResolverConfig, Catalog, MockServer)
+    async fn setup_test_context<S>(
+        pool: PgPool,
+        s3_init: S,
+    ) -> (ResolverConfig, Catalog, MockServer)
     where
         S: FnOnce(&ResolverConfig, MockS3Client) -> MockS3Client,
     {

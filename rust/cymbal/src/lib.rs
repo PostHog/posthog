@@ -1,4 +1,3 @@
-pub mod config;
 pub mod core;
 pub mod modes;
 #[cfg(test)]
@@ -10,13 +9,13 @@ pub mod test_utils;
 pub use core::sanitize::{
     needs_sanitization, recursively_sanitize_properties, sanitize_source_line, sanitize_string,
 };
-pub use core::types::langs;
 pub use core::types::frames;
+pub use core::types::langs;
 pub use core::{error, metric_consts, symbolication};
 
 // Compat re-exports: processing-only modules now live under `modes::processing`.
 // Prefer `crate::modes::processing::*` in new code.
 pub use modes::processing::{
-    app_context, fingerprinting, issue_resolution, analytics, router, server,
-    signals, stages, teams, tokenizer, types,
+    analytics, app_context, fingerprinting, issue_resolution, router, server, signals, stages,
+    teams, tokenizer, types,
 };

@@ -10,13 +10,13 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
+    core::analytics::{capture_symbol_set_deleted, capture_symbol_set_saved},
     error::{FrameError, ResolveError, UnhandledError},
     metric_consts::{
         FRAME_RESOLUTION_RESULTS_DELETED, SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED,
         SAVE_SYMBOL_SET, SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES,
         SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
-    core::analytics::{capture_symbol_set_deleted, capture_symbol_set_saved},
     symbolication::symbol_store::{chunk_id::SymbolSetKey, BlobClient},
 };
 

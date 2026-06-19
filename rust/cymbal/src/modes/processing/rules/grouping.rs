@@ -9,12 +9,12 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::{
-    modes::processing::rules::assignment::NewAssignment,
     error::UnhandledError,
     metric_consts::{
         CUSTOM_GROUPED_EVENTS, GROUPING_RULES_DISABLED, GROUPING_RULES_FOUND,
         GROUPING_RULES_PROCESSING_TIME, GROUPING_RULES_TRIED,
     },
+    modes::processing::rules::assignment::NewAssignment,
     teams::TeamManager,
     types::RawErrProps,
 };

@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 
 use crate::{
+    core::ids::TeamId,
+    core::types::Exception,
     error::{ProguardError, ResolveError, UnhandledError},
     frames::{Frame, RawFrame},
     langs::native::DebugImage,
     metric_consts::JAVA_EXCEPTION_REMAP_FAILED,
-    core::ids::TeamId,
-    core::types::Exception,
     symbolication::symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef},
 };
 use tracing::warn;

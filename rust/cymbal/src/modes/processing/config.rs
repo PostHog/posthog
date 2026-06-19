@@ -9,20 +9,9 @@ use crate::core::config::{init_resolver_globals, ResolverConfig};
 pub static BATCH_APPLY_CONCURRENCY: AtomicUsize = AtomicUsize::new(64);
 
 #[derive(Envconfig, Clone)]
-pub struct Config {
-    /// Which server stack the binary runs. `processing` (default) serves the
-    /// error-tracking HTTP pipeline; `resolution` serves the
-    /// `cymbal.resolution.v1` gRPC symbol-resolution service.
-    #[envconfig(from = "CYMBAL_MODE", default = "processing")]
-    pub mode: crate::modes::CymbalMode,
-
+pub struct ProcessingConfig {
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
-
-    /// Resolution-mode settings. Parsed unconditionally (defaults make this
-    /// harmless in processing mode); only read when `mode == Resolution`.
-    #[envconfig(nested = true)]
-    pub resolution: crate::modes::resolution::Config,
 
     /// Shared symbol-resolution config (Postgres, object storage, frame cache,
     /// sourcemap fetching). Both modes read this slice; it lives in `core` so
@@ -251,7 +240,7 @@ pub struct Config {
     pub remote_resolution_subscribe_reconnect_backoff_ms: u64,
 }
 
-impl Config {
+impl ProcessingConfig {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         let res = Self::init_from_env()?;
         init_global_state(&res);
@@ -259,7 +248,7 @@ impl Config {
     }
 }
 
-pub fn init_global_state(config: &Config) {
+pub fn init_global_state(config: &ProcessingConfig) {
     init_resolver_globals(&config.resolver);
     BATCH_APPLY_CONCURRENCY.store(config.batch_apply_concurrency.max(1), Ordering::Relaxed);
 }

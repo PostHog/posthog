@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use common_types::ClickHouseEvent;
 use cymbal::symbolication::resolve::Resolve;
 use cymbal::{
-    config::Config,
     frames::{Frame, RawFrame},
+    modes::processing::ProcessingConfig,
     symbolication::symbol_store::{
         apple::AppleProvider,
         caching::{Caching, SymbolSetCache},
@@ -111,7 +111,7 @@ async fn end_to_end_resolver_test() {
         frame.source_url = Some(server.url(CHUNK_PATH).to_string());
     }
 
-    let mut config = Config::init_with_defaults().unwrap();
+    let mut config = ProcessingConfig::init_with_defaults().unwrap();
     config.resolver.allow_internal_ips = true; // We're hitting localhost for the tests
 
     let sourcemap = SourcemapProvider::new(&config.resolver);

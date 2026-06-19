@@ -1,17 +1,16 @@
 use std::sync::Arc;
 
+use crate::modes::processing::rules::grouping::{try_grouping_rules, GroupingRule};
 use crate::{
     app_context::AppContext,
-    modes::processing::rules::assignment::NewAssignment,
     error::UnhandledError,
+    modes::processing::rules::assignment::NewAssignment,
     types::{ExceptionList, RawErrProps},
 };
 use common_types::TeamId;
-use crate::modes::processing::rules::grouping::{try_grouping_rules, GroupingRule};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use uuid::Uuid;
-
 
 pub async fn resolve_fingerprint(
     ctx: &Arc<AppContext>,
@@ -109,11 +108,12 @@ impl Fingerprint {
 
 impl FingerprintComponent for crate::frames::Frame {
     fn update(&self, fp: &mut FingerprintBuilder) {
-        let get_part =
-            |s: &common_types::error_tracking::FrameId, p: Vec<&str>| FingerprintRecordPart::Frame {
+        let get_part = |s: &common_types::error_tracking::FrameId, p: Vec<&str>| {
+            FingerprintRecordPart::Frame {
                 raw_id: s.to_string(),
                 pieces: p.into_iter().map(String::from).collect(),
-            };
+            }
+        };
 
         let mut included_pieces = Vec::new();
 

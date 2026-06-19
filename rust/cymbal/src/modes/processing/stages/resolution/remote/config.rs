@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use crate::config::Config;
 use crate::error::UnhandledError;
+use crate::modes::processing::config::ProcessingConfig;
 
-/// Narrowed view of [`crate::config::Config`] containing only the fields used
+/// Narrowed view of [`crate::modes::processing::config::ProcessingConfig`] containing only the fields used
 /// by the remote resolution client. Keeping a dedicated struct lets the pool,
 /// DNS, and resolver modules be exercised in tests without touching cymbal's
 /// full env-var surface.
@@ -51,7 +51,7 @@ pub struct RemoteResolutionConfig {
 }
 
 impl RemoteResolutionConfig {
-    pub fn from_config(config: &Config) -> Result<Self, UnhandledError> {
+    pub fn from_config(config: &ProcessingConfig) -> Result<Self, UnhandledError> {
         if config.remote_resolution_host.trim().is_empty() {
             return Err(UnhandledError::Other(
                 "remote resolution enabled but CYMBAL_REMOTE_RESOLUTION_HOST is empty".to_string(),

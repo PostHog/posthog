@@ -7,15 +7,15 @@
 use std::sync::Arc;
 
 use crate::app_context::AppContext;
-use crate::config::Config;
 use crate::server::start_server;
 
+pub mod analytics;
 pub mod app_context;
+pub mod config;
 pub mod fingerprinting;
 pub mod issue_resolution;
-pub mod analytics;
-pub mod rules;
 pub mod router;
+pub mod rules;
 pub mod server;
 pub mod signals;
 pub mod stages;
@@ -23,7 +23,9 @@ pub mod teams;
 pub mod tokenizer;
 pub mod types;
 
-pub async fn run(config: Config) {
+pub use config::ProcessingConfig;
+
+pub async fn run(config: ProcessingConfig) {
     let context = Arc::new(AppContext::from_config(&config).await.unwrap());
     start_server(config.clone(), context).await;
 }

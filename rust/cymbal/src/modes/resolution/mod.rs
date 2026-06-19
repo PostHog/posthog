@@ -26,7 +26,7 @@ pub mod config;
 pub mod load_monitor;
 pub mod service;
 
-pub use config::Config;
+pub use config::{Config, ResolutionConfig};
 
 use app_context::ResolutionAppContext;
 use auth::InternalApiSecretInterceptor;
@@ -70,8 +70,7 @@ pub async fn serve(
         service_config,
         draining,
     );
-    let auth_interceptor =
-        InternalApiSecretInterceptor::new(resolver.internal_api_secret.clone());
+    let auth_interceptor = InternalApiSecretInterceptor::new(resolver.internal_api_secret.clone());
 
     let listener = tokio::net::TcpListener::bind(res.grpc_address).await?;
     let incoming = tracked_tcp_incoming(listener);

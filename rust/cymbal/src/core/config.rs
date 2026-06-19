@@ -8,7 +8,7 @@ use tracing::{info, warn};
 pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);
 
 /// Configuration for the shared symbol-resolution stack. Both run modes parse
-/// this slice; processing mode nests it on [`crate::config::Config`], and
+/// this slice; processing mode nests it on [`crate::modes::processing::ProcessingConfig`], and
 /// resolution mode reads it alongside its own service config. Keeping it in
 /// `core` means the resolver (and a future `cymbal-core` crate) never needs the
 /// processing-only knobs (Kafka, Redis, rules, remote-resolution client).

@@ -1,21 +1,21 @@
 use reqwest::Url;
 
-use crate::core::types::frames::{Frame, RawFrame};
 use crate::core::metric_consts::{FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME};
-use crate::core::symbolication::symbol_store::Catalog;
-use crate::core::types::langs::apple::RawAppleFrame;
-use crate::core::types::langs::hermes::{HermesRef, RawHermesFrame};
-use crate::core::types::langs::java::RawJavaFrame;
-use crate::core::types::langs::js::RawJSFrame;
-use crate::core::types::langs::native::DebugImage;
-use crate::core::types::langs::node::RawNodeFrame;
 use crate::core::symbolication::symbol_store::apple::AppleRef;
 use crate::core::symbolication::symbol_store::chunk_id::OrChunkId;
 use crate::core::symbolication::symbol_store::hermesmap::ParsedHermesMap;
 use crate::core::symbolication::symbol_store::native::ParsedNativeSymbols;
 use crate::core::symbolication::symbol_store::proguard::{FetchedMapping, ProguardRef};
 use crate::core::symbolication::symbol_store::sourcemap::OwnedSourceMapCache;
+use crate::core::symbolication::symbol_store::Catalog;
 use crate::core::symbolication::symbol_store::SymbolCatalog;
+use crate::core::types::frames::{Frame, RawFrame};
+use crate::core::types::langs::apple::RawAppleFrame;
+use crate::core::types::langs::hermes::{HermesRef, RawHermesFrame};
+use crate::core::types::langs::java::RawJavaFrame;
+use crate::core::types::langs::js::RawJSFrame;
+use crate::core::types::langs::native::DebugImage;
+use crate::core::types::langs::node::RawNodeFrame;
 use crate::error::UnhandledError;
 
 /// Resolution capability for raw stack frames.
@@ -121,17 +121,22 @@ impl Resolve<Catalog> for RawFrame {
         // Catalog-backed frames resolve via `Resolve`; catalog-free frames convert
         // directly with `From<&RawX> for Frame` (no symbol resolution needed).
         let (res, lang_tag): (Result<Vec<Frame>, UnhandledError>, &str) = match self {
-            RawFrame::JavaScriptWeb(frame) => {
-                (frame.resolve(team_id, catalog, debug_images).await, "javascript")
-            }
+            RawFrame::JavaScriptWeb(frame) => (
+                frame.resolve(team_id, catalog, debug_images).await,
+                "javascript",
+            ),
             RawFrame::LegacyJS(frame) => {
                 // TODO: monitor this metric and remove the legacy frame type when it hits 0
                 metrics::counter!(LEGACY_JS_FRAME_RESOLVED).increment(1);
-                (frame.resolve(team_id, catalog, debug_images).await, "javascript")
+                (
+                    frame.resolve(team_id, catalog, debug_images).await,
+                    "javascript",
+                )
             }
-            RawFrame::JavaScriptNode(frame) => {
-                (frame.resolve(team_id, catalog, debug_images).await, "javascript")
-            }
+            RawFrame::JavaScriptNode(frame) => (
+                frame.resolve(team_id, catalog, debug_images).await,
+                "javascript",
+            ),
 
             RawFrame::Dart(frame) => (Ok(vec![frame.into()]), "dart"),
             RawFrame::Apple(frame) => {
@@ -143,9 +148,10 @@ impl Resolve<Catalog> for RawFrame {
             RawFrame::Rust(frame) => (Ok(vec![frame.into()]), "rust"),
             RawFrame::Custom(frame) => (Ok(vec![frame.into()]), "custom"),
             RawFrame::Go(frame) => (Ok(vec![frame.into()]), "go"),
-            RawFrame::Hermes(frame) => {
-                (frame.resolve(team_id, catalog, debug_images).await, "hermes")
-            }
+            RawFrame::Hermes(frame) => (
+                frame.resolve(team_id, catalog, debug_images).await,
+                "hermes",
+            ),
             RawFrame::Java(frame) => (frame.resolve(team_id, catalog, debug_images).await, "java"),
         };
 

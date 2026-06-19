@@ -3,8 +3,8 @@ use std::{future::Future, sync::atomic::Ordering};
 use futures::{StreamExt, TryStreamExt};
 
 use crate::{
-    config::BATCH_APPLY_CONCURRENCY,
     error::UnhandledError,
+    modes::processing::config::BATCH_APPLY_CONCURRENCY,
     types::{
         operator::Operator,
         stage::{Stage, StageResult},

@@ -13,8 +13,8 @@ use crate::modes::processing::rules::assignment::{try_assignment_rules, Assignee
 use crate::teams::TeamManager;
 use crate::types::{FingerprintedErrProps, OutputErrProps};
 use crate::{
-    app_context::AppContext, error::UnhandledError, metric_consts::ISSUE_REOPENED,
-    analytics::capture_issue_reopened,
+    analytics::capture_issue_reopened, app_context::AppContext, error::UnhandledError,
+    metric_consts::ISSUE_REOPENED,
 };
 
 #[derive(Debug, Clone)]

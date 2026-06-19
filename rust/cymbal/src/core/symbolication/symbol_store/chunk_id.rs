@@ -344,6 +344,7 @@ mod test {
 
     use crate::{
         core::config::ResolverConfig,
+        core::types::Stacktrace,
         error::ResolveError,
         frames::RawFrame,
         langs::js::RawJSFrame,
@@ -356,7 +357,6 @@ mod test {
             sourcemap::{OwnedSourceMapCache, SourcemapProvider},
             Catalog, MockS3Client, Provider,
         },
-        core::types::Stacktrace,
         types::RawErrProps,
     };
 
