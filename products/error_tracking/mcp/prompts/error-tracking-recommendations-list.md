@@ -1,6 +1,6 @@
 List error tracking recommendations for the current project. Each row is a server-computed suggestion with a fixed `type` and a type-specific `meta` payload.
 
-Use this when the user asks how to improve their error tracking setup, what they should fix, or wants to act on their recommendations. The list call refreshes recommendations server-side before returning, so the `meta` you get back reflects current state.
+Use this when the user asks how to improve their error tracking setup, what they should fix, or wants to act on their recommendations.
 
 Surface only the few recommendations that matter — don't dump every row. Skip ones that are already done or dismissed.
 
@@ -10,8 +10,6 @@ Surface only the few recommendations that matter — don't dump every row. Skip 
 - `meta`: type-specific payload — see the per-type sections below.
 - `completed`: `true` means the recommended action is already satisfied. Nothing to do — skip it.
 - `dismissed_at`: set if the user dismissed this recommendation. Skip dismissed ones unless the user explicitly asks.
-- `status`: `ready` when `meta` is fresh, `computing` while a refresh is in progress (treat `meta` as possibly stale; re-list shortly to pick up fresh data).
-- `computed_at`: when `meta` was last computed.
 
 Only act on recommendations that are not `completed` and not dismissed.
 
@@ -52,8 +50,3 @@ What to do: these are stale, unresolved issues worth closing out. Either move th
 - suppress persistent noise with `error-tracking-suppression-rules-create`
 
 To find the root cause of a specific issue, use the `investigating-error-issue` skill (who it affects, when it started, whether it correlates with a release/browser/flag). The `triaging-error-issues` skill covers working through several at once.
-
-# Next steps
-
-- If any recommendation is `status: computing`, re-list shortly to pick up fresh `meta`.
-- After acting on a recommendation, re-list to confirm it flips to `completed: true`.
