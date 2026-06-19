@@ -18,6 +18,7 @@ from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 
+from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
@@ -151,6 +152,7 @@ class BufferSignalsWorkflow:
     @temporalio.workflow.signal
     async def submit_signal(self, signal: EmitSignalInputs) -> None:
         self._get_emitted_counter(signal.team_id, signal.source_product, signal.source_type).add(1)
+        metrics.increment_funnel(metrics.FUNNEL_STAGE_EMITTED, signal.source_product)
         self._signal_buffer.append(signal)
 
     @temporalio.workflow.run

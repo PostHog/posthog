@@ -79,4 +79,8 @@ service PersonHogService {
   // WARNING: Same routing caveat as DeletePersons above — write operation on person data
   // routed through replica (primary pool) until leader supports transactional writes.
   rpc SplitPerson(personhog.types.v1.SplitPersonRequest) returns (personhog.types.v1.SplitPersonResponse);
+
+  // Undelete repair version resets. Same routing caveat as DeletePersons above.
+  rpc SetPersonDistinctIdVersionFloor(personhog.types.v1.SetPersonDistinctIdVersionFloorRequest) returns (personhog.types.v1.SetPersonDistinctIdVersionFloorResponse);
+  rpc SetPersonVersionFloor(personhog.types.v1.SetPersonVersionFloorRequest) returns (personhog.types.v1.SetPersonVersionFloorResponse);
 }

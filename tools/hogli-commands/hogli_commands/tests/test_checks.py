@@ -228,9 +228,9 @@ class TestAbsenceChecks:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """An isolated product still owing presentation-wave work can't opt into the skip."""
-        import hogli_commands.product.checks as checks_module
+        import hogli_commands.product.isolation as isolation_module
 
-        monkeypatch.setattr(checks_module, "count_presentation_allowlist_entries", lambda *_a, **_k: 2)
+        monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: ["e1", "e2"])
         ctx = _make_product(
             tmp_path,
             scripts={
@@ -1086,13 +1086,13 @@ ignore_imports = [
         ("wizard", 0),
     ],
 )
-def test_count_presentation_allowlist_entries(name: str, expected: int) -> None:
-    from hogli_commands.product.checks import count_presentation_allowlist_entries
+def test_presentation_bypass_entries(name: str, expected: int) -> None:
+    from hogli_commands.product.isolation import presentation_bypass_entries
 
-    assert count_presentation_allowlist_entries(name, _IGNORE_IMPORTS_PYPROJECT) == expected
+    assert len(presentation_bypass_entries(name, _IGNORE_IMPORTS_PYPROJECT)) == expected
 
 
-def test_count_presentation_allowlist_entries_handles_broken_toml() -> None:
-    from hogli_commands.product.checks import count_presentation_allowlist_entries
+def test_presentation_bypass_entries_handles_broken_toml() -> None:
+    from hogli_commands.product.isolation import presentation_bypass_entries
 
-    assert count_presentation_allowlist_entries("logs", "not = [valid") == 0
+    assert presentation_bypass_entries("logs", "not = [valid") == []

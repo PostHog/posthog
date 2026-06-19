@@ -531,6 +531,13 @@ def config(
 
     def wrap(cls: type[_T]) -> type[_T]:
         def from_dict(cls, d: dict[str, typing.Any]):
+            if not isinstance(d, dict):
+                # Stored config (e.g. an `EncryptedJSONField`) can occasionally come back as a
+                # non-mapping (a double-encoded string). Fail with an actionable message instead
+                # of the opaque `TypeError: string indices must be integers` raised when `to_config`
+                # tries to index into it.
+                raise TypeError(f"Cannot build '{cls.__name__}' from {type(d).__name__}; expected a mapping")
+
             if prefix:
                 prefixes = (prefix,)
             else:

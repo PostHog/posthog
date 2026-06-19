@@ -4996,6 +4996,7 @@ export namespace Schemas {
       CustomerioApp: 'customerio-app',
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
+      Postgresql: 'postgresql',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -8621,13 +8622,52 @@ export namespace Schemas {
       readonly notification_suppressed_by_agent: boolean;
     }
 
+    export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
+
+
+    export const TrendsAlertConfigType = {
+      TrendsAlertConfig: 'TrendsAlertConfig',
+    } as const;
+
     export interface TrendsAlertConfig {
       /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
       check_ongoing_interval?: boolean | null;
       /** Zero-based index of the series in the insight's query to monitor. */
       series_index: number;
-      type?: 'TrendsAlertConfig';
+      type: TrendsAlertConfigType;
     }
+
+    export type HogQLAlertEvaluation = typeof HogQLAlertEvaluation[keyof typeof HogQLAlertEvaluation];
+
+
+    export const HogQLAlertEvaluation = {
+      LastRow: 'last_row',
+      FirstRow: 'first_row',
+      AnyRow: 'any_row',
+    } as const;
+
+    export type HogQLAlertConfigType = typeof HogQLAlertConfigType[keyof typeof HogQLAlertConfigType];
+
+
+    export const HogQLAlertConfigType = {
+      HogQLAlertConfig: 'HogQLAlertConfig',
+    } as const;
+
+    export interface HogQLAlertConfig {
+      /** Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column). */
+      column?: string | null;
+      /** How to read the result rows — an explicit choice, no implicit default. */
+      evaluation: HogQLAlertEvaluation;
+      /** In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number. */
+      label_column?: string | null;
+      type: HogQLAlertConfigType;
+    }
+
+    /**
+     * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
+     * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
+     */
+    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig;
 
     export interface PreprocessingConfig {
       /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -8875,8 +8915,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total: number | null;
-      /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-      config?: TrendsAlertConfig | null;
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
@@ -9423,6 +9463,10 @@ export namespace Schemas {
      * * `test_endpoint` - test_endpoint
      * * `create_early_access_feature` - create_early_access_feature
      * * `update_feature_stage` - update_feature_stage
+     * * `use_posthog_ai` - use_posthog_ai
+     * * `use_posthog_code` - use_posthog_code
+     * * `use_posthog_mcp` - use_posthog_mcp
+     * * `use_posthog_in_slack` - use_posthog_in_slack
      */
     export type AvailableSetupTaskIdsEnum = typeof AvailableSetupTaskIdsEnum[keyof typeof AvailableSetupTaskIdsEnum];
 
@@ -9493,6 +9537,10 @@ export namespace Schemas {
       TestEndpoint: 'test_endpoint',
       CreateEarlyAccessFeature: 'create_early_access_feature',
       UpdateFeatureStage: 'update_feature_stage',
+      UsePosthogAi: 'use_posthog_ai',
+      UsePosthogCode: 'use_posthog_code',
+      UsePosthogMcp: 'use_posthog_mcp',
+      UsePosthogInSlack: 'use_posthog_in_slack',
     } as const;
 
     export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
@@ -10108,13 +10156,39 @@ export namespace Schemas {
       type: BigQueryDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig;
+    export type PostgresDestinationConfigType = typeof PostgresDestinationConfigType[keyof typeof PostgresDestinationConfigType];
+
+
+    export const PostgresDestinationConfigType = {
+      Postgres: 'Postgres',
+    } as const;
+
+    /**
+     * Typed configuration for a PostgreSQL batch-export destination.
+     *
+     * Connection credentials may live in a linked Integration (when one is provided) or
+     * inline in this config (legacy). Mirrors the non-credential fields of
+     * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface PostgresDestinationConfig {
+      /** PostgreSQL database name to connect to. */
+      database: string;
+      /** PostgreSQL schema name containing the destination table. */
+      schema?: string;
+      /** PostgreSQL table name to write exported rows into. */
+      table_name?: string;
+      /** Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration. */
+      has_self_signed_cert?: boolean;
+      type: PostgresDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
-     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
+     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).
      * Other destination types accept the same JSON shape but without a typed
      * OpenAPI schema. Secret fields are stripped from `config` on read.
      */
@@ -10135,7 +10209,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -10143,7 +10217,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -11077,7 +11151,24 @@ export namespace Schemas {
       config: BigQueryDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest;
+    export type PostgresDestinationRequestType = typeof PostgresDestinationRequestType[keyof typeof PostgresDestinationRequestType];
+
+
+    export const PostgresDestinationRequestType = {
+      Postgres: 'Postgres',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a PostgreSQL batch-export destination.
+     */
+    export interface PostgresDestinationRequest {
+      type: PostgresDestinationRequestType;
+      /** ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
+      config: PostgresDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -20494,15 +20585,23 @@ export namespace Schemas {
 
     /**
      * * `manual` - Manual
+     * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
+     * * `auto_refresh` - Auto Refresh
+     * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update
      */
-    export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
+    export type TriggerEnum = typeof TriggerEnum[keyof typeof TriggerEnum];
 
 
-    export const ExperimentMetricsRecalculationTriggerEnum = {
+    export const TriggerEnum = {
       Manual: 'manual',
+      ColdRun: 'cold_run',
+      StaleRefresh: 'stale_refresh',
+      AutoRefresh: 'auto_refresh',
+      ConfigChange: 'config_change',
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
       ExperimentUpdate: 'experiment_update',
@@ -20569,10 +20668,14 @@ export namespace Schemas {
       /** What triggered this recalculation
        *
        * * `manual` - Manual
+       * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
+       * * `auto_refresh` - Auto Refresh
+       * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
        * * `experiment_update` - Experiment Update */
-      readonly trigger: ExperimentMetricsRecalculationTriggerEnum;
+      readonly trigger: TriggerEnum;
       /** When the job was created */
       readonly created_at: string;
       /**
@@ -20773,6 +20876,7 @@ export namespace Schemas {
      * * `append` - append
      * * `webhook` - webhook
      * * `cdc` - cdc
+     * * `xmin` - xmin
      */
     export type SyncTypeEnum = typeof SyncTypeEnum[keyof typeof SyncTypeEnum];
 
@@ -20783,6 +20887,7 @@ export namespace Schemas {
       Append: 'append',
       Webhook: 'webhook',
       Cdc: 'cdc',
+      Xmin: 'xmin',
     } as const;
 
     /**
@@ -20792,6 +20897,7 @@ export namespace Schemas {
      * * `date` - date
      * * `timestamp` - timestamp
      * * `objectid` - objectid
+     * * `xid` - xid
      */
     export type IncrementalFieldTypeEnum = typeof IncrementalFieldTypeEnum[keyof typeof IncrementalFieldTypeEnum];
 
@@ -20803,6 +20909,7 @@ export namespace Schemas {
       Date: 'date',
       Timestamp: 'timestamp',
       Objectid: 'objectid',
+      Xid: 'xid',
     } as const;
 
     /**
@@ -20859,7 +20966,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Column name used to track sync progress.
@@ -20873,7 +20981,8 @@ export namespace Schemas {
        * * `datetime` - datetime
        * * `date` - date
        * * `timestamp` - timestamp
-       * * `objectid` - objectid */
+       * * `objectid` - objectid
+       * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
        *
@@ -20945,7 +21054,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Incremental cursor field for incremental or append syncs.
@@ -25402,6 +25512,97 @@ export namespace Schemas {
       source: string;
       /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
       tags?: TagDefinition[];
+    }
+
+    /**
+     * * `high` - high
+     * * `medium` - medium
+     * * `low` - low
+     */
+    export type TierEnum = typeof TierEnum[keyof typeof TierEnum];
+
+
+    export const TierEnum = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+    } as const;
+
+    export interface IdentityMatchingLink {
+      /** Identity matching run that produced this link. */
+      job_id: string;
+      /** Scoring model that produced the link, e.g. 'rules_v1' or 'logreg_v1'. */
+      model_version: string;
+      /** Anonymous distinct ID that the model linked to an identified person. */
+      orphan_distinct_id: string;
+      /** Canonical distinct ID representing the matched identified person. */
+      anchor_person_key: string;
+      /** Link score: weighted rule points for 'rules_v1', a 0-1 probability for 'logreg_v1'. */
+      score: number;
+      /** Score margin over the runner-up candidate person for this orphan. */
+      margin: number;
+      /** Confidence tier derived from score thresholds.
+       *
+       * * `high` - high
+       * * `medium` - medium
+       * * `low` - low */
+      tier: TierEnum;
+      /** When the link was computed (UTC). */
+      computed_at: string;
+      /** Distinct (IP, day) combinations both sides were seen on. */
+      shared_ip_days: number;
+      /** Distinct IPs both sides were seen on. */
+      shared_ips: number;
+      /** Device count on the least crowded shared IP-day; small values suggest a household IP. */
+      min_ip_block_size: number;
+      /** Both sides were seen in the same city. */
+      geo_city_match: boolean;
+      /** Both sides reported the same timezone. */
+      timezone_match: boolean;
+      /** Both sides reported the same browser language. */
+      language_match: boolean;
+      /** A byte-identical user agent was seen on both sides. */
+      ua_exact_match: boolean;
+      /** The orphan's traffic came from an in-app browser or webview. */
+      orphan_is_webview: boolean;
+      /** The sides form a mobile + desktop device pair. */
+      device_type_complement: boolean;
+      /** Number of days on which the two sides shared an IP. */
+      days_overlap: number;
+      /** Average overlap (0-1) of pages visited by the two sides on shared IP-days. */
+      avg_path_jaccard: number;
+      /** The orphan arrived via a paid click ID (gclid, li_fat_id, ...) inside the window. */
+      orphan_paid_touch: boolean;
+      /** The matched person already had a paid click ID inside the window. */
+      anchor_paid_touch: boolean;
+    }
+
+    export interface IdentityMatchingLinksResponse {
+      /** Links ordered by score, descending. */
+      results: IdentityMatchingLink[];
+      /** Total links matching the filters, ignoring pagination. */
+      count: number;
+    }
+
+    export interface IdentityMatchingRunModelCount {
+      /** Scoring model, e.g. 'rules_v1' or 'logreg_v1'. */
+      model_version: string;
+      /** Number of links this model produced in the run. */
+      link_count: number;
+    }
+
+    export interface IdentityMatchingRun {
+      /** Identity matching run identifier (the Dagster run ID). */
+      job_id: string;
+      /** When the run wrote its links (UTC). */
+      computed_at: string;
+      /** Link counts per scoring model in this run. */
+      models: IdentityMatchingRunModelCount[];
+    }
+
+    export interface IdentityMatchingRunsResponse {
+      /** Runs ordered by recency, most recent first. */
+      results: IdentityMatchingRun[];
     }
 
     /**
@@ -33606,8 +33807,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total?: number | null;
-      /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
-      config?: TrendsAlertConfig | null;
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (labels rows in breach messages for any_row). */
+      config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
@@ -35083,7 +35284,8 @@ export namespace Schemas {
        * * `incremental` - incremental
        * * `append` - append
        * * `webhook` - webhook
-       * * `cdc` - cdc */
+       * * `cdc` - cdc
+       * * `xmin` - xmin */
       sync_type?: SyncTypeEnum | null;
       /**
          * Column name used to track sync progress.
@@ -35097,7 +35299,8 @@ export namespace Schemas {
        * * `datetime` - datetime
        * * `date` - date
        * * `timestamp` - timestamp
-       * * `objectid` - objectid */
+       * * `objectid` - objectid
+       * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
       /** How often to sync.
        *
@@ -39981,6 +40184,16 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
+    /**
+     * * `Postgres` - Postgres
+     */
+    export type PostgresDestinationRequestTypeEnum = typeof PostgresDestinationRequestTypeEnum[keyof typeof PostgresDestinationRequestTypeEnum];
+
+
+    export const PostgresDestinationRequestTypeEnum = {
+      Postgres: 'Postgres',
+    } as const;
+
     export interface PreviewInviteRequest {
       /**
          * Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.
@@ -41693,6 +41906,15 @@ export namespace Schemas {
       open_to_merge_seconds: number | null;
       /** GitHub label names on the pull request. */
       labels: string[];
+      /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
+      pushes: number;
+      /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+      rerun_cycles: number;
+      /**
+         * Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.
+         * @nullable
+         */
+      estimated_cost_usd?: number | null;
     }
 
     export interface PullRequestList {
@@ -43977,32 +44199,20 @@ export namespace Schemas {
     }
 
     /**
-     * * `manual` - manual
-     * * `experiment_launch` - experiment_launch
-     * * `experiment_stop` - experiment_stop
-     * * `experiment_update` - experiment_update
-     */
-    export type RecalculateMetricsRequestTriggerEnum = typeof RecalculateMetricsRequestTriggerEnum[keyof typeof RecalculateMetricsRequestTriggerEnum];
-
-
-    export const RecalculateMetricsRequestTriggerEnum = {
-      Manual: 'manual',
-      ExperimentLaunch: 'experiment_launch',
-      ExperimentStop: 'experiment_stop',
-      ExperimentUpdate: 'experiment_update',
-    } as const;
-
-    /**
      * Request body for triggering a metrics recalculation.
      */
     export interface RecalculateMetricsRequest {
       /** What triggered this recalculation (manual is the default for user-initiated runs)
        *
-       * * `manual` - manual
-       * * `experiment_launch` - experiment_launch
-       * * `experiment_stop` - experiment_stop
-       * * `experiment_update` - experiment_update */
-      trigger?: RecalculateMetricsRequestTriggerEnum;
+       * * `manual` - Manual
+       * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
+       * * `auto_refresh` - Auto Refresh
+       * * `config_change` - Config Change
+       * * `experiment_launch` - Experiment Launch
+       * * `experiment_stop` - Experiment Stop
+       * * `experiment_update` - Experiment Update */
+      trigger?: TriggerEnum;
     }
 
     export interface RecomputeResult {
@@ -58360,6 +58570,56 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
+    } as const;
+
+    export type IdentityMatchingLinksListParams = {
+    /**
+     * Identity matching run to read. Defaults to the team's most recent run.
+     */
+    job_id?: string;
+    /**
+     * Page size, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Only return links with a score at or above this.
+     */
+    min_score?: number;
+    /**
+     * Only return links produced by this scoring model, e.g. 'rules_v1'.
+     * @minLength 1
+     */
+    model_version?: string;
+    /**
+     * Pagination offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Case-insensitive substring match on the orphan distinct ID or the matched person key.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Only return links in this confidence tier.
+     *
+     * * `high` - high
+     * * `medium` - medium
+     * * `low` - low
+     * @minLength 1
+     */
+    tier?: IdentityMatchingLinksListTier;
+    };
+
+    export type IdentityMatchingLinksListTier = typeof IdentityMatchingLinksListTier[keyof typeof IdentityMatchingLinksListTier];
+
+
+    export const IdentityMatchingLinksListTier = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
     } as const;
 
     export type InsightVariablesListParams = {
