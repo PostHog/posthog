@@ -14,6 +14,7 @@ import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-mana
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { parseSplitAiEventsConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
@@ -25,7 +26,6 @@ import {
     createJoinedIngestionPipeline,
 } from '~/ingestion/pipelines/analytics/joined-ingestion-pipeline'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
-import { parseSplitAiEventsConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
 
 import { initializePrometheusLabels } from '../api/router'
 import {

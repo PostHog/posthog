@@ -24,7 +24,7 @@ import * as crypto from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { parseTeamsList } from '~/ingestion/steps/event-processing/split-ai-events-step'
+import { parseTeamsList } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 
 import { AIObservabilityConfig } from '../ai-observability/config'
 import { EvaluationManagerService } from '../ai-observability/services/evaluation-manager.service'

@@ -13,14 +13,6 @@ import {
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
-import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
-import { TopHogRegistry, count, countOk, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
-import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
-import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
-import { ok } from '~/ingestion/framework/results'
 import {
     createApplyCookielessProcessingStep,
     createApplyEventRestrictionsStep,
@@ -30,11 +22,19 @@ import {
     createParseKafkaMessageStep,
     createResolveTeamStep,
     createSkipCookielessRateLimitToOverflowStep,
-} from '~/ingestion/steps/event-preprocessing'
-import { createCreateEventStep } from '~/ingestion/steps/event-processing/create-event-step'
-import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/steps/event-processing/emit-event-step'
-import { createHogTransformEventStep } from '~/ingestion/steps/event-processing/hog-transform-event-step'
-import { createReadOnlyProcessGroupsStep } from '~/ingestion/steps/event-processing/readonly-process-groups-step'
+} from '~/ingestion/common/steps/event-preprocessing'
+import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
+import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
+import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
+import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
+import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
+import { TopHogRegistry, count, countOk, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
+import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
+import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { ok } from '~/ingestion/framework/results'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { PluginEvent } from '~/plugin-scaffold'
 import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'

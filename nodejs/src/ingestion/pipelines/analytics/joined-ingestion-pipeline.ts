@@ -16,6 +16,20 @@ import {
     createFlushEventFiltersBatchAppMetricsStep,
 } from '~/ingestion/common/steps/event-filters-steps'
 import {
+    createApplyEventRestrictionsStep,
+    createEnrichSurveyPersonPropertiesStep,
+    createParseHeadersStep,
+    createParseKafkaMessageStep,
+    createResolveTeamStep,
+    createSkipCookielessRateLimitToOverflowStep,
+    createValidateAiEventTokensStep,
+    createValidateHistoricalMigrationStep,
+} from '~/ingestion/common/steps/event-preprocessing'
+import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
+import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
+import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
+import { SplitAiEventsStepConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
+import {
     GroupStoreBatchContext,
     createGroupStoreBeforeBatchStep,
 } from '~/ingestion/common/steps/group-store-batch-step'
@@ -27,20 +41,6 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
-import {
-    createApplyEventRestrictionsStep,
-    createEnrichSurveyPersonPropertiesStep,
-    createParseHeadersStep,
-    createParseKafkaMessageStep,
-    createResolveTeamStep,
-    createSkipCookielessRateLimitToOverflowStep,
-    createValidateAiEventTokensStep,
-    createValidateHistoricalMigrationStep,
-} from '~/ingestion/steps/event-preprocessing'
-import { EmitEventStepOutput } from '~/ingestion/steps/event-processing/emit-event-step'
-import { EventPipelineRunnerOptions } from '~/ingestion/steps/event-processing/event-pipeline-options'
-import { createFlushBatchStoresStep } from '~/ingestion/steps/event-processing/flush-batch-stores-step'
-import { SplitAiEventsStepConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { Team } from '~/types'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'

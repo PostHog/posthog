@@ -10,10 +10,6 @@ import {
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '~/ingestion/common/steps/event-filters-steps'
-import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
-import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
-import { newBatchingPipeline } from '~/ingestion/framework/builders'
-import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import {
     createParseHeadersStep,
     createParseKafkaMessageStep,
@@ -21,11 +17,15 @@ import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateHistoricalMigrationStep,
-} from '~/ingestion/steps/event-preprocessing'
-import { createApplyBasicEventRestrictionsStep } from '~/ingestion/steps/event-preprocessing/apply-event-restrictions'
-import { createDropOldEventsStep } from '~/ingestion/steps/event-processing/drop-old-events-step'
-import { EmitEventStepOutput } from '~/ingestion/steps/event-processing/emit-event-step'
-import { createHandleClientIngestionWarningStep } from '~/ingestion/steps/event-processing/handle-client-ingestion-warning-step'
+} from '~/ingestion/common/steps/event-preprocessing'
+import { createApplyBasicEventRestrictionsStep } from '~/ingestion/common/steps/event-preprocessing/apply-event-restrictions'
+import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
+import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
+import { createHandleClientIngestionWarningStep } from '~/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step'
+import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
+import { newBatchingPipeline } from '~/ingestion/framework/builders'
+import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'

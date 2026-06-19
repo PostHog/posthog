@@ -1,6 +1,6 @@
+import { stripBloatProperties } from '~/ingestion/common/steps/event-processing/strip-bloat-properties'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { stripBloatProperties } from '~/ingestion/steps/event-processing/strip-bloat-properties'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, ISOTimestamp, Person, PreIngestionEvent, Team } from '~/types'
 

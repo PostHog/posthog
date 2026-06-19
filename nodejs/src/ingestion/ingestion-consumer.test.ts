@@ -16,8 +16,8 @@ import {
     COOKIELESS_SENTINEL_VALUE,
 } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
-import { createPrepareEventStep } from '~/ingestion/steps/event-processing/prepare-event-step'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -42,7 +42,7 @@ jest.mock('~/utils/posthog', () => {
 })
 
 // Mock the prepare event step for error testing
-jest.mock('~/ingestion/steps/event-processing/prepare-event-step', () => ({
+jest.mock('~/ingestion/common/steps/event-processing/prepare-event-step', () => ({
     createPrepareEventStep: jest.fn(),
 }))
 
@@ -185,7 +185,7 @@ describe('IngestionConsumer', () => {
         team2 = (await getTeam(hub.postgres, team2Id))!
 
         jest.mocked(createPrepareEventStep).mockImplementation((...args) => {
-            const original = jest.requireActual('~/ingestion/steps/event-processing/prepare-event-step')
+            const original = jest.requireActual('~/ingestion/common/steps/event-processing/prepare-event-step')
             return original.createPrepareEventStep(...args)
         })
 

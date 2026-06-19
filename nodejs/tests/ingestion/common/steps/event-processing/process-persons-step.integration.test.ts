@@ -12,10 +12,13 @@ import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
+import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
+import {
+    ProcessPersonsInput,
+    createProcessPersonsStep,
+} from '~/ingestion/common/steps/event-processing/process-persons-step'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
-import { EventPipelineRunnerOptions } from '~/ingestion/steps/event-processing/event-pipeline-options'
-import { ProcessPersonsInput, createProcessPersonsStep } from '~/ingestion/steps/event-processing/process-persons-step'
 import { PluginEvent } from '~/plugin-scaffold'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Person, Team } from '~/types'

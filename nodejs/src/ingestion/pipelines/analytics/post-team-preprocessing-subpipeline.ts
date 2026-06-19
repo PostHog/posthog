@@ -8,7 +8,6 @@ import { prefetchPersonsStep } from '~/ingestion/common/event-pipeline/prefetchP
 import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/common/event-pipeline/processPersonlessDistinctIdsBatchStep'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { createApplyEventFiltersStep } from '~/ingestion/common/steps/event-filters-steps'
-import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
 import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
@@ -17,9 +16,10 @@ import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
-} from '~/ingestion/steps/event-preprocessing'
-import { createDropOldEventsStep } from '~/ingestion/steps/event-processing/drop-old-events-step'
-import { createPrefetchHogFunctionsStep } from '~/ingestion/steps/event-processing/prefetch-hog-functions-step'
+} from '~/ingestion/common/steps/event-preprocessing'
+import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
+import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
+import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'

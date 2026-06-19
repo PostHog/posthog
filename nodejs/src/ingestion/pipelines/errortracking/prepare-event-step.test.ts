@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { BLOAT_PROPERTIES } from '~/ingestion/common/steps/event-processing/strip-bloat-properties'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
-import { BLOAT_PROPERTIES } from '~/ingestion/steps/event-processing/strip-bloat-properties'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'

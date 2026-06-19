@@ -1,6 +1,6 @@
 import { ingestionLagGauge, ingestionLagHistogram } from '~/common/metrics'
+import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { isOkResult } from '~/ingestion/framework/results'
-import { IngestedEventInfo } from '~/ingestion/steps/event-processing/emit-event-step'
 
 import { RecordIngestionLagInput, createRecordIngestionLagStep } from './record-ingestion-lag'
 
