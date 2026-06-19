@@ -101,7 +101,7 @@ export const SKILL_CATEGORY_TABS: SkillCategoryTab[] = [
         category: 'scout',
         label: 'Scouts',
         description:
-            "Signals scouts — scheduled agents that scan your project and surface findings in your inbox. Includes PostHog's canonical scouts and any custom ones you author.",
+            "Scouts — scheduled agents that scan your project and surface findings in your inbox. Includes PostHog's canonical scouts and any custom ones you author.",
     },
 ]
 
