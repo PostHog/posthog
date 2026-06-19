@@ -300,7 +300,6 @@ async def test_backfill_batch_export_workflow(
         raise AssertionError("Backfill completed early with no records")
 
     workflows = await wait_for_workflows(temporal_client, batch_export.id, expected_num_workflows, timeout=50)
-    assert len(workflows) == expected_num_workflows
 
     # Check that the individual workflow IDs and TemporalScheduledStartTime search attributes are set correctly.
     for index, workflow in enumerate(workflows, start=1):
@@ -353,7 +352,6 @@ async def test_backfill_batch_export_workflow_no_end_at(
     )
 
     workflows = await wait_for_workflows(temporal_client, desc.id, expected_count=2)
-    assert len(workflows) == 2
 
     event_backfill_ids = await assert_backfill_details_in_workflow_events(
         temporal_client,
@@ -439,7 +437,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     )
 
     # Wait for at least one workflow to start running before deleting the schedule
-    await wait_for_workflows(temporal_client, desc.id, expected_count=1, comparison_mode="GTE", timeout=10)
+    await wait_for_workflows(temporal_client, desc.id, expected_count=1, assert_exact=False, timeout=10)
 
     await temporal_schedule_every_5_minutes.delete()
 
