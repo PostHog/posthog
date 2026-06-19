@@ -62,8 +62,7 @@ export function AuthorizedUrlList({
 
     // toolbar and web analytics urls are sent through the backend to be validated and have toolbar auth
     // information added; other urls are simply opened directly
-    const isLaunchableType =
-        type === AuthorizedUrlListType.TOOLBAR_URLS || type === AuthorizedUrlListType.WEB_ANALYTICS
+    const isLaunchableType = type === AuthorizedUrlListType.TOOLBAR_URLS || type === AuthorizedUrlListType.WEB_ANALYTICS
 
     return (
         <div className="flex flex-col gap-2" data-attr="authorized-urls-table">
