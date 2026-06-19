@@ -7,10 +7,8 @@
 # What it does:
 #   1. Verifies the sibling clone exists and has a .env.
 #   2. Brings up the gateway's deps (postgres + valkey) via docker compose.
-#      NOTE: the gateway's compose.yaml ships ONLY deps — the gateway and
-#      billing binaries are run from source, not as compose services. (An
-#      older version of this script assumed a `--profile full` that started
-#      the binaries; that profile no longer exists.)
+#      NOTE: the gateway's compose.yaml ships ONLY deps; the gateway and
+#      billing binaries run from source, not as compose services.
 #   3. Backgrounds a seeder that waits for /readyz, then tops up the
 #      anonymous-principal ledger (team_id = 0) so AI_GATEWAY_AUTH_MODE=open
 #      requests pass admission. Without it the gateway 402s on every call.
@@ -41,7 +39,7 @@ Either clone it:
   git clone git@github.com:PostHog/ai-gateway.git "$AI_GATEWAY_REPO"
 
 Or skip this entry in mprocs and set AGENT_USE_AI_GATEWAY=false on the
-agent-runner — the runner falls back to direct providers automatically.
+agent-runner; the runner falls back to direct providers automatically.
 
 Override the path with AI_GATEWAY_REPO=... if your clone lives elsewhere.
 EOF
@@ -70,35 +68,31 @@ set +o allexport
 echo "[start-ai-gateway] bringing up gateway deps (postgres + valkey)"
 docker compose up -d --wait
 
-# Seed the anonymous-team ledger once the gateway is serving. The gateway
-# binary applies ledger migrations on startup, so the table only exists
-# after it is up — hence the wait, and hence backgrounding this. The budget
-# spans the foreground `go run` compile (cold builds can take minutes) plus
-# the first catalog/pricing warm-up that /readyz blocks on, so it is sized
-# generously: 150 * 2s = 5 min.
+# Seed the anonymous-team ledger once the gateway serves /readyz. Migrations
+# run on boot, so the table exists only after it's up; the 5-min budget covers
+# a cold `go run` compile plus the first catalog warm-up.
 (
     for _ in $(seq 1 150); do
         if curl -sf "http://localhost:${GATEWAY_PORT}/readyz" >/dev/null 2>&1; then
             echo "[start-ai-gateway] seeding anonymous-team ledger (team_id=0, +${TOPUP_USD} USD)"
-            docker compose exec -T postgres psql -U postgres -d ai_gateway -v ON_ERROR_STOP=1 -c \
+            if docker compose exec -T postgres psql -U postgres -d ai_gateway -v ON_ERROR_STOP=1 -c \
                 "INSERT INTO ledger_entries (team_id, transaction_type, source, destination, amount_usd) VALUES (0, 'topup', 'funding', 'prepaid', ${TOPUP_USD});" \
-                >/dev/null || true
+                >/dev/null; then
+                exit 0
+            fi
+            echo "[start-ai-gateway] WARNING: ledger topup failed (see psql error above); open-mode requests will 402 until you seed it." >&2
             exit 0
         fi
         sleep 2
     done
-    # Loud, because the symptom (every open-mode call 402s on an
-    # otherwise-healthy-looking gateway) is otherwise baffling to debug.
     echo "[start-ai-gateway] WARNING: gateway never became ready after 5 min; SKIPPED ledger topup." >&2
     echo "[start-ai-gateway] open-mode requests will 402 until you seed it (re-run this entry, or insert a team_id=0 topup)." >&2
 ) &
 
 echo "[start-ai-gateway] running gateway (open mode) on http://localhost:${GATEWAY_PORT}"
-# Force open mode + the gateway's own valkey/postgres regardless of the
-# clone's .env (which may be configured for the resolver flow). The STUB
-# flags are forced off too: a clone left with STUB_DISPATCH=true for offline
-# work would otherwise leak through here and serve canned completions to the
-# agent-runner with no error.
+# Force open mode and the gateway's own valkey/postgres over the clone's .env,
+# STUB flags included (an offline clone's STUB_DISPATCH=true would otherwise
+# serve canned completions in open mode).
 exec env \
     AI_GATEWAY_AUTH_MODE=open \
     AI_GATEWAY_LISTEN_ADDR=":${GATEWAY_PORT}" \
