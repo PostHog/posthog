@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 # PostHog's own team on Cloud US — owns the Customer-analytics accounts that inbound billing
 # usage-spike events resolve against. Billing emits these spike messages to the US queue.
 POSTHOG_SELF_TEAM_ID = 2
+BILLING_COLLECTIONS_ACCESS_BLOCK_REASON = "collections_failed_payment"
+BILLING_COLLECTIONS_INACTIVE_REASON = "Billing collections: payment failed"
 
 
 class BillingConsumer(SQSConsumer):
@@ -52,6 +54,8 @@ class BillingConsumer(SQSConsumer):
                 self._process_billing_customer_update(body)
             elif message_type == "usage_spike_detected":
                 self._process_usage_spike_detected(body)
+            elif message_type == "billing_collections_access_state_changed":
+                self._process_collections_access_state_changed(body)
             # Add more message types as needed
             # elif message_type == "invoice_created":
             #     self._process_invoice_created(body)
@@ -174,3 +178,106 @@ class BillingConsumer(SQSConsumer):
             stripe_customer_id=data.get("stripe_customer_id"),
             detected_at=data.get("detected_at"),
         )
+
+    def _process_collections_access_state_changed(self, body: dict[str, Any]) -> None:
+        """Apply a Billing collections org access block/unblock command."""
+        data = body.get("data", {})
+        organization_id = body.get("organization_id") or data.get("organization_id")
+        billing_customer_id = (
+            body.get("billing_customer_id")
+            or body.get("customer_id")
+            or data.get("billing_customer_id")
+            or data.get("customer_id")
+        )
+        stripe_customer_id = body.get("stripe_customer_id") or data.get("stripe_customer_id")
+        desired_state = body.get("desired_state") or data.get("desired_state")
+        reason = body.get("reason") or data.get("reason")
+
+        if not all([organization_id, billing_customer_id, stripe_customer_id, desired_state, reason]):
+            logger.error(
+                "Billing collections access state message is missing required fields",
+                extra={
+                    "organization_id": organization_id,
+                    "billing_customer_id": billing_customer_id,
+                    "stripe_customer_id": stripe_customer_id,
+                    "desired_state": desired_state,
+                    "reason": reason,
+                },
+            )
+            capture_exception(Exception("Billing collections access state message is missing required fields"))
+            return
+
+        if reason != BILLING_COLLECTIONS_ACCESS_BLOCK_REASON:
+            logger.error("Unsupported Billing collections access block reason", extra={"reason": reason})
+            capture_exception(Exception("Unsupported Billing collections access block reason"), {"reason": reason})
+            return
+
+        if desired_state not in {"blocked", "unblocked"}:
+            logger.error(
+                "Unsupported Billing collections access desired state",
+                extra={"desired_state": desired_state},
+            )
+            capture_exception(
+                Exception("Unsupported Billing collections access desired state"),
+                {"desired_state": desired_state},
+            )
+            return
+
+        try:
+            organization = Organization.objects.get(id=organization_id)
+        except Organization.DoesNotExist:
+            logger.exception(f"Organization {organization_id} does not exist")
+            capture_exception(
+                Exception("Organization for Billing collections access state does not exist"),
+                {"organization_id": organization_id},
+            )
+            return
+
+        if organization.customer_id != str(billing_customer_id):
+            logger.error(
+                "Billing collections access state customer mismatch",
+                extra={
+                    "organization_id": organization_id,
+                    "organization_customer_id": organization.customer_id,
+                    "billing_customer_id": billing_customer_id,
+                    "stripe_customer_id": stripe_customer_id,
+                },
+            )
+            capture_exception(
+                Exception("Billing collections access state customer mismatch"),
+                {
+                    "organization_id": organization_id,
+                    "organization_customer_id": organization.customer_id,
+                    "billing_customer_id": billing_customer_id,
+                    "stripe_customer_id": stripe_customer_id,
+                },
+            )
+            return
+
+        if desired_state == "blocked":
+            if (
+                organization.is_active is not False
+                or organization.is_not_active_reason == BILLING_COLLECTIONS_INACTIVE_REASON
+            ):
+                organization.is_active = False
+                organization.is_not_active_reason = BILLING_COLLECTIONS_INACTIVE_REASON
+                organization.save(update_fields=["is_active", "is_not_active_reason", "updated_at"])
+            else:
+                logger.info(
+                    "Skipping Billing collections block because organization is already inactive for another reason",
+                    extra={
+                        "organization_id": organization_id,
+                        "organization_customer_id": organization.customer_id,
+                        "billing_customer_id": billing_customer_id,
+                        "stripe_customer_id": stripe_customer_id,
+                        "is_not_active_reason": organization.is_not_active_reason,
+                    },
+                )
+        else:
+            if (
+                organization.is_active is False
+                and organization.is_not_active_reason == BILLING_COLLECTIONS_INACTIVE_REASON
+            ):
+                organization.is_active = True
+                organization.is_not_active_reason = None
+                organization.save(update_fields=["is_active", "is_not_active_reason", "updated_at"])
