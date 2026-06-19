@@ -202,8 +202,9 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
     def _store_timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime) -> None:
         assert exp.metrics and exp.start_date is not None
+        metric_dict = next(m for m in exp.metrics if m["uuid"] == metric_uuid)
         config_fp = compute_metric_fingerprint(
-            exp.metrics[0],
+            metric_dict,
             exp.start_date,
             get_experiment_stats_method(exp),
             exp.exposure_criteria,
