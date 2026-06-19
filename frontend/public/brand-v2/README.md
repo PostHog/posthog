@@ -40,7 +40,6 @@ props-based component; import from the `lib/brand/v2` barrel.
 
 ```tsx
 import { PostHogLogo } from 'lib/brand/v2'
-
 ;<PostHogLogo className="h-7 w-auto" />
 ```
 

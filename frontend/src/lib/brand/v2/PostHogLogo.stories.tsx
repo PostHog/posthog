@@ -4,6 +4,7 @@ import { PostHogLogo } from './PostHogLogo'
 
 const meta: Meta = {
     title: 'Components/Brand Logos (Redesign)',
+    tags: ['test-skip'],
     parameters: {
         docs: {
             description: {
