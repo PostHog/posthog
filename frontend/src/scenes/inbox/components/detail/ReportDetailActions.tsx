@@ -1,15 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
-import { IconArchive, IconPullRequest } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
+import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
-import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport } from '../../types'
+import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
 
 /** Mirror desktop's `Inbox report action` analytics for detail-pane actions. */
@@ -54,8 +56,10 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
     const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { activeTab } = useValues(inboxSceneLogic)
+    const [isRestoring, setIsRestoring] = useState(false)
 
     const showCreatePr = canCreateImplementationPr(report)
+    const isArchived = report.status === SignalReportStatus.SUPPRESSED
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,
@@ -63,6 +67,35 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         // Back to the list once archived – the suppressed report drops out on the list's refetch.
         onArchived: () => router.actions.push(urls.inbox(activeTab)),
     })
+
+    const onRestoreClick = async (): Promise<void> => {
+        setIsRestoring(true)
+        try {
+            await api.signalReports.setState(report.id, { state: 'potential' })
+            lemonToast.success('Report restored to inbox')
+            router.actions.push(urls.inbox(activeTab))
+        } catch (error: any) {
+            lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
+        } finally {
+            setIsRestoring(false)
+        }
+    }
+
+    // An already-archived report offers Restore instead of Archive (and no Create PR).
+    if (isArchived) {
+        return (
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconUndo />}
+                loading={isRestoring}
+                tooltip="Restore this report to your inbox"
+                onClick={() => void onRestoreClick()}
+            >
+                Restore
+            </LemonButton>
+        )
+    }
 
     return (
         <>

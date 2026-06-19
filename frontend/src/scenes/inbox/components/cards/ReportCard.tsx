@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { router } from 'kea-router'
 
-import { IconArchive, IconPullRequest } from '@posthog/icons'
+import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -131,12 +131,15 @@ export function ReportCard({
     tabKey = 'reports',
     attached = false,
     onArchive,
+    onRestore,
 }: {
     report: SignalReport
     tabKey?: InboxFlatListTabKey
     attached?: boolean
     onArchive?: (reason: DismissalReasonValue, note: string) => void
+    onRestore?: () => void
 }): JSX.Element {
+    const isArchived = tabKey === 'archived'
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = prUrlParts != null
@@ -225,28 +228,47 @@ export function ReportCard({
             </Link>
 
             <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconArchive />}
-                    tooltip="Archive this report"
-                    aria-label="Archive this report"
-                    loading={isArchiving}
-                    onClick={onArchiveClick}
-                >
-                    Archive
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        router.actions.push(detailUrl)
-                    }}
-                >
-                    Review
-                </LemonButton>
+                {isArchived ? (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconUndo />}
+                        tooltip="Restore this report to the inbox"
+                        aria-label="Restore this report to the inbox"
+                        onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            onRestore?.()
+                        }}
+                    >
+                        Restore
+                    </LemonButton>
+                ) : (
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconArchive />}
+                            tooltip="Archive this report"
+                            aria-label="Archive this report"
+                            loading={isArchiving}
+                            onClick={onArchiveClick}
+                        >
+                            Archive
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                router.actions.push(detailUrl)
+                            }}
+                        >
+                            Review
+                        </LemonButton>
+                    </>
+                )}
             </div>
         </div>
     )
