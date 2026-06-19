@@ -5,7 +5,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.hog_functions.hog_function import HogFunction
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
 def create_log_entry(

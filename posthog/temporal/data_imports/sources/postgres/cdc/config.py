@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING
 from posthog.temporal.data_imports.cdc.adapters import CDCConfig, ManagementMode
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-DEFAULT_LAG_WARNING_THRESHOLD_MB = 1024
-DEFAULT_LAG_CRITICAL_THRESHOLD_MB = 10240
+DEFAULT_LAG_WARNING_THRESHOLD_MB = 512
+DEFAULT_LAG_CRITICAL_THRESHOLD_MB = 2048
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

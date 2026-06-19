@@ -37,7 +37,7 @@ from posthog.constants import (
     TRENDS_LINEAR,
     TRENDS_TABLE,
 )
-from posthog.models import Action, Cohort, Entity, Filter, Organization, Person
+from posthog.models import Entity, Filter, Organization, Person
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
 from posthog.models.person.util import create_person_distinct_id
@@ -47,6 +47,9 @@ from posthog.queries.trends.trends import Trends
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import generate_cache_key
+
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 
 
 def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:

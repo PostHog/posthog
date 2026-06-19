@@ -42,6 +42,7 @@ export interface LogRecord {
     instrumentation_scope: string | null
     event_name: string | null
     attributes: Record<string, string> | null
+    bytes_uncompressed?: number | null
 }
 
 export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | undefined, string, LogRecord[]]> {

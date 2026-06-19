@@ -4,9 +4,12 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models.action.action import Action
-
-from products.experiments.backend.metric_utils import refresh_action_names_in_metric
+from products.actions.backend.models.action import Action
+from products.experiments.backend.metric_utils import (
+    collect_metric_events_and_action_ids,
+    refresh_action_names_in_metric,
+    resolve_action_events,
+)
 
 
 class TestRefreshActionNamesInMetric(BaseTest):
@@ -289,3 +292,123 @@ class TestRefreshActionNamesInMetric(BaseTest):
         assert updated_query["series"][0]["name"] == "Renamed Action 1"
         assert updated_query["series"][1]["name"] == "Renamed Action 2"
         assert updated_query["series"][2]["name"] == "Renamed Action 3"
+
+
+class TestCollectMetricEventsAndActionIds(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "mean",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "purchase"},
+                },
+                {"purchase"},
+            ),
+            (
+                "funnel",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "series": [
+                        {"kind": "EventsNode", "event": "signup"},
+                        {"kind": "EventsNode", "event": "activated"},
+                    ],
+                },
+                {"signup", "activated"},
+            ),
+            (
+                "ratio",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "ratio",
+                    "numerator": {"kind": "EventsNode", "event": "revenue"},
+                    "denominator": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                {"revenue", "$pageview"},
+            ),
+            (
+                "retention",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "EventsNode", "event": "first_open"},
+                    "completion_event": {"kind": "EventsNode", "event": "returned"},
+                },
+                {"first_open", "returned"},
+            ),
+        ]
+    )
+    def test_extracts_events_from_metric_type(self, _name: str, metric: dict, expected: set[str]):
+        events, action_ids = collect_metric_events_and_action_ids([metric])
+        assert events == expected
+        assert action_ids == set()
+
+    def test_ignores_null_event_meaning_all_events(self):
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": None},
+        }
+        events, action_ids = collect_metric_events_and_action_ids([metric])
+        assert events == set()
+        assert action_ids == set()
+
+    def test_collects_action_ids_without_resolving(self):
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "ActionsNode", "id": 7},
+        }
+        events, action_ids = collect_metric_events_and_action_ids([metric])
+        assert events == set()
+        assert action_ids == {7}
+
+    def test_combines_events_across_multiple_metrics(self):
+        metrics = [
+            {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "a"}},
+            {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "b"}},
+        ]
+        events, _ = collect_metric_events_and_action_ids(metrics)
+        assert events == {"a", "b"}
+
+    def test_empty_metrics_returns_empty_sets(self):
+        assert collect_metric_events_and_action_ids([]) == (set(), set())
+
+    def test_collect_does_not_touch_the_db(self):
+        metrics = [
+            {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "purchase"}},
+            {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": 7}},
+        ]
+        with self.assertNumQueries(0):
+            events, action_ids = collect_metric_events_and_action_ids(metrics)
+        assert events == {"purchase"}
+        assert action_ids == {7}
+
+
+class TestResolveActionEvents(BaseTest):
+    def test_resolves_actions_to_their_step_events(self):
+        action = Action.objects.create(
+            team=self.team,
+            name="Signed up",
+            steps_json=[{"event": "signup"}, {"event": "$autocapture"}],
+        )
+        assert resolve_action_events({action.id}, self.team) == {action.id: {"signup", "$autocapture"}}
+
+    def test_ignores_deleted_actions(self):
+        action = Action.objects.create(team=self.team, name="Gone", steps_json=[{"event": "ghost"}], deleted=True)
+        assert resolve_action_events({action.id}, self.team) == {}
+
+    def test_batches_into_single_query(self):
+        action_a = Action.objects.create(team=self.team, name="A", steps_json=[{"event": "a1"}, {"event": "a2"}])
+        action_b = Action.objects.create(team=self.team, name="B", steps_json=[{"event": "b1"}])
+
+        with self.assertNumQueries(1):
+            resolved = resolve_action_events({action_a.id, action_b.id}, self.team)
+
+        assert resolved == {action_a.id: {"a1", "a2"}, action_b.id: {"b1"}}
+
+    def test_empty_makes_no_query(self):
+        with self.assertNumQueries(0):
+            assert resolve_action_events(set(), self.team) == {}

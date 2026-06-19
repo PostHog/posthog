@@ -9,7 +9,7 @@ from structlog import get_logger
 from posthog.scoping_audit import skip_team_scope_audit
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = get_logger(__name__)
 
@@ -24,8 +24,8 @@ def cleanup_expired_test_saved_queries() -> None:
     reference them via DAG edges). This handles chains of test queries that depend
     on each other.
     """
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
     from products.data_modeling.backend.models.node import Node
-    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     now = timezone.now()
     expired_qs = DataWarehouseSavedQuery.objects.filter(
@@ -89,9 +89,9 @@ def cleanup_expired_test_saved_queries() -> None:
 
 def _hard_delete_saved_query(saved_query: "DataWarehouseSavedQuery") -> None:
     """Hard-delete a single saved query and all downstream objects."""
+    from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
     from products.data_modeling.backend.models.node import Node
-    from products.data_warehouse.backend.models.join import DataWarehouseJoin
-    from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+    from products.data_tools.backend.models.join import DataWarehouseJoin
 
     logger.info("Hard-deleting expired test saved query", saved_query_id=str(saved_query.id), name=saved_query.name)
 

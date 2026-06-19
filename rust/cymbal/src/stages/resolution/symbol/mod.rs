@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use crate::{
     error::{ProguardError, ResolveError, UnhandledError},
     frames::{Frame, RawFrame},
-    langs::apple::AppleDebugImage,
+    langs::native::DebugImage,
     metric_consts::JAVA_EXCEPTION_REMAP_FAILED,
     symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef},
     types::{operator::TeamId, Exception},
@@ -17,7 +17,7 @@ pub trait SymbolResolver: Send + Sync + 'static {
         &self,
         team_id: TeamId,
         frame: &RawFrame,
-        debug_images: &[AppleDebugImage],
+        debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError>;
 
     async fn resolve_java_class(

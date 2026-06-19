@@ -5,8 +5,9 @@ import api from 'lib/api'
 import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { hexToRGBA, pluralize } from 'lib/utils'
+import { hexToRGBA } from 'lib/utils/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -48,6 +49,8 @@ export interface ProcessedChartData {
     labels: string[]
     datasets: ChartDataset[]
     processedData: ProcessedTimeseriesDataPoint[]
+    /** When the timeseries was last computed (ISO string), shared across all data points. */
+    computedAt: string | null
 }
 
 export interface ExperimentTimeseriesLogicProps {
@@ -249,9 +252,10 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
         // Generate Chart.js-ready datasets
         chartData: [
-            (s, props) => [s.processedVariantData, props.experiment, props.metric],
+            (s, props) => [s.processedVariantData, s.timeseries, props.experiment, props.metric],
             (
                 processedVariantData: (variantKey: string) => ProcessedTimeseriesDataPoint[],
+                timeseries: ExperimentMetricTimeseries | null,
                 experiment: Experiment,
                 metric: ExperimentMetric | undefined
             ): ((variantKey: string) => ProcessedChartData | null) => {
@@ -400,6 +404,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         labels,
                         datasets,
                         processedData: trimmedData,
+                        computedAt: timeseries?.computed_at ?? null,
                     }
                 }
             },

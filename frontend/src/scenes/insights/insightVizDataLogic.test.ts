@@ -220,7 +220,7 @@ describe('insightVizDataLogic', () => {
                     source: {
                         kind: NodeKind.LifecycleQuery,
                         properties: undefined,
-                        filterTestAccounts: undefined,
+                        filterTestAccounts: false,
                         samplingFactor: undefined,
                         series: [
                             {
@@ -284,7 +284,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: expect.objectContaining({
                         kind: NodeKind.TrendsQuery,
-                        filterTestAccounts: undefined,
+                        filterTestAccounts: false,
                         properties: undefined,
                         series: [
                             expect.objectContaining({

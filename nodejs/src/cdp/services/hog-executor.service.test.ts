@@ -19,6 +19,7 @@ import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
+import { selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -70,6 +71,8 @@ describe('Hog Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                emailQueueRouting: hub.CDP_EMAIL_QUEUE_ROUTING,
+                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -913,6 +916,83 @@ describe('Hog Executor', () => {
         })
     })
 
+    describe('postHogGetAccount', () => {
+        const mockExecHogForAsyncFunction = (asyncFunctionName: string, asyncFunctionArgs: any[]) => {
+            const hogExecModule = require('../utils/hog-exec')
+            jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                execResult: {
+                    finished: false,
+                    asyncFunctionName,
+                    asyncFunctionArgs,
+                    state: { syncDuration: 1, maxMemUsed: 100, ops: 10, stack: [] },
+                },
+                error: undefined,
+                durationMs: 1,
+            })
+        }
+
+        const createAccountInvocation = () =>
+            createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                }),
+                { inputs: {} }
+            )
+
+        it('postHogGetAccount queues internal fetch with the external_id query param', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme corp/1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/customer_analytics/external/account?external_id=acme%20corp%2F1`,
+                method: 'GET',
+                headers: { Authorization: 'Bearer test-secret-token' },
+            })
+        })
+
+        it('postHogGetAccount errors when external_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{}])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain("missing 'external_id'")
+        })
+
+        it('postHogGetAccount errors when team is not found', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(null)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain('Team 1 not found')
+        })
+
+        it('postHogGetAccount errors when the team has no secret API token', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain('has no secret API token configured')
+        })
+    })
+
     describe('produceToWarehouseWebhooks', () => {
         const buildInvocation = async (code: string): Promise<CyclotronJobInvocationHogFunction> => {
             const bytecode = await compileHog(code)
@@ -1407,6 +1487,17 @@ describe('Hog Executor', () => {
         })
 
         it('replaces access token placeholders in body, headers, and url', async () => {
+            jest.mocked(fetch).mockImplementation(() => {
+                return Promise.resolve({
+                    status: 200,
+                    body: 'Hello, world!',
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(''),
+                    dump: () => Promise.resolve(),
+                })
+            })
+
             const mockIntegrationInputs = {
                 oauth: {
                     value: {
@@ -1450,6 +1541,297 @@ describe('Hog Executor', () => {
                 ]
             `)
         })
+
+        describe('with non_failure_status_codes', () => {
+            beforeEach(() => {
+                const actualRequest = jest.requireActual('~/utils/request') as { fetch: typeof fetch }
+                jest.mocked(fetch).mockImplementation((url, options) => actualRequest.fetch(url, options))
+            })
+
+            const setNonFailureConfig = (
+                invocation: CyclotronJobInvocationHogFunction,
+                value: Array<number | string>
+            ): void => {
+                invocation.hogFunction.inputs_schema = [
+                    ...(invocation.hogFunction.inputs_schema ?? []),
+                    {
+                        key: 'non_failure_status_codes',
+                        type: 'non_failure_status_codes',
+                        label: 'Non-failure response codes',
+                        required: false,
+                    },
+                ]
+                invocation.hogFunction.inputs = {
+                    ...(invocation.hogFunction.inputs ?? {}),
+                    non_failure_status_codes: { value },
+                }
+            }
+
+            it('treats matched non-retriable 4xx as success (exact match)', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(400, { 'Content-Type': 'text/plain' })
+                    res.end('backdated consent')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/test`,
+                    method: 'GET',
+                })
+                setNonFailureConfig(invocation, [400])
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({
+                    status: 400,
+                    body: 'backdated consent',
+                })
+                expect(result.logs.map((l) => ({ level: l.level, message: l.message }))).toEqual([
+                    {
+                        level: 'info',
+                        message: expect.stringContaining('status code 400'),
+                    },
+                ])
+            })
+
+            it('treats matched 4xx as success via wildcard', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(404, { 'Content-Type': 'text/plain' })
+                    res.end('not found')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/test`,
+                    method: 'GET',
+                })
+                setNonFailureConfig(invocation, ['4xx'])
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({
+                    status: 404,
+                    body: 'not found',
+                })
+            })
+
+            it('does not match when ignore list does not cover the status', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(401, { 'Content-Type': 'text/plain' })
+                    res.end('unauthorized')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/test`,
+                    method: 'GET',
+                })
+                setNonFailureConfig(invocation, [400, 403])
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.error.message).toContain('status code 401')
+                expect(result.logs[0].level).toBe('error')
+            })
+
+            it('still retries a retriable status that is in the ignore list, then succeeds without setting result.error', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(500, { 'Content-Type': 'text/plain' })
+                    res.end('server error')
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/test`,
+                    method: 'GET',
+                })
+                setNonFailureConfig(invocation, [500])
+
+                const maxRetries = executor['config'].fetchRetries
+                let result = await executor.executeFetch(invocation)
+                // Verify every intermediate attempt also logged at 'info' — regression guard
+                // against any future change that re-raises retry logs to 'error' when the
+                // status is in the non-failure list.
+                expect(result.logs.every((l) => l.level === 'info')).toBe(true)
+
+                for (let attempt = 1; attempt < maxRetries; attempt++) {
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.queueScheduledAt).not.toBeUndefined()
+                    expect(result.invocation.state.attempts).toBe(attempt)
+                    result = await executor.executeFetch(result.invocation)
+                    expect(result.logs.every((l) => l.level === 'info')).toBe(true)
+                }
+
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({
+                    status: 500,
+                    body: 'server error',
+                })
+                expect(result.logs.every((l) => l.level === 'info')).toBe(true)
+            })
+
+            it('mixed wildcard and number ignores both 4xx and the specific 5xx', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(404, { 'Content-Type': 'text/plain' })
+                    res.end('a')
+                })
+                let invocation = await createFetchInvocation({ url: `${baseUrl}/test`, method: 'GET' })
+                setNonFailureConfig(invocation, ['4xx', 500])
+
+                let result = await executor.executeFetch(invocation)
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({ status: 404, body: 'a' })
+
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(500, { 'Content-Type': 'text/plain' })
+                    res.end('b')
+                })
+                invocation = await createFetchInvocation({ url: `${baseUrl}/test`, method: 'GET' })
+                setNonFailureConfig(invocation, ['4xx', 500])
+
+                // 500 is retriable — drain retries until terminal
+                const maxRetries = executor['config'].fetchRetries
+                result = await executor.executeFetch(invocation)
+                for (let attempt = 1; attempt < maxRetries; attempt++) {
+                    result = await executor.executeFetch(result.invocation)
+                }
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({ status: 500, body: 'b' })
+            })
+
+            it('does not ignore a 502 when config is [4xx, 500]', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(502, { 'Content-Type': 'text/plain' })
+                    res.end('bad gateway')
+                })
+                const invocation = await createFetchInvocation({ url: `${baseUrl}/test`, method: 'GET' })
+                setNonFailureConfig(invocation, ['4xx', 500])
+
+                const maxRetries = executor['config'].fetchRetries
+                let result = await executor.executeFetch(invocation)
+                for (let attempt = 1; attempt < maxRetries; attempt++) {
+                    result = await executor.executeFetch(result.invocation)
+                }
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.error.message).toContain('status code 502')
+            })
+
+            it('does not affect successful responses', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(200, { 'Content-Type': 'text/plain' })
+                    res.end('ok')
+                })
+                const invocation = await createFetchInvocation({ url: `${baseUrl}/test`, method: 'GET' })
+                setNonFailureConfig(invocation, ['4xx', 500])
+
+                const result = await executor.executeFetch(invocation)
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toEqual({ status: 200, body: 'ok' })
+            })
+
+            it('is a no-op when ignore config is empty', async () => {
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    res.writeHead(400, { 'Content-Type': 'text/plain' })
+                    res.end('bad')
+                })
+                const invocation = await createFetchInvocation({ url: `${baseUrl}/test`, method: 'GET' })
+                setNonFailureConfig(invocation, [])
+
+                const result = await executor.executeFetch(invocation)
+                expect(result.error).toBeInstanceOf(Error)
+                expect(result.error.message).toContain('status code 400')
+            })
+        })
+
+        describe('self-loop guard', () => {
+            const OWN_TOKEN = 'phc_synthetic_own_0000000000000000'
+            const INGEST_URL = 'https://us.i.posthog.com/capture/'
+
+            const mockOwnTeam = (): void => {
+                jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                    id: 1,
+                    api_token: OWN_TOKEN,
+                    secret_api_token: null,
+                } as any)
+            }
+
+            const setMode = (mode: 'disabled' | 'warn'): void => {
+                ;(executor as any).config.selfLoopGuardMode = mode
+            }
+
+            const ownTokenCaptureBody = (): string =>
+                JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
+
+            // The detected count is the production signal that drives the enforce decision,
+            // so assert it actually moves - not just the human-facing log.
+            const readDetectedCount = async (): Promise<number> => {
+                const metric = await selfLoopGuardCounter.get()
+                return metric.values.find((v) => v.labels.mode === 'warn' && v.labels.action === 'detected')?.value ?? 0
+            }
+
+            it('detects a self-referential ingest fetch and logs + meters it without blocking (warn)', async () => {
+                setMode('warn')
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                ;(fetch as jest.Mock).mockImplementationOnce(() =>
+                    Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
+                )
+                const detectedBefore = await readDetectedCount()
+
+                const result = await executor.executeFetch(invocation)
+
+                // Observe-only: the fetch still happens and nothing errors.
+                expect(result.error).toBeUndefined()
+                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
+                    expect.arrayContaining([expect.stringContaining('can form an event-forwarding loop')])
+                )
+                expect(await readDetectedCount()).toBe(detectedBefore + 1)
+            })
+
+            it('does not flag a normal external fetch even with the project token in the body', async () => {
+                setMode('warn')
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/test`,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                mockRequest.mockClear()
+                const detectedBefore = await readDetectedCount()
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(mockRequest).toHaveBeenCalled()
+                expect(cleanLogs(result.logs.map((l) => l.message))).not.toEqual(
+                    expect.arrayContaining([expect.stringContaining('event-forwarding loop')])
+                )
+                expect(await readDetectedCount()).toBe(detectedBefore)
+            })
+
+            it('fails open: a team lookup error never breaks the fetch', async () => {
+                setMode('warn')
+                jest.spyOn(hub.teamManager, 'getTeam').mockRejectedValue(new Error('db unavailable'))
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                ;(fetch as jest.Mock).mockImplementationOnce(() =>
+                    Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
+                )
+
+                const result = await executor.executeFetch(invocation)
+
+                // Detection failing must not surface as a destination error.
+                expect(result.error).toBeUndefined()
+            })
+        })
     })
 
     describe('isConnectionLevelError', () => {
@@ -1465,6 +1847,178 @@ describe('Hog Executor', () => {
             [undefined, false],
         ])('returns %s for %j', (error, expected) => {
             expect(isConnectionLevelError(error)).toBe(expected)
+        })
+    })
+
+    describe('routeEmailToQueue', () => {
+        it('should route the invocation to the email queue', () => {
+            const hogFunction = createHogFunction({
+                name: 'Email function',
+                metadata: { message_category_type: 'marketing' },
+            })
+
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction),
+                queue: 'hogflow',
+                queueParameters: {
+                    type: 'email',
+                    to: { email: 'user@example.com' },
+                    from: { integrationId: 1 },
+                    subject: 'Test',
+                    text: 'Hello',
+                    html: '<p>Hello</p>',
+                },
+            }
+            invocation.state.vmState = { stack: [] } as any
+
+            const result = (executor as any).routeEmailToQueue(invocation)
+
+            expect(result.finished).toBe(false)
+            expect(result.invocation.queue).toBe('email')
+            expect(result.invocation.queueMetadata?.originQueue).toBe('hogflow')
+            expect(result.metrics).toContainEqual(
+                expect.objectContaining({
+                    metric_name: 'email_queued',
+                    metric_kind: 'email',
+                })
+            )
+        })
+
+        it('should preserve the same job ID (no new job created)', () => {
+            const hogFunction = createHogFunction({ name: 'Email function' })
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction),
+                queueParameters: {
+                    type: 'email',
+                    to: { email: 'user@example.com' },
+                    from: { integrationId: 1 },
+                    subject: 'Test',
+                    text: 'Hello',
+                    html: '<p>Hello</p>',
+                },
+            }
+            invocation.state.vmState = { stack: [] } as any
+
+            const result = (executor as any).routeEmailToQueue(invocation)
+
+            expect(result.invocation.id).toBe(invocation.id)
+        })
+    })
+
+    describe('email queue routing config', () => {
+        const createEmailInvocation = (): CyclotronJobInvocationHogFunction => {
+            const hogFunction = createHogFunction({ name: 'Email function', team_id: 123 })
+            const invocation: CyclotronJobInvocationHogFunction = {
+                ...createExampleInvocation(hogFunction),
+                teamId: 123,
+                queueParameters: {
+                    type: 'email',
+                    to: { email: 'user@example.com' },
+                    from: { integrationId: 1 },
+                    subject: 'Test',
+                    text: 'Hello',
+                    html: '<p>Hello</p>',
+                },
+            }
+            invocation.state.vmState = { stack: [] } as any
+            return invocation
+        }
+
+        const createExecutorWithRouting = (emailQueueRouting: string): HogExecutorService => {
+            const hogInputsService = new HogInputsService(
+                hub.integrationManager,
+                hub.ENCRYPTION_SALT_KEYS,
+                hub.SITE_URL
+            )
+            const emailService = new EmailService(
+                {
+                    sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                    sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                    sesRegion: hub.SES_REGION,
+                    sesEndpoint: hub.SES_ENDPOINT,
+                },
+                hub.integrationManager,
+                hub.ENCRYPTION_SALT_KEYS,
+                hub.SITE_URL
+            )
+            const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+            return new HogExecutorService(
+                {
+                    hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                    googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                    fetchRetries: hub.CDP_FETCH_RETRIES,
+                    fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                    fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                    emailQueueRouting,
+                    selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
+                },
+                { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+                hogInputsService,
+                emailService,
+                recipientTokensService
+            )
+        }
+
+        it('should send inline when routing is empty', async () => {
+            const exec = createExecutorWithRouting('')
+            const invocation = createEmailInvocation()
+
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).not.toBe('email')
+            expect(result.finished).toBe(true)
+        })
+
+        it('should route to email queue when team matches', async () => {
+            const exec = createExecutorWithRouting('123')
+            const invocation = createEmailInvocation()
+
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).toBe('email')
+            expect(result.finished).toBe(false)
+        })
+
+        it('should send inline when team does not match', async () => {
+            const exec = createExecutorWithRouting('456')
+            const invocation = createEmailInvocation()
+
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).not.toBe('email')
+            expect(result.finished).toBe(true)
+        })
+
+        it('should route based on percentage when under threshold', async () => {
+            const exec = createExecutorWithRouting('*:0.5')
+            const invocation = createEmailInvocation()
+
+            jest.spyOn(Math, 'random').mockReturnValue(0.3)
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).toBe('email')
+            expect(result.finished).toBe(false)
+        })
+
+        it('should send inline when percentage roll is above threshold', async () => {
+            const exec = createExecutorWithRouting('*:0.5')
+            const invocation = createEmailInvocation()
+
+            jest.spyOn(Math, 'random').mockReturnValue(0.7)
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).not.toBe('email')
+        })
+
+        it('should route all teams when config is *', async () => {
+            const exec = createExecutorWithRouting('*')
+            const invocation = createEmailInvocation()
+
+            const result = await exec.executeWithAsyncFunctions(invocation)
+
+            expect(result.invocation.queue).toBe('email')
+            expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
+            expect(result.finished).toBe(false)
         })
     })
 })

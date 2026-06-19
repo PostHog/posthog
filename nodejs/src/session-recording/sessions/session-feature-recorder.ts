@@ -418,6 +418,9 @@ export class SessionFeatureRecorder {
         }
 
         for (const pos of positions) {
+            if (!pos) {
+                continue
+            }
             const posTimestamp = e.timestamp + (pos.timeOffset || 0)
 
             this.mousePositionCount++

@@ -34,10 +34,17 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
         jobs: [(s) => [s.batchWorkflowJobs], (batchWorkflowJobs) => batchWorkflowJobs || []],
     }),
     urlToAction(({ props, actions }) => ({
-        [urls.workflow(props.id || 'new', 'logs')]: () => {
+        [urls.workflow(props.id || 'new', 'logs')]: (_, __, ___, currentLocation, previousLocation) => {
+            // Skip refetch on same-path URL changes — LogsViewer writes its search filter to the URL on every keystroke.
+            if (!currentLocation.initial && currentLocation.pathname === previousLocation?.pathname) {
+                return
+            }
             actions.loadBatchWorkflowJobs()
         },
-        [urls.workflow(props.id || 'new', 'metrics')]: () => {
+        [urls.workflow(props.id || 'new', 'metrics')]: (_, __, ___, currentLocation, previousLocation) => {
+            if (!currentLocation.initial && currentLocation.pathname === previousLocation?.pathname) {
+                return
+            }
             actions.loadBatchWorkflowJobs()
         },
     })),

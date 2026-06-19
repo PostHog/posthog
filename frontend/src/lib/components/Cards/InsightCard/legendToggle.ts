@@ -1,17 +1,37 @@
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
-import { getShowLegend, isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
-import { QueryBasedInsightModel } from '~/types'
+import {
+    getShowLegend,
+    hasBreakdownFilter,
+    isFunnelsQuery,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
+import { FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 // Eligibility matches insightVizDataLogic `hasLegend` (trends / stickiness / lifecycle, excluding DISPLAY_TYPES_WITHOUT_LEGEND).
 
-export function canToggleLegendInInsightQuery(query: QueryBasedInsightModel['query']): boolean {
+export function canToggleLegendInInsightQuery(
+    query: QueryBasedInsightModel['query'],
+    hogChartsFunnelEnabled: boolean = false
+): boolean {
     if (!isInsightVizNode(query)) {
         return false
     }
 
     const source = query.source
+
+    if (isFunnelsQuery(source)) {
+        return (
+            hogChartsFunnelEnabled &&
+            source.funnelsFilter?.funnelVizType === FunnelVizType.Trends &&
+            hasBreakdownFilter(source.breakdownFilter)
+        )
+    }
+
     const isTrends = isTrendsQuery(source)
     const isStickiness = isStickinessQuery(source)
     const isLifecycle = isLifecycleQuery(source)
@@ -28,16 +48,22 @@ export function canToggleLegendInInsightQuery(query: QueryBasedInsightModel['que
     return !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display))
 }
 
-export function isLegendEnabledInInsightQuery(query: QueryBasedInsightModel['query']): boolean {
-    if (!canToggleLegendInInsightQuery(query) || !isInsightVizNode(query)) {
+export function isLegendEnabledInInsightQuery(
+    query: QueryBasedInsightModel['query'],
+    hogChartsFunnelEnabled: boolean = false
+): boolean {
+    if (!canToggleLegendInInsightQuery(query, hogChartsFunnelEnabled) || !isInsightVizNode(query)) {
         return false
     }
 
     return !!getShowLegend(query.source)
 }
 
-export function getLegendToggleText(query: QueryBasedInsightModel['query']): string {
-    return isLegendEnabledInInsightQuery(query) ? 'Hide legend' : 'Show legend'
+export function getLegendToggleText(
+    query: QueryBasedInsightModel['query'],
+    hogChartsFunnelEnabled: boolean = false
+): string {
+    return isLegendEnabledInInsightQuery(query, hogChartsFunnelEnabled) ? 'Hide legend' : 'Show legend'
 }
 
 export function toggleLegendInInsightQuery(query: QueryBasedInsightModel['query']): QueryBasedInsightModel['query'] {
@@ -82,6 +108,19 @@ export function toggleLegendInInsightQuery(query: QueryBasedInsightModel['query'
                 ...source,
                 lifecycleFilter: {
                     ...source.lifecycleFilter,
+                    showLegend: nextShowLegend,
+                },
+            },
+        } as QueryBasedInsightModel['query']
+    }
+
+    if (isFunnelsQuery(source)) {
+        return {
+            ...viz,
+            source: {
+                ...source,
+                funnelsFilter: {
+                    ...source.funnelsFilter,
                     showLegend: nextShowLegend,
                 },
             },

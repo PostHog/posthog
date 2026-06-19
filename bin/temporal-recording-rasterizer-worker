@@ -71,12 +71,18 @@ fi
 # and uses host.docker.internal for services running natively on the host
 # (recording-api, Django).
 
+# Chrome's namespace-sandbox needs seccomp/apparmor relaxed to bootstrap inside
+# the linux/amd64 emulation Docker uses on macOS. Local dev script only — prod
+# runs from the Helm chart, not this script.
 echo "Starting recording-rasterizer container..."
+# nosemgrep: trailofbits.generic.container-privileged.container-privileged
 docker run --rm \
     --name "$CONTAINER_NAME" \
     --network posthog_default \
     --platform linux/amd64 \
     --add-host localhost:host-gateway \
+    --security-opt seccomp=unconfined \
+    --security-opt apparmor=unconfined \
     -e TEMPORAL_HOST="${TEMPORAL_HOST:-posthog-temporal-1}" \
     -e TEMPORAL_PORT="${TEMPORAL_PORT:-7233}" \
     -e RECORDING_API_BASE_URL="${RECORDING_API_BASE_URL:-http://host.docker.internal:6741}" \

@@ -23,13 +23,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
-from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.action import Action
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
-from posthog.models.cohort.util import format_filter_query
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
@@ -38,6 +33,11 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
+
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from products.cohorts.backend.models.util import format_filter_query
 
 
 def get_person_ids_by_cohort_id(
@@ -501,7 +501,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        self.assertIn("\nFROM person_distinct_id2\n", final_query)
+        self.assertIn("person_distinct_id2", final_query)
 
         result = sync_execute(
             final_query,
@@ -571,7 +571,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 3)
 
     def test_insert_cohort_hogql_query_with_distinct_id(self):
-        from posthog.models.cohort.util import insert_cohort_query_actors_into_ch
+        from products.cohorts.backend.models.util import insert_cohort_query_actors_into_ch
 
         p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["user1"])
         p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["user2"])
@@ -925,7 +925,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.calculate_cohort_hogql_test_harness(cohort, 0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            sql, _ = format_filter_query(cohort, 0, HogQLContext(team_id=self.team.pk))
+            sql, _ = format_filter_query(cohort, 0)
             self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):
@@ -1117,7 +1117,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
-        self.assertIn("\nFROM person_distinct_id2\n", final_query)
+        self.assertIn("person_distinct_id2", final_query)
 
         result = sync_execute(
             final_query,

@@ -31,7 +31,7 @@ class TestMetricsConfiguration:
             pytest.param(REQUEST_LATENCY, {"endpoint", "provider", "streaming", "product"}, id="request_latency"),
             pytest.param(TOKENS_INPUT, {"provider", "model", "product"}, id="tokens_input"),
             pytest.param(TOKENS_OUTPUT, {"provider", "model", "product"}, id="tokens_output"),
-            pytest.param(RATE_LIMIT_EXCEEDED, {"scope"}, id="rate_limit_exceeded"),
+            pytest.param(RATE_LIMIT_EXCEEDED, {"scope", "product"}, id="rate_limit_exceeded"),
             pytest.param(PROVIDER_ERRORS, {"provider", "error_type", "product"}, id="provider_errors"),
             pytest.param(ACTIVE_STREAMS, {"provider", "model", "product"}, id="active_streams"),
             pytest.param(CONCURRENT_REQUESTS, {"provider", "model", "product"}, id="concurrent_requests"),
@@ -82,9 +82,9 @@ class TestMetricsExport:
 
 class TestMetricsRecording:
     def test_rate_limit_exceeded_increments_without_user_id(self) -> None:
-        initial_value = RATE_LIMIT_EXCEEDED.labels(scope="burst")._value.get()
-        RATE_LIMIT_EXCEEDED.labels(scope="burst").inc()
-        assert RATE_LIMIT_EXCEEDED.labels(scope="burst")._value.get() == initial_value + 1
+        initial_value = RATE_LIMIT_EXCEEDED.labels(scope="burst", product="llm_gateway")._value.get()
+        RATE_LIMIT_EXCEEDED.labels(scope="burst", product="llm_gateway").inc()
+        assert RATE_LIMIT_EXCEEDED.labels(scope="burst", product="llm_gateway")._value.get() == initial_value + 1
 
     def test_provider_errors_tracks_error_types(self) -> None:
         initial_value = PROVIDER_ERRORS.labels(

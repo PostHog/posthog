@@ -1,9 +1,9 @@
 import Ajv, { ErrorObject } from 'ajv'
+import { EventType, eventWithTime } from 'posthog-js/rrweb-types'
 
 import { transformEventToWeb, transformToWeb } from '@posthog/replay-shared'
 import { wireframe, wireframeText } from '@posthog/replay-shared/mobile/mobile.types'
 import { stripBarsFromWireframes } from '@posthog/replay-shared/mobile/transformer/transformers'
-import { EventType, eventWithTime } from '@posthog/rrweb-types'
 
 import * as incrementalSnapshotJson from './__mocks__/increment-with-child-duplication.json'
 import mobileSchema from './schema/mobile/rr-mobile-schema.json'

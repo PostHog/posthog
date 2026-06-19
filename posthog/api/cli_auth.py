@@ -242,6 +242,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
         team_name_truncated = team.name[:max_team_name_len] if len(team.name) > max_team_name_len else team.name
         label = f"CLI - {team_name_truncated} - {timestamp}"
 
+        had_prior_pat = PersonalAPIKey.objects.filter(user=user).exists()
+
         PersonalAPIKey.objects.create(
             user=user,
             label=label,
@@ -249,6 +251,16 @@ class CLIAuthViewSet(viewsets.ViewSet):
             mask_value=mask_value,
             scopes=scopes,
         )
+
+        # User explicitly authorized this CLI via SessionAuthentication (see
+        # CLIAuthViewSet.get_authenticators - authorize is session-only). If they
+        # had no prior PATs, treat the CLI key as already-acknowledged so the
+        # review interstitial doesn't fire for the key they just minted. Skip
+        # when prior PATs exist - those may be partner-issued and still warrant
+        # the review.
+        if not had_prior_pat and user.credentials_reviewed_at is None:
+            user.credentials_reviewed_at = timezone.now()
+            user.save(update_fields=["credentials_reviewed_at"])
 
         # Mark device as authorized and store the API key
         device_data["status"] = "authorized"

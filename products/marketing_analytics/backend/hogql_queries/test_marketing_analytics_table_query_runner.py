@@ -23,12 +23,12 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.data_warehouse.backend.models import DataWarehouseTable
 from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
 from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT_LIMIT, DRILL_DOWN_LEVEL_CONFIG
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):

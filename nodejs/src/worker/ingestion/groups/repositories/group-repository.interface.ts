@@ -12,18 +12,56 @@ import {
 } from '../../../../types'
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
 
+/**
+ * Read-only group lookups backed by personhog gRPC. Used by services that
+ * only need to fetch group data (CDP, error tracking). Always uses eventual
+ * consistency. Independent of GroupRepository — the two interfaces have
+ * different parameter shapes reflecting their different backends and consumers.
+ */
+export interface GroupReadRepository {
+    fetchGroupsByKeys(
+        teamIds: TeamId[],
+        groupTypeIndexes: GroupTypeIndex[],
+        groupKeys: string[],
+        callerTag?: string
+    ): Promise<
+        {
+            team_id: TeamId
+            group_type_index: GroupTypeIndex
+            group_key: string
+            group_properties: Record<string, any>
+        }[]
+    >
+
+    fetchGroupTypesByTeamIds(
+        teamIds: TeamId[],
+        callerTag?: string
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+
+    fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[],
+        callerTag?: string
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+}
+
+/**
+ * Full group repository with read and write operations. Used by the
+ * ingestion pipeline which creates, updates, and manages groups.
+ * Postgres-backed with support for consistency control and row locking.
+ */
 export interface GroupRepository {
     fetchGroup(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
-        options?: { forUpdate?: boolean; useReadReplica?: boolean }
+        options?: { forUpdate?: boolean; useReadReplica?: boolean; callerTag?: string }
     ): Promise<Group | undefined>
 
     fetchGroupsByKeys(
         teamIds: TeamId[],
         groupTypeIndexes: GroupTypeIndex[],
-        groupKeys: string[]
+        groupKeys: string[],
+        callerTag?: string
     ): Promise<
         {
             team_id: TeamId
@@ -68,11 +106,13 @@ export interface GroupRepository {
     // Group Type Methods
 
     fetchGroupTypesByProjectIds(
-        projectIds: ProjectId[]
+        projectIds: ProjectId[],
+        callerTag?: string
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
 
     fetchGroupTypesByTeamIds(
-        teamIds: TeamId[]
+        teamIds: TeamId[],
+        callerTag?: string
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
 
     insertGroupType(

@@ -10,8 +10,9 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.sources import SourceRegistry
 
 from products.data_warehouse.backend.data_load.service import delete_discover_schemas_schedule
-from products.data_warehouse.backend.models import ExternalDataSource, sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 LOGGER = get_logger(__name__)
 
@@ -57,7 +58,21 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)
-        schemas = new_source.get_schemas(config, inputs.team_id)
+        try:
+            schemas = new_source.get_schemas(config, inputs.team_id)
+        except Exception as e:
+            # Schema discovery is best-effort and runs on its own ~6h cadence. If the source's
+            # credentials are broken (expired/revoked tokens, permission denied, deleted account,
+            # etc.) discovery will keep failing until the user reconnects — there is nothing to
+            # retry here, and the per-schema sync path surfaces and disables the source on the
+            # same error. Skip quietly on known non-retryable source errors rather than spamming
+            # retries and error tracking on every discovery run. Other errors still propagate.
+            error_msg = str(e)
+            non_retryable_errors = new_source.get_non_retryable_errors()
+            if any(pattern in error_msg for pattern in non_retryable_errors):
+                logger.warning(f"Skipping schema discovery due to non-retryable source error: {error_msg}")
+                return
+            raise
 
         schemas_to_sync = {s.name: s.label for s in schemas}
     else:

@@ -52,10 +52,16 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
         values: [teamLogic, ['currentProjectId']],
     })),
     actions({
-        quarantineIdentifier: (reason: string, identifiers: string[], expiresAt: string | null) => ({
+        quarantineIdentifier: (
+            reason: string,
+            identifiers: string[],
+            expiresAt: string | null,
+            sourceRunId: string | null = null
+        ) => ({
             reason,
             identifiers,
             expiresAt,
+            sourceRunId,
         }),
         unquarantineIdentifier: true,
         unquarantineSibling: true,
@@ -206,7 +212,7 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        quarantineIdentifier: async ({ reason, identifiers, expiresAt }) => {
+        quarantineIdentifier: async ({ reason, identifiers, expiresAt, sourceRunId }) => {
             try {
                 await Promise.all(
                     identifiers.map((identifier) =>
@@ -214,7 +220,14 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                             String(values.currentProjectId),
                             props.repoId,
                             props.runType,
-                            { identifier, reason, expires_at: expiresAt }
+                            {
+                                identifier,
+                                reason,
+                                expires_at: expiresAt,
+                                // Forward the prior source when extending — keeps the "view
+                                // the failing run" link intact across renewals.
+                                source_run_id: sourceRunId,
+                            }
                         )
                     )
                 )

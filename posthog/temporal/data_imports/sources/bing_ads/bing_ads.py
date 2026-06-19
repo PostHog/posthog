@@ -89,6 +89,17 @@ def bing_ads_source(
         resource = BingAdsResource(resource_name)
 
         today = dt.date.today()
+        # Bing Ads Account IDs are numeric. Users sometimes enter their alphanumeric Account
+        # Number (e.g. "F118FDGN") instead, which can't be parsed into the integer the API
+        # expects. Raise a deterministic, actionable error here so it can be flagged
+        # non-retryable rather than crashing on a bare int() and retrying forever.
+        if not account_id.isdigit():
+            raise ValueError(
+                "Bing Ads Account ID must be numeric. "
+                f"The configured Account ID {account_id!r} is not a number — you may have entered "
+                "your alphanumeric Account Number instead. Update the Account ID in the source "
+                "settings and try again."
+            )
         account_id_int = int(account_id)
 
         if schema.is_stats:

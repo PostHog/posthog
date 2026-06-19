@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "created_by": {
+            "description": "Optional. Restrict results to alerts created by the user with this UUID.",
+            "type": "string"
+        },
+        "insight_id": {
+            "description": "Optional. Restrict results to alerts on this insight ID.",
+            "type": "number"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "search": {
+            "description": "Optional. Fuzzy match against alert `name` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, then creation time. Capped at 200 characters; longer queries return a 400 error.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

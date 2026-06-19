@@ -168,7 +168,7 @@ def filter_session_ids_with_events(
             "limit": len(session_ids),
         },
     )
-    hogql_settings = HogQLGlobalSettings(enable_analyzer=True, max_execution_time=max_execution_time_seconds)
+    hogql_settings = HogQLGlobalSettings(max_execution_time=max_execution_time_seconds)
     with tags_context(product=Product.SESSION_SUMMARY, feature=Feature.ENRICHMENT):
         result = HogQLQueryRunner(team=team, query=query, settings=hogql_settings).calculate()
     return {row[0] for row in (result.results or []) if row and row[0]}

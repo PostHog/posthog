@@ -7,7 +7,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.data_warehouse.backend.api.test._access_control_base import WarehouseAccessControlTestMixin
-from products.data_warehouse.backend.models import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 try:
     from ee.models.rbac.access_control import AccessControl

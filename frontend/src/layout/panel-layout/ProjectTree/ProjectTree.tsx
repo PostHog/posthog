@@ -31,10 +31,10 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { isMobile } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { isMobile } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -490,6 +490,9 @@ export function ProjectTree({
                 return false
             }}
             itemContextMenu={(item) => {
+                if (item.record?.type !== 'folder') {
+                    return undefined
+                }
                 if (item.id.startsWith('project-folder-empty/')) {
                     return undefined
                 }

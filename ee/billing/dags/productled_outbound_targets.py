@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import Count
 from django.utils import timezone
@@ -319,7 +319,7 @@ def get_plo_prior_hashes(context: dagster.AssetExecutionContext) -> dict[str, st
     org_hashes_meta = metadata.get("org_hashes")
 
     if org_hashes_meta and isinstance(org_hashes_meta, JsonMetadataValue):
-        return org_hashes_meta.value or {}
+        return cast(dict[str, str], org_hashes_meta.value) or {}
 
     return {}
 

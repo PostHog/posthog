@@ -16,13 +16,14 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
 from posthog.models.team.team import Team
 
+from products.ai_observability.backend.models.llm_traces_summaries import LLMTraceSummary
+
 from ee.hogai.llm_traces_summaries.constants import (
     LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
     LLM_TRACES_SUMMARIES_PRODUCT,
     LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE,
 )
 from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
-from ee.models.llm_traces_summaries import LLMTraceSummary
 
 logger = structlog.get_logger(__name__)
 

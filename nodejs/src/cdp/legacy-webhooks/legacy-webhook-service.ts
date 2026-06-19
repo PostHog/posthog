@@ -9,12 +9,9 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { PubSub } from '../../utils/pubsub'
 import { TeamManager } from '../../utils/team-manager'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { counterParseError } from '../consumers/metrics'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
-import { addGroupPropertiesToPostIngestionEvent } from '../legacy-webhooks/utils'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
 
 export class LegacyWebhookService {
@@ -24,8 +21,6 @@ export class LegacyWebhookService {
     constructor(
         private postgres: PostgresRouter,
         private teamManager: TeamManager,
-        private groupTypeManager: GroupTypeManager,
-        private groupRepository: GroupRepository,
         pubSub: PubSub
     ) {
         this.actionManager = new ActionManager(postgres, pubSub)
@@ -110,23 +105,10 @@ export class LegacyWebhookService {
                         !this.actionMatcher.hasWebhooks(clickHouseEvent.team_id) ||
                         !(await this.teamManager.hasAvailableFeature(clickHouseEvent.team_id, 'zapier'))
                     ) {
-                        // exit early if no webhooks nor resthooks
                         return
                     }
 
-                    const eventWithoutGroups = convertToPostIngestionEvent(clickHouseEvent)
-                    // This is very inefficient, we always pull group properties for all groups (up to 5) for this event
-                    // from PG if a webhook is defined for this team.
-                    // Instead we should be lazily loading group properties only when needed, but this is the fastest way to fix this consumer
-                    // that will be deprecated in the near future by CDP/Hog
-                    const event = await addGroupPropertiesToPostIngestionEvent(
-                        eventWithoutGroups,
-                        this.groupTypeManager,
-                        this.teamManager,
-                        this.groupRepository
-                    )
-
-                    events.push(event)
+                    events.push(convertToPostIngestionEvent(clickHouseEvent))
                 } catch (e) {
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()

@@ -70,6 +70,15 @@ impl UserAgentInfo {
 
     /// Parse a PostHog SDK User-Agent (after stripping "posthog-" prefix).
     fn parse_posthog_sdk(rest: &str) -> Self {
+        if let Some(legacy_ruby_version) = Self::legacy_ruby_version(rest) {
+            return Self {
+                sdk_name: Some("posthog-ruby"),
+                sdk_version: Some(legacy_ruby_version.to_string()),
+                is_browser: false,
+                runtime: RuntimeType::Server,
+            };
+        }
+
         // Pattern: <sdk-name>/<version> [optional extra info]
         let Some(slash_idx) = rest.find('/') else {
             return Self::unknown();
@@ -98,6 +107,7 @@ impl UserAgentInfo {
             "node" => ("posthog-node", RuntimeType::Server),
             "dotnet" => ("posthog-dotnet", RuntimeType::Server),
             "elixir" => ("posthog-elixir", RuntimeType::Server),
+            "rs" => ("posthog-rs", RuntimeType::Server),
             // Deprecated: posthog-server users are migrating to posthog-java
             "server" => ("posthog-server", RuntimeType::Server),
             // Client-side SDKs (mobile and browser)
@@ -115,6 +125,17 @@ impl UserAgentInfo {
             sdk_version: Some(version.to_string()),
             is_browser: false,
             runtime,
+        }
+    }
+
+    fn legacy_ruby_version(rest: &str) -> Option<&str> {
+        let version = rest.strip_prefix("ruby")?;
+        let first = version.chars().next()?;
+
+        if first.is_ascii_digit() {
+            Some(version.split_whitespace().next().unwrap_or(version))
+        } else {
+            None
         }
     }
 
@@ -204,6 +225,18 @@ mod tests {
         RuntimeType::Server
     )]
     #[case(
+        "posthog-ruby2.0.0",
+        Some("posthog-ruby"),
+        Some("2.0.0"),
+        RuntimeType::Server
+    )]
+    #[case(
+        "posthog-ruby2.0.0 (Linux)",
+        Some("posthog-ruby"),
+        Some("2.0.0"),
+        RuntimeType::Server
+    )]
+    #[case(
         "posthog-go/1.0.0",
         Some("posthog-go"),
         Some("1.0.0"),
@@ -231,6 +264,12 @@ mod tests {
         "posthog-elixir/0.2.0",
         Some("posthog-elixir"),
         Some("0.2.0"),
+        RuntimeType::Server
+    )]
+    #[case(
+        "posthog-rs/0.10.0",
+        Some("posthog-rs"),
+        Some("0.10.0"),
         RuntimeType::Server
     )]
     #[case(
@@ -319,6 +358,8 @@ mod tests {
 
     #[rstest]
     #[case("posthog-python", None, None)] // No slash
+    #[case("posthog-ruby", None, None)] // Legacy Ruby format still needs a version
+    #[case("posthog-rubybeta", None, None)] // Legacy Ruby version must start with a digit
     #[case("posthog-python/", None, None)] // Empty version
     #[case("posthog-/1.0.0", None, None)] // Empty SDK name
     #[case("", None, None)] // Empty string
@@ -349,12 +390,14 @@ mod tests {
     #[case(Some("posthog-flutter/4.0.0"), "posthog-flutter")]
     #[case(Some("posthog-python/1.4.0"), "posthog-python")]
     #[case(Some("posthog-ruby/2.0.0"), "posthog-ruby")]
+    #[case(Some("posthog-ruby2.0.0"), "posthog-ruby")]
     #[case(Some("posthog-php/3.0.0"), "posthog-php")]
     #[case(Some("posthog-java/1.0.0"), "posthog-java")]
     #[case(Some("posthog-go/0.1.0"), "posthog-go")]
     #[case(Some("posthog-node/2.2.0"), "posthog-node")]
     #[case(Some("posthog-dotnet/1.0.0"), "posthog-dotnet")]
     #[case(Some("posthog-elixir/0.2.0"), "posthog-elixir")]
+    #[case(Some("posthog-rs/0.10.0"), "posthog-rs")]
     #[case(Some("posthog-server/1.0.0"), "posthog-server")]
     #[case(
         Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
@@ -380,6 +423,8 @@ mod tests {
     #[rstest]
     #[case("posthog-python/3.0.0", Some("posthog-python"))]
     #[case("posthog-node/1.2.3", Some("posthog-node"))]
+    #[case("posthog-ruby2.0.0", Some("posthog-ruby"))]
+    #[case("posthog-rs/0.10.0", Some("posthog-rs"))]
     #[case("posthog-android/3.0.0", Some("posthog-android"))]
     #[case("posthog-server/1.0.0", Some("posthog-server"))]
     #[case("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", Some("web"))]

@@ -7,8 +7,9 @@ from typing import TypeVar
 from django.conf import settings
 
 import structlog
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from redis import asyncio as aioredis
+from temporalio.exceptions import ApplicationError
 
 from posthog.redis import get_async_client
 
@@ -78,7 +79,8 @@ async def get_data_class_from_redis(
         return None
     try:
         return target_class.model_validate_json(data_str)
-    except Exception as err:
+    except ValidationError as err:
+        # Stale-schema payloads will never parse — fail-fast instead of retrying for the full Redis TTL.
         msg = f"Failed to parse Redis payload at {redis_key} into {target_class.__name__}: {err}"
         logger.exception(msg, redis_key=redis_key)
-        raise ValueError(msg) from err
+        raise ApplicationError(msg, non_retryable=True) from err

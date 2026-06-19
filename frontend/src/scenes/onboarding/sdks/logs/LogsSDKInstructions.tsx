@@ -1,10 +1,14 @@
 import {
+    AndroidInstallation,
+    FlutterInstallation,
     GoInstallation,
+    IOSInstallation,
     JavaInstallation,
     NextJSInstallation,
     NodeJSInstallation,
     OpenTelemetryInstallation,
     PythonInstallation,
+    ReactNativeInstallation,
 } from '@posthog/shared-onboarding/logs'
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
@@ -38,6 +42,22 @@ const LogsOpenTelemetryInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: OpenTelemetryInstallation,
 })
 
+const LogsIOSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: IOSInstallation,
+})
+
+const LogsReactNativeInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactNativeInstallation,
+})
+
+const LogsAndroidInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AndroidInstallation,
+})
+
+const LogsFlutterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: FlutterInstallation,
+})
+
 export const LogsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NODE_JS]: LogsNodeJSInstructionsWrapper,
     [SDKKey.NEXT_JS]: LogsNextJSInstructionsWrapper,
@@ -45,4 +65,8 @@ export const LogsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.GO]: LogsGoInstructionsWrapper,
     [SDKKey.JAVA]: LogsJavaInstructionsWrapper,
     [SDKKey.OPENTELEMETRY]: LogsOpenTelemetryInstructionsWrapper,
+    [SDKKey.IOS]: LogsIOSInstructionsWrapper,
+    [SDKKey.REACT_NATIVE]: LogsReactNativeInstructionsWrapper,
+    [SDKKey.ANDROID]: LogsAndroidInstructionsWrapper,
+    [SDKKey.FLUTTER]: LogsFlutterInstructionsWrapper,
 }

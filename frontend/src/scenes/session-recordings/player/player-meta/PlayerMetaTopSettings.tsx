@@ -7,8 +7,8 @@ import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
-import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import {
     SettingsBar,
     SettingsButton,
@@ -171,7 +171,9 @@ export function PlayerMetaTopSettings(): JSX.Element {
                 hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 pointer-events-auto'
                     : hoverModeIsEnabled
-                      ? 'opacity-0 pointer-events-none'
+                      ? // invisible releases the hidden overlay's raster backing; transition-all
+                        // already covers visibility so the fade still plays (see PanelLayout scrims)
+                        'opacity-0 pointer-events-none invisible'
                       : ''
             )}
         >

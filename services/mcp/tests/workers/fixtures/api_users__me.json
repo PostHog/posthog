@@ -134,6 +134,10 @@
         "name": "Recordings_performance"
       },
       {
+        "key": "high_frequency_alerts",
+        "name": "High_frequency_alerts"
+      },
+      {
         "key": "advanced_permissions",
         "name": "Advanced_permissions"
       },

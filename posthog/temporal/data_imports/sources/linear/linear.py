@@ -1,8 +1,9 @@
 import dataclasses
 from typing import Any
 
+import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -14,9 +15,43 @@ from posthog.temporal.data_imports.sources.linear.settings import (
     LINEAR_ENDPOINTS,
 )
 
+LINEAR_MAX_RETRY_ATTEMPTS = 5
+# Cap how long a single Retry-After can stall us, so a misbehaving header can't pin the
+# activity open. Kept under the activity heartbeat timeout; longer waits are handled by
+# Temporal rescheduling the whole activity, which resumes from the saved cursor.
+LINEAR_MAX_RETRY_AFTER_SECONDS = 60
+# Stateless backoff used when a 429 carries no usable Retry-After hint.
+_LINEAR_FALLBACK_WAIT = wait_exponential_jitter(initial=1, max=30)
+
 
 class LinearRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        # Seconds Linear asked us to wait (from a 429 Retry-After), if any.
+        self.retry_after = retry_after
+
+
+def _parse_retry_after(response: requests.Response) -> float | None:
+    """Linear's edge fronts 429s with a standard Retry-After in delta-seconds; ignore other forms."""
+    raw = response.headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, seconds)
+
+
+def _wait_strategy(retry_state: RetryCallState) -> float:
+    """Honor a 429's Retry-After when present, else fall back to jittered exponential backoff.
+
+    Doing the wait here (rather than time.sleep inside execute) avoids stacking both delays.
+    """
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    if isinstance(exc, LinearRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, LINEAR_MAX_RETRY_AFTER_SECONDS)
+    return _LINEAR_FALLBACK_WAIT(retry_state)
 
 
 @dataclasses.dataclass
@@ -50,8 +85,8 @@ def _make_paginated_request(
 
     @retry(
         retry=retry_if_exception_type(LinearRetryableError),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
+        stop=stop_after_attempt(LINEAR_MAX_RETRY_ATTEMPTS),
+        wait=_wait_strategy,
         reraise=True,
     )
     def execute(variables: dict[str, Any]) -> dict:
@@ -59,6 +94,15 @@ def _make_paginated_request(
 
         if response.status_code >= 500:
             raise LinearRetryableError(f"Linear: server error {response.status_code}")
+
+        # Linear answers HTTP-level rate limits with a 429 and an HTML body (not GraphQL JSON),
+        # so this must be caught before the JSON parse below. Otherwise response.json() raises a
+        # JSONDecodeError that escalates to a plain, non-retryable Exception instead of being
+        # retried with backoff like the GraphQL-level RATELIMITED case. The blind exponential
+        # backoff often gives up before Linear's rate-limit window resets, so honor the
+        # Retry-After it sends when present and fall back to the exponential otherwise.
+        if response.status_code == 429:
+            raise LinearRetryableError("Linear: rate limited (429)", retry_after=_parse_retry_after(response))
 
         try:
             payload = response.json()

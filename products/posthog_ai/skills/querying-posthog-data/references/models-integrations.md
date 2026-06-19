@@ -20,7 +20,7 @@ Each integration represents a connection to an external service like Slack, GitH
 
 ### Integration Kinds
 
-`slack`, `slack-posthog-code`, `salesforce`, `hubspot`, `google-pubsub`, `google-cloud-storage`, `google-ads`, `google-sheets`, `google-cloud-service-account`, `snapchat`, `linkedin-ads`, `reddit-ads`, `tiktok-ads`, `bing-ads`, `intercom`, `email`, `linear`, `github`, `gitlab`, `meta-ads`, `twilio`, `clickup`, `vercel`, `databricks`, `azure-blob`, `firebase`, `jira`, `pinterest-ads`
+`slack`, `salesforce`, `hubspot`, `google-pubsub`, `google-cloud-storage`, `google-ads`, `google-sheets`, `google-cloud-service-account`, `snapchat`, `linkedin-ads`, `reddit-ads`, `tiktok-ads`, `bing-ads`, `intercom`, `email`, `linear`, `github`, `gitlab`, `meta-ads`, `twilio`, `clickup`, `vercel`, `databricks`, `azure-blob`, `firebase`, `jira`, `pinterest-ads`
 
 ### Key Relationships
 

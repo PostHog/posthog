@@ -1,4 +1,4 @@
-import { COMMON_LANGUAGES, COMMON_SURVEY_LANGUAGE_CODES, getSurveyLanguageLabel } from './SurveyTranslations'
+import { COMMON_LANGUAGES, COMMON_SURVEY_LANGUAGE_CODES, getSurveyLanguageLabel } from './language'
 
 describe('COMMON_LANGUAGES', () => {
     it('includes Romanian locale options', () => {

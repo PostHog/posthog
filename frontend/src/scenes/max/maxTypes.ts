@@ -73,6 +73,9 @@ export interface MaxNotebookContext {
     type: MaxContextType.NOTEBOOK
     id: string // short_id
     name?: string | null
+    markdown_with_insertion_placeholder?: string
+    insertion_placeholder_block_id?: string
+    insertion_placeholder_marker?: string
 }
 
 // The main shape for the UI context sent to the backend
@@ -85,6 +88,10 @@ export interface MaxUIContext {
     evaluations?: MaxEvaluationContext[]
     notebooks?: MaxNotebookContext[]
     form_answers?: Record<string, string> // question_id -> answer for create_form tool responses
+    // Request modality: true when the user is asking via hands-free voice mode. Backend
+    // appends a voice-formatting instruction to the prompt so the response is suitable
+    // for TTS (numbers spelled out, no markdown, etc).
+    voice_mode?: boolean
 }
 
 // Taxonomic filter options
@@ -172,7 +179,7 @@ export const createMaxContextHelpers = {
         type: MaxContextType.DASHBOARD,
         data: {
             ...dashboard,
-            tiles: dashboard.tiles.map((tile) => ({
+            tiles: (dashboard.tiles ?? []).map((tile) => ({
                 ...tile,
                 insight: tile.insight ? pickInsightFields(tile.insight) : tile.insight,
             })),

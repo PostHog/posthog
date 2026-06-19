@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from products.notifications.backend.facade.enums import (
     NotificationResourceType,
@@ -29,4 +29,5 @@ class NotificationData:
     source_type: SourceType | None = None
     source_id: str | None = None
     priority: Priority = Priority.NORMAL
+    metadata: dict[str, Any] | None = None
     resolver: RecipientsResolver | None = field(default=None, compare=False)

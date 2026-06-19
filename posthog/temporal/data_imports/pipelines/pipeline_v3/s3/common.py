@@ -1,5 +1,6 @@
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from django.conf import settings
 
@@ -26,9 +27,16 @@ def strip_s3_protocol(s3_path: str) -> str:
     return s3_path.replace("s3://", "")
 
 
-def get_base_folder(team_id: int, schema_id: str, run_uuid: str) -> str:
+def get_date_partition(dt: datetime) -> str:
+    """Return the given datetime's UTC date as a Hive-style partition segment (dt=YYYY-MM-DD)."""
+    return f"dt={dt.astimezone(UTC).strftime('%Y-%m-%d')}"
+
+
+def get_base_folder(team_id: int, schema_id: str, run_uuid: str, date_partition: str) -> str:
     """Get the base S3 folder path for a pipeline run."""
-    return f"s3://{settings.DATAWAREHOUSE_BUCKET}/data_pipelines_extract/{team_id}/{schema_id}/{run_uuid}"
+    return (
+        f"s3://{settings.DATAWAREHOUSE_BUCKET}/data_pipelines_extract/{date_partition}/{team_id}/{schema_id}/{run_uuid}"
+    )
 
 
 def get_data_folder(base_folder: str) -> str:

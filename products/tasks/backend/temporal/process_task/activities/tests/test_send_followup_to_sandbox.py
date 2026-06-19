@@ -25,10 +25,12 @@ class TestGetStopReason(BaseTest):
 
 
 class TestWriteTurnComplete(BaseTest):
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_redis_connection")
-    def test_writes_stop_reason_to_synthetic_event(self, mock_get_redis_connection):
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_tasks_stream_redis_sync"
+    )
+    def test_writes_stop_reason_to_synthetic_event(self, mock_get_tasks_stream_redis_sync):
         mock_conn = MagicMock()
-        mock_get_redis_connection.return_value = mock_conn
+        mock_get_tasks_stream_redis_sync.return_value = mock_conn
 
         _write_turn_complete("run-123", "max_tokens")
 
@@ -39,11 +41,13 @@ class TestWriteTurnComplete(BaseTest):
 
 
 class TestSendFollowupToSandbox(BaseTest):
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_redis_connection")
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_tasks_stream_redis_sync"
+    )
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message")
     @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.TaskRun.objects")
     def test_propagates_stop_reason_from_command_result(
-        self, mock_task_run_objects, mock_send_user_message, mock_get_redis_connection
+        self, mock_task_run_objects, mock_send_user_message, mock_get_tasks_stream_redis_sync
     ):
         task_run = MagicMock()
         task_run.task.created_by = None
@@ -54,7 +58,7 @@ class TestSendFollowupToSandbox(BaseTest):
         )
 
         mock_conn = MagicMock()
-        mock_get_redis_connection.return_value = mock_conn
+        mock_get_tasks_stream_redis_sync.return_value = mock_conn
 
         send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-123", message="hello"))
 

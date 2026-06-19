@@ -2,48 +2,35 @@ import { type ReactElement, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
+import { BarChart as BarValueChart, SlopeChart, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 
-import { BarChart, BigNumber, LineChart, Select, type Series } from './charts'
+import { buildTrendsBarChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
+import {
+    buildTrendsBarValueConfig,
+    buildTrendsBarValueSeries,
+} from 'products/product_analytics/frontend/insights/trends/TrendsBarValueChart/trendsBarValueChartTransforms'
+import {
+    buildTrendsLineTimeSeriesConfig,
+    buildTrendsSeries,
+} from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
+
+import { BigNumber, Select } from './charts'
+import { CHART_THEME, colorAt } from './charts/theme'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
-import { getDisplayType, getSeriesLabel, isBarChart } from './utils'
+import { formatDate, getDisplayType, getSeriesLabel, isBarChart } from './utils'
 
-type ChartMode = 'line' | 'bar'
+type ChartMode = 'line' | 'bar' | 'slope'
 
 const CHART_MODE_OPTIONS = [
     { value: 'line' as const, label: 'Line' },
     { value: 'bar' as const, label: 'Bar' },
 ]
 
-function prepareChartData(results: TrendsResultItem[]): {
-    series: Series[]
-    labels: string[]
-    maxValue: number
-} {
-    if (!results || results.length === 0) {
-        return { series: [], labels: [], maxValue: 0 }
-    }
+// "Slope" collapses each series to its first and last point — the start-vs-end view a user wants
+// when they ask "how much did X change between A and B?" rather than the path between them.
+const SLOPE_MODE_OPTION = { value: 'slope' as const, label: 'Slope' }
 
-    const labels = results[0]?.days || results[0]?.labels || []
-    let maxValue = 0
-
-    const series = results.map((item, seriesIndex) => {
-        const data = item.data || []
-        const points = data.map((value, i) => {
-            maxValue = Math.max(maxValue, value)
-            return {
-                x: i,
-                y: value,
-                label: labels[i] || `${i}`,
-            }
-        })
-        return {
-            label: getSeriesLabel(item, seriesIndex),
-            points,
-        }
-    })
-
-    return { series, labels, maxValue: maxValue || 1 }
-}
+const TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
 
 function calculateTotal(results: TrendsResultItem[]): number {
     return results.reduce((sum, item) => {
@@ -62,10 +49,13 @@ function calculateTotal(results: TrendsResultItem[]): number {
 
 export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
-    const [chartMode, setChartMode] = useState<ChartMode>(isBarChart(displayType) ? 'bar' : 'line')
-    const { series, labels, maxValue } = prepareChartData(results)
+    // Honour the backend slope runner: a SlopeGraph query already comes back as two points per series,
+    // so open straight into slope mode rather than line + a manual toggle.
+    const [chartMode, setChartMode] = useState<ChartMode>(
+        isBarChart(displayType) ? 'bar' : displayType === 'SlopeGraph' ? 'slope' : 'line'
+    )
 
-    if (!results || results.length === 0 || series.length === 0) {
+    if (!results || results.length === 0) {
         return (
             <Empty>
                 <EmptyHeader>
@@ -82,27 +72,102 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         return <BigNumber value={total} label={label} />
     }
 
+    // ActionsBarValue returns aggregated_value per series (empty data[]/days[]) — render a
+    // horizontal bar of totals, not a time series, so there's no line/bar mode toggle.
+    if (displayType === 'ActionsBarValue') {
+        const items = results.map((item, i) => ({
+            label: getSeriesLabel(item, i),
+            value: item.aggregated_value,
+        }))
+        const barSeries = buildTrendsBarValueSeries(items, { getColor: colorAt })
+        const barConfig = buildTrendsBarValueConfig()
+        return (
+            <div className="flex flex-col w-full h-[400px]">
+                <BarValueChart
+                    series={barSeries}
+                    labels={items.map((item) => item.label)}
+                    theme={CHART_THEME}
+                    config={barConfig}
+                />
+            </div>
+        )
+    }
+
+    const labels = results[0]?.days ?? results[0]?.labels ?? []
+    const trendResults = results.map((item, i) => ({
+        id: i,
+        label: getSeriesLabel(item, i),
+        data: item.data ?? [],
+        days: item.days,
+        incompleteEnd: !!item.incomplete_end,
+    }))
+    const yAxisLabel = results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined
+
+    // A slope needs a start and an end, so only offer it when there are at least two time points.
+    const slopeAvailable = labels.length >= 2
+    const chartModeOptions = slopeAvailable ? [...CHART_MODE_OPTIONS, SLOPE_MODE_OPTION] : CHART_MODE_OPTIONS
+    // Results can shrink below two points after slope was selected; fall back rather than render blank.
+    const effectiveMode = chartMode === 'slope' && !slopeAvailable ? 'line' : chartMode
+
+    // Build only the active mode's chart model — toggling shouldn't recompute the hidden one.
+    const renderChart = (): ReactElement => {
+        if (effectiveMode === 'slope') {
+            // Hand quill the full series and labels — it reduces to the first and last point itself,
+            // so the slope shaping lives once in quill, not here. The backend's incomplete_end flag is
+            // forwarded so the provisional end dashes exactly as it does in the insight.
+            const slopeSeries = trendResults
+                .filter((item) => item.data.length >= 2)
+                .map((item) => ({
+                    key: String(item.id),
+                    label: item.label,
+                    color: colorAt(item.id),
+                    data: item.data,
+                    meta: item.incompleteEnd ? { incompleteEnd: true } : undefined,
+                }))
+            const slopeLabels = labels.map((label) => formatDate(String(label)))
+            return (
+                <SlopeChart
+                    series={slopeSeries}
+                    labels={slopeLabels}
+                    theme={CHART_THEME}
+                    config={{ showSeriesLabels: false, legend: { show: true, position: 'bottom' } }}
+                />
+            )
+        }
+        if (effectiveMode === 'bar') {
+            const { series, config } = buildTrendsBarChartModel(trendResults, {
+                getColor: (_, index) => colorAt(index),
+                labels,
+                yAxisLabel,
+                isPercentStackView: false,
+                isGrouped: false,
+                xAxisTickFormatter: (value) => formatDate(value),
+                tooltip: TOOLTIP_CONFIG,
+            })
+            return <TimeSeriesBarChart series={series} labels={labels} theme={CHART_THEME} config={config} />
+        }
+        const series = buildTrendsSeries(trendResults, {
+            isArea: displayType === 'ActionsAreaGraph',
+            getColor: (_, index) => colorAt(index),
+        })
+        const config = buildTrendsLineTimeSeriesConfig({
+            results: trendResults,
+            trendsFilter: query?.trendsFilter,
+            yAxisLabel,
+            isPercentStackView: false,
+            showCrosshair: true,
+            xAxisTickFormatter: (value) => formatDate(value),
+        })
+        return <TimeSeriesLineChart series={series} labels={labels} theme={CHART_THEME} config={config} />
+    }
+
     return (
         <div>
             <div className="mb-2 flex justify-end">
                 {/* eslint-disable-next-line react/forbid-elements */}
-                <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
+                <Select value={effectiveMode} onChange={setChartMode} options={chartModeOptions} />
             </div>
-            {chartMode === 'bar' ? (
-                <BarChart
-                    series={series}
-                    labels={labels}
-                    maxValue={maxValue}
-                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
-                />
-            ) : (
-                <LineChart
-                    series={series}
-                    labels={labels}
-                    maxValue={maxValue}
-                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
-                />
-            )}
+            <div className="flex flex-col w-full h-[400px]">{renderChart()}</div>
         </div>
     )
 }

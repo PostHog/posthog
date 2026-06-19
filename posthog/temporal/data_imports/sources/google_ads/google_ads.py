@@ -1,13 +1,14 @@
 import typing
 import datetime as dt
-import dataclasses
 import collections.abc
 
 from django.conf import settings
 from django.db import close_old_connections
 
 import pyarrow as pa
+from google.ads.googleads import client as google_ads_client_module
 from google.ads.googleads.client import GoogleAdsClient
+from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.common import types as ga_common
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.resources import types as ga_resources
@@ -20,65 +21,53 @@ from posthog.models.integration import Integration
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common import config
+from posthog.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from posthog.temporal.data_imports.sources.google_ads.configs import (
+    GoogleAdsResumeConfig,
+    GoogleAdsSourceConfigUnion,
+    clean_customer_id,
+)
 from posthog.temporal.data_imports.sources.google_ads.schemas import FIELD_ALIASES, RESOURCE_SCHEMAS
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
+# Host used to label the tracked gRPC transport's logs/metrics. Matches
+# `GoogleAdsServiceClient.DEFAULT_ENDPOINT`.
+GOOGLE_ADS_HOST = "googleads.googleapis.com"
 
-@dataclasses.dataclass
-class GoogleAdsResumeConfig:
-    """Resumable state for the Google Ads source.
+# The Google Ads SDK hardcodes `grpc.max_receive_message_length` to 64 MiB. A single
+# `GoogleAdsService.Search` page can carry up to 10,000 rows, and wide resources routinely
+# serialize past 64 MiB — when that happens the gRPC client aborts the call with a
+# RESOURCE_EXHAUSTED "Received message larger than max" before we process any row, failing
+# the whole sync. We can't ask the API for smaller pages (`page_size` is rejected with
+# PAGE_SIZE_NOT_SUPPORTED as of v17), so the only lever is raising the client's receive
+# limit. 512 MiB leaves comfortable headroom over the largest payloads we've observed.
+GRPC_MAX_RECEIVE_MESSAGE_LENGTH = 512 * 1024 * 1024
+_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY = "grpc.max_receive_message_length"
 
-    `page_token` is the opaque continuation token returned by
-    `GoogleAdsService.search` for the next page to fetch.
+
+def _ensure_grpc_receive_limit() -> None:
+    """Raise the Google Ads gRPC client's inbound message cap in place.
+
+    ``get_service`` reads the SDK's module-level ``_GRPC_CHANNEL_OPTIONS`` each time it builds
+    a channel, so rewriting the entry here makes every channel we subsequently create pick up
+    the higher limit. The update is idempotent and safe to call repeatedly.
     """
-
-    page_token: str
-
-
-def clean_customer_id(s: str | None) -> str | None:
-    """Clean customer IDs from Google Ads.
-
-    Customer IDs can contain dashes, but we need the ID without them.
-    """
-    if not s:
-        return s
-
-    return s.strip().replace("-", "")
-
-
-@config.config
-class GoogleAdsServiceAccountSourceConfig(config.Config):
-    """Google Ads source config using service account for authentication.
-
-    Old config for when we were using a service account instead of oauth.
-    ~100 sources still use this method for auth. We recommend using
-    `GoogleAdsSourceConfig` instead"""
-
-    customer_id: str = config.value(converter=clean_customer_id)
-
-    private_key: str = config.value(
-        default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
-    )
-    private_key_id: str = config.value(
-        default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")
-    )
-    client_email: str = config.value(
-        default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
-    )
-    token_uri: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI"))
-    developer_token: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_DEVELOPER_TOKEN"))
-
-
-GoogleAdsSourceConfigUnion = GoogleAdsServiceAccountSourceConfig | GoogleAdsSourceConfig
+    options = google_ads_client_module._GRPC_CHANNEL_OPTIONS
+    for index, (key, _value) in enumerate(options):
+        if key == _GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY:
+            options[index] = (key, GRPC_MAX_RECEIVE_MESSAGE_LENGTH)
+            return
+    options.append((_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY, GRPC_MAX_RECEIVE_MESSAGE_LENGTH))
 
 
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
     """Initialize a `GoogleAdsClient` with provided config."""
+    _ensure_grpc_receive_limit()
+
     if isinstance(config, GoogleAdsSourceConfig):
         # Temporal activities run in a thread pool where Django DB connections can go
         # stale between uses (Postgres closes the connection server-side). This
@@ -307,7 +296,7 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
     Only selectable fields are, well, selected.
     """
     client = google_ads_client(config, team_id)
-    gaf_service = client.get_service("GoogleAdsFieldService")
+    gaf_service = client.get_service("GoogleAdsFieldService", interceptors=tracked_interceptors(GOOGLE_ADS_HOST))
     fields_query = gaf_service.search_google_ads_fields(
         query=f"select name, data_type, is_repeated, type_url where selectable = true"
     )
@@ -426,7 +415,9 @@ def google_ads_source(
             query += f" {'AND' if 'WHERE' in query else 'WHERE'} {table.extra_where}"
 
         client = google_ads_client(config, team_id)
-        service: GoogleAdsServiceClient = client.get_service("GoogleAdsService", version="v23")
+        service: GoogleAdsServiceClient = client.get_service(
+            "GoogleAdsService", version="v23", interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+        )
         customer_id = clean_customer_id(config.customer_id)
 
         yield from _search_as_arrow_tables(
@@ -449,13 +440,26 @@ def google_ads_source(
     )
 
 
+def _is_invalid_page_token_error(exc: GoogleAdsException) -> bool:
+    """Return True if a ``GoogleAdsException`` was caused by an expired/invalid page token.
+
+    Google Ads search page tokens are ephemeral, but our resumption contract
+    persists them (see ``_search_as_arrow_tables``). When a sync resumes from a
+    token Google has already expired, the API rejects the request with
+    ``request_error: INVALID_PAGE_TOKEN``. The proto text representation is the
+    same for proto-plus and raw protobuf failures, so we match on it directly.
+    """
+    failure = getattr(exc, "failure", None)
+    return failure is not None and "INVALID_PAGE_TOKEN" in str(failure)
+
+
 def _search_as_arrow_tables(
     service: GoogleAdsServiceClient,
     customer_id: str | None,
     query: str,
     table: GoogleAdsTable,
     resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
-) -> collections.abc.Generator[pa.Table, None, None]:
+) -> collections.abc.Generator[pa.Table]:
     """Paginate ``GoogleAdsService.search`` and yield each page as a ``pyarrow.Table``.
 
     Resumption contract:
@@ -464,6 +468,10 @@ def _search_as_arrow_tables(
       page. On restart we re-enter at that saved token, so any page that was
       yielded but never acked by a save is simply re-yielded. Merge semantics
       over ``primary_keys`` dedupe those repeated rows.
+    * A resumed token may have expired between runs (Google Ads page tokens are
+      short-lived). If Google rejects it with ``INVALID_PAGE_TOKEN`` we discard
+      the saved token and restart pagination from the first page — the same
+      merge semantics make re-yielding already-synced rows safe.
     """
     page_token = ""
     if resumable_source_manager.can_resume():
@@ -475,13 +483,23 @@ def _search_as_arrow_tables(
         # `GoogleAdsServiceClient.search` only accepts `customer_id` and `query`
         # as convenience kwargs — `page_token` must be passed via the `request`
         # argument (a dict is coerced to ``SearchGoogleAdsRequest`` by gapic).
-        response = service.search(
-            request={
-                "customer_id": customer_id,
-                "query": query,
-                "page_token": page_token,
-            }
-        )
+        try:
+            response = service.search(
+                request={
+                    "customer_id": customer_id,
+                    "query": query,
+                    "page_token": page_token,
+                }
+            )
+        except GoogleAdsException as e:
+            # Only a non-empty (resumed or mid-stream) token can be stale; an empty
+            # token always requests the first page, so the guard also prevents an
+            # infinite restart loop if the first page itself were ever rejected.
+            if page_token and _is_invalid_page_token_error(e):
+                resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=""))
+                page_token = ""
+                continue
+            raise
 
         # ``response.pages`` is a gapic pager — we only consume the first page per
         # request and drive pagination ourselves so the saved ``page_token`` is

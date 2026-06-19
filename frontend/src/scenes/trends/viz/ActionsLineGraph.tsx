@@ -5,7 +5,8 @@ import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ciRanges, movingAverage } from 'lib/statistics'
-import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
+import { hexToRGBA } from 'lib/utils/colors'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
@@ -34,6 +35,7 @@ export function ActionsLineGraph({
         showValuesOnSeries,
         showPercentStackView,
         supportsPercentStackView,
+        showAnnotations,
         trendsFilter,
         lifecycleFilter,
         isLifecycle,
@@ -204,7 +206,7 @@ export function ActionsLineGraph({
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={legend}
-            hideAnnotations={inSharedMode}
+            hideAnnotations={inSharedMode || showAnnotations === false}
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             anomalyPoints={alertAnomalyPoints}
             onDateRangeZoom={context?.onDateRangeZoom}

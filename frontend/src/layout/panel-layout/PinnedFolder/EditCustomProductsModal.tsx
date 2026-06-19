@@ -100,7 +100,7 @@ export function EditCustomProductsModal(): JSX.Element {
                                                 label={
                                                     <span className="flex items-center gap-2">
                                                         {icon}
-                                                        <span>{product.path}</span>
+                                                        <span>{product.displayLabel ?? product.path}</span>
                                                         {product.tags?.length && (
                                                             <>
                                                                 {product.tags.map((tag: string) => (

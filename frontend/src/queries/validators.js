@@ -5902,13 +5902,25 @@ const schema63 = {
         ignore_zeros: { type: 'boolean' },
         isSharedMetric: { type: 'boolean' },
         kind: { const: 'ExperimentMetric', type: 'string' },
-        lower_bound_percentile: { type: 'number' },
+        lower_bound_percentile: {
+            description:
+                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).',
+            maximum: 1,
+            minimum: 0,
+            type: 'number',
+        },
         metric_type: { const: 'mean', type: 'string' },
         name: { type: 'string' },
         response: { type: 'object' },
         sharedMetricId: { type: 'number' },
         source: { $ref: '#/definitions/ExperimentMetricSource' },
-        upper_bound_percentile: { type: 'number' },
+        upper_bound_percentile: {
+            description:
+                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).',
+            maximum: 1,
+            minimum: 0,
+            type: 'number',
+        },
         uuid: { type: 'string' },
         version: { description: 'version of the node, used for schema migrations', type: 'number' },
     },
@@ -6924,11 +6936,14 @@ function validate80(data, { instancePath = '', parentData, parentDataProperty, r
     return errors === 0
 }
 const schema79 = {
-    anyOf: [
+    discriminator: { propertyName: 'kind' },
+    oneOf: [
         { $ref: '#/definitions/EventsNode' },
         { $ref: '#/definitions/ActionsNode' },
         { $ref: '#/definitions/ExperimentDataWarehouseNode' },
     ],
+    required: ['kind'],
+    type: 'object',
 }
 const schema80 = {
     additionalProperties: false,
@@ -9599,40 +9614,56 @@ function validate99(data, { instancePath = '', parentData, parentDataProperty, r
 function validate84(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
-    const _errs0 = errors
-    let valid0 = false
     const _errs1 = errors
+    let valid0 = false
+    let passing0 = null
+    const _errs2 = errors
     if (!validate85(data, { instancePath, parentData, parentDataProperty, rootData })) {
         vErrors = vErrors === null ? validate85.errors : vErrors.concat(validate85.errors)
         errors = vErrors.length
     }
-    var _valid0 = _errs1 === errors
-    valid0 = valid0 || _valid0
-    if (!valid0) {
-        const _errs2 = errors
-        if (!validate93(data, { instancePath, parentData, parentDataProperty, rootData })) {
-            vErrors = vErrors === null ? validate93.errors : vErrors.concat(validate93.errors)
+    var _valid0 = _errs2 === errors
+    if (_valid0) {
+        valid0 = true
+        passing0 = 0
+    }
+    const _errs3 = errors
+    if (!validate93(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate93.errors : vErrors.concat(validate93.errors)
+        errors = vErrors.length
+    }
+    var _valid0 = _errs3 === errors
+    if (_valid0 && valid0) {
+        valid0 = false
+        passing0 = [passing0, 1]
+    } else {
+        if (_valid0) {
+            valid0 = true
+            passing0 = 1
+        }
+        const _errs4 = errors
+        if (!validate99(data, { instancePath, parentData, parentDataProperty, rootData })) {
+            vErrors = vErrors === null ? validate99.errors : vErrors.concat(validate99.errors)
             errors = vErrors.length
         }
-        var _valid0 = _errs2 === errors
-        valid0 = valid0 || _valid0
-        if (!valid0) {
-            const _errs3 = errors
-            if (!validate99(data, { instancePath, parentData, parentDataProperty, rootData })) {
-                vErrors = vErrors === null ? validate99.errors : vErrors.concat(validate99.errors)
-                errors = vErrors.length
+        var _valid0 = _errs4 === errors
+        if (_valid0 && valid0) {
+            valid0 = false
+            passing0 = [passing0, 2]
+        } else {
+            if (_valid0) {
+                valid0 = true
+                passing0 = 2
             }
-            var _valid0 = _errs3 === errors
-            valid0 = valid0 || _valid0
         }
     }
     if (!valid0) {
         const err0 = {
             instancePath,
-            schemaPath: '#/anyOf',
-            keyword: 'anyOf',
-            params: {},
-            message: 'must match a schema in anyOf',
+            schemaPath: '#/oneOf',
+            keyword: 'oneOf',
+            params: { passingSchemas: passing0 },
+            message: 'must match exactly one schema in oneOf',
         }
         if (vErrors === null) {
             vErrors = [err0]
@@ -9643,13 +9674,41 @@ function validate84(data, { instancePath = '', parentData, parentDataProperty, r
         validate84.errors = vErrors
         return false
     } else {
-        errors = _errs0
+        errors = _errs1
         if (vErrors !== null) {
-            if (_errs0) {
-                vErrors.length = _errs0
+            if (_errs1) {
+                vErrors.length = _errs1
             } else {
                 vErrors = null
             }
+        }
+    }
+    if (errors === 0) {
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+            let missing0
+            if (data.kind === undefined && (missing0 = 'kind')) {
+                validate84.errors = [
+                    {
+                        instancePath,
+                        schemaPath: '#/required',
+                        keyword: 'required',
+                        params: { missingProperty: missing0 },
+                        message: "must have required property '" + missing0 + "'",
+                    },
+                ]
+                return false
+            }
+        } else {
+            validate84.errors = [
+                {
+                    instancePath,
+                    schemaPath: '#/type',
+                    keyword: 'type',
+                    params: { type: 'object' },
+                    message: 'must be object',
+                },
+            ]
+            return false
         }
     }
     validate84.errors = vErrors
@@ -9897,19 +9956,53 @@ function validate79(data, { instancePath = '', parentData, parentDataProperty, r
                                                     if (data.lower_bound_percentile !== undefined) {
                                                         let data8 = data.lower_bound_percentile
                                                         const _errs20 = errors
-                                                        if (!(typeof data8 == 'number' && isFinite(data8))) {
-                                                            validate79.errors = [
-                                                                {
-                                                                    instancePath:
-                                                                        instancePath + '/lower_bound_percentile',
-                                                                    schemaPath:
-                                                                        '#/properties/lower_bound_percentile/type',
-                                                                    keyword: 'type',
-                                                                    params: { type: 'number' },
-                                                                    message: 'must be number',
-                                                                },
-                                                            ]
-                                                            return false
+                                                        if (errors === _errs20) {
+                                                            if (typeof data8 == 'number' && isFinite(data8)) {
+                                                                if (data8 > 1 || isNaN(data8)) {
+                                                                    validate79.errors = [
+                                                                        {
+                                                                            instancePath:
+                                                                                instancePath +
+                                                                                '/lower_bound_percentile',
+                                                                            schemaPath:
+                                                                                '#/properties/lower_bound_percentile/maximum',
+                                                                            keyword: 'maximum',
+                                                                            params: { comparison: '<=', limit: 1 },
+                                                                            message: 'must be <= 1',
+                                                                        },
+                                                                    ]
+                                                                    return false
+                                                                } else {
+                                                                    if (data8 < 0 || isNaN(data8)) {
+                                                                        validate79.errors = [
+                                                                            {
+                                                                                instancePath:
+                                                                                    instancePath +
+                                                                                    '/lower_bound_percentile',
+                                                                                schemaPath:
+                                                                                    '#/properties/lower_bound_percentile/minimum',
+                                                                                keyword: 'minimum',
+                                                                                params: { comparison: '>=', limit: 0 },
+                                                                                message: 'must be >= 0',
+                                                                            },
+                                                                        ]
+                                                                        return false
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                validate79.errors = [
+                                                                    {
+                                                                        instancePath:
+                                                                            instancePath + '/lower_bound_percentile',
+                                                                        schemaPath:
+                                                                            '#/properties/lower_bound_percentile/type',
+                                                                        keyword: 'type',
+                                                                        params: { type: 'number' },
+                                                                        message: 'must be number',
+                                                                    },
+                                                                ]
+                                                                return false
+                                                            }
                                                         }
                                                         var valid0 = _errs20 === errors
                                                     } else {
@@ -10053,25 +10146,77 @@ function validate79(data, { instancePath = '', parentData, parentDataProperty, r
                                                                             ) {
                                                                                 let data14 = data.upper_bound_percentile
                                                                                 const _errs31 = errors
-                                                                                if (
-                                                                                    !(
+                                                                                if (errors === _errs31) {
+                                                                                    if (
                                                                                         typeof data14 == 'number' &&
                                                                                         isFinite(data14)
-                                                                                    )
-                                                                                ) {
-                                                                                    validate79.errors = [
-                                                                                        {
-                                                                                            instancePath:
-                                                                                                instancePath +
-                                                                                                '/upper_bound_percentile',
-                                                                                            schemaPath:
-                                                                                                '#/properties/upper_bound_percentile/type',
-                                                                                            keyword: 'type',
-                                                                                            params: { type: 'number' },
-                                                                                            message: 'must be number',
-                                                                                        },
-                                                                                    ]
-                                                                                    return false
+                                                                                    ) {
+                                                                                        if (
+                                                                                            data14 > 1 ||
+                                                                                            isNaN(data14)
+                                                                                        ) {
+                                                                                            validate79.errors = [
+                                                                                                {
+                                                                                                    instancePath:
+                                                                                                        instancePath +
+                                                                                                        '/upper_bound_percentile',
+                                                                                                    schemaPath:
+                                                                                                        '#/properties/upper_bound_percentile/maximum',
+                                                                                                    keyword: 'maximum',
+                                                                                                    params: {
+                                                                                                        comparison:
+                                                                                                            '<=',
+                                                                                                        limit: 1,
+                                                                                                    },
+                                                                                                    message:
+                                                                                                        'must be <= 1',
+                                                                                                },
+                                                                                            ]
+                                                                                            return false
+                                                                                        } else {
+                                                                                            if (
+                                                                                                data14 < 0 ||
+                                                                                                isNaN(data14)
+                                                                                            ) {
+                                                                                                validate79.errors = [
+                                                                                                    {
+                                                                                                        instancePath:
+                                                                                                            instancePath +
+                                                                                                            '/upper_bound_percentile',
+                                                                                                        schemaPath:
+                                                                                                            '#/properties/upper_bound_percentile/minimum',
+                                                                                                        keyword:
+                                                                                                            'minimum',
+                                                                                                        params: {
+                                                                                                            comparison:
+                                                                                                                '>=',
+                                                                                                            limit: 0,
+                                                                                                        },
+                                                                                                        message:
+                                                                                                            'must be >= 0',
+                                                                                                    },
+                                                                                                ]
+                                                                                                return false
+                                                                                            }
+                                                                                        }
+                                                                                    } else {
+                                                                                        validate79.errors = [
+                                                                                            {
+                                                                                                instancePath:
+                                                                                                    instancePath +
+                                                                                                    '/upper_bound_percentile',
+                                                                                                schemaPath:
+                                                                                                    '#/properties/upper_bound_percentile/type',
+                                                                                                keyword: 'type',
+                                                                                                params: {
+                                                                                                    type: 'number',
+                                                                                                },
+                                                                                                message:
+                                                                                                    'must be number',
+                                                                                            },
+                                                                                        ]
+                                                                                        return false
+                                                                                    }
                                                                                 }
                                                                                 var valid0 = _errs31 === errors
                                                                             } else {
@@ -10192,49 +10337,68 @@ const schema96 = {
 }
 const schema99 = { enum: ['strict', 'unordered', 'ordered'], type: 'string' }
 const schema101 = {
-    anyOf: [
+    discriminator: { propertyName: 'kind' },
+    oneOf: [
         { $ref: '#/definitions/EventsNode' },
         { $ref: '#/definitions/ActionsNode' },
         { $ref: '#/definitions/ExperimentDataWarehouseNode' },
     ],
+    required: ['kind'],
+    type: 'object',
 }
 function validate109(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
-    const _errs0 = errors
-    let valid0 = false
     const _errs1 = errors
+    let valid0 = false
+    let passing0 = null
+    const _errs2 = errors
     if (!validate85(data, { instancePath, parentData, parentDataProperty, rootData })) {
         vErrors = vErrors === null ? validate85.errors : vErrors.concat(validate85.errors)
         errors = vErrors.length
     }
-    var _valid0 = _errs1 === errors
-    valid0 = valid0 || _valid0
-    if (!valid0) {
-        const _errs2 = errors
-        if (!validate93(data, { instancePath, parentData, parentDataProperty, rootData })) {
-            vErrors = vErrors === null ? validate93.errors : vErrors.concat(validate93.errors)
+    var _valid0 = _errs2 === errors
+    if (_valid0) {
+        valid0 = true
+        passing0 = 0
+    }
+    const _errs3 = errors
+    if (!validate93(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate93.errors : vErrors.concat(validate93.errors)
+        errors = vErrors.length
+    }
+    var _valid0 = _errs3 === errors
+    if (_valid0 && valid0) {
+        valid0 = false
+        passing0 = [passing0, 1]
+    } else {
+        if (_valid0) {
+            valid0 = true
+            passing0 = 1
+        }
+        const _errs4 = errors
+        if (!validate99(data, { instancePath, parentData, parentDataProperty, rootData })) {
+            vErrors = vErrors === null ? validate99.errors : vErrors.concat(validate99.errors)
             errors = vErrors.length
         }
-        var _valid0 = _errs2 === errors
-        valid0 = valid0 || _valid0
-        if (!valid0) {
-            const _errs3 = errors
-            if (!validate99(data, { instancePath, parentData, parentDataProperty, rootData })) {
-                vErrors = vErrors === null ? validate99.errors : vErrors.concat(validate99.errors)
-                errors = vErrors.length
+        var _valid0 = _errs4 === errors
+        if (_valid0 && valid0) {
+            valid0 = false
+            passing0 = [passing0, 2]
+        } else {
+            if (_valid0) {
+                valid0 = true
+                passing0 = 2
             }
-            var _valid0 = _errs3 === errors
-            valid0 = valid0 || _valid0
         }
     }
     if (!valid0) {
         const err0 = {
             instancePath,
-            schemaPath: '#/anyOf',
-            keyword: 'anyOf',
-            params: {},
-            message: 'must match a schema in anyOf',
+            schemaPath: '#/oneOf',
+            keyword: 'oneOf',
+            params: { passingSchemas: passing0 },
+            message: 'must match exactly one schema in oneOf',
         }
         if (vErrors === null) {
             vErrors = [err0]
@@ -10245,13 +10409,41 @@ function validate109(data, { instancePath = '', parentData, parentDataProperty, 
         validate109.errors = vErrors
         return false
     } else {
-        errors = _errs0
+        errors = _errs1
         if (vErrors !== null) {
-            if (_errs0) {
-                vErrors.length = _errs0
+            if (_errs1) {
+                vErrors.length = _errs1
             } else {
                 vErrors = null
             }
+        }
+    }
+    if (errors === 0) {
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+            let missing0
+            if (data.kind === undefined && (missing0 = 'kind')) {
+                validate109.errors = [
+                    {
+                        instancePath,
+                        schemaPath: '#/required',
+                        keyword: 'required',
+                        params: { missingProperty: missing0 },
+                        message: "must have required property '" + missing0 + "'",
+                    },
+                ]
+                return false
+            }
+        } else {
+            validate109.errors = [
+                {
+                    instancePath,
+                    schemaPath: '#/type',
+                    keyword: 'type',
+                    params: { type: 'object' },
+                    message: 'must be object',
+                },
+            ]
+            return false
         }
     }
     validate109.errors = vErrors
@@ -10754,6 +10946,7 @@ const schema102 = {
         conversion_window: { $ref: '#/definitions/integer' },
         conversion_window_unit: { $ref: '#/definitions/FunnelConversionWindowTimeUnit' },
         denominator: { $ref: '#/definitions/ExperimentMetricSource' },
+        denominator_outlier_handling: { $ref: '#/definitions/ExperimentMetricOutlierHandling' },
         fingerprint: { type: 'string' },
         goal: { $ref: '#/definitions/ExperimentMetricGoal' },
         isSharedMetric: { type: 'boolean' },
@@ -10761,12 +10954,34 @@ const schema102 = {
         metric_type: { const: 'ratio', type: 'string' },
         name: { type: 'string' },
         numerator: { $ref: '#/definitions/ExperimentMetricSource' },
+        numerator_outlier_handling: { $ref: '#/definitions/ExperimentMetricOutlierHandling' },
         response: { type: 'object' },
         sharedMetricId: { type: 'number' },
         uuid: { type: 'string' },
         version: { description: 'version of the node, used for schema migrations', type: 'number' },
     },
     required: ['denominator', 'kind', 'metric_type', 'numerator'],
+    type: 'object',
+}
+const schema105 = {
+    additionalProperties: false,
+    properties: {
+        ignore_zeros: { type: 'boolean' },
+        lower_bound_percentile: {
+            description:
+                'Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).',
+            maximum: 1,
+            minimum: 0,
+            type: 'number',
+        },
+        upper_bound_percentile: {
+            description:
+                'Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).',
+            maximum: 1,
+            minimum: 0,
+            type: 'number',
+        },
+    },
     type: 'object',
 }
 function validate115(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
@@ -10907,33 +11122,210 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
                                     var valid0 = true
                                 }
                                 if (valid0) {
-                                    if (data.fingerprint !== undefined) {
+                                    if (data.denominator_outlier_handling !== undefined) {
+                                        let data4 = data.denominator_outlier_handling
                                         const _errs10 = errors
-                                        if (typeof data.fingerprint !== 'string') {
-                                            validate115.errors = [
-                                                {
-                                                    instancePath: instancePath + '/fingerprint',
-                                                    schemaPath: '#/properties/fingerprint/type',
-                                                    keyword: 'type',
-                                                    params: { type: 'string' },
-                                                    message: 'must be string',
-                                                },
-                                            ]
-                                            return false
+                                        const _errs11 = errors
+                                        if (errors === _errs11) {
+                                            if (data4 && typeof data4 == 'object' && !Array.isArray(data4)) {
+                                                const _errs13 = errors
+                                                for (const key1 in data4) {
+                                                    if (
+                                                        !(
+                                                            key1 === 'ignore_zeros' ||
+                                                            key1 === 'lower_bound_percentile' ||
+                                                            key1 === 'upper_bound_percentile'
+                                                        )
+                                                    ) {
+                                                        validate115.errors = [
+                                                            {
+                                                                instancePath:
+                                                                    instancePath + '/denominator_outlier_handling',
+                                                                schemaPath:
+                                                                    '#/definitions/ExperimentMetricOutlierHandling/additionalProperties',
+                                                                keyword: 'additionalProperties',
+                                                                params: { additionalProperty: key1 },
+                                                                message: 'must NOT have additional properties',
+                                                            },
+                                                        ]
+                                                        return false
+                                                        break
+                                                    }
+                                                }
+                                                if (_errs13 === errors) {
+                                                    if (data4.ignore_zeros !== undefined) {
+                                                        const _errs14 = errors
+                                                        if (typeof data4.ignore_zeros !== 'boolean') {
+                                                            validate115.errors = [
+                                                                {
+                                                                    instancePath:
+                                                                        instancePath +
+                                                                        '/denominator_outlier_handling/ignore_zeros',
+                                                                    schemaPath:
+                                                                        '#/definitions/ExperimentMetricOutlierHandling/properties/ignore_zeros/type',
+                                                                    keyword: 'type',
+                                                                    params: { type: 'boolean' },
+                                                                    message: 'must be boolean',
+                                                                },
+                                                            ]
+                                                            return false
+                                                        }
+                                                        var valid4 = _errs14 === errors
+                                                    } else {
+                                                        var valid4 = true
+                                                    }
+                                                    if (valid4) {
+                                                        if (data4.lower_bound_percentile !== undefined) {
+                                                            let data6 = data4.lower_bound_percentile
+                                                            const _errs16 = errors
+                                                            if (errors === _errs16) {
+                                                                if (typeof data6 == 'number' && isFinite(data6)) {
+                                                                    if (data6 > 1 || isNaN(data6)) {
+                                                                        validate115.errors = [
+                                                                            {
+                                                                                instancePath:
+                                                                                    instancePath +
+                                                                                    '/denominator_outlier_handling/lower_bound_percentile',
+                                                                                schemaPath:
+                                                                                    '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/maximum',
+                                                                                keyword: 'maximum',
+                                                                                params: { comparison: '<=', limit: 1 },
+                                                                                message: 'must be <= 1',
+                                                                            },
+                                                                        ]
+                                                                        return false
+                                                                    } else {
+                                                                        if (data6 < 0 || isNaN(data6)) {
+                                                                            validate115.errors = [
+                                                                                {
+                                                                                    instancePath:
+                                                                                        instancePath +
+                                                                                        '/denominator_outlier_handling/lower_bound_percentile',
+                                                                                    schemaPath:
+                                                                                        '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/minimum',
+                                                                                    keyword: 'minimum',
+                                                                                    params: {
+                                                                                        comparison: '>=',
+                                                                                        limit: 0,
+                                                                                    },
+                                                                                    message: 'must be >= 0',
+                                                                                },
+                                                                            ]
+                                                                            return false
+                                                                        }
+                                                                    }
+                                                                } else {
+                                                                    validate115.errors = [
+                                                                        {
+                                                                            instancePath:
+                                                                                instancePath +
+                                                                                '/denominator_outlier_handling/lower_bound_percentile',
+                                                                            schemaPath:
+                                                                                '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/type',
+                                                                            keyword: 'type',
+                                                                            params: { type: 'number' },
+                                                                            message: 'must be number',
+                                                                        },
+                                                                    ]
+                                                                    return false
+                                                                }
+                                                            }
+                                                            var valid4 = _errs16 === errors
+                                                        } else {
+                                                            var valid4 = true
+                                                        }
+                                                        if (valid4) {
+                                                            if (data4.upper_bound_percentile !== undefined) {
+                                                                let data7 = data4.upper_bound_percentile
+                                                                const _errs18 = errors
+                                                                if (errors === _errs18) {
+                                                                    if (typeof data7 == 'number' && isFinite(data7)) {
+                                                                        if (data7 > 1 || isNaN(data7)) {
+                                                                            validate115.errors = [
+                                                                                {
+                                                                                    instancePath:
+                                                                                        instancePath +
+                                                                                        '/denominator_outlier_handling/upper_bound_percentile',
+                                                                                    schemaPath:
+                                                                                        '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/maximum',
+                                                                                    keyword: 'maximum',
+                                                                                    params: {
+                                                                                        comparison: '<=',
+                                                                                        limit: 1,
+                                                                                    },
+                                                                                    message: 'must be <= 1',
+                                                                                },
+                                                                            ]
+                                                                            return false
+                                                                        } else {
+                                                                            if (data7 < 0 || isNaN(data7)) {
+                                                                                validate115.errors = [
+                                                                                    {
+                                                                                        instancePath:
+                                                                                            instancePath +
+                                                                                            '/denominator_outlier_handling/upper_bound_percentile',
+                                                                                        schemaPath:
+                                                                                            '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/minimum',
+                                                                                        keyword: 'minimum',
+                                                                                        params: {
+                                                                                            comparison: '>=',
+                                                                                            limit: 0,
+                                                                                        },
+                                                                                        message: 'must be >= 0',
+                                                                                    },
+                                                                                ]
+                                                                                return false
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        validate115.errors = [
+                                                                            {
+                                                                                instancePath:
+                                                                                    instancePath +
+                                                                                    '/denominator_outlier_handling/upper_bound_percentile',
+                                                                                schemaPath:
+                                                                                    '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/type',
+                                                                                keyword: 'type',
+                                                                                params: { type: 'number' },
+                                                                                message: 'must be number',
+                                                                            },
+                                                                        ]
+                                                                        return false
+                                                                    }
+                                                                }
+                                                                var valid4 = _errs18 === errors
+                                                            } else {
+                                                                var valid4 = true
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                validate115.errors = [
+                                                    {
+                                                        instancePath: instancePath + '/denominator_outlier_handling',
+                                                        schemaPath:
+                                                            '#/definitions/ExperimentMetricOutlierHandling/type',
+                                                        keyword: 'type',
+                                                        params: { type: 'object' },
+                                                        message: 'must be object',
+                                                    },
+                                                ]
+                                                return false
+                                            }
                                         }
                                         var valid0 = _errs10 === errors
                                     } else {
                                         var valid0 = true
                                     }
                                     if (valid0) {
-                                        if (data.goal !== undefined) {
-                                            let data5 = data.goal
-                                            const _errs12 = errors
-                                            if (typeof data5 !== 'string') {
+                                        if (data.fingerprint !== undefined) {
+                                            const _errs20 = errors
+                                            if (typeof data.fingerprint !== 'string') {
                                                 validate115.errors = [
                                                     {
-                                                        instancePath: instancePath + '/goal',
-                                                        schemaPath: '#/definitions/ExperimentMetricGoal/type',
+                                                        instancePath: instancePath + '/fingerprint',
+                                                        schemaPath: '#/properties/fingerprint/type',
                                                         keyword: 'type',
                                                         params: { type: 'string' },
                                                         message: 'must be string',
@@ -10941,82 +11333,70 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
                                                 ]
                                                 return false
                                             }
-                                            if (!(data5 === 'increase' || data5 === 'decrease')) {
-                                                validate115.errors = [
-                                                    {
-                                                        instancePath: instancePath + '/goal',
-                                                        schemaPath: '#/definitions/ExperimentMetricGoal/enum',
-                                                        keyword: 'enum',
-                                                        params: { allowedValues: schema78.enum },
-                                                        message: 'must be equal to one of the allowed values',
-                                                    },
-                                                ]
-                                                return false
-                                            }
-                                            var valid0 = _errs12 === errors
+                                            var valid0 = _errs20 === errors
                                         } else {
                                             var valid0 = true
                                         }
                                         if (valid0) {
-                                            if (data.isSharedMetric !== undefined) {
-                                                const _errs15 = errors
-                                                if (typeof data.isSharedMetric !== 'boolean') {
+                                            if (data.goal !== undefined) {
+                                                let data9 = data.goal
+                                                const _errs22 = errors
+                                                if (typeof data9 !== 'string') {
                                                     validate115.errors = [
                                                         {
-                                                            instancePath: instancePath + '/isSharedMetric',
-                                                            schemaPath: '#/properties/isSharedMetric/type',
+                                                            instancePath: instancePath + '/goal',
+                                                            schemaPath: '#/definitions/ExperimentMetricGoal/type',
                                                             keyword: 'type',
-                                                            params: { type: 'boolean' },
-                                                            message: 'must be boolean',
+                                                            params: { type: 'string' },
+                                                            message: 'must be string',
                                                         },
                                                     ]
                                                     return false
                                                 }
-                                                var valid0 = _errs15 === errors
+                                                if (!(data9 === 'increase' || data9 === 'decrease')) {
+                                                    validate115.errors = [
+                                                        {
+                                                            instancePath: instancePath + '/goal',
+                                                            schemaPath: '#/definitions/ExperimentMetricGoal/enum',
+                                                            keyword: 'enum',
+                                                            params: { allowedValues: schema78.enum },
+                                                            message: 'must be equal to one of the allowed values',
+                                                        },
+                                                    ]
+                                                    return false
+                                                }
+                                                var valid0 = _errs22 === errors
                                             } else {
                                                 var valid0 = true
                                             }
                                             if (valid0) {
-                                                if (data.kind !== undefined) {
-                                                    let data7 = data.kind
-                                                    const _errs17 = errors
-                                                    if (typeof data7 !== 'string') {
+                                                if (data.isSharedMetric !== undefined) {
+                                                    const _errs25 = errors
+                                                    if (typeof data.isSharedMetric !== 'boolean') {
                                                         validate115.errors = [
                                                             {
-                                                                instancePath: instancePath + '/kind',
-                                                                schemaPath: '#/properties/kind/type',
+                                                                instancePath: instancePath + '/isSharedMetric',
+                                                                schemaPath: '#/properties/isSharedMetric/type',
                                                                 keyword: 'type',
-                                                                params: { type: 'string' },
-                                                                message: 'must be string',
+                                                                params: { type: 'boolean' },
+                                                                message: 'must be boolean',
                                                             },
                                                         ]
                                                         return false
                                                     }
-                                                    if ('ExperimentMetric' !== data7) {
-                                                        validate115.errors = [
-                                                            {
-                                                                instancePath: instancePath + '/kind',
-                                                                schemaPath: '#/properties/kind/const',
-                                                                keyword: 'const',
-                                                                params: { allowedValue: 'ExperimentMetric' },
-                                                                message: 'must be equal to constant',
-                                                            },
-                                                        ]
-                                                        return false
-                                                    }
-                                                    var valid0 = _errs17 === errors
+                                                    var valid0 = _errs25 === errors
                                                 } else {
                                                     var valid0 = true
                                                 }
                                                 if (valid0) {
-                                                    if (data.metric_type !== undefined) {
-                                                        let data8 = data.metric_type
-                                                        const _errs19 = errors
-                                                        if (typeof data8 !== 'string') {
+                                                    if (data.kind !== undefined) {
+                                                        let data11 = data.kind
+                                                        const _errs27 = errors
+                                                        if (typeof data11 !== 'string') {
                                                             validate115.errors = [
                                                                 {
-                                                                    instancePath: instancePath + '/metric_type',
-                                                                    schemaPath: '#/properties/metric_type/type',
+                                                                    instancePath: instancePath + '/kind',
+                                                                    schemaPath: '#/properties/kind/type',
                                                                     keyword: 'type',
                                                                     params: { type: 'string' },
                                                                     message: 'must be string',
@@ -11024,30 +11404,31 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
                                                             ]
                                                             return false
                                                         }
-                                                        if ('ratio' !== data8) {
+                                                        if ('ExperimentMetric' !== data11) {
                                                             validate115.errors = [
                                                                 {
-                                                                    instancePath: instancePath + '/metric_type',
-                                                                    schemaPath: '#/properties/metric_type/const',
+                                                                    instancePath: instancePath + '/kind',
+                                                                    schemaPath: '#/properties/kind/const',
                                                                     keyword: 'const',
-                                                                    params: { allowedValue: 'ratio' },
+                                                                    params: { allowedValue: 'ExperimentMetric' },
                                                                     message: 'must be equal to constant',
                                                                 },
                                                             ]
                                                             return false
                                                         }
-                                                        var valid0 = _errs19 === errors
+                                                        var valid0 = _errs27 === errors
                                                     } else {
                                                         var valid0 = true
                                                     }
                                                     if (valid0) {
-                                                        if (data.name !== undefined) {
-                                                            const _errs21 = errors
-                                                            if (typeof data.name !== 'string') {
+                                                        if (data.metric_type !== undefined) {
+                                                            let data12 = data.metric_type
+                                                            const _errs29 = errors
+                                                            if (typeof data12 !== 'string') {
                                                                 validate115.errors = [
                                                                     {
-                                                                        instancePath: instancePath + '/name',
-                                                                        schemaPath: '#/properties/name/type',
+                                                                        instancePath: instancePath + '/metric_type',
+                                                                        schemaPath: '#/properties/metric_type/type',
                                                                         keyword: 'type',
                                                                         params: { type: 'string' },
                                                                         message: 'must be string',
@@ -11055,125 +11436,397 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
                                                                 ]
                                                                 return false
                                                             }
-                                                            var valid0 = _errs21 === errors
+                                                            if ('ratio' !== data12) {
+                                                                validate115.errors = [
+                                                                    {
+                                                                        instancePath: instancePath + '/metric_type',
+                                                                        schemaPath: '#/properties/metric_type/const',
+                                                                        keyword: 'const',
+                                                                        params: { allowedValue: 'ratio' },
+                                                                        message: 'must be equal to constant',
+                                                                    },
+                                                                ]
+                                                                return false
+                                                            }
+                                                            var valid0 = _errs29 === errors
                                                         } else {
                                                             var valid0 = true
                                                         }
                                                         if (valid0) {
-                                                            if (data.numerator !== undefined) {
-                                                                const _errs23 = errors
-                                                                if (
-                                                                    !validate84(data.numerator, {
-                                                                        instancePath: instancePath + '/numerator',
-                                                                        parentData: data,
-                                                                        parentDataProperty: 'numerator',
-                                                                        rootData,
-                                                                    })
-                                                                ) {
-                                                                    vErrors =
-                                                                        vErrors === null
-                                                                            ? validate84.errors
-                                                                            : vErrors.concat(validate84.errors)
-                                                                    errors = vErrors.length
+                                                            if (data.name !== undefined) {
+                                                                const _errs31 = errors
+                                                                if (typeof data.name !== 'string') {
+                                                                    validate115.errors = [
+                                                                        {
+                                                                            instancePath: instancePath + '/name',
+                                                                            schemaPath: '#/properties/name/type',
+                                                                            keyword: 'type',
+                                                                            params: { type: 'string' },
+                                                                            message: 'must be string',
+                                                                        },
+                                                                    ]
+                                                                    return false
                                                                 }
-                                                                var valid0 = _errs23 === errors
+                                                                var valid0 = _errs31 === errors
                                                             } else {
                                                                 var valid0 = true
                                                             }
                                                             if (valid0) {
-                                                                if (data.response !== undefined) {
-                                                                    let data11 = data.response
-                                                                    const _errs24 = errors
+                                                                if (data.numerator !== undefined) {
+                                                                    const _errs33 = errors
                                                                     if (
-                                                                        !(
-                                                                            data11 &&
-                                                                            typeof data11 == 'object' &&
-                                                                            !Array.isArray(data11)
-                                                                        )
+                                                                        !validate84(data.numerator, {
+                                                                            instancePath: instancePath + '/numerator',
+                                                                            parentData: data,
+                                                                            parentDataProperty: 'numerator',
+                                                                            rootData,
+                                                                        })
                                                                     ) {
-                                                                        validate115.errors = [
-                                                                            {
-                                                                                instancePath:
-                                                                                    instancePath + '/response',
-                                                                                schemaPath:
-                                                                                    '#/properties/response/type',
-                                                                                keyword: 'type',
-                                                                                params: { type: 'object' },
-                                                                                message: 'must be object',
-                                                                            },
-                                                                        ]
-                                                                        return false
+                                                                        vErrors =
+                                                                            vErrors === null
+                                                                                ? validate84.errors
+                                                                                : vErrors.concat(validate84.errors)
+                                                                        errors = vErrors.length
                                                                     }
-                                                                    var valid0 = _errs24 === errors
+                                                                    var valid0 = _errs33 === errors
                                                                 } else {
                                                                     var valid0 = true
                                                                 }
                                                                 if (valid0) {
-                                                                    if (data.sharedMetricId !== undefined) {
-                                                                        let data12 = data.sharedMetricId
-                                                                        const _errs26 = errors
-                                                                        if (
-                                                                            !(
-                                                                                typeof data12 == 'number' &&
-                                                                                isFinite(data12)
-                                                                            )
-                                                                        ) {
-                                                                            validate115.errors = [
-                                                                                {
-                                                                                    instancePath:
-                                                                                        instancePath +
-                                                                                        '/sharedMetricId',
-                                                                                    schemaPath:
-                                                                                        '#/properties/sharedMetricId/type',
-                                                                                    keyword: 'type',
-                                                                                    params: { type: 'number' },
-                                                                                    message: 'must be number',
-                                                                                },
-                                                                            ]
-                                                                            return false
-                                                                        }
-                                                                        var valid0 = _errs26 === errors
-                                                                    } else {
-                                                                        var valid0 = true
-                                                                    }
-                                                                    if (valid0) {
-                                                                        if (data.uuid !== undefined) {
-                                                                            const _errs28 = errors
-                                                                            if (typeof data.uuid !== 'string') {
+                                                                    if (data.numerator_outlier_handling !== undefined) {
+                                                                        let data15 = data.numerator_outlier_handling
+                                                                        const _errs34 = errors
+                                                                        const _errs35 = errors
+                                                                        if (errors === _errs35) {
+                                                                            if (
+                                                                                data15 &&
+                                                                                typeof data15 == 'object' &&
+                                                                                !Array.isArray(data15)
+                                                                            ) {
+                                                                                const _errs37 = errors
+                                                                                for (const key2 in data15) {
+                                                                                    if (
+                                                                                        !(
+                                                                                            key2 === 'ignore_zeros' ||
+                                                                                            key2 ===
+                                                                                                'lower_bound_percentile' ||
+                                                                                            key2 ===
+                                                                                                'upper_bound_percentile'
+                                                                                        )
+                                                                                    ) {
+                                                                                        validate115.errors = [
+                                                                                            {
+                                                                                                instancePath:
+                                                                                                    instancePath +
+                                                                                                    '/numerator_outlier_handling',
+                                                                                                schemaPath:
+                                                                                                    '#/definitions/ExperimentMetricOutlierHandling/additionalProperties',
+                                                                                                keyword:
+                                                                                                    'additionalProperties',
+                                                                                                params: {
+                                                                                                    additionalProperty:
+                                                                                                        key2,
+                                                                                                },
+                                                                                                message:
+                                                                                                    'must NOT have additional properties',
+                                                                                            },
+                                                                                        ]
+                                                                                        return false
+                                                                                        break
+                                                                                    }
+                                                                                }
+                                                                                if (_errs37 === errors) {
+                                                                                    if (
+                                                                                        data15.ignore_zeros !==
+                                                                                        undefined
+                                                                                    ) {
+                                                                                        const _errs38 = errors
+                                                                                        if (
+                                                                                            typeof data15.ignore_zeros !==
+                                                                                            'boolean'
+                                                                                        ) {
+                                                                                            validate115.errors = [
+                                                                                                {
+                                                                                                    instancePath:
+                                                                                                        instancePath +
+                                                                                                        '/numerator_outlier_handling/ignore_zeros',
+                                                                                                    schemaPath:
+                                                                                                        '#/definitions/ExperimentMetricOutlierHandling/properties/ignore_zeros/type',
+                                                                                                    keyword: 'type',
+                                                                                                    params: {
+                                                                                                        type: 'boolean',
+                                                                                                    },
+                                                                                                    message:
+                                                                                                        'must be boolean',
+                                                                                                },
+                                                                                            ]
+                                                                                            return false
+                                                                                        }
+                                                                                        var valid7 = _errs38 === errors
+                                                                                    } else {
+                                                                                        var valid7 = true
+                                                                                    }
+                                                                                    if (valid7) {
+                                                                                        if (
+                                                                                            data15.lower_bound_percentile !==
+                                                                                            undefined
+                                                                                        ) {
+                                                                                            let data17 =
+                                                                                                data15.lower_bound_percentile
+                                                                                            const _errs40 = errors
+                                                                                            if (errors === _errs40) {
+                                                                                                if (
+                                                                                                    typeof data17 ==
+                                                                                                        'number' &&
+                                                                                                    isFinite(data17)
+                                                                                                ) {
+                                                                                                    if (
+                                                                                                        data17 > 1 ||
+                                                                                                        isNaN(data17)
+                                                                                                    ) {
+                                                                                                        validate115.errors =
+                                                                                                            [
+                                                                                                                {
+                                                                                                                    instancePath:
+                                                                                                                        instancePath +
+                                                                                                                        '/numerator_outlier_handling/lower_bound_percentile',
+                                                                                                                    schemaPath:
+                                                                                                                        '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/maximum',
+                                                                                                                    keyword:
+                                                                                                                        'maximum',
+                                                                                                                    params: {
+                                                                                                                        comparison:
+                                                                                                                            '<=',
+                                                                                                                        limit: 1,
+                                                                                                                    },
+                                                                                                                    message:
+                                                                                                                        'must be <= 1',
+                                                                                                                },
+                                                                                                            ]
+                                                                                                        return false
+                                                                                                    } else {
+                                                                                                        if (
+                                                                                                            data17 <
+                                                                                                                0 ||
+                                                                                                            isNaN(
+                                                                                                                data17
+                                                                                                            )
+                                                                                                        ) {
+                                                                                                            validate115.errors =
+                                                                                                                [
+                                                                                                                    {
+                                                                                                                        instancePath:
+                                                                                                                            instancePath +
+                                                                                                                            '/numerator_outlier_handling/lower_bound_percentile',
+                                                                                                                        schemaPath:
+                                                                                                                            '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/minimum',
+                                                                                                                        keyword:
+                                                                                                                            'minimum',
+                                                                                                                        params: {
+                                                                                                                            comparison:
+                                                                                                                                '>=',
+                                                                                                                            limit: 0,
+                                                                                                                        },
+                                                                                                                        message:
+                                                                                                                            'must be >= 0',
+                                                                                                                    },
+                                                                                                                ]
+                                                                                                            return false
+                                                                                                        }
+                                                                                                    }
+                                                                                                } else {
+                                                                                                    validate115.errors =
+                                                                                                        [
+                                                                                                            {
+                                                                                                                instancePath:
+                                                                                                                    instancePath +
+                                                                                                                    '/numerator_outlier_handling/lower_bound_percentile',
+                                                                                                                schemaPath:
+                                                                                                                    '#/definitions/ExperimentMetricOutlierHandling/properties/lower_bound_percentile/type',
+                                                                                                                keyword:
+                                                                                                                    'type',
+                                                                                                                params: {
+                                                                                                                    type: 'number',
+                                                                                                                },
+                                                                                                                message:
+                                                                                                                    'must be number',
+                                                                                                            },
+                                                                                                        ]
+                                                                                                    return false
+                                                                                                }
+                                                                                            }
+                                                                                            var valid7 =
+                                                                                                _errs40 === errors
+                                                                                        } else {
+                                                                                            var valid7 = true
+                                                                                        }
+                                                                                        if (valid7) {
+                                                                                            if (
+                                                                                                data15.upper_bound_percentile !==
+                                                                                                undefined
+                                                                                            ) {
+                                                                                                let data18 =
+                                                                                                    data15.upper_bound_percentile
+                                                                                                const _errs42 = errors
+                                                                                                if (
+                                                                                                    errors === _errs42
+                                                                                                ) {
+                                                                                                    if (
+                                                                                                        typeof data18 ==
+                                                                                                            'number' &&
+                                                                                                        isFinite(data18)
+                                                                                                    ) {
+                                                                                                        if (
+                                                                                                            data18 >
+                                                                                                                1 ||
+                                                                                                            isNaN(
+                                                                                                                data18
+                                                                                                            )
+                                                                                                        ) {
+                                                                                                            validate115.errors =
+                                                                                                                [
+                                                                                                                    {
+                                                                                                                        instancePath:
+                                                                                                                            instancePath +
+                                                                                                                            '/numerator_outlier_handling/upper_bound_percentile',
+                                                                                                                        schemaPath:
+                                                                                                                            '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/maximum',
+                                                                                                                        keyword:
+                                                                                                                            'maximum',
+                                                                                                                        params: {
+                                                                                                                            comparison:
+                                                                                                                                '<=',
+                                                                                                                            limit: 1,
+                                                                                                                        },
+                                                                                                                        message:
+                                                                                                                            'must be <= 1',
+                                                                                                                    },
+                                                                                                                ]
+                                                                                                            return false
+                                                                                                        } else {
+                                                                                                            if (
+                                                                                                                data18 <
+                                                                                                                    0 ||
+                                                                                                                isNaN(
+                                                                                                                    data18
+                                                                                                                )
+                                                                                                            ) {
+                                                                                                                validate115.errors =
+                                                                                                                    [
+                                                                                                                        {
+                                                                                                                            instancePath:
+                                                                                                                                instancePath +
+                                                                                                                                '/numerator_outlier_handling/upper_bound_percentile',
+                                                                                                                            schemaPath:
+                                                                                                                                '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/minimum',
+                                                                                                                            keyword:
+                                                                                                                                'minimum',
+                                                                                                                            params: {
+                                                                                                                                comparison:
+                                                                                                                                    '>=',
+                                                                                                                                limit: 0,
+                                                                                                                            },
+                                                                                                                            message:
+                                                                                                                                'must be >= 0',
+                                                                                                                        },
+                                                                                                                    ]
+                                                                                                                return false
+                                                                                                            }
+                                                                                                        }
+                                                                                                    } else {
+                                                                                                        validate115.errors =
+                                                                                                            [
+                                                                                                                {
+                                                                                                                    instancePath:
+                                                                                                                        instancePath +
+                                                                                                                        '/numerator_outlier_handling/upper_bound_percentile',
+                                                                                                                    schemaPath:
+                                                                                                                        '#/definitions/ExperimentMetricOutlierHandling/properties/upper_bound_percentile/type',
+                                                                                                                    keyword:
+                                                                                                                        'type',
+                                                                                                                    params: {
+                                                                                                                        type: 'number',
+                                                                                                                    },
+                                                                                                                    message:
+                                                                                                                        'must be number',
+                                                                                                                },
+                                                                                                            ]
+                                                                                                        return false
+                                                                                                    }
+                                                                                                }
+                                                                                                var valid7 =
+                                                                                                    _errs42 === errors
+                                                                                            } else {
+                                                                                                var valid7 = true
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                }
+                                                                            } else {
                                                                                 validate115.errors = [
                                                                                     {
                                                                                         instancePath:
-                                                                                            instancePath + '/uuid',
+                                                                                            instancePath +
+                                                                                            '/numerator_outlier_handling',
                                                                                         schemaPath:
-                                                                                            '#/properties/uuid/type',
+                                                                                            '#/definitions/ExperimentMetricOutlierHandling/type',
                                                                                         keyword: 'type',
-                                                                                        params: { type: 'string' },
-                                                                                        message: 'must be string',
+                                                                                        params: { type: 'object' },
+                                                                                        message: 'must be object',
                                                                                     },
                                                                                 ]
                                                                                 return false
                                                                             }
-                                                                            var valid0 = _errs28 === errors
+                                                                        }
+                                                                        var valid0 = _errs34 === errors
+                                                                    } else {
+                                                                        var valid0 = true
+                                                                    }
+                                                                    if (valid0) {
+                                                                        if (data.response !== undefined) {
+                                                                            let data19 = data.response
+                                                                            const _errs44 = errors
+                                                                            if (
+                                                                                !(
+                                                                                    data19 &&
+                                                                                    typeof data19 == 'object' &&
+                                                                                    !Array.isArray(data19)
+                                                                                )
+                                                                            ) {
+                                                                                validate115.errors = [
+                                                                                    {
+                                                                                        instancePath:
+                                                                                            instancePath + '/response',
+                                                                                        schemaPath:
+                                                                                            '#/properties/response/type',
+                                                                                        keyword: 'type',
+                                                                                        params: { type: 'object' },
+                                                                                        message: 'must be object',
+                                                                                    },
+                                                                                ]
+                                                                                return false
+                                                                            }
+                                                                            var valid0 = _errs44 === errors
                                                                         } else {
                                                                             var valid0 = true
                                                                         }
                                                                         if (valid0) {
-                                                                            if (data.version !== undefined) {
-                                                                                let data14 = data.version
-                                                                                const _errs30 = errors
+                                                                            if (data.sharedMetricId !== undefined) {
+                                                                                let data20 = data.sharedMetricId
+                                                                                const _errs46 = errors
                                                                                 if (
                                                                                     !(
-                                                                                        typeof data14 == 'number' &&
-                                                                                        isFinite(data14)
+                                                                                        typeof data20 == 'number' &&
+                                                                                        isFinite(data20)
                                                                                     )
                                                                                 ) {
                                                                                     validate115.errors = [
                                                                                         {
                                                                                             instancePath:
                                                                                                 instancePath +
-                                                                                                '/version',
+                                                                                                '/sharedMetricId',
                                                                                             schemaPath:
-                                                                                                '#/properties/version/type',
+                                                                                                '#/properties/sharedMetricId/type',
                                                                                             keyword: 'type',
                                                                                             params: { type: 'number' },
                                                                                             message: 'must be number',
@@ -11181,9 +11834,68 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                     ]
                                                                                     return false
                                                                                 }
-                                                                                var valid0 = _errs30 === errors
+                                                                                var valid0 = _errs46 === errors
                                                                             } else {
                                                                                 var valid0 = true
+                                                                            }
+                                                                            if (valid0) {
+                                                                                if (data.uuid !== undefined) {
+                                                                                    const _errs48 = errors
+                                                                                    if (typeof data.uuid !== 'string') {
+                                                                                        validate115.errors = [
+                                                                                            {
+                                                                                                instancePath:
+                                                                                                    instancePath +
+                                                                                                    '/uuid',
+                                                                                                schemaPath:
+                                                                                                    '#/properties/uuid/type',
+                                                                                                keyword: 'type',
+                                                                                                params: {
+                                                                                                    type: 'string',
+                                                                                                },
+                                                                                                message:
+                                                                                                    'must be string',
+                                                                                            },
+                                                                                        ]
+                                                                                        return false
+                                                                                    }
+                                                                                    var valid0 = _errs48 === errors
+                                                                                } else {
+                                                                                    var valid0 = true
+                                                                                }
+                                                                                if (valid0) {
+                                                                                    if (data.version !== undefined) {
+                                                                                        let data22 = data.version
+                                                                                        const _errs50 = errors
+                                                                                        if (
+                                                                                            !(
+                                                                                                typeof data22 ==
+                                                                                                    'number' &&
+                                                                                                isFinite(data22)
+                                                                                            )
+                                                                                        ) {
+                                                                                            validate115.errors = [
+                                                                                                {
+                                                                                                    instancePath:
+                                                                                                        instancePath +
+                                                                                                        '/version',
+                                                                                                    schemaPath:
+                                                                                                        '#/properties/version/type',
+                                                                                                    keyword: 'type',
+                                                                                                    params: {
+                                                                                                        type: 'number',
+                                                                                                    },
+                                                                                                    message:
+                                                                                                        'must be number',
+                                                                                                },
+                                                                                            ]
+                                                                                            return false
+                                                                                        }
+                                                                                        var valid0 = _errs50 === errors
+                                                                                    } else {
+                                                                                        var valid0 = true
+                                                                                    }
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
@@ -11217,7 +11929,7 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
     validate115.errors = vErrors
     return errors === 0
 }
-const schema106 = {
+const schema108 = {
     additionalProperties: false,
     properties: {
         breakdownFilter: { $ref: '#/definitions/BreakdownFilter' },
@@ -11281,7 +11993,7 @@ function validate120(data, { instancePath = '', parentData, parentDataProperty, 
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema106.properties, key0)) {
+                    if (!func2.call(schema108.properties, key0)) {
                         validate120.errors = [
                             {
                                 instancePath,
@@ -11780,7 +12492,7 @@ function validate120(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                                     keyword: 'enum',
                                                                                                     params: {
                                                                                                         allowedValues:
-                                                                                                            schema106
+                                                                                                            schema108
                                                                                                                 .properties
                                                                                                                 .start_handling
                                                                                                                 .enum,

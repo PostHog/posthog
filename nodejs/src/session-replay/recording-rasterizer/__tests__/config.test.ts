@@ -1,4 +1,5 @@
 import { buildCaptureConfig, buildPlayerConfig, validateInput } from '../capture/config'
+import { parseList } from '../config'
 import { RasterizeRecordingInput } from '../types'
 
 function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeRecordingInput {
@@ -12,6 +13,35 @@ function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeR
 }
 
 describe('config', () => {
+    describe('parseList', () => {
+        it.each([
+            { text: undefined, expected: [] },
+            { text: '', expected: [] },
+            { text: 'a,b, c ', expected: ['a', 'b', 'c'] },
+            { text: 'a,,b', expected: ['a', '', 'b'] },
+        ])('parses $text', ({ text, expected }) => {
+            expect(parseList(text)).toEqual(expected)
+        })
+
+        it('filters empty fallback keys from config', async () => {
+            const originalFallbackKeys = process.env.TEMPORAL_FALLBACK_SECRET_KEYS
+            process.env.TEMPORAL_FALLBACK_SECRET_KEYS = 'a,,b,'
+
+            try {
+                jest.resetModules()
+                const { config } = await import('../config.js')
+                expect(config.fallbackKeys).toEqual(['a', 'b'])
+            } finally {
+                if (originalFallbackKeys === undefined) {
+                    delete process.env.TEMPORAL_FALLBACK_SECRET_KEYS
+                } else {
+                    process.env.TEMPORAL_FALLBACK_SECRET_KEYS = originalFallbackKeys
+                }
+                jest.resetModules()
+            }
+        })
+    })
+
     describe('validateInput', () => {
         it('accepts valid input', () => {
             expect(() => validateInput(baseInput())).not.toThrow()

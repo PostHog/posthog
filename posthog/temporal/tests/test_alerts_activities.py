@@ -22,10 +22,9 @@ from posthog.schema import (
 )
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.models import AlertConfiguration, Insight, User
-from posthog.models.alert import AlertCheck
-from posthog.tasks.alerts.utils import AlertEvaluationResult
-from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
+from posthog.models import User
+from posthog.tasks.alerts.utils import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, AlertEvaluationResult
+from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
@@ -33,6 +32,9 @@ from posthog.temporal.alerts.types import (
     PrepareAlertActivityInputs,
     SkipReason,
 )
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
+from products.product_analytics.backend.models.insight import Insight
 
 
 def _valid_trends_query() -> dict:
@@ -43,6 +45,10 @@ def _valid_trends_query() -> dict:
     ).model_dump()
 
 
+def _default_threshold_configuration() -> dict:
+    return {"type": "absolute", "bounds": {"upper": 100.0}}
+
+
 async def _create_alert(
     ateam,
     *,
@@ -51,6 +57,7 @@ async def _create_alert(
     calculation_interval: str = AlertCalculationInterval.DAILY.value,
     config: dict | None = None,
     condition: dict | None = None,
+    threshold_configuration: dict | None = None,
     next_check_at: datetime | None = None,
     snoozed_until: datetime | None = None,
     skip_weekend: bool = False,
@@ -66,6 +73,11 @@ async def _create_alert(
             query=query if query is not None else _valid_trends_query(),
             deleted=insight_deleted,
         )
+        threshold = Threshold.objects.create(
+            team=ateam,
+            insight=insight,
+            configuration=threshold_configuration or _default_threshold_configuration(),
+        )
         alert = AlertConfiguration.objects.create(
             team=ateam,
             insight=insight,
@@ -74,6 +86,7 @@ async def _create_alert(
             calculation_interval=calculation_interval,
             config=config if config is not None else {"type": "TrendsAlertConfig", "series_index": 0},
             condition=condition if condition is not None else {"type": "absolute_value"},
+            threshold=threshold,
             next_check_at=next_check_at,
             snoozed_until=snoozed_until,
             skip_weekend=skip_weekend,
@@ -98,6 +111,11 @@ async def alert_with_user(ateam, aorganization):
             organization=aorganization, email=f"alerts-{uuid.uuid4().hex[:6]}@posthog.com", password=None
         )
         insight = Insight.objects.create(team=ateam, name="insight", query=_valid_trends_query())
+        threshold = Threshold.objects.create(
+            team=ateam,
+            insight=insight,
+            configuration=_default_threshold_configuration(),
+        )
         a = AlertConfiguration.objects.create(
             team=ateam,
             insight=insight,
@@ -106,6 +124,7 @@ async def alert_with_user(ateam, aorganization):
             calculation_interval=AlertCalculationInterval.DAILY.value,
             config={"type": "TrendsAlertConfig", "series_index": 0},
             condition={"type": "absolute_value"},
+            threshold=threshold,
         )
         a.subscribed_users.add(user)
         return a
@@ -135,7 +154,7 @@ async def _create_alert_check(
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestPrepareAlert:
     async def test_skip_when_alert_not_found(self) -> None:
         env = ActivityEnvironment()
@@ -234,6 +253,22 @@ class TestPrepareAlert:
 
         assert result.action == PrepareAction.EVALUATE
 
+    async def test_auto_disable_when_threshold_bounds_empty(self, ateam) -> None:
+        a = await _create_alert(
+            ateam,
+            threshold_configuration={"type": "absolute", "bounds": {}},
+        )
+
+        env = ActivityEnvironment()
+        result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
+
+        assert result.action == PrepareAction.AUTO_DISABLE
+        assert result.reason == THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=a.pk)
+        assert refreshed.enabled is False
+        assert refreshed.state == AlertState.ERRORED
+
     async def test_auto_disable_when_config_invalid(self, ateam) -> None:
         # Missing required "type" in config makes validate_alert_config raise ValueError.
         a = await _create_alert(ateam, config={"series_index": 0})
@@ -264,7 +299,7 @@ class TestPrepareAlert:
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestEvaluateAlert:
     async def test_evaluate_not_firing_no_breaches(self, alert) -> None:
         with patch(
@@ -349,7 +384,7 @@ class TestEvaluateAlert:
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestNotifyAlert:
     async def test_noop_when_not_firing(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.NOT_FIRING)
@@ -568,3 +603,15 @@ class TestNotifyAlert:
         mock_breaches.assert_called_once()
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+class TestCleanupAlertChecks:
+    async def test_delegates_to_model_classmethod(self) -> None:
+        with patch.object(AlertCheck, "clean_up_old_checks", return_value=7) as mock_cleanup:
+            env = ActivityEnvironment()
+            deleted = await env.run(cleanup_alert_checks)
+
+        mock_cleanup.assert_called_once()
+        assert deleted == 7

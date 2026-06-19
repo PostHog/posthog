@@ -91,16 +91,17 @@ impl FormatConfig {
                 let parser = move |data| {
                     let parsed: Parsed<Vec<AmplitudeEvent>> = format_parse(data)?;
                     let consumed = parsed.consumed;
-                    let result: Vec<_> = parsed
-                        .data
-                        .into_par_iter()
-                        .map(&event_transform)
-                        .filter_map(|x| x.ok())
-                        .flatten()
-                        .collect();
+                    // Propagate the first transform error rather than silently
+                    // dropping events (matches the Mixpanel/Captured paths).
+                    // Each Amplitude input event may produce multiple output
+                    // events (the event itself plus optional identify and group
+                    // identify events), so we collect into Vec<Vec<_>> and
+                    // flatten after the error check.
+                    let result: Result<Vec<Vec<_>>, Error> =
+                        parsed.data.into_par_iter().map(&event_transform).collect();
 
                     Ok(Parsed {
-                        data: result,
+                        data: result?.into_iter().flatten().collect(),
                         consumed,
                     })
                 };

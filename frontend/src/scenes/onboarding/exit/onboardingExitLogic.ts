@@ -62,7 +62,7 @@ export const onboardingExitLogic = kea<onboardingExitLogicType>([
     connect(() => ({
         values: [
             onboardingLogic,
-            ['stepKey', 'onCompleteOnboardingRedirectUrl'],
+            ['currentStepKey', 'onCompleteOnboardingRedirectUrl'],
             organizationLogic,
             ['currentOrganizationId'],
         ],
@@ -122,7 +122,7 @@ export const onboardingExitLogic = kea<onboardingExitLogicType>([
     listeners(({ actions, values }) => ({
         openExitModal: () => {
             // Frontend-only event (no backend counterpart); the delegation success event is fired from the backend.
-            posthog.capture('onboarding exit modal opened', { step_at_open: values.stepKey || null })
+            posthog.capture('onboarding exit modal opened', { step_at_open: values.currentStepKey || null })
             // Snapshot the org so a mid-modal org switch in another tab can't redirect the
             // submission to the wrong org.
             actions.captureOrgIdAtOpen(values.currentOrganizationId ?? null)
@@ -161,7 +161,7 @@ export const onboardingExitLogic = kea<onboardingExitLogicType>([
                 await invitesDelegateCreate(orgId, {
                     target_email: values.targetEmail.trim(),
                     message: values.message.trim(),
-                    step_at_delegation: values.stepKey || '',
+                    step_at_delegation: values.currentStepKey || '',
                 })
                 delegationCommitted = true
                 lemonToast.success(`Invitation sent to ${values.targetEmail.trim()}`)

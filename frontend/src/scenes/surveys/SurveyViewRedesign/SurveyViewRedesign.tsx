@@ -26,7 +26,12 @@ import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotificatio
 import { SurveyNotificationsCallout } from 'scenes/surveys/components/SurveyNotificationsCallout'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { useSurveyResponseColumns } from 'scenes/surveys/hooks/useSurveyResponseColumns'
-import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
+import {
+    canDeleteSurvey,
+    openArchiveSurveyDialog,
+    openDeleteSurveyDialog,
+    openResumeSurveyDialog,
+} from 'scenes/surveys/surveyDialogs'
 import { SurveyHeadline } from 'scenes/surveys/SurveyHeadline'
 import { SurveyTab, surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
@@ -516,27 +521,7 @@ function SurveyStatusAction(): JSX.Element | null {
                 <LemonButton
                     type="secondary"
                     size="small"
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: 'Resume this survey?',
-                            content: (
-                                <div className="text-sm text-secondary">
-                                    Once resumed, the survey will be visible to your users again.
-                                </div>
-                            ),
-                            primaryButton: {
-                                children: 'Resume',
-                                type: 'primary',
-                                onClick: () => resumeSurvey(),
-                                size: 'small',
-                            },
-                            secondaryButton: {
-                                children: 'Cancel',
-                                type: 'tertiary',
-                                size: 'small',
-                            },
-                        })
-                    }}
+                    onClick={() => openResumeSurveyDialog(survey, () => resumeSurvey())}
                 >
                     Resume
                 </LemonButton>

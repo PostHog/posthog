@@ -1,10 +1,14 @@
+import contextvars
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta
-from typing import Union
+from contextlib import AbstractContextManager
+from datetime import date, datetime, timedelta, tzinfo
+from typing import Any, Union
 
 from django.conf import settings
 from django.core.cache import cache
 
+from dateutil.parser import parse as parse_datetime
 from dateutil.relativedelta import MO, SU, relativedelta
 
 from posthog.schema import (
@@ -21,11 +25,13 @@ from posthog.hogql.ast import SelectQuery
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
-from posthog.models.action.action import Action
 from posthog.models.team import WeekStartDay
 from posthog.utils import get_safe_cache
+
+from products.actions.backend.models.action import Action
 
 EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60
 EARLIEST_EVENT_TIMESTAMP = datetime.fromisoformat("1980-01-01T00:00:00Z")
@@ -123,6 +129,52 @@ def _get_earliest_timestamp_cache_key(
         raise ValueError(f"Unsupported node type: {type(node)}")
 
 
+def _coerce_to_datetime(value: Any, tz: tzinfo) -> datetime:
+    """Normalize a min(timestamp) result to a timezone-aware ``datetime``.
+
+    Data warehouse tables may declare their timestamp field as a String or Date
+    column, so the query can return a ``str`` or ``date`` instead of a ``datetime``.
+    Leaving those unconverted breaks downstream date math (``.strftime()`` and
+    ``<`` comparisons), so we resolve them to a concrete ``datetime`` here.
+
+    The result must be timezone-aware: this value becomes the "all time" date_from,
+    which is compared against the timezone-aware date_to. A naive datetime would
+    raise "can't compare offset-naive and offset-aware datetimes". Naive values
+    (e.g. from a ``Date`` column) are interpreted in the team's timezone — the same
+    timezone QueryDateRange buckets in — so the lower bound lines up with the day
+    boundaries the rest of the range uses, rather than UTC midnight.
+    """
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=tz)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=tz)
+    if isinstance(value, str):
+        try:
+            parsed = parse_datetime(value)
+        except (ValueError, TypeError, OverflowError):
+            return EARLIEST_EVENT_TIMESTAMP
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=tz)
+    return EARLIEST_EVENT_TIMESTAMP
+
+
+def _earliest_timestamp_query_tags() -> AbstractContextManager[None]:
+    """Ensure the earliest-timestamp resolution query carries product/feature tags.
+
+    Resolving "all time" date_from runs this query while setting up a date range —
+    often before the main query runner has tagged its execution context. An untagged
+    ClickHouse query raises UntaggedQueryError in local dev. Inherit whatever the
+    caller already set and only fill product/feature when missing, so callers like
+    marketing analytics keep their own attribution.
+    """
+    current = get_query_tags()
+    overrides: dict[str, Any] = {}
+    if current.product is None:
+        overrides["product"] = Product.PRODUCT_ANALYTICS
+    if current.feature is None:
+        overrides["feature"] = Feature.INSIGHT
+    return tags_context(**overrides)
+
+
 def _get_earliest_timestamp_from_node(
     team: Team,
     node: Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode],
@@ -137,7 +189,10 @@ def _get_earliest_timestamp_from_node(
     cache_key = _get_earliest_timestamp_cache_key(team, node)
     cached_result = get_safe_cache(cache_key)
     if cached_result is not None:
-        return cached_result
+        # Coerce on read too: entries cached before the coercion fix shipped hold a raw
+        # str/date for up to the TTL window. Passing them through is idempotent for the
+        # datetime values written after the fix and repairs the stale ones.
+        return _coerce_to_datetime(cached_result, team.timezone_info)
 
     if (
         isinstance(node, DataWarehouseNode)
@@ -149,9 +204,10 @@ def _get_earliest_timestamp_from_node(
         query = _get_event_earliest_timestamp_query(team, node)
 
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
-    result = execute_hogql_query(query=query, team=team)
-    if result and len(result.results) > 0 and len(result.results[0]) > 0:
-        earliest_timestamp = result.results[0][0]
+    with _earliest_timestamp_query_tags():
+        result = execute_hogql_query(query=query, team=team)
+    if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
+        earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
 
     cache.set(cache_key, earliest_timestamp, timeout=EARLIEST_TIMESTAMP_CACHE_TTL)
     return earliest_timestamp
@@ -159,7 +215,7 @@ def _get_earliest_timestamp_from_node(
 
 def get_earliest_timestamp_from_series(
     team: Team,
-    series: list[
+    series: Sequence[
         Union[
             EventsNode, ActionsNode, DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode, GroupNode
         ]
@@ -190,7 +246,12 @@ def get_earliest_timestamp_from_series(
 
     else:
         with ThreadPoolExecutor(max_workers=min(len(nodes), 4)) as executor:
-            futures = [executor.submit(_get_earliest_timestamp_from_node, team, node) for node in nodes]
+            # ThreadPoolExecutor does not inherit contextvars (query tags) by default; copy the
+            # current context into each worker so tagged sync_execute calls don't fail untagged.
+            futures = [
+                executor.submit(contextvars.copy_context().run, _get_earliest_timestamp_from_node, team, node)
+                for node in nodes
+            ]
             timestamps = [future.result() for future in futures]
 
     return min(timestamps)

@@ -5,18 +5,21 @@ import { router } from 'kea-router'
 import { IconGear, IconPlus } from '@posthog/icons'
 
 import api from 'lib/api'
+import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
+import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
+import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { billingLogic, BillingAlertConfig } from 'scenes/billing/billingLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { ProxyRecord } from 'scenes/settings/environment/proxyLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -113,8 +116,28 @@ function buildBillingAlertNotice(
 export const projectNoticeLogic = kea<projectNoticeLogicType>([
     path(['layout', 'navigation', 'projectNoticeLogic']),
     connect(() => ({
-        values: [membersLogic, ['memberCount'], organizationLogic, ['currentOrganizationId']],
-        actions: [eventUsageLogic, ['reportProjectNoticeDismissed', 'reportProjectNoticeShown']],
+        logic: [verifyEmailLogic],
+        values: [
+            membersLogic,
+            ['memberCount'],
+            organizationLogic,
+            ['currentOrganizationId'],
+            // Connecting reverseProxyCheckerLogic mounts it and exposes hasReverseProxy reactively.
+            // A self-managed (DIY) reverse proxy never appears in proxy_records, but it does stamp
+            // $lib_custom_api_host on events, which the checker detects — this keeps the "set up a
+            // reverse proxy" nudge from contradicting the onboarding checklist, which marks the task
+            // complete on the same signal. The checker throttles its own detection query internally.
+            reverseProxyCheckerLogic,
+            ['hasReverseProxy'],
+        ],
+        actions: [
+            eventUsageLogic,
+            ['reportProjectNoticeDismissed', 'reportProjectNoticeShown'],
+            // Mount verifyEmailLogic so the "Send verification email" banner CTA's loader fires.
+            // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the verify-email scene.
+            verifyEmailLogic,
+            ['requestVerificationLink'],
+        ],
     })),
     actions({
         dismissProjectNotice: (dismissKey: string | null) => ({ dismissKey }),
@@ -161,6 +184,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 s.effectiveBillingAlert,
                 router.selectors.currentLocation,
                 s.noticeDismissedThisSession,
+                sceneLogic.selectors.activeSceneId,
+                (state) => liveEventsLogic.findMounted()?.selectors.eventCount(state) ?? 0,
+                // null = not yet checked; we only nudge once detection confirms there's no proxy.
+                s.hasReverseProxy,
             ],
             (
                 organization,
@@ -174,7 +201,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 proxyRecords,
                 effectiveBillingAlert,
                 currentLocation,
-                noticeDismissedThisSession
+                noticeDismissedThisSession,
+                activeSceneId,
+                liveEventCount,
+                hasReverseProxy
             ): ProjectNoticeVariant | null => {
                 if (!organization) {
                     return null
@@ -205,7 +235,11 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 } else if (
                     !isNoticeDismissed('real_project_with_no_events') &&
                     currentTeam &&
-                    !currentTeam.ingested_event
+                    !currentTeam.ingested_event &&
+                    // Belt-and-braces: never claim "no events" while the live activity feed is
+                    // actively rendering events on the same screen — `currentTeam.ingested_event`
+                    // can lag behind the live SSE stream during the first ingestion window.
+                    !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
                 ) {
                     return 'real_project_with_no_events'
                 } else if (hasEventIngestionRestriction) {
@@ -216,7 +250,11 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     isCloudOrDev &&
                     shouldFetchProxyRecords() &&
                     proxyRecords !== null &&
-                    proxyRecords.length === 0
+                    proxyRecords.length === 0 &&
+                    // ...and only once the checker has confirmed there's no self-managed proxy
+                    // routing events. While it's still null (not yet checked) we hold the nudge
+                    // back to avoid flashing it at DIY-proxy users before detection resolves.
+                    hasReverseProxy === false
                 ) {
                     return 'missing_reverse_proxy'
                 } else if (!isNoticeDismissed('invite_teammates') && memberCount === 1) {
@@ -333,7 +371,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                                         onboarding flow
                                     </Link>{' '}
                                     or grab your project API key/HTML snippet from{' '}
-                                    <Link to={urls.settings()} data-attr="real_project_with_no_events-settings">
+                                    <Link
+                                        to={urls.settings('environment-details', 'variables')}
+                                        data-attr="real_project_with_no_events-settings"
+                                    >
                                         Project Settings
                                     </Link>{' '}
                                     to get things moving
@@ -391,19 +432,15 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                         }
                     case 'missing_reverse_proxy':
                         return {
-                            message: (
-                                <>
-                                    Ad blockers can silently drop 10-25% of your events. Set up a{' '}
-                                    <Link
-                                        to={urls.settings('organization-proxy')}
-                                        data-attr="missing-reverse-proxy-settings_link"
-                                    >
-                                        reverse proxy
-                                    </Link>{' '}
-                                    to route data through your own domain and prevent this.
-                                </>
-                            ),
+                            message:
+                                'Ad blockers can silently drop 10-25% of your events. Set up a reverse proxy to route data through your own domain and prevent this.',
                             type: 'info',
+                            action: {
+                                to: urls.settings('organization-proxy'),
+                                'data-attr': 'missing-reverse-proxy-settings_link',
+                                icon: <IconGear />,
+                                children: 'Set up reverse proxy',
+                            },
                             onClose: dismiss,
                         }
                     default:

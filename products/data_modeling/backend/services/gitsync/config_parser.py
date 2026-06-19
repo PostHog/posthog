@@ -65,7 +65,7 @@ from typing import Any
 import yaml
 import structlog
 
-from products.data_warehouse.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
+from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
 
 logger = structlog.get_logger(__name__)
 

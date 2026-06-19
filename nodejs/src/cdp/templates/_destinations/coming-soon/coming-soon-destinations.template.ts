@@ -973,6 +973,32 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Productivity'],
     },
 
+    // SIEM
+    {
+        name: 'Datadog SIEM',
+        id: 'coming-soon-datadog-siem',
+        icon_url: '/static/coming-soon-destinations/Datadog.svg',
+        category: ['SIEM'],
+    },
+    {
+        name: 'Elastic Security',
+        id: 'coming-soon-elastic-security',
+        icon_url: '/static/coming-soon-destinations/Elastic_Security.svg',
+        category: ['SIEM'],
+    },
+    {
+        name: 'Microsoft Sentinel',
+        id: 'coming-soon-microsoft-sentinel',
+        icon_url: '/static/coming-soon-destinations/Microsoft_Sentinel.svg',
+        category: ['SIEM'],
+    },
+    {
+        name: 'Splunk',
+        id: 'coming-soon-splunk',
+        icon_url: '/static/coming-soon-destinations/Splunk.svg',
+        category: ['SIEM'],
+    },
+
     // Serverless
     {
         name: 'AWS Lambda',

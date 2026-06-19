@@ -7,7 +7,10 @@ def backfill_subscription_integration(apps, schema_editor):
     Uses the integration with the lowest id per team, matching the
     existing get_slack_integration_for_team .first() behavior.
     """
-    Subscription = apps.get_model("posthog", "Subscription")
+    try:
+        Subscription = apps.get_model("posthog", "Subscription")
+    except LookupError:
+        Subscription = apps.get_model("exports", "Subscription")
     Integration = apps.get_model("posthog", "Integration")
 
     slack_subs = list(

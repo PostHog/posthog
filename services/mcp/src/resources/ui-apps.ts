@@ -36,10 +36,15 @@ export function buildAppStubHtml(appDir: string, baseUrl: string): string {
  *
  * Each tool type can have its own visualization registered here.
  */
+let warnedMissingBaseUrl = false
+
 export async function registerUiAppResources(server: McpServer, context: Context): Promise<void> {
     const baseUrl = context.env.MCP_APPS_BASE_URL
     if (!baseUrl) {
-        console.warn('MCP_APPS_BASE_URL is not set — UI app resources will not be registered')
+        if (!warnedMissingBaseUrl) {
+            warnedMissingBaseUrl = true
+            console.warn('MCP_APPS_BASE_URL is not set — UI app resources will not be registered')
+        }
         return
     }
 

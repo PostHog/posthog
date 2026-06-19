@@ -13,6 +13,9 @@ class NotificationType(str, Enum):
     APPROVAL_RESOLVED = "approval_resolved"
     EXPERIMENT_CONCLUDED = "experiment_concluded"
     PIPELINE_FAILURE = "pipeline_failure"
+    PROJECT_CREATED = "project_created"
+    USAGE_SPIKE = "usage_spike"
+    WEB_ANALYTICS_DIGEST = "web_analytics_digest"
 
 
 class Priority(str, Enum):
@@ -36,6 +39,7 @@ class SourceType(str, Enum):
     SURVEY = "survey"
     EXPERIMENT = "experiment"
     ERROR_TRACKING = "error_tracking"
+    CUSTOMER_ANALYTICS = "customer_analytics"
 
 
 class NotificationOnlyResourceType(str, Enum):

@@ -1,14 +1,11 @@
-import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
+import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 
 import { isOkResult } from '../pipelines/results'
 import { createLoadErrorTrackingSettingsStep } from './load-error-tracking-settings-step'
 
 describe('createLoadErrorTrackingSettingsStep', () => {
     const buildManager = (
-        settingsByTeam: Record<
-            string,
-            { projectRateLimitValue: number | null; projectRateLimitBucketSizeMinutes: number | null } | null
-        >
+        settingsByTeam: Record<string, ErrorTrackingSettings | null>
     ): jest.Mocked<Pick<ErrorTrackingSettingsManager, 'getSettings'>> => ({
         getSettings: jest.fn((teamId: number) => Promise.resolve(settingsByTeam[String(teamId)] ?? null)),
     })
@@ -27,7 +24,12 @@ describe('createLoadErrorTrackingSettingsStep', () => {
 
     it('attaches the loaded settings', async () => {
         const manager = buildManager({
-            '1': { projectRateLimitValue: 100, projectRateLimitBucketSizeMinutes: 5 },
+            '1': {
+                projectRateLimitValue: 100,
+                projectRateLimitBucketSizeMinutes: 5,
+                perIssueRateLimitValue: 20,
+                perIssueRateLimitBucketSizeMinutes: 15,
+            },
         })
         const step = createLoadErrorTrackingSettingsStep(manager as unknown as ErrorTrackingSettingsManager)
 
@@ -38,6 +40,8 @@ describe('createLoadErrorTrackingSettingsStep', () => {
             expect(result.value.errorTrackingSettings).toEqual({
                 projectRateLimitValue: 100,
                 projectRateLimitBucketSizeMinutes: 5,
+                perIssueRateLimitValue: 20,
+                perIssueRateLimitBucketSizeMinutes: 15,
             })
         }
     })

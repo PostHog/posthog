@@ -17,6 +17,9 @@ import type {
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
     PaginatedMessageTemplateListApi,
+    PatchedDesignPatchApi,
+    PatchedMessageCategoryApi,
+    PatchedMessageTemplateApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -41,15 +44,15 @@ export const getMessagingCategoriesListUrl = (projectId: string, params?: Messag
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/messaging_categories/?${stringifiedParams}`
-        : `/api/environments/${projectId}/messaging_categories/`
+        ? `/api/projects/${projectId}/messaging_categories/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_categories/`
 }
 
 export const messagingCategoriesList = async (
@@ -64,7 +67,7 @@ export const messagingCategoriesList = async (
 }
 
 export const getMessagingCategoriesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/`
+    return `/api/projects/${projectId}/messaging_categories/`
 }
 
 export const messagingCategoriesCreate = async (
@@ -80,14 +83,83 @@ export const messagingCategoriesCreate = async (
     })
 }
 
+export const getMessagingCategoriesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_categories/${id}/`
+}
+
+export const messagingCategoriesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MessageCategoryApi> => {
+    return apiMutator<MessageCategoryApi>(getMessagingCategoriesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingCategoriesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_categories/${id}/`
+}
+
+export const messagingCategoriesUpdate = async (
+    projectId: string,
+    id: string,
+    messageCategoryApi: NonReadonly<MessageCategoryApi>,
+    options?: RequestInit
+): Promise<MessageCategoryApi> => {
+    return apiMutator<MessageCategoryApi>(getMessagingCategoriesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(messageCategoryApi),
+    })
+}
+
+export const getMessagingCategoriesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_categories/${id}/`
+}
+
+export const messagingCategoriesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedMessageCategoryApi?: NonReadonly<PatchedMessageCategoryApi>,
+    options?: RequestInit
+): Promise<MessageCategoryApi> => {
+    return apiMutator<MessageCategoryApi>(getMessagingCategoriesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedMessageCategoryApi),
+    })
+}
+
+export const getMessagingCategoriesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_categories/${id}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const messagingCategoriesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getMessagingCategoriesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getMessagingCategoriesImportFromCustomerioCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/import_from_customerio/`
+    return `/api/projects/${projectId}/messaging_categories/import_from_customerio/`
 }
 
 /**
  * Import subscription topics and globally unsubscribed users from Customer.io API.
-Persists the App API key in Integration(kind="customerio-app").
-If no app_api_key is provided, reuses the stored Integration key.
+ * Persists the App API key in Integration(kind="customerio-app").
+ * If no app_api_key is provided, reuses the stored Integration key.
  */
 export const messagingCategoriesImportFromCustomerioCreate = async (
     projectId: string,
@@ -103,12 +175,12 @@ export const messagingCategoriesImportFromCustomerioCreate = async (
 }
 
 export const getMessagingCategoriesImportPreferencesCsvCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/import_preferences_csv/`
+    return `/api/projects/${projectId}/messaging_categories/import_preferences_csv/`
 }
 
 /**
  * Import customer preferences from CSV file
-Expected CSV columns: id, email, cio_subscription_preferences
+ * Expected CSV columns: id, email, cio_subscription_preferences
  */
 export const messagingCategoriesImportPreferencesCsvCreate = async (
     projectId: string,
@@ -139,12 +211,12 @@ export const messagingCategoriesImportPreferencesCsvCreate = async (
 }
 
 export const getMessagingCategoriesOptoutSyncConfigRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/optout_sync_config/`
+    return `/api/projects/${projectId}/messaging_categories/optout_sync_config/`
 }
 
 /**
  * Get the Customer.io sync configuration state for this team.
-Used by the frontend to derive step completion.
+ * Used by the frontend to derive step completion.
  */
 export const messagingCategoriesOptoutSyncConfigRetrieve = async (
     projectId: string,
@@ -157,7 +229,7 @@ export const messagingCategoriesOptoutSyncConfigRetrieve = async (
 }
 
 export const getMessagingCategoriesRemoveCustomerioAppConfigDestroyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/remove_customerio_app_config/`
+    return `/api/projects/${projectId}/messaging_categories/remove_customerio_app_config/`
 }
 
 /**
@@ -174,7 +246,7 @@ export const messagingCategoriesRemoveCustomerioAppConfigDestroy = async (
 }
 
 export const getMessagingCategoriesRemoveTrackConfigDestroyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/remove_track_config/`
+    return `/api/projects/${projectId}/messaging_categories/remove_track_config/`
 }
 
 /**
@@ -191,7 +263,7 @@ export const messagingCategoriesRemoveTrackConfigDestroy = async (
 }
 
 export const getMessagingCategoriesRemoveWebhookConfigDestroyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/remove_webhook_config/`
+    return `/api/projects/${projectId}/messaging_categories/remove_webhook_config/`
 }
 
 /**
@@ -208,17 +280,17 @@ export const messagingCategoriesRemoveWebhookConfigDestroy = async (
 }
 
 export const getMessagingCategoriesSaveTrackConfigCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/save_track_config/`
+    return `/api/projects/${projectId}/messaging_categories/save_track_config/`
 }
 
 /**
  * Save Customer.io Track API credentials and/or toggle outbound sync.
-
-Accepts:
-  - site_id (optional): set on first creation only
-  - api_key (optional): set on first creation only
-  - region (optional): "us" or "eu", set on first creation only
-  - track_enabled (required): enable or disable outbound sync
+ *
+ * Accepts:
+ *   - site_id (optional): set on first creation only
+ *   - api_key (optional): set on first creation only
+ *   - region (optional): "us" or "eu", set on first creation only
+ *   - track_enabled (required): enable or disable outbound sync
  */
 export const messagingCategoriesSaveTrackConfigCreate = async (
     projectId: string,
@@ -234,15 +306,15 @@ export const messagingCategoriesSaveTrackConfigCreate = async (
 }
 
 export const getMessagingCategoriesSaveWebhookConfigCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/save_webhook_config/`
+    return `/api/projects/${projectId}/messaging_categories/save_webhook_config/`
 }
 
 /**
  * Save webhook signing secret and/or toggle the Customer.io webhook sync.
-
-Accepts:
-  - webhook_signing_secret (optional): set on first creation only
-  - webhook_enabled (required): enable or disable the webhook
+ *
+ * Accepts:
+ *   - webhook_signing_secret (optional): set on first creation only
+ *   - webhook_enabled (required): enable or disable the webhook
  */
 export const messagingCategoriesSaveWebhookConfigCreate = async (
     projectId: string,
@@ -258,7 +330,7 @@ export const messagingCategoriesSaveWebhookConfigCreate = async (
 }
 
 export const getMessagingPreferencesAddOptOutCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_preferences/add_opt_out/`
+    return `/api/projects/${projectId}/messaging_preferences/add_opt_out/`
 }
 
 /**
@@ -279,7 +351,7 @@ export const messagingPreferencesAddOptOutCreate = async (
 }
 
 export const getMessagingPreferencesGenerateLinkCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_preferences/generate_link/`
+    return `/api/projects/${projectId}/messaging_preferences/generate_link/`
 }
 
 /**
@@ -296,7 +368,7 @@ export const messagingPreferencesGenerateLinkCreate = async (
 }
 
 export const getMessagingPreferencesOptOutsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_preferences/opt_outs/`
+    return `/api/projects/${projectId}/messaging_preferences/opt_outs/`
 }
 
 /**
@@ -310,7 +382,7 @@ export const messagingPreferencesOptOutsRetrieve = async (projectId: string, opt
 }
 
 export const getMessagingPreferencesWebhookUrlRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_preferences/webhook_url/`
+    return `/api/projects/${projectId}/messaging_preferences/webhook_url/`
 }
 
 /**
@@ -331,15 +403,15 @@ export const getMessagingTemplatesListUrl = (projectId: string, params?: Messagi
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/messaging_templates/?${stringifiedParams}`
-        : `/api/environments/${projectId}/messaging_templates/`
+        ? `/api/projects/${projectId}/messaging_templates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_templates/`
 }
 
 export const messagingTemplatesList = async (
@@ -354,7 +426,7 @@ export const messagingTemplatesList = async (
 }
 
 export const getMessagingTemplatesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_templates/`
+    return `/api/projects/${projectId}/messaging_templates/`
 }
 
 export const messagingTemplatesCreate = async (
@@ -367,5 +439,92 @@ export const messagingTemplatesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(messageTemplateApi),
+    })
+}
+
+export const getMessagingTemplatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/`
+}
+
+export const messagingTemplatesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MessageTemplateApi> => {
+    return apiMutator<MessageTemplateApi>(getMessagingTemplatesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingTemplatesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/`
+}
+
+export const messagingTemplatesUpdate = async (
+    projectId: string,
+    id: string,
+    messageTemplateApi: NonReadonly<MessageTemplateApi>,
+    options?: RequestInit
+): Promise<MessageTemplateApi> => {
+    return apiMutator<MessageTemplateApi>(getMessagingTemplatesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(messageTemplateApi),
+    })
+}
+
+export const getMessagingTemplatesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/`
+}
+
+export const messagingTemplatesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedMessageTemplateApi?: NonReadonly<PatchedMessageTemplateApi>,
+    options?: RequestInit
+): Promise<MessageTemplateApi> => {
+    return apiMutator<MessageTemplateApi>(getMessagingTemplatesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedMessageTemplateApi),
+    })
+}
+
+export const getMessagingTemplatesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const messagingTemplatesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getMessagingTemplatesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getMessagingTemplatesDesignPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/design/`
+}
+
+export const messagingTemplatesDesignPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDesignPatchApi?: PatchedDesignPatchApi,
+    options?: RequestInit
+): Promise<MessageTemplateApi> => {
+    return apiMutator<MessageTemplateApi>(getMessagingTemplatesDesignPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDesignPatchApi),
     })
 }

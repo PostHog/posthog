@@ -93,6 +93,7 @@ describe('createQueryWrapper _posthogUrl', () => {
         context: Context
         trendsActors: ReturnType<typeof vi.fn>
         lifecycleActors: ReturnType<typeof vi.fn>
+        pathsActors: ReturnType<typeof vi.fn>
     } {
         const actorsResponse = {
             query: { kind: 'ActorsQuery', source: { kind: 'InsightActorsQuery' } },
@@ -102,14 +103,15 @@ describe('createQueryWrapper _posthogUrl', () => {
         }
         const trendsActors = vi.fn().mockResolvedValue(actorsResponse)
         const lifecycleActors = vi.fn().mockResolvedValue(actorsResponse)
+        const pathsActors = vi.fn().mockResolvedValue(actorsResponse)
         const context = {
             api: {
-                query: vi.fn().mockReturnValue({ trendsActors, lifecycleActors }),
+                query: vi.fn().mockReturnValue({ trendsActors, lifecycleActors, pathsActors }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
             stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
         } as unknown as Context
-        return { context, trendsActors, lifecycleActors }
+        return { context, trendsActors, lifecycleActors, pathsActors }
     }
 
     const actorsSchema = z.object({
@@ -136,6 +138,18 @@ describe('createQueryWrapper _posthogUrl', () => {
 
         expect(lifecycleActors).toHaveBeenCalledOnce()
         expect(trendsActors).not.toHaveBeenCalled()
+        expect(result._posthogUrl).toContain('DataTableNode')
+    })
+
+    it('dispatches PathsQuery source to pathsActors', async () => {
+        const { context, trendsActors, lifecycleActors, pathsActors } = createActorsDispatchContext()
+        const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
+
+        const result = (await tool.handler(context, { source: { kind: 'PathsQuery' } })) as any
+
+        expect(pathsActors).toHaveBeenCalledOnce()
+        expect(trendsActors).not.toHaveBeenCalled()
+        expect(lifecycleActors).not.toHaveBeenCalled()
         expect(result._posthogUrl).toContain('DataTableNode')
     })
 
@@ -293,6 +307,7 @@ describe('createQueryWrapper actors dispatch', () => {
                     runQuery: vi.fn(),
                     trendsActors: vi.fn(),
                     lifecycleActors: vi.fn(),
+                    pathsActors: vi.fn(),
                 }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
@@ -308,8 +323,8 @@ describe('createQueryWrapper actors dispatch', () => {
         const factory = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })
         const tool = factory()
 
-        await expect(tool.handler(context, { source: { kind: 'PathsQuery' } })).rejects.toThrow(
-            'Unsupported source kind for actors query: PathsQuery'
+        await expect(tool.handler(context, { source: { kind: 'RetentionQuery' } })).rejects.toThrow(
+            'Unsupported source kind for actors query: RetentionQuery'
         )
     })
 })

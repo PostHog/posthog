@@ -42,5 +42,5 @@ class LLMTracesSummarizerCollector:
                     value=None,
                 )
             ],
-            tags=QueryLogTags(productKey="LLMAnalytics"),
+            tags=QueryLogTags(productKey="AIObservability"),
         )

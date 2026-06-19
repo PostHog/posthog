@@ -1,10 +1,16 @@
 import re
 import json
-from typing import Any, Optional, Union, get_args, get_origin
+from typing import Any, Optional, Union, cast, get_args, get_origin
 
+import structlog
+from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
+from rest_framework.request import Request
 
 from posthog.cloud_utils import is_cloud
+from posthog.email import is_email_available
+from posthog.models import User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.instance_setting import (
     get_instance_setting as get_instance_setting_raw,
     set_instance_setting as set_instance_setting_raw,
@@ -16,7 +22,21 @@ from posthog.settings import (
     SETTINGS_ALLOWING_API_OVERRIDE,
     SKIP_ASYNC_MIGRATIONS_SETUP,
 )
+from posthog.tasks.email import send_canary_email
 from posthog.utils import str_to_bool
+
+logger = structlog.get_logger(__name__)
+
+REDACTED = "<redacted>"
+UNSET = "<unset>"
+
+
+def _redact_if_secret(key: str, value: Any) -> Any:
+    if key not in SECRET_SETTINGS:
+        return value
+    if value is None or value == "":
+        return UNSET
+    return REDACTED
 
 
 def cast_str_to_desired_type(value: Any, target_type: type) -> Any:
@@ -111,6 +131,10 @@ class InstanceSettingsSerializer(serializers.Serializer):
         if validated_data["value"] is None:
             raise serializers.ValidationError({"value": "This field is required."}, code="required")
 
+        request = self.context.get("request")
+
+        before_value = get_instance_setting_raw(instance.key)
+
         target_type: type = CONSTANCE_CONFIG[instance.key][2]
         if target_type is bool and isinstance(validated_data["value"], bool):
             new_value_parsed = validated_data["value"]
@@ -135,17 +159,58 @@ class InstanceSettingsSerializer(serializers.Serializer):
         set_instance_setting_raw(instance.key, new_value_parsed)
         instance.value = new_value_parsed
 
-        if instance.key.startswith("EMAIL_") and "request" in self.context:
-            from posthog.tasks.email import send_canary_email
+        if request is not None:
+            self._log_setting_change(request, instance.key, before_value, new_value_parsed)
 
-            send_canary_email.apply_async(kwargs={"user_email": self.context["request"].user.email})
-        elif instance.key.startswith("ASYNC_MIGRATION"):
+            if instance.key.startswith("EMAIL_"):
+                # Partial EMAIL_* updates (e.g. setting EMAIL_HOST_PASSWORD before EMAIL_HOST)
+                # would otherwise raise ImproperlyConfigured and fail the request with a 500.
+                if is_email_available(with_absolute_urls=True):
+                    send_canary_email.apply_async(kwargs={"user_email": request.user.email})
+
+        if instance.key.startswith("ASYNC_MIGRATION") and not SKIP_ASYNC_MIGRATIONS_SETUP:
             from posthog.async_migrations.setup import setup_async_migrations
 
-            if not SKIP_ASYNC_MIGRATIONS_SETUP:
-                setup_async_migrations()
+            setup_async_migrations()
 
         return instance
+
+    def _log_setting_change(self, request: Request, key: str, before_value: Any, new_value: Any) -> None:
+        if before_value == new_value:
+            return
+
+        # IsAuthenticated + IsStaffUser permission classes guarantee this is a real User.
+        user = cast(User, request.user)
+        organization = user.organization
+        if organization is None:
+            logger.warning(
+                "instance_settings_audit_log_skipped_no_organization",
+                user_id=user.id,
+                key=key,
+            )
+            return
+
+        log_activity(
+            organization_id=organization.id,
+            team_id=None,
+            user=user,
+            was_impersonated=is_impersonated_session(request),
+            item_id=key,
+            scope="InstanceSetting",
+            activity="updated",
+            detail=Detail(
+                name=key,
+                changes=[
+                    Change(
+                        type="InstanceSetting",
+                        field=key,
+                        action="changed",
+                        before=_redact_if_secret(key, before_value),
+                        after=_redact_if_secret(key, new_value),
+                    )
+                ],
+            ),
+        )
 
 
 class InstanceSettingsViewset(

@@ -1,0 +1,80 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Engineering analytics
+feature: engineering_analytics
+url_prefix: /engineering-analytics
+ui_apps: {}
+tools:
+    engineering-analytics-ci-cards:
+        operation: engineering_analytics_ci_cards
+        enabled: false
+    pr-lifecycle:
+        operation: engineering_analytics_pr_lifecycle
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: PR lifecycle timeline
+        description: >
+            The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus
+            ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer "where is this PR
+            stuck and what happened to it". metric_quality is "partial" — it covers CI events only; review and comment
+            events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.
+        param_overrides:
+            pr_number:
+                description: Pull request number to inspect.
+            repo:
+                description: Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
+    pull-requests:
+        operation: engineering_analytics_pull_requests
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List pull requests with CI status
+        description: >
+            Open pull requests plus any merged or closed within the window, newest first, each with its head-SHA CI
+            rollup (runs / passing / failing / pending). Use this for "which PRs are stuck", "which open PRs have
+            failing or pending CI", and per-author or per-repo PR triage. open_to_merge_seconds is coarse — it is
+            merged_at minus created_at and fuses draft and ready-for-review time, so report it as "open to merge", never
+            "cycle time". CI counts come from the latest run per workflow on the head SHA and can lag until the
+            workflow_run webhook settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft)
+            for throughput questions.
+        param_overrides:
+            date_from:
+                description: >
+                    Recency floor for merged/closed PRs — relative ('-30d', '-8w') or ISO8601. Open PRs are always
+                    included regardless of age. Defaults to -30d.
+    workflow-health:
+        operation: engineering_analytics_workflow_health
+        enabled: true
+        scopes:
+            - engineering_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Per-workflow CI health
+        description: >
+            Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use
+            this for "is CI getting faster or slower", "which GitHub Actions workflow is the slow or flaky long pole",
+            and CI duration trends. Rates and percentiles are over completed runs only and are null for a window with no
+            completed runs; to get a trend, call this over two adjacent windows and compare.
+        param_overrides:
+            date_from:
+                description: Window start — relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+            date_to:
+                description: Window end — relative or ISO8601. Defaults to now.
+        url_prefix: /engineering-analytics/workflows

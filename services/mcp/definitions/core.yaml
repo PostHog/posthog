@@ -16,30 +16,16 @@ ui_apps:
         type: custom
         app_name: Query Results
         description: Interactive visualization for PostHog query results
+    render-ui:
+        type: custom
+        app_name: PostHog Render UI
+        description: Renders the visualization for a PostHog MCP tool result
 tools:
     activity-retrieve:
         operation: organizations_projects_activity_retrieve
         enabled: false
     add-product-intent-partial-update:
         operation: organizations_projects_add_product_intent_partial_update
-        enabled: false
-    annotations-create:
-        operation: annotations_create
-        enabled: false
-    annotations-destroy:
-        operation: annotations_destroy
-        enabled: false
-    annotations-list:
-        operation: annotations_list
-        enabled: false
-    annotations-partial-update:
-        operation: annotations_partial_update
-        enabled: false
-    annotations-retrieve:
-        operation: annotations_retrieve
-        enabled: false
-    annotations-update:
-        operation: annotations_update
         enabled: false
     change-organization-create:
         operation: organizations_projects_change_organization_create
@@ -56,137 +42,8 @@ tools:
     cimd-verification-tokens-retrieve:
         operation: cimd_verification_tokens_retrieve
         enabled: false
-    cohorts-activity-retrieve:
-        operation: cohorts_activity_retrieve
-        enabled: false
-    cohorts-add-persons-to-static-cohort-partial-update:
-        operation: cohorts_add_persons_to_static_cohort_partial_update
-        enabled: false
-    cohorts-all-activity-retrieve:
-        operation: cohorts_all_activity_retrieve
-        enabled: false
-    cohorts-calculation-history-retrieve:
-        operation: cohorts_calculation_history_retrieve
-        enabled: false
-    cohorts-create:
-        operation: cohorts_create
-        enabled: false
-    cohorts-destroy:
-        operation: cohorts_destroy
-        enabled: false
-    cohorts-list:
-        operation: cohorts_list
-        enabled: false
-    cohorts-partial-update:
-        operation: cohorts_partial_update
-        enabled: false
-    cohorts-persons-retrieve:
-        operation: cohorts_persons_retrieve
-        enabled: false
-    cohorts-remove-person-from-static-cohort-partial-update:
-        operation: cohorts_remove_person_from_static_cohort_partial_update
-        enabled: false
-    cohorts-retrieve:
-        operation: cohorts_retrieve
-        enabled: false
-    cohorts-update:
-        operation: cohorts_update
-        enabled: false
-    comments-complete-create:
-        operation: comments_complete_create
-        enabled: false
-    comments-count-retrieve:
-        operation: comments_count_retrieve
-        enabled: false
-    comments-create:
-        operation: comments_create
-        enabled: false
-    comments-destroy:
-        operation: comments_destroy
-        enabled: false
-    comments-list:
-        operation: comments_list
-        enabled: false
-    comments-partial-update:
-        operation: comments_partial_update
-        enabled: false
-    comments-reopen-create:
-        operation: comments_reopen_create
-        enabled: false
-    comments-retrieve:
-        operation: comments_retrieve
-        enabled: false
-    comments-thread-retrieve:
-        operation: comments_thread_retrieve
-        enabled: false
-    comments-update:
-        operation: comments_update
-        enabled: false
     complete-product-onboarding-partial-update:
         operation: organizations_projects_complete_product_onboarding_partial_update
-        enabled: false
-    dashboard-templates-copy-between-projects-create:
-        operation: dashboard_templates_copy_between_projects_create
-        enabled: false
-    dashboard-templates-create:
-        operation: dashboard_templates_create
-        enabled: false
-    dashboard-templates-destroy:
-        operation: dashboard_templates_destroy
-        enabled: false
-    dashboard-templates-json-schema-retrieve:
-        operation: dashboard_templates_json_schema_retrieve
-        enabled: false
-    dashboard-templates-list:
-        operation: dashboard_templates_list
-        enabled: false
-    dashboard-templates-partial-update:
-        operation: dashboard_templates_partial_update
-        enabled: false
-    dashboard-templates-retrieve:
-        operation: dashboard_templates_retrieve
-        enabled: false
-    dashboard-templates-update:
-        operation: dashboard_templates_update
-        enabled: false
-    dashboards-analyze-refresh-result-create:
-        operation: dashboards_analyze_refresh_result_create
-        enabled: false
-    dashboards-bulk-update-tags-create:
-        operation: dashboards_bulk_update_tags_create
-        enabled: false
-    dashboards-copy-tile-create:
-        operation: dashboards_copy_tile_create
-        enabled: false
-    dashboards-create:
-        operation: dashboards_create
-        enabled: false
-    dashboards-create-from-template-json-create:
-        operation: dashboards_create_from_template_json_create
-        enabled: false
-    dashboards-create-unlisted-dashboard-create:
-        operation: dashboards_create_unlisted_dashboard_create
-        enabled: false
-    dashboards-destroy:
-        operation: dashboards_destroy
-        enabled: false
-    dashboards-list:
-        operation: dashboards_list
-        enabled: false
-    dashboards-move-tile-partial-update:
-        operation: dashboards_move_tile_partial_update
-        enabled: false
-    dashboards-partial-update:
-        operation: dashboards_partial_update
-        enabled: false
-    dashboards-reorder-tiles-create:
-        operation: dashboards_reorder_tiles_create
-        enabled: false
-    dashboards-retrieve:
-        operation: dashboards_retrieve
-        enabled: false
-    dashboards-run-insights-retrieve:
-        operation: dashboards_run_insights_retrieve
         enabled: false
     dashboards-sharing-list:
         operation: dashboards_sharing_list
@@ -200,17 +57,178 @@ tools:
     dashboards-sharing-refresh-create:
         operation: dashboards_sharing_refresh_create
         enabled: false
-    dashboards-snapshot-create:
-        operation: dashboards_snapshot_create
-        enabled: false
-    dashboards-stream-tiles-retrieve:
-        operation: dashboards_stream_tiles_retrieve
-        enabled: false
-    dashboards-update:
-        operation: dashboards_update
-        enabled: false
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
+        enabled: false
+    desktop-file-system-context-generation-retrieve:
+        operation: desktop_file_system_context_generation_retrieve
+        enabled: false
+    desktop-file-system-context-generation-update:
+        operation: desktop_file_system_context_generation_update
+        enabled: false
+    desktop-file-system-count-by-path-create:
+        operation: desktop_file_system_count_by_path_create
+        enabled: false
+    desktop-file-system-count-create:
+        operation: desktop_file_system_count_create
+        enabled: false
+    desktop-file-system-create:
+        operation: desktop_file_system_create
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create desktop channel
+        description: >
+            Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are
+            created automatically) and `type: folder`. A blank instruction set is created for the channel automatically;
+            use the desktop-file-system-instructions-partial-update tool to fill it in.
+        param_overrides:
+            path:
+                description: >
+                    Slash-delimited location of the channel, e.g. "Marketing/Q1 Campaigns". Intermediate folders are
+                    created automatically.
+            type:
+                description: Use "folder" to create a channel.
+    desktop-file-system-destroy:
+        operation: desktop_file_system_destroy
+        enabled: false
+    desktop-file-system-instructions-destroy:
+        operation: desktop_file_system_instructions_destroy
+        enabled: false
+    desktop-file-system-instructions-partial-update:
+        operation: desktop_file_system_instructions_partial_update
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update channel instructions
+        description: >
+            Publish a new version of a channel's markdown instructions, describing what the channel contains. The `id`
+            is the channel (folder) id. Each call creates a new version. To erase a channel's instructions, publish
+            empty `content` — this clears the text while keeping the instruction set in place (the instruction set
+            itself cannot be deleted).
+        param_overrides:
+            id:
+                description: ID of the channel (desktop folder) whose instructions to update.
+            content:
+                description: >
+                    Full markdown instructions to publish. Pass an empty string to erase the channel's instructions
+                    while keeping the instruction set.
+    desktop-file-system-instructions-retrieve:
+        operation: desktop_file_system_instructions_retrieve
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get channel instructions
+        description: |
+            Get the latest markdown instructions for a channel (desktop folder).
+        param_overrides:
+            id:
+                description: ID of the channel (desktop folder) whose instructions to fetch.
+    desktop-file-system-instructions-update:
+        operation: desktop_file_system_instructions_update
+        enabled: false
+    desktop-file-system-instructions-versions-list:
+        operation: desktop_file_system_instructions_versions_list
+        enabled: false
+    desktop-file-system-link-create:
+        operation: desktop_file_system_link_create
+        enabled: false
+    desktop-file-system-list:
+        operation: desktop_file_system_list
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List desktop channels
+        description: >
+            List channels and items on the desktop surface. Filter with query params such as `type` (e.g. "folder"),
+            `parent`, `path`, `depth`, or `search`.
+    desktop-file-system-log-view-create:
+        operation: desktop_file_system_log_view_create
+        enabled: false
+    desktop-file-system-log-view-retrieve:
+        operation: desktop_file_system_log_view_retrieve
+        enabled: false
+    desktop-file-system-move-create:
+        operation: desktop_file_system_move_create
+        enabled: false
+    desktop-file-system-partial-update:
+        operation: desktop_file_system_partial_update
+        enabled: false
+    desktop-file-system-retrieve:
+        operation: desktop_file_system_retrieve
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get desktop channel
+        description: |
+            Retrieve a single channel or item on the desktop surface by id.
+    desktop-file-system-shortcut-create:
+        operation: desktop_file_system_shortcut_create
+        enabled: false
+    desktop-file-system-shortcut-destroy:
+        operation: desktop_file_system_shortcut_destroy
+        enabled: false
+    desktop-file-system-shortcut-list:
+        operation: desktop_file_system_shortcut_list
+        enabled: false
+    desktop-file-system-shortcut-partial-update:
+        operation: desktop_file_system_shortcut_partial_update
+        enabled: false
+    desktop-file-system-shortcut-reorder-create:
+        operation: desktop_file_system_shortcut_reorder_create
+        enabled: false
+    desktop-file-system-shortcut-retrieve:
+        operation: desktop_file_system_shortcut_retrieve
+        enabled: false
+    desktop-file-system-shortcut-update:
+        operation: desktop_file_system_shortcut_update
+        enabled: false
+    desktop-file-system-undo-delete-create:
+        operation: desktop_file_system_undo_delete_create
+        enabled: false
+    desktop-file-system-unfiled-retrieve:
+        operation: desktop_file_system_unfiled_retrieve
+        enabled: false
+    desktop-file-system-update:
+        operation: desktop_file_system_update
+        enabled: false
+    desktop-persisted-folder-create:
+        operation: desktop_persisted_folder_create
+        enabled: false
+    desktop-persisted-folder-destroy:
+        operation: desktop_persisted_folder_destroy
+        enabled: false
+    desktop-persisted-folder-list:
+        operation: desktop_persisted_folder_list
+        enabled: false
+    desktop-persisted-folder-partial-update:
+        operation: desktop_persisted_folder_partial_update
+        enabled: false
+    desktop-persisted-folder-retrieve:
+        operation: desktop_persisted_folder_retrieve
+        enabled: false
+    desktop-persisted-folder-update:
+        operation: desktop_persisted_folder_update
         enabled: false
     domains-create:
         operation: domains_create
@@ -238,45 +256,6 @@ tools:
         enabled: false
     domains-verify-create:
         operation: domains_verify_create
-        enabled: false
-    event-definitions-bulk-update-tags-create:
-        operation: event_definitions_bulk_update_tags_create
-        enabled: false
-    event-definitions-by-name-retrieve:
-        operation: event_definitions_by_name_retrieve
-        enabled: false
-    event-definitions-create:
-        operation: event_definitions_create
-        enabled: false
-    event-definitions-destroy:
-        operation: event_definitions_destroy
-        enabled: false
-    event-definitions-golang-retrieve:
-        operation: event_definitions_golang_retrieve
-        enabled: false
-    event-definitions-list:
-        operation: event_definitions_list
-        enabled: false
-    event-definitions-metrics-retrieve:
-        operation: event_definitions_metrics_retrieve
-        enabled: false
-    event-definitions-partial-update:
-        operation: event_definitions_partial_update
-        enabled: false
-    event-definitions-primary-properties-retrieve:
-        operation: event_definitions_primary_properties_retrieve
-        enabled: false
-    event-definitions-python-retrieve:
-        operation: event_definitions_python_retrieve
-        enabled: false
-    event-definitions-retrieve:
-        operation: event_definitions_retrieve
-        enabled: false
-    event-definitions-typescript-retrieve:
-        operation: event_definitions_typescript_retrieve
-        enabled: false
-    event-definitions-update:
-        operation: event_definitions_update
         enabled: false
     exports-content-retrieve:
         operation: exports_content_retrieve
@@ -323,6 +302,27 @@ tools:
     file-system-retrieve:
         operation: file_system_retrieve
         enabled: false
+    file-system-shortcut-create:
+        operation: file_system_shortcut_create
+        enabled: false
+    file-system-shortcut-destroy:
+        operation: file_system_shortcut_destroy
+        enabled: false
+    file-system-shortcut-list:
+        operation: file_system_shortcut_list
+        enabled: false
+    file-system-shortcut-partial-update:
+        operation: file_system_shortcut_partial_update
+        enabled: false
+    file-system-shortcut-reorder-create:
+        operation: file_system_shortcut_reorder_create
+        enabled: false
+    file-system-shortcut-retrieve:
+        operation: file_system_shortcut_retrieve
+        enabled: false
+    file-system-shortcut-update:
+        operation: file_system_shortcut_update
+        enabled: false
     file-system-undo-delete-create:
         operation: file_system_undo_delete_create
         enabled: false
@@ -334,33 +334,6 @@ tools:
         enabled: false
     generate-conversations-public-token-create:
         operation: organizations_projects_generate_conversations_public_token_create
-        enabled: false
-    groups-activity-retrieve:
-        operation: groups_activity_retrieve
-        enabled: false
-    groups-create:
-        operation: groups_create
-        enabled: false
-    groups-delete-property-create:
-        operation: groups_delete_property_create
-        enabled: false
-    groups-find-retrieve:
-        operation: groups_find_retrieve
-        enabled: false
-    groups-list:
-        operation: groups_list
-        enabled: false
-    groups-property-definitions-retrieve:
-        operation: groups_property_definitions_retrieve
-        enabled: false
-    groups-property-values-retrieve:
-        operation: groups_property_values_retrieve
-        enabled: false
-    groups-related-retrieve:
-        operation: groups_related_retrieve
-        enabled: false
-    groups-update-property-create:
-        operation: groups_update_property_create
         enabled: false
     insights-sharing-list:
         operation: insights_sharing_list
@@ -392,33 +365,6 @@ tools:
     is-generating-demo-data-retrieve:
         operation: organizations_projects_is_generating_demo_data_retrieve
         enabled: false
-    legal-documents-create:
-        operation: legal_documents_create
-        enabled: false
-    legal-documents-download-retrieve:
-        operation: legal_documents_download_retrieve
-        enabled: false
-    legal-documents-list:
-        operation: legal_documents_list
-        enabled: false
-    legal-documents-retrieve:
-        operation: legal_documents_retrieve
-        enabled: false
-    members-destroy:
-        operation: members_destroy
-        enabled: false
-    members-list:
-        operation: members_list
-        enabled: false
-    members-partial-update:
-        operation: members_partial_update
-        enabled: false
-    members-scoped-api-keys-retrieve:
-        operation: members_scoped_api_keys_retrieve
-        enabled: false
-    members-update:
-        operation: members_update
-        enabled: false
     notebooks-sharing-list:
         operation: notebooks_sharing_list
         enabled: false
@@ -433,6 +379,60 @@ tools:
         enabled: false
     oauth-applications-list:
         operation: oauth_applications_list
+        enabled: false
+    organizations-projects-default-evaluation-contexts-create:
+        operation: organizations_projects_default_evaluation_contexts_create
+        enabled: false
+    organizations-projects-default-evaluation-contexts-destroy:
+        operation: organizations_projects_default_evaluation_contexts_destroy
+        enabled: false
+    organizations-projects-default-evaluation-contexts-retrieve:
+        operation: organizations_projects_default_evaluation_contexts_retrieve
+        enabled: false
+    organizations-projects-default-release-conditions-retrieve:
+        operation: organizations_projects_default_release_conditions_retrieve
+        enabled: false
+    organizations-projects-default-release-conditions-update:
+        operation: organizations_projects_default_release_conditions_update
+        enabled: false
+    organizations-projects-event-ingestion-restrictions-retrieve:
+        operation: organizations_projects_event_ingestion_restrictions_retrieve
+        enabled: false
+    organizations-projects-experiments-config-partial-update:
+        operation: organizations_projects_experiments_config_partial_update
+        enabled: false
+    organizations-projects-experiments-config-retrieve:
+        operation: organizations_projects_experiments_config_retrieve
+        enabled: false
+    organizations-projects-logs-config-partial-update:
+        operation: organizations_projects_logs_config_partial_update
+        enabled: false
+    organizations-projects-logs-config-retrieve:
+        operation: organizations_projects_logs_config_retrieve
+        enabled: false
+    organizations-projects-promoted-product-intent-retrieve:
+        operation: organizations_projects_promoted_product_intent_retrieve
+        enabled: false
+    organizations-projects-settings-as-of-retrieve:
+        operation: organizations_projects_settings_as_of_retrieve
+        enabled: false
+    persisted-folder-create:
+        operation: persisted_folder_create
+        enabled: false
+    persisted-folder-destroy:
+        operation: persisted_folder_destroy
+        enabled: false
+    persisted-folder-list:
+        operation: persisted_folder_list
+        enabled: false
+    persisted-folder-partial-update:
+        operation: persisted_folder_partial_update
+        enabled: false
+    persisted-folder-retrieve:
+        operation: persisted_folder_retrieve
+        enabled: false
+    persisted-folder-update:
+        operation: persisted_folder_update
         enabled: false
     project-get:
         operation: organizations_projects_retrieve
@@ -548,24 +548,6 @@ tools:
     reset-token-partial-update:
         operation: organizations_projects_reset_token_partial_update
         enabled: false
-    roles-create:
-        operation: roles_create
-        enabled: false
-    roles-destroy:
-        operation: roles_destroy
-        enabled: false
-    roles-list:
-        operation: roles_list
-        enabled: false
-    roles-partial-update:
-        operation: roles_partial_update
-        enabled: false
-    roles-retrieve:
-        operation: roles_retrieve
-        enabled: false
-    roles-update:
-        operation: roles_update
-        enabled: false
     rotate-secret-token-partial-update:
         operation: organizations_projects_rotate_secret_token_partial_update
         enabled: false
@@ -580,146 +562,6 @@ tools:
         enabled: false
     session-recordings-sharing-refresh-create:
         operation: session_recordings_sharing_refresh_create
-        enabled: false
-    subscriptions-create:
-        operation: subscriptions_create
-        enabled: true
-        scopes:
-            - subscription:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create subscription
-        description: >
-            Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an
-            insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the
-            recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected
-            Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly,
-            monthly, yearly) and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions
-            also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).
-        exclude_params:
-            - created_by
-            - next_delivery_date
-            - summary
-            - insight_short_id
-            - resource_name
-    subscriptions-deliveries-list:
-        operation: subscriptions_deliveries_list
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List subscription deliveries
-        description: >
-            List delivery history for a subscription — one row per send attempt. Each entry includes status (starting,
-            completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at,
-            finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated
-            newest first. content_snapshot, recipient_results, and error are excluded to match what the web UI exposes
-            and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.
-        response:
-            exclude:
-                - content_snapshot
-                - recipient_results
-                - error
-    subscriptions-deliveries-retrieve:
-        operation: subscriptions_deliveries_retrieve
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get subscription delivery
-        description: >
-            Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value,
-            timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen
-            dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state.
-            recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking
-            recipient identifiers or upstream response bodies that may contain tokens / PII.
-        response:
-            exclude:
-                - content_snapshot
-                - recipient_results
-                - error
-    subscriptions-destroy:
-        operation: subscriptions_destroy
-        enabled: false
-    subscriptions-list:
-        operation: subscriptions_list
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List subscriptions
-        description: >
-            List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or
-            dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday),
-            next_delivery_date, and a human-readable summary.
-    subscriptions-partial-update:
-        operation: subscriptions_partial_update
-        enabled: true
-        scopes:
-            - subscription:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Update subscription
-        description: >
-            Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday,
-            start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription
-            (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.
-        exclude_params:
-            - created_by
-            - next_delivery_date
-            - summary
-            - insight_short_id
-            - resource_name
-    subscriptions-retrieve:
-        operation: subscriptions_retrieve
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get subscription
-        description: >
-            Get a specific subscription by ID. Returns the full subscription configuration including target type and
-            value, schedule details, next delivery date, and associated insight or dashboard.
-    subscriptions-summary-quota-retrieve:
-        operation: subscriptions_summary_quota_retrieve
-        enabled: false
-    subscriptions-test-delivery-create:
-        operation: subscriptions_test_delivery_create
-        enabled: true
-        scopes:
-            - subscription:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Send test delivery
-        description: >
-            Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook).
-            Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery
-            record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202
-            Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or
-            subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription
-            is already in flight.
-    subscriptions-update:
-        operation: subscriptions_update
         enabled: false
     user-get:
         operation: users_retrieve
@@ -784,6 +626,9 @@ tools:
                 description: User UUID, or `@me` to target the authenticated user.
     users-cancel-email-change-request-partial-update:
         operation: users_cancel_email_change_request_partial_update
+        enabled: false
+    users-credentials-review-complete-create:
+        operation: users_credentials_review_complete_create
         enabled: false
     users-destroy:
         operation: users_destroy

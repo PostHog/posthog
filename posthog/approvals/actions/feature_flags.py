@@ -3,10 +3,11 @@ from typing import Any, Optional
 
 from django.db import transaction
 
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.approvals.actions.base import BaseAction
 from posthog.approvals.exceptions import ApplyFailed, PreconditionFailed
-from posthog.models import FeatureFlag
+
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def _check_version_staleness(intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:
@@ -226,7 +227,6 @@ class UpdateFeatureFlagAction(BaseAction):
     # (e.g. groups) or a single dict (e.g. holdout). Both are handled by _extract_rollout_percentages.
     ROLLOUT_PERCENTAGE_PATHS = [
         ("groups", "rollout_percentage"),
-        ("super_groups", "rollout_percentage"),
         ("holdout", "exclusion_percentage"),
         ("multivariate", "variants", "rollout_percentage"),
     ]

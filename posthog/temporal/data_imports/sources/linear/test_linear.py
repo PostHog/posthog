@@ -6,12 +6,18 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from tenacity import Future, RetryCallState
 
 from posthog.temporal.data_imports.sources.linear.linear import (
+    LINEAR_MAX_RETRY_AFTER_SECONDS,
     LinearResumeConfig,
+    LinearRetryableError,
     _make_paginated_request,
+    _parse_retry_after,
+    _wait_strategy,
     linear_source,
 )
+from posthog.temporal.data_imports.sources.linear.source import LinearSource
 
 
 def _make_response(nodes: list[dict[str, Any]], has_next_page: bool, end_cursor: str | None) -> MagicMock:
@@ -27,6 +33,24 @@ def _make_response(nodes: list[dict[str, Any]], has_next_page: bool, end_cursor:
         }
     }
     return response
+
+
+def _make_rate_limited_response(headers: dict[str, str] | None = None) -> MagicMock:
+    """Mimic Linear's HTTP-level 429: an HTML body that fails JSON parsing."""
+    response = MagicMock()
+    response.status_code = 429
+    response.ok = False
+    response.reason = "Too Many Requests"
+    response.text = "<!DOCTYPE html><html><head><title>Rate limited</title></head></html>"
+    response.headers = headers or {}
+    response.json.side_effect = ValueError("Expecting value: line 1 column 1 (char 0)")
+    return response
+
+
+def _retry_state(exc: BaseException) -> RetryCallState:
+    state = RetryCallState(retry_object=MagicMock(), fn=None, args=(), kwargs={})
+    state.outcome = Future.construct(1, exc, has_exception=True)
+    return state
 
 
 def _capture_post_calls(session: MagicMock, responses: list[MagicMock]) -> list[dict[str, Any]]:
@@ -150,6 +174,108 @@ class TestMakePaginatedRequest:
         manager.save_state.assert_not_called()
         assert session.post.call_count == 1
 
+    @patch("time.sleep", return_value=None)
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_http_429_is_retried_then_succeeds(self, mock_session_cls: MagicMock, _mock_sleep: MagicMock) -> None:
+        # Linear returns an HTML 429 page that fails JSON parsing. It must be retried with backoff,
+        # not surfaced as a non-retryable JSONDecodeError/Exception.
+        session = MagicMock()
+        session.post.side_effect = [
+            _make_rate_limited_response(),
+            _make_response([{"id": "a"}], False, None),
+        ]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        pages = list(
+            _make_paginated_request(
+                access_token="tok",
+                endpoint_name="issues",
+                logger=logger,
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert pages == [[{"id": "a"}]]
+        assert session.post.call_count == 2
+
+    @patch("time.sleep", return_value=None)
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_persistent_http_429_raises_retryable_error(
+        self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        session = MagicMock()
+        session.post.side_effect = [_make_rate_limited_response() for _ in range(5)]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        with pytest.raises(LinearRetryableError):
+            list(
+                _make_paginated_request(
+                    access_token="tok",
+                    endpoint_name="issues",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert session.post.call_count == 5
+
+
+class TestRateLimitBackoff:
+    @parameterized.expand(
+        [
+            ("delta_seconds", {"Retry-After": "30"}, 30.0),
+            ("zero", {"Retry-After": "0"}, 0.0),
+            ("fractional", {"Retry-After": "12.5"}, 12.5),
+            ("missing", {}, None),
+            ("http_date_unsupported", {"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}, None),
+            ("non_numeric", {"Retry-After": "soon"}, None),
+        ]
+    )
+    def test_parse_retry_after(self, _name: str, headers: dict[str, str], expected: float | None) -> None:
+        assert _parse_retry_after(_make_rate_limited_response(headers)) == expected
+
+    def test_wait_strategy_honors_retry_after(self) -> None:
+        exc = LinearRetryableError("Linear: rate limited (429)", retry_after=45.0)
+        assert _wait_strategy(_retry_state(exc)) == 45.0
+
+    def test_wait_strategy_caps_retry_after(self) -> None:
+        exc = LinearRetryableError("Linear: rate limited (429)", retry_after=10_000.0)
+        assert _wait_strategy(_retry_state(exc)) == LINEAR_MAX_RETRY_AFTER_SECONDS
+
+    def test_wait_strategy_falls_back_to_backoff_without_retry_after(self) -> None:
+        exc = LinearRetryableError("Linear: rate limited (429)")
+        assert 0 < _wait_strategy(_retry_state(exc)) <= 30
+
+    @patch("time.sleep", return_value=None)
+    @patch("posthog.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_429_carries_retry_after_into_exception(self, mock_session_cls: MagicMock, _mock_sleep: MagicMock) -> None:
+        # Retry-After of 0 keeps the test fast while still exercising the honored-wait path.
+        session = MagicMock()
+        session.post.side_effect = [_make_rate_limited_response({"Retry-After": "0"}) for _ in range(5)]
+        mock_session_cls.return_value = session
+
+        manager = _make_resumable_manager()
+        logger = MagicMock()
+
+        with pytest.raises(LinearRetryableError) as exc_info:
+            list(
+                _make_paginated_request(
+                    access_token="tok",
+                    endpoint_name="issues",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert exc_info.value.retry_after == 0.0
+        assert session.post.call_count == 5
+
 
 class TestLinearSource:
     def test_source_response_wires_primary_key_and_items(self) -> None:
@@ -189,3 +315,32 @@ class TestLinearSource:
 
         assert pages == [[{"id": "a"}], [{"id": "b"}]]
         manager.save_state.assert_called_once_with(LinearResumeConfig(cursor="cursor-a"))
+
+
+class TestLinearSourceNonRetryableErrors:
+    @parameterized.expand(
+        [
+            # The OAuthMixin raises "Integration not found: <id>" when the linked integration was
+            # deleted. The id varies, so matching must rely on the stable prefix.
+            ("deleted_integration", "Integration not found: 165665"),
+            ("auth_401", "401 Client Error: Unauthorized for url: https://api.linear.app/graphql"),
+            ("forbidden_403", "403 Client Error: Forbidden for url: https://api.linear.app/graphql"),
+            # NotImplementedError raised by OauthIntegration when the instance lacks Linear client id/secret.
+            ("app_not_configured", "Linear app not configured"),
+        ]
+    )
+    def test_non_retryable_errors_match(self, _name: str, observed_error: str) -> None:
+        non_retryable_errors = LinearSource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            ("transient_500", "500 Server Error for url: https://api.linear.app/graphql"),
+            ("rate_limited", "Linear: rate limited (429)"),
+            ("graphql_error", "Linear GraphQL error: Something failed"),
+        ]
+    )
+    def test_non_retryable_errors_does_not_match_transient(self, _name: str, observed_error: str) -> None:
+        non_retryable_errors = LinearSource().get_non_retryable_errors()
+        # Transient/server errors must stay retryable so the pipeline backs off and retries.
+        assert not any(key in observed_error for key in non_retryable_errors)

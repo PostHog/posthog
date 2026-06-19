@@ -2,6 +2,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     hasPinnedContext,
+    pickMinimalPinnedItem,
     stripPinnedContext,
     taxonomicFilterPinnedPropertiesLogic,
 } from './taxonomicFilterPinnedPropertiesLogic'
@@ -28,7 +29,7 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
         expect(logic.values.pinnedFilters).toEqual([])
     })
 
-    it('togglePin adds an item storing only { name } regardless of what was passed', () => {
+    it('togglePin stores the item with PII / heavy fields stripped', () => {
         const item = { name: '$browser', id: 'prop-1', description: 'some desc', tags: ['a'] }
         logic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$browser', item)
 
@@ -39,10 +40,102 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
                 groupType: TaxonomicFilterGroupType.EventProperties,
                 groupName: 'Event properties',
                 value: '$browser',
-                item: { name: '$browser' },
+                item: { name: '$browser', id: 'prop-1', description: 'some desc', tags: ['a'] },
             })
         )
         expect(typeof filters[0].timestamp).toBe('number')
+    })
+
+    it.each([
+        {
+            description: 'Persons preserves distinct_ids so person.distinct_ids[0] does not throw',
+            groupType: TaxonomicFilterGroupType.Persons,
+            value: 'distinct-abc',
+            item: { name: 'Alice', distinct_ids: ['distinct-abc', 'distinct-old'], uuid: 'u-1' },
+            expectedItem: { name: 'Alice', distinct_ids: ['distinct-abc', 'distinct-old'], uuid: 'u-1' },
+            getValue: (it: any) => it.distinct_ids[0],
+            expectedGetValue: 'distinct-abc',
+        },
+        {
+            description: 'Insights preserves short_id',
+            groupType: TaxonomicFilterGroupType.Insights,
+            value: 'sh0rt',
+            item: { name: 'My insight', short_id: 'sh0rt', id: 42 },
+            expectedItem: { name: 'My insight', short_id: 'sh0rt', id: 42 },
+            getValue: (it: any) => it.short_id,
+            expectedGetValue: 'sh0rt',
+        },
+        {
+            description: 'Actions preserves id',
+            groupType: TaxonomicFilterGroupType.Actions,
+            value: 7,
+            item: { name: 'Signup', id: 7, steps: [{ tag_name: 'button' }] },
+            expectedItem: { name: 'Signup', id: 7, steps: [{ tag_name: 'button' }] },
+            getValue: (it: any) => it.id,
+            expectedGetValue: 7,
+        },
+        {
+            description: 'Notebooks preserves short_id and title',
+            groupType: TaxonomicFilterGroupType.Notebooks,
+            value: 'nb-1',
+            item: { title: 'Research', short_id: 'nb-1' },
+            expectedItem: { name: 'nb-1', short_id: 'nb-1', title: 'Research' },
+            getValue: (it: any) => it.short_id,
+            expectedGetValue: 'nb-1',
+        },
+        {
+            description: 'FeatureFlags preserves id, key and active',
+            groupType: TaxonomicFilterGroupType.FeatureFlags,
+            value: 99,
+            item: { id: 99, key: 'new-thing', name: 'New thing', active: false },
+            expectedItem: { id: 99, key: 'new-thing', name: 'New thing', active: false },
+            getValue: (it: any) => it.id || '',
+            expectedGetValue: 99,
+        },
+        {
+            description: 'Groups preserves group_key and the display name',
+            groupType: TaxonomicFilterGroupType.GroupsPrefix,
+            value: 'org-123',
+            item: { group_key: 'org-123', name: 'Acme Inc', group_type_index: 0 },
+            expectedItem: { group_key: 'org-123', name: 'Acme Inc', group_type_index: 0 },
+            getValue: (it: any) => it.group_key,
+            expectedGetValue: 'org-123',
+        },
+    ])(
+        'togglePin minimal item allows source-group getValue to run: $description',
+        ({ groupType, value, item, expectedItem, getValue, expectedGetValue }) => {
+            logic.actions.togglePin(groupType, 'irrelevant', value, item)
+            const storedItem = logic.values.pinnedFilters[0].item
+            expect(storedItem).toEqual(expectedItem)
+            expect(() => getValue(storedItem)).not.toThrow()
+            expect(getValue(storedItem)).toEqual(expectedGetValue)
+        }
+    )
+
+    it.each([
+        {
+            description: 'strips Person email and properties',
+            item: { name: 'Alice', distinct_ids: ['d1'], email: 'alice@example.com', properties: { plan: 'pro' } },
+            expectedItem: { name: 'Alice', distinct_ids: ['d1'] },
+        },
+        {
+            description: 'strips group_properties',
+            item: { name: 'Acme', group_key: 'org-1', group_properties: { revenue: 12345 } },
+            expectedItem: { name: 'Acme', group_key: 'org-1' },
+        },
+        {
+            description: 'strips a stale _pinnedContext if one happens to be on the source item',
+            item: { name: 'x', id: 1, _pinnedContext: { sourceGroupType: 'events', sourceGroupName: 'Events' } },
+            expectedItem: { name: 'x', id: 1 },
+        },
+    ])('togglePin strips PII / heavy fields before persisting: $description', ({ item, expectedItem }) => {
+        logic.actions.togglePin(TaxonomicFilterGroupType.Persons, 'Persons', 'pv', item)
+        expect(logic.values.pinnedFilters[0].item).toEqual(expectedItem)
+    })
+
+    it('togglePin falls back to value for name when item lacks a name', () => {
+        logic.actions.togglePin(TaxonomicFilterGroupType.EventProperties, 'Event properties', '$os', {})
+        expect(logic.values.pinnedFilters[0].item).toEqual({ name: '$os' })
     })
 
     it('togglePin removes an existing item when called again with the same groupType and value', () => {
@@ -220,6 +313,55 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
             },
         ])('returns $expected for $description', ({ item, expected }) => {
             expect(hasPinnedContext(item)).toBe(expected)
+        })
+    })
+
+    describe('pickMinimalPinnedItem', () => {
+        it.each([
+            {
+                description: 'strips denylisted fields and keeps everything else',
+                input: { name: 'Alice', distinct_ids: ['d1'], email: 'a@example.com', properties: { big: 'blob' } },
+                fallback: 'fallback',
+                expected: { name: 'Alice', distinct_ids: ['d1'] },
+            },
+            {
+                description: 'uses fallback value when name is missing',
+                input: { id: 5 },
+                fallback: 'fb',
+                expected: { id: 5, name: 'fb' },
+            },
+            {
+                description: 'uses fallback value when name is null (matches the original ?? value semantics)',
+                input: { id: 5, name: null },
+                fallback: 'fb',
+                expected: { id: 5, name: 'fb' },
+            },
+            {
+                description: 'handles non-object input by returning just the fallback name',
+                input: null,
+                fallback: 'only-name',
+                expected: { name: 'only-name' },
+            },
+            {
+                description: 'rejects array input by returning just the fallback name',
+                input: ['a', 'b'],
+                fallback: 'arr',
+                expected: { name: 'arr' },
+            },
+            {
+                description: 'drops undefined-valued fields and functions',
+                input: { name: 'x', undef: undefined, fn: () => 1, keep: 'me' },
+                fallback: 'x',
+                expected: { name: 'x', keep: 'me' },
+            },
+            {
+                description: 'strips a stale _pinnedContext from the source item',
+                input: { name: 'x', _pinnedContext: { sourceGroupType: 'events', sourceGroupName: 'Events' } },
+                fallback: 'x',
+                expected: { name: 'x' },
+            },
+        ])('$description', ({ input, fallback, expected }) => {
+            expect(pickMinimalPinnedItem(input, fallback)).toEqual(expected)
         })
     })
 

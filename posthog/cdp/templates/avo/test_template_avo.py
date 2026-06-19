@@ -5,7 +5,8 @@ from posthog.cdp.templates.avo.template_avo import (
     template as template_avo,
 )
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.models import PluginConfig
+
+from products.cdp.backend.models.plugin import PluginConfig
 
 
 class TestTemplateAvo(BaseHogFunctionTemplateTest):

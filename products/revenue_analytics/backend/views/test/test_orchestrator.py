@@ -6,12 +6,6 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.temporal.data_imports.sources.stripe.constants import INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME
 
-from products.data_warehouse.backend.models import (
-    DataWarehouseCredential,
-    DataWarehouseTable,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsChargeView,
@@ -23,6 +17,10 @@ from products.revenue_analytics.backend.views import (
 )
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 from products.revenue_analytics.backend.views.sources.helpers import ZERO_DECIMAL_CURRENCIES_IN_STRIPE
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestRevenueAnalyticsViews(BaseTest):

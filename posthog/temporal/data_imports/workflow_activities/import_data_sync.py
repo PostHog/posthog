@@ -2,7 +2,7 @@ import uuid
 import asyncio
 import datetime as dt
 import dataclasses
-from typing import Any, Optional
+from typing import Any, NoReturn, Optional
 
 from django.db.models import Prefetch
 
@@ -26,17 +26,17 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
-from posthog.temporal.data_imports.sources.common.http import bind_job_context
+from posthog.temporal.data_imports.sources.common.job_context import bind_job_context
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
-from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
-
-WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
 
 @dataclasses.dataclass
@@ -160,6 +160,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
+                enabled_columns=schema.enabled_columns,
+                schema_metadata=schema.schema_metadata,
+                s3_folder_name=schema.resolved_s3_folder_name,
             )
 
             new_source = SourceRegistry.get_source(source_type)
@@ -182,8 +185,7 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                     )
             except CDCHandledExternally:
                 await logger.ainfo("Schema is in CDC streaming mode — handled by CDCExtractionWorkflow, skipping")
-                # Mark the job as non-billable so it doesn't clutter the Syncs tab
-                from products.data_warehouse.backend.models import ExternalDataJob
+                from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
                 await database_sync_to_async_pool(ExternalDataJob.objects.filter(id=job_inputs.run_id).update)(
                     billable=False, status=ExternalDataJob.Status.COMPLETED, finished_at=dt.datetime.now(dt.UTC)
@@ -205,6 +207,14 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                     consumer_manages_job_status=True,
                     skip_post_import_activities=True,
                 )
+            except Exception as e:
+                # Some sources connect to the remote during setup rather than lazily during
+                # the run — e.g. for a `mongodb+srv://` URI pymongo resolves the SRV DNS
+                # record inside the MongoClient constructor. A non-retryable error raised
+                # here (deleted/misconfigured cluster hostname, revoked credentials) would
+                # otherwise bypass the guard in `_run` and be retried up to the activity's
+                # maximum on every scheduled sync. Route it through the same policy.
+                await _handle_import_error(job_inputs, logger, e)
 
             return await _run(
                 job_inputs=job_inputs,
@@ -216,19 +226,6 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
-
-
-async def _is_pipeline_v3_enabled(team_id: int, source_type: str, logger: FilteringBoundLogger) -> bool:
-    from posthog.temporal.data_imports.workflow_activities.create_job_model import (
-        _is_pipeline_v3_enabled as _sync_check,
-    )
-
-    enabled = await database_sync_to_async_pool(_sync_check)(team_id, source_type)
-    if enabled:
-        logger.debug(
-            f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id} source_type {source_type}"
-        )
-    return enabled
 
 
 @database_sync_to_async_pool
@@ -247,6 +244,33 @@ def _get_models(
     return job, schema, source, table
 
 
+async def _handle_import_error(
+    job_inputs: PipelineInputs,
+    logger: FilteringBoundLogger,
+    error: Exception,
+) -> NoReturn:
+    """Route an import error through the source's non-retryable error policy.
+
+    Errors the source classifies as non-retryable (bad credentials, a deleted or
+    misconfigured remote — e.g. a MongoDB ``mongodb+srv://`` hostname whose DNS record no
+    longer resolves) are handed to ``handle_non_retryable_error``, which stops the job after
+    a few attempts instead of retrying up to the activity's maximum. Everything else is
+    re-raised so Temporal retries it as usual.
+    """
+    source_cls = SourceRegistry.get_source(job_inputs.job_type)
+    non_retryable_errors = source_cls.get_non_retryable_errors()
+    error_msg = str(error)
+    is_non_retryable_error = any(
+        non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
+    )
+    if is_non_retryable_error:
+        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+    else:
+        await logger.aexception(error_msg)
+        await logger.adebug("Error encountered during import_data_activity - re-raising")
+        raise error
+
+
 async def _run(
     job_inputs: PipelineInputs,
     source_response: SourceResponse,
@@ -258,7 +282,7 @@ async def _run(
     try:
         job, schema, source, table = await _get_models(job_inputs.run_id)
 
-        use_v3 = await _is_pipeline_v3_enabled(job_inputs.team_id, source.source_type, logger)
+        use_v3 = job.pipeline_version == ExternalDataJob.PipelineVersion.V3
 
         if use_v3:
             from posthog.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
@@ -295,15 +319,4 @@ async def _run(
         await logger.adebug("Finished running pipeline")
         return result
     except Exception as e:
-        source_cls = SourceRegistry.get_source(job_inputs.job_type)
-        non_retryable_errors = source_cls.get_non_retryable_errors()
-        error_msg = str(e)
-        is_non_retryable_error = any(
-            non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
-        )
-        if is_non_retryable_error:
-            await handle_non_retryable_error(job_inputs, error_msg, logger, e)
-        else:
-            await logger.aexception(error_msg)
-            await logger.adebug("Error encountered during import_data_activity - re-raising")
-            raise
+        await _handle_import_error(job_inputs, logger, e)

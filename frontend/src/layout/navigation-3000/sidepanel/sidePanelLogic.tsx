@@ -70,10 +70,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.AccessControl)
                 }
 
-                if (sceneSidePanelContext.settings_section) {
-                    tabs.push(SidePanelTab.Settings)
-                }
-
                 // Exports and Support are openable programmatically but not shown in the nav bar
                 tabs.push(SidePanelTab.Exports)
 
@@ -94,7 +90,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             (s) => [s.enabledTabs],
             (enabledTabs): SidePanelTab[] => {
                 // Some tabs are openable programmatically but not shown in the nav bar
-                const hiddenTabs = [SidePanelTab.Exports]
+                const hiddenTabs: SidePanelTab[] = [SidePanelTab.Exports]
                 return enabledTabs.filter((tab) => !hiddenTabs.includes(tab))
             },
         ],

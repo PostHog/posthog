@@ -6,6 +6,7 @@ import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
@@ -27,6 +28,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
+import { AccountsTabContent } from './components/Accounts/AccountsTabContent'
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
@@ -46,15 +48,15 @@ export const scene: SceneExport = {
     productKey: ProductKey.CUSTOMER_ANALYTICS,
 }
 
-export function CustomerAnalyticsScene(props: { tabId?: string }): JSX.Element {
+export function CustomerAnalyticsScene(): JSX.Element {
     return (
         <FeaturePreviewSceneGate config={customerAnalyticsFeaturePreviewGate}>
-            <CustomerAnalyticsSceneContent {...props} />
+            <CustomerAnalyticsSceneContent />
         </FeaturePreviewSceneGate>
     )
 }
 
-function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Element {
+function CustomerAnalyticsSceneContent(): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)
@@ -71,13 +73,15 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
         AccessControlLevel.Editor
     )
 
-    if (!tabId) {
-        throw new Error('CustomerAnalyticsScene was rendered with no tabId')
-    }
-
     useOnMountEffect(() => {
         reportCustomerAnalyticsViewed()
     })
+
+    // Accounts is gated by CUSTOMER_ANALYTICS_CSP; without it the tab does not
+    // exist, so a guessed `/customer_analytics/accounts` URL is a 404.
+    if (activeTab === 'accounts' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+        return <NotFound object="page" />
+    }
 
     const dashboardContent =
         businessType === 'b2b' && shouldShowGroupsIntroduction ? (
@@ -96,14 +100,23 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
             </>
         )
 
-    const tabs: LemonTab<string>[] = [
-        {
-            key: 'dashboard',
-            label: 'Dashboard',
-            content: dashboardContent,
-            link: combineUrl(urls.customerAnalyticsDashboard(), searchParams).url,
-        },
-    ]
+    const tabs: LemonTab<string>[] = []
+
+    if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+        tabs.push({
+            key: 'accounts',
+            label: 'Accounts',
+            content: <AccountsTabContent />,
+            link: combineUrl(urls.customerAnalyticsAccounts(), searchParams).url,
+        })
+    }
+
+    tabs.push({
+        key: 'dashboard',
+        label: 'Dashboard',
+        content: dashboardContent,
+        link: combineUrl(urls.customerAnalyticsDashboard(), searchParams).url,
+    })
 
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]) {
         tabs.push({
@@ -113,6 +126,13 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
             link: combineUrl(urls.customerAnalyticsJourneys(), searchParams).url,
         })
     }
+
+    const tabsContent =
+        tabs.length > 1 ? (
+            <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
+        ) : (
+            dashboardContent
+        )
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -183,7 +203,11 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
                                         icon={<IconGear />}
                                         size="small"
                                         type="secondary"
-                                        to={urls.customerAnalyticsConfiguration()}
+                                        to={
+                                            activeTab === 'accounts'
+                                                ? `${urls.customerAnalyticsConfiguration()}?tab=customer-analytics-accounts`
+                                                : urls.customerAnalyticsConfiguration()
+                                        }
                                         onClick={() => {
                                             addProductIntent({
                                                 product_type: ProductKey.CUSTOMER_ANALYTICS,
@@ -201,11 +225,7 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
                         </>
                     }
                 />
-                {tabs.length > 1 ? (
-                    <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
-                ) : (
-                    dashboardContent
-                )}
+                {tabsContent}
             </SceneContent>
         </BindLogic>
     )

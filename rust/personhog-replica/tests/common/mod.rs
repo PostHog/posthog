@@ -29,7 +29,14 @@ impl TestContext {
             .await
             .expect("Failed to connect to test database");
         // In tests, use the same pool for everything
-        let storage = Arc::new(PostgresStorage::new_single_pool(pool.clone()));
+        let storage = Arc::new(PostgresStorage::new(
+            pool.clone(),
+            pool.clone(),
+            pool.clone(),
+            pool.clone(),
+            50, // bulk_chunk_size — small so parallel path is exercised with fewer test rows
+            5,  // bulk_max_concurrent_chunks
+        ));
         let team_id = random_team_id();
 
         Self {

@@ -3,7 +3,7 @@ import './Cohorts.scss'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -37,9 +37,17 @@ export const scene: SceneExport = {
 }
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters, shouldShowEmptyState, cohortSorting } =
-        useValues(cohortsSceneLogic)
-    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting } = useActions(cohortsSceneLogic)
+    const {
+        cohorts,
+        cohortsLoading,
+        pagination,
+        cohortFilters,
+        shouldShowEmptyState,
+        cohortSorting,
+        cohortsLoadError,
+    } = useValues(cohortsSceneLogic)
+    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
+        useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
 
     const columns: LemonTableColumns<CohortType> = [
@@ -284,6 +292,7 @@ export function Cohorts(): JSX.Element {
                 docsURL="https://posthog.com/docs/data/cohorts"
                 action={() => router.actions.push(urls.cohort('new'))}
                 customHog={ListHog}
+                mcpSurfaceKey="cohorts.create"
             />
 
             <div>{filtersSection}</div>
@@ -294,6 +303,13 @@ export function Cohorts(): JSX.Element {
                 pagination={pagination}
                 dataSource={cohorts.results}
                 nouns={['cohort', 'cohorts']}
+                emptyState={
+                    cohortsLoadError ? (
+                        <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadCohorts() }}>
+                            There was an error loading cohorts: {cohortsLoadError}
+                        </LemonBanner>
+                    ) : undefined
+                }
                 data-attr="cohorts-table"
                 sorting={cohortSorting}
                 onSort={(sorting) => {

@@ -1,27 +1,51 @@
-"""Temporal workflow for backfilling materialized property columns."""
+"""Temporal workflow for backfilling materialized property columns.
+
+A single weekly batched workflow fills every PENDING slot in one dict-backed
+ALTER TABLE UPDATE per cycle. Per-team slot allocation means slot reuse happens
+in place; there is no separate compaction step.
+"""
 
 from posthog.temporal.backfill_materialized_property.activities import (
-    BackfillMaterializedColumnInputs,
-    UpdateSlotStateInputs,
-    backfill_materialized_column,
-    update_slot_state,
+    ActivateSlotsInputs,
+    AssignPendingColumnsInputs,
+    AssignPendingColumnsResult,
+    FailSlotsInputs,
+    PopulateSlotAssignmentsInputs,
+    PopulateSlotAssignmentsResult,
+    RunBatchedMutationInputs,
+    activate_slots,
+    assign_pending_columns,
+    fail_slots,
+    populate_slot_assignments,
+    run_batched_mutation,
 )
 from posthog.temporal.backfill_materialized_property.workflows import (
-    BackfillMaterializedPropertyInputs,
-    BackfillMaterializedPropertyWorkflow,
+    BackfillMaterializedPropertiesBatchInputs,
+    BackfillMaterializedPropertiesBatchWorkflow,
 )
 
 ACTIVITIES = [
-    backfill_materialized_column,
-    update_slot_state,
+    assign_pending_columns,
+    populate_slot_assignments,
+    run_batched_mutation,
+    activate_slots,
+    fail_slots,
 ]
 
 __all__ = [
-    "BackfillMaterializedPropertyWorkflow",
-    "BackfillMaterializedPropertyInputs",
+    "BackfillMaterializedPropertiesBatchWorkflow",
+    "BackfillMaterializedPropertiesBatchInputs",
     "ACTIVITIES",
-    "backfill_materialized_column",
-    "BackfillMaterializedColumnInputs",
-    "update_slot_state",
-    "UpdateSlotStateInputs",
+    "assign_pending_columns",
+    "AssignPendingColumnsInputs",
+    "AssignPendingColumnsResult",
+    "populate_slot_assignments",
+    "PopulateSlotAssignmentsInputs",
+    "PopulateSlotAssignmentsResult",
+    "run_batched_mutation",
+    "RunBatchedMutationInputs",
+    "activate_slots",
+    "ActivateSlotsInputs",
+    "fail_slots",
+    "FailSlotsInputs",
 ]

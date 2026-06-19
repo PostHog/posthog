@@ -2,8 +2,10 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
-from posthog.models import Insight, Team, User
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
+
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
 from ee.hogai.tool_errors import MaxToolRetryableError

@@ -71,6 +71,15 @@ pub const SKIP_PROPERTIES: [&str; 9] = [
     "$groups",
 ];
 
+// Property key prefixes that should NOT generate posthog_eventproperty rows.
+// Feature flags are appended as $feature/<key> on nearly every event by posthog-js,
+// so the (event_name × flag_key) cross product dominates eventproperty cardinality
+// without providing useful per-event scoping (flags are global). The corresponding
+// PropertyDefinition rows ARE still written so flags remain discoverable.
+// $feature_enrollment/ is usually a person property; it's included defensively for the
+// rare cases it arrives as a top-level event property, and carries little cardinality weight.
+pub const SKIP_EVENT_PROPERTY_PREFIXES: [&str; 2] = ["$feature/", "$feature_enrollment/"];
+
 const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 7] = [
     "time",
     "timestamp",
@@ -344,12 +353,23 @@ impl Event {
             // person, group, and session properties have no meaningful event association
             // and no read path consumes those rows.
             if parent_type == PropertyParentType::Event {
-                updates.push(Update::EventProperty(EventProperty {
-                    team_id: self.team_id,
-                    project_id: self.project_id,
-                    event: sanitize_string(&self.event),
-                    property: sanitize_string(key),
-                }));
+                if SKIP_EVENT_PROPERTY_PREFIXES
+                    .iter()
+                    .any(|prefix| key.starts_with(prefix))
+                {
+                    metrics::counter!(
+                        UPDATES_SKIPPED,
+                        &[("reason", "feature_flag_event_property")]
+                    )
+                    .increment(1);
+                } else {
+                    updates.push(Update::EventProperty(EventProperty {
+                        team_id: self.team_id,
+                        project_id: self.project_id,
+                        event: sanitize_string(&self.event),
+                        property: sanitize_string(key),
+                    }));
+                }
             }
 
             let property_type = detect_property_type(key, value);

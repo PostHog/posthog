@@ -368,3 +368,31 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         self.client.logout()
         response = self.client.get(self._url())
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+
+class TestIsSourceEnabledGating(APIBaseTest):
+    """Source-level gating quirks: session_problem routes through the session_analysis_cluster
+    config rather than requiring its own SignalSourceConfig row."""
+
+    def test_session_problem_gated_by_session_analysis_cluster(self):
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+            source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+            enabled=True,
+        )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "session_replay", "session_problem") is True
+
+    def test_pganalyze_issue_requires_own_config(self):
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.PGANALYZE,
+            source_type=SignalSourceConfig.SourceType.ISSUE,
+            enabled=True,
+        )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue") is True
+
+    def test_pganalyze_disabled_when_no_config(self):
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue") is False

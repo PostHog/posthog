@@ -24,13 +24,13 @@ import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivit
 import { urlForSubscriptions } from 'lib/components/Subscriptions/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { slugify } from 'lib/utils'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
+import { slugify } from 'lib/utils/strings'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -81,7 +81,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { startExport } = useActions(exportsLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
-    const { newTab } = useActions(sceneLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
@@ -185,7 +184,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                                     effectiveEditBarFilters,
                                     tile?.filters_overrides
                                 )
-                                newTab(url)
+                                newInternalTab(url)
                             })
                             setScenePanelOpen(false)
                         }}

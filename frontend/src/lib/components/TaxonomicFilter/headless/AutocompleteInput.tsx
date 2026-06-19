@@ -70,6 +70,7 @@ import {
 } from '@posthog/quill'
 
 import { createFuse } from 'lib/utils/fuseSearch'
+import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -476,6 +477,14 @@ export function Root({
         [visibleGroups, category]
     )
 
+    // Mount + subscribe so `$survey_response_<question-id>` keys resolve to the
+    // actual question text. `getFriendlyLabel` reads through `getCoreFilterDefinition`,
+    // which falls back to a static label until `surveyQuestionLabelsLogic` has
+    // loaded. Subscribing here ensures `indexed` recomputes the labels once they
+    // arrive — without this, each entry's `friendlyLabel` would be frozen to the
+    // pre-load fallback for the lifetime of the popover.
+    const { surveyQuestionLabels } = useValues(surveyQuestionLabelsLogic)
+
     const indexed = useMemo<IndexedItem[]>(() => {
         const merged: IndexedItem[] = []
         for (const group of targetGroups) {
@@ -503,7 +512,12 @@ export function Root({
             }
         }
         return merged
-    }, [targetGroups, itemsByType])
+        // `surveyQuestionLabels` is a deliberate recompute trigger: it isn't read
+        // directly in the body, but `getFriendlyLabel` → `getCoreFilterDefinition`
+        // reads its value via `findMounted()`. Without this dep the memo would
+        // freeze each entry's `friendlyLabel` to the pre-load fallback.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [targetGroups, itemsByType, surveyQuestionLabels])
 
     const filtered = useMemo<IndexedItem[]>(() => {
         const trimmed = searchQuery.trim()

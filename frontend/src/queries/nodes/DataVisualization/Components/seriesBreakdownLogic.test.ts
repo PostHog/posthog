@@ -299,6 +299,7 @@ describe('seriesBreakdownLogic', () => {
                 seriesData: [
                     {
                         name: 'Safari',
+                        breakdownValue: 'Safari',
                         data: [11, 32, 282],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -307,6 +308,7 @@ describe('seriesBreakdownLogic', () => {
                     },
                     {
                         name: 'Firefox',
+                        breakdownValue: 'Firefox',
                         data: [22, 60, 820],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -315,6 +317,7 @@ describe('seriesBreakdownLogic', () => {
                     },
                     {
                         name: 'Chrome',
+                        breakdownValue: 'Chrome',
                         data: [59, 173, 2218],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -370,6 +373,7 @@ describe('seriesBreakdownLogic', () => {
                 seriesData: [
                     {
                         name: 'Safari',
+                        breakdownValue: 'Safari',
                         data: [11, 32, null],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -378,6 +382,7 @@ describe('seriesBreakdownLogic', () => {
                     },
                     {
                         name: 'Firefox',
+                        breakdownValue: 'Firefox',
                         data: [null, null, 820],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -434,6 +439,7 @@ describe('seriesBreakdownLogic', () => {
                 seriesData: [
                     {
                         name: 'Safari',
+                        breakdownValue: 'Safari',
                         data: [0, 32, 0],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -442,6 +448,7 @@ describe('seriesBreakdownLogic', () => {
                     },
                     {
                         name: 'Firefox',
+                        breakdownValue: 'Firefox',
                         data: [0, 0, 820],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -452,5 +459,54 @@ describe('seriesBreakdownLogic', () => {
                 isUnaggregated: false,
             },
         })
+    })
+
+    it('caps the breakdown to the top values by total and warns', async () => {
+        logic = seriesBreakdownLogic({ key: testUniqueKey })
+        logic.mount()
+
+        const builtDataNodeLogic = dataNodeLogic({
+            key: testUniqueKey,
+            query: globalQuery.source,
+        })
+        builtDataNodeLogic.mount()
+
+        // 55 distinct breakdown values across 2 days; the higher the index the higher the total.
+        const results: [string, string, number][] = []
+        for (let i = 1; i <= 55; i++) {
+            results.push(['2026-06-04', `Category ${i}`, i])
+            results.push(['2026-06-05', `Category ${i}`, i])
+        }
+        builtDataNodeLogic.actions.setResponse({
+            results,
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'UInt64'],
+            ],
+        })
+
+        builtDataVizLogic.actions.clearAxis()
+        builtDataVizLogic.actions.updateXSeries('event')
+        builtDataVizLogic.actions.addYSeries('total_count')
+
+        logic.actions.addSeriesBreakdown('browser')
+
+        await expectLogic(logic).toMatchValues({
+            breakdownColumnValues: expect.arrayContaining(['Category 1', 'Category 55']),
+        })
+
+        const { seriesBreakdownData } = logic.values
+        expect(seriesBreakdownData.seriesData).toHaveLength(50)
+        // Highest-total values are kept, lowest are dropped — including the exact
+        // cut-off (totals run 1..55, so the top 50 are Category 6..55).
+        const keptNames = seriesBreakdownData.seriesData.map((series) => series.name)
+        expect(keptNames).toContain('Category 55')
+        expect(keptNames).toContain('Category 6')
+        expect(keptNames).not.toContain('Category 5')
+        expect(keptNames).not.toContain('Category 1')
+        expect(seriesBreakdownData.warning).toContain('top 50')
+        expect(seriesBreakdownData.warning).toContain('55')
     })
 })

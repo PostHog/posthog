@@ -5,11 +5,26 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+from posthog.temporal.common.logger import configure_logger
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState, start_health_server
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import BatchConsumer, ConsumerConfig
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import process_batch
 
 logger = structlog.get_logger(__name__)
+
+
+async def _run_consumer(config: ConsumerConfig, health_reporter) -> None:
+    """Configure the Temporal-style produce path then run the consumer.
+
+    `configure_logger` plumbs structlog into a Kafka producer that feeds ClickHouse `log_entries`.
+    Calling it from the consumer's own asyncio loop is the same pattern `start_temporal_worker` uses;
+    `merge_temporal_context` no-ops outside an actual workflow/activity, and the per-batch contextvars
+    set in `BatchConsumer._process_single` carry the keys `LogMessagesRenderer` needs (`workflow_type`,
+    `workflow_id`, `workflow_run_id`, `team_id`, plus the event-level `log_source_id` override).
+    """
+    configure_logger(loop=asyncio.get_running_loop())
+    consumer = BatchConsumer(config=config, process_batch=process_batch, health_reporter=health_reporter)
+    await consumer.run()
 
 
 class Command(BaseCommand):
@@ -79,7 +94,4 @@ class Command(BaseCommand):
         health_state = HealthState(timeout_seconds=health_timeout)
         start_health_server(port=health_port, health_state=health_state)
 
-        consumer = BatchConsumer(
-            config=config, process_batch=process_batch, health_reporter=health_state.report_healthy
-        )
-        asyncio.run(consumer.run())
+        asyncio.run(_run_consumer(config, health_state.report_healthy))

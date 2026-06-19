@@ -3,6 +3,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { loaders } from 'kea-loaders'
 
 import { parsePersonFromHogQLRow } from 'scenes/persons/person-utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 
 import { performQuery } from '~/queries/query'
@@ -36,6 +37,27 @@ export const partitionDistinctIds = (distinctIds: string[]): { identified: strin
     return { identified, anonymous }
 }
 
+export const aggregateRecordingCountsByPerson = (
+    persons: PersonType[],
+    countsByDistinctId: Record<string, number>
+): Record<string, number> => {
+    const byKey: Record<string, number> = {}
+    for (const person of persons) {
+        const key = person.id ?? person.uuid
+        if (!key) {
+            continue
+        }
+        let total = 0
+        for (const distinctId of person.distinct_ids ?? []) {
+            total += countsByDistinctId[distinctId] ?? 0
+        }
+        if (total > 0) {
+            byKey[key] = total
+        }
+    }
+    return byKey
+}
+
 export const livePersonDrillDownLogic = kea<livePersonDrillDownLogicType>([
     props({} as LivePersonDrillDownLogicProps),
     key((p) => `${p.breakdownType}:${p.breakdownValue}`),
@@ -46,12 +68,14 @@ export const livePersonDrillDownLogic = kea<livePersonDrillDownLogicType>([
             ['slidingWindow', 'eventsVersion', 'geoVersion'],
             livePersonDrillDownDrawerLogic,
             ['currentSelection'],
+            teamLogic,
+            ['currentTeam'],
         ],
     })),
     actions({
         refresh: true,
     }),
-    loaders(() => ({
+    loaders(({ values }) => ({
         persons: [
             [] as PersonType[],
             {
@@ -105,6 +129,43 @@ export const livePersonDrillDownLogic = kea<livePersonDrillDownLogicType>([
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     })) as HogQLQueryResponse
                     return (response.results ?? []).map(parsePersonFromHogQLRow)
+                },
+            },
+        ],
+        recordingCountsByDistinctId: [
+            {} as Record<string, number>,
+            {
+                loadRecordingCounts: async ({ distinctIds }: { distinctIds: string[] }) => {
+                    if (!values.currentTeam?.session_recording_opt_in) {
+                        return {}
+                    }
+                    const { identified } = partitionDistinctIds(distinctIds)
+                    if (identified.length === 0) {
+                        return {}
+                    }
+                    const limitedIds = identified.slice(0, PERSON_HYDRATION_LIMIT)
+                    const query = hogql`SELECT
+                            distinct_id,
+                            count(DISTINCT session_id) AS recording_count
+                        FROM session_replay_events
+                        WHERE distinct_id IN ${limitedIds}
+                            AND min_first_timestamp >= now() - INTERVAL 30 MINUTE
+                        GROUP BY distinct_id`
+
+                    const response = (await performQuery({
+                        kind: NodeKind.HogQLQuery,
+                        query,
+                        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                    })) as HogQLQueryResponse
+                    const rows = (response.results ?? []) as [string, number | string][]
+                    const counts: Record<string, number> = {}
+                    for (const [distinctId, recordingCount] of rows) {
+                        const n = Number(recordingCount)
+                        if (distinctId && Number.isFinite(n) && n > 0) {
+                            counts[distinctId] = n
+                        }
+                    }
+                    return counts
                 },
             },
         ],
@@ -163,15 +224,27 @@ export const livePersonDrillDownLogic = kea<livePersonDrillDownLogicType>([
             (s) => [s.identifiedCount],
             (identifiedCount: number): boolean => identifiedCount > PERSON_HYDRATION_LIMIT,
         ],
+        recordingCountByPersonKey: [
+            (s) => [s.persons, s.recordingCountsByDistinctId],
+            (persons: PersonType[], counts: Record<string, number>): Record<string, number> =>
+                aggregateRecordingCountsByPerson(persons, counts),
+            { resultEqualityCheck: equal },
+        ],
     }),
     listeners(({ actions, values }) => ({
         refresh: () => {
             actions.loadPersons({ distinctIds: values.identifiedDistinctIds })
+            if (values.currentTeam?.session_recording_opt_in) {
+                actions.loadRecordingCounts({ distinctIds: values.identifiedDistinctIds })
+            }
         },
     })),
     events(({ actions, values }) => ({
         afterMount: () => {
             actions.loadPersons({ distinctIds: values.identifiedDistinctIds })
+            if (values.currentTeam?.session_recording_opt_in) {
+                actions.loadRecordingCounts({ distinctIds: values.identifiedDistinctIds })
+            }
         },
     })),
 ])

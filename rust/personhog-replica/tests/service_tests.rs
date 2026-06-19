@@ -3,14 +3,15 @@ mod common;
 use common::TestContext;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, DeleteHashKeyOverridesByTeamsRequest,
-    DeletePersonsBatchForTeamRequest, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
-    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
-    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
-    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey, TeamDistinctId,
+    CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
+    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
+    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
+    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
+    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
+    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
+    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
+    GetPersonsRequest, GroupIdentifier, GroupKey, SplitPersonRequest, TeamDistinctId,
     UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
@@ -434,6 +435,40 @@ async fn test_get_group_type_mappings_by_team_id() {
     let group_types: Vec<&str> = mappings.iter().map(|m| m.group_type.as_str()).collect();
     assert!(group_types.contains(&"organization"));
     assert!(group_types.contains(&"project"));
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::no_mappings(&[], None)]
+#[case::two_mappings(&[("organization", 0), ("project", 1)], Some(2))]
+#[tokio::test]
+async fn test_count_group_type_mappings(
+    #[case] mappings: &[(&str, i32)],
+    #[case] expected_count: Option<i64>,
+) {
+    let ctx = ServiceTestContext::new().await;
+
+    for (group_type, index) in mappings {
+        ctx.insert_group_type_mapping(group_type, *index)
+            .await
+            .unwrap();
+    }
+
+    let response = ctx
+        .service
+        .count_group_type_mappings(Request::new(CountGroupTypeMappingsRequest {
+            read_options: None,
+        }))
+        .await
+        .expect("RPC failed");
+
+    let counts = response.into_inner().counts;
+    let entry = counts.iter().find(|c| c.team_id == ctx.team_id);
+    match expected_count {
+        Some(count) => assert_eq!(entry.unwrap().count, count),
+        None => assert!(entry.is_none()),
+    }
 
     ctx.cleanup().await.ok();
 }
@@ -1197,6 +1232,36 @@ async fn test_delete_persons_batch_for_team_invalid_batch_size(#[case] batch_siz
     let status = result.unwrap_err();
     assert_eq!(status.code(), tonic::Code::InvalidArgument);
     assert!(status.message().contains("batch_size"));
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::exceeds_max((0..251).map(|i| format!("did_{i}")).collect(), "Maximum")]
+#[case::duplicates(vec!["dup@example.com".to_string(), "dup@example.com".to_string()], "Duplicate")]
+#[tokio::test]
+async fn test_split_person_invalid_request(
+    #[case] distinct_ids_to_split: Vec<String>,
+    #[case] expected_message: &str,
+) {
+    let ctx = ServiceTestContext::new().await;
+
+    let result = ctx
+        .service
+        .split_person(Request::new(SplitPersonRequest {
+            team_id: ctx.team_id,
+            person_id: 1,
+            distinct_ids_to_split,
+        }))
+        .await;
+
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(
+        status.message().contains(expected_message),
+        "Expected message containing {expected_message:?}, got: {}",
+        status.message()
+    );
 
     ctx.cleanup().await.ok();
 }

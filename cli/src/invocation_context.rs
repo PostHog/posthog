@@ -8,6 +8,7 @@ use reqwest::blocking::Client;
 use serde_json::json;
 use std::{
     io::{self, IsTerminal},
+    path::PathBuf,
     sync::{Mutex, OnceLock},
     thread::JoinHandle,
 };
@@ -33,8 +34,13 @@ pub fn context() -> &'static InvocationContext {
     INVOCATION_CONTEXT.get().expect("Context has been set up")
 }
 
-pub fn init_context(host: Option<String>, skip_ssl: bool, rate_limit: Option<usize>) -> Result<()> {
-    let token = get_token()?;
+pub fn init_context(
+    host: Option<String>,
+    skip_ssl: bool,
+    rate_limit: Option<usize>,
+    env_file: Option<PathBuf>,
+) -> Result<()> {
+    let token = get_token(env_file)?;
     let config = InvocationConfig {
         api_key: token.token.clone(),
         host: host.unwrap_or(token.host.unwrap_or("https://us.i.posthog.com".into())),

@@ -27,10 +27,10 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     verify_data_imports_ducklake_copy_activity,
 )
 
-from products.data_warehouse.backend.models.credential import DataWarehouseCredential
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class _FakeColumn:
@@ -268,7 +268,7 @@ async def test_prepare_data_imports_ducklake_metadata_activity_empty_schema_ids(
 
 
 def _create_mock_catalog():
-    """Create a mock DuckLakeCatalog with cross-account settings."""
+    """Create a mock DuckLakeCatalog."""
     mock_catalog = MagicMock()
     mock_catalog.to_public_config.return_value = {
         "DUCKLAKE_RDS_HOST": "localhost",
@@ -282,12 +282,6 @@ def _create_mock_catalog():
         "DUCKLAKE_S3_SECRET_KEY": "",
     }
     mock_catalog.bucket = "test-bucket"
-    mock_catalog.cross_account_role_arn = "arn:aws:iam::123456789012:role/test-role"
-    mock_catalog.cross_account_external_id = "external-id-123"
-    mock_cross_account_dest = MagicMock()
-    mock_cross_account_dest.role_arn = "arn:aws:iam::123456789012:role/test-role"
-    mock_cross_account_dest.bucket_name = "test-bucket"
-    mock_catalog.to_cross_account_destination.return_value = mock_cross_account_dest
     return mock_catalog
 
 
@@ -477,8 +471,6 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     mock_stage.assert_called_once_with(
         source_uri="s3://bucket/team_1/customers",
         catalog_bucket="test-bucket",
-        role_arn="arn:aws:iam::123456789012:role/test-role",
-        external_id="external-id-123",
         organization_id="org-123",
     )
     execute_calls = mock_conn.execute.call_args_list

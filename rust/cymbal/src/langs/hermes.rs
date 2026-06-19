@@ -54,8 +54,8 @@ impl RawHermesFrame {
                 Ok(self.handle_resolution_error(HermesError::NoSourcemapUploaded(chunk_id)))
             }
             Err(ResolveError::ResolutionError(e)) => {
-                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
-                unreachable!("Should not have received error {:?}", e)
+                tracing::warn!("Unexpected Hermes symbol resolution error: {:?}", e);
+                Ok(self.handle_resolution_error(HermesError::InvalidMap(e.to_string())))
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }
@@ -278,7 +278,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_symbol_data_bytes()))));
 
         let client = Arc::new(client);
 

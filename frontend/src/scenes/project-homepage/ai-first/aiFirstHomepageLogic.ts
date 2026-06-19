@@ -1,6 +1,9 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
+import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -16,7 +19,7 @@ import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { DashboardBasicType } from '~/types'
 
 import type { aiFirstHomepageLogicType } from './aiFirstHomepageLogicType'
-import { HOMEPAGE_TAB_ID } from './constants'
+import { HOMEPAGE_IDLE_DRAFT_KEY, HOMEPAGE_TAB_ID } from './constants'
 
 export type HomepageMode = 'idle' | 'search' | 'ai'
 export type AnimationPhase = 'idle' | 'moving' | 'separator' | 'content'
@@ -73,7 +76,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     connect(() => ({
         values: [
-            maxLogic({ tabId: HOMEPAGE_TAB_ID }),
+            maxLogic({ panelId: HOMEPAGE_TAB_ID }),
             ['threadLogicKey', 'conversationId'],
             teamLogic,
             ['currentTeam'],
@@ -85,17 +88,24 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['recents as cachedRecents', 'recentsHasLoaded'],
             projectTreeDataLogic,
             ['shortcutData as cachedStarred', 'shortcutDataHasLoaded'],
+            tabUiStateLogic,
+            ['chatDraftFor'],
         ],
         actions: [
-            maxLogic({ tabId: HOMEPAGE_TAB_ID }),
+            maxLogic({ panelId: HOMEPAGE_TAB_ID }),
             ['openConversation', 'startNewConversation', 'setQuestion'],
+            handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }),
+            ['enterHandsFree'],
             sceneLogic,
             ['setHomepage'],
+            tabUiStateLogic,
+            ['setChatDraftForTab'],
         ],
     })),
 
     actions({
         submitQuery: (mode: 'search' | 'ai') => ({ mode }),
+        startHandsFreeChat: true,
         enterAiMode: (trigger: string) => ({ trigger }),
         setQuery: (query: string) => ({ query }),
         setAnimationPhase: (phase: AnimationPhase) => ({ phase }),
@@ -205,7 +215,19 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        setQuery: ({ query }) => {
+            if (values.mode === 'idle') {
+                actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, query)
+            }
+        },
+        returnToIdle: () => {
+            actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')
+        },
         submitQuery: async ({ mode }, breakpoint) => {
+            // Once the draft has been submitted, it's no longer a draft — clear it so we don't
+            // resurrect it as "unsent input" the next time the homepage is mounted.
+            actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')
+
             if (mode === 'ai' && !values.conversationId) {
                 actions.startNewConversation()
             }
@@ -220,6 +242,14 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
             await breakpoint(200)
             actions.setAnimationPhase('content')
+        },
+        startHandsFreeChat: () => {
+            posthog.capture('homepage hands-free started')
+            // Clear any in-progress conversation so hands-free always starts a fresh thread,
+            // then flip into AI mode (mounting maxThreadLogic) before Scribe starts listening.
+            actions.startNewConversation()
+            actions.submitQuery('ai')
+            actions.enterHandsFree()
         },
         enterAiMode: async ({ trigger }, breakpoint) => {
             // Animate into AI mode without starting a conversation
@@ -268,7 +298,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     urlToAction(({ actions, values }) => ({
         [urls.projectHomepage()]: (_, searchParams) => {
             const urlMode = (searchParams.mode as HomepageMode) || 'idle'
-            const urlQuery = (searchParams.q as string) || ''
+            const urlQuery = searchParams.q != null ? String(searchParams.q) : ''
             const urlChat = (searchParams.chat as string) || ''
 
             if (urlMode === 'idle' && values.mode !== 'idle') {
@@ -285,6 +315,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 actions.submitQuery('search')
             } else if (urlMode === 'search' && urlQuery !== values.query) {
                 actions.setQuery(urlQuery)
+            } else if (urlMode === 'idle' && !values.query) {
+                // Restore unsent input typed before the user left the homepage.
+                // urlToAction also runs on first mount, so this handles initial restore too.
+                const persistedDraft = values.chatDraftFor(HOMEPAGE_IDLE_DRAFT_KEY)
+                if (persistedDraft) {
+                    actions.setQuery(persistedDraft)
+                }
             }
         },
     })),
@@ -324,7 +361,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
         const { searchParams } = router.values
         const urlMode = (searchParams.mode as HomepageMode) || 'idle'
-        const urlQuery = (searchParams.q as string) || ''
+        const urlQuery = searchParams.q != null ? String(searchParams.q) : ''
         const urlChat = (searchParams.chat as string) || ''
 
         if (urlMode === 'ai') {
@@ -338,5 +375,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             actions.setQuery(urlQuery)
             actions.submitQuery('search')
         }
+        // Idle-mode draft restore happens in urlToAction (also fires on mount).
     }),
 ])

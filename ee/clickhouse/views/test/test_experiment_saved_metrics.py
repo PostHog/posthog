@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
@@ -846,7 +847,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
     def test_saved_metric_refreshes_action_names(self):
         """Test that saved metrics show current action names when actions are renamed."""
-        from posthog.models.action.action import Action
+        from products.actions.backend.models.action import Action
 
         # Create an action
         action = Action.objects.create(team=self.team, name="Original Action Name")
@@ -885,7 +886,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
     def test_saved_metric_preserves_name_for_deleted_action(self):
         """Test that saved metrics preserve old names when actions are deleted."""
-        from posthog.models.action.action import Action
+        from products.actions.backend.models.action import Action
 
         # Create an action
         action = Action.objects.create(team=self.team, name="Action to Delete")
@@ -922,3 +923,61 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         # Verify the old name is preserved
         self.assertEqual(response.json()["query"]["source"]["name"], "Action to Delete")
         self.assertEqual(response.json()["query"]["source"]["id"], action_id)
+
+    def _create_saved_metric(self, name: str, description: str = "", tags: list[str] | None = None) -> int:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": name,
+                "description": description,
+                "tags": tags or [],
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()["id"]
+
+    @parameterized.expand(
+        [
+            ("by_name", "alpha", {"Alpha conversion"}),
+            ("by_description", "revenue tracker", {"Beta signups"}),
+            ("by_tag", "growth", {"Beta signups"}),
+            ("no_match", "zzz-nothing", set()),
+        ]
+    )
+    def test_search_filters_saved_metrics(self, _name: str, search: str, expected_names: set[str]) -> None:
+        self._create_saved_metric("Alpha conversion", description="checkout funnel")
+        self._create_saved_metric("Beta signups", description="revenue tracker thing", tags=["growth"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?search={search}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned = {row["name"] for row in response.json()["results"]}
+        self.assertEqual(returned, expected_names)
+
+    def test_search_returns_each_metric_once_with_multiple_matching_tags(self) -> None:
+        self._create_saved_metric("Tagged metric", description="", tags=["growth", "growth-team"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?search=growth")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(len(body["results"]), 1)
+
+    def test_list_paginates_with_limit_and_offset(self) -> None:
+        for i in range(5):
+            self._create_saved_metric(f"Metric {i:02d}")
+
+        page1 = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?limit=2&offset=0").json()
+        page2 = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?limit=2&offset=2").json()
+
+        self.assertEqual(page1["count"], 5)
+        self.assertEqual(len(page1["results"]), 2)
+        self.assertEqual(len(page2["results"]), 2)
+        ids_page1 = {row["id"] for row in page1["results"]}
+        ids_page2 = {row["id"] for row in page2["results"]}
+        self.assertEqual(ids_page1 & ids_page2, set())

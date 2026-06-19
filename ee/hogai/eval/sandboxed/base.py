@@ -316,7 +316,7 @@ async def SandboxedEval(
             posthog_client.flush()
             print(  # noqa: T201
                 f"\nPostHog evaluations: "
-                f"https://us.posthog.com/project/2/llm-analytics/evaluations/offline/experiments/"
+                f"https://us.posthog.com/project/2/ai-evals/evaluations/offline/experiments/"
                 f"{experiment_id}?offline_date_from=-1d\n"
             )
         except Exception:

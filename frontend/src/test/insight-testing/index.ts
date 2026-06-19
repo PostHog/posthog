@@ -1,16 +1,18 @@
 export { getChart } from './chart-accessor'
 export type { Chart } from './chart-accessor'
-export { getHogChart } from 'lib/hog-charts/testing'
-export type { HogChart } from 'lib/hog-charts/testing'
+export { getHogChart } from '@posthog/quill-charts/testing'
+export type { HogChart } from '@posthog/quill-charts/testing'
 export { createInsightTooltipAccessor } from './tooltip-helpers'
 export type { InsightTooltipAccessor } from './tooltip-helpers'
 export {
+    buildFunnelsQuery,
+    buildStickinessQuery,
     buildTrendsQuery,
     renderInsight,
     renderInsight as renderInsightPage,
     renderWithInsights,
 } from './render-insight'
-export type { RenderInsightProps, RenderWithInsightsProps } from './render-insight'
+export type { InsightQuery, RenderInsightProps, RenderWithInsightsProps } from './render-insight'
 export {
     breakdown,
     chart,

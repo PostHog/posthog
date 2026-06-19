@@ -31,6 +31,8 @@ export interface KeyedRateLimiterConfig {
 export interface KeyedRateLimitRequest {
     id: string
     cost: number
+    /** Used by guard-style limiters to scope per-team state. Ignored by the base service. */
+    teamId?: number
     bucketSize?: number
     refillRate?: number
     ttlSeconds?: number
@@ -46,12 +48,24 @@ export type KeyedRateLimit = {
     isRateLimited: boolean
 }
 
+export interface KeyedRateLimiter {
+    /**
+     * Rate-limit a batch of requests.
+     *
+     * Contract: the resolved array is a 1:1 positional mapping to `requests` —
+     * same length, exactly one decision per input request, in input order.
+     * Callers (e.g. `createKeyedRateLimiterStep`) correlate results by index, so
+     * implementations must not deduplicate, group, or reorder the returned array.
+     */
+    rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]>
+}
+
 const buildKeyPrefix = (name: string): string => {
     const root = process.env.NODE_ENV === 'test' ? '@posthog-test' : '@posthog'
     return `${root}/${name}/tokens`
 }
 
-export class KeyedRateLimiterService {
+export class KeyedRateLimiterService implements KeyedRateLimiter {
     private readonly keyPrefix: string
 
     constructor(
@@ -137,13 +151,12 @@ export class KeyedRateLimiterService {
     }
 
     /**
-     * Coalesced variant of rateLimitMany. Same input/output shape, but N inputs
-     * across M unique ids dispatch only M Redis calls — per-input decisions are
-     * fanned out client-side from each id's `tokensBefore`. For uniform-cost
-     * batches the per-input decisions match rateLimitMany exactly.
+     * Coalesced variant of rateLimitMany — N inputs across M unique ids → M Redis calls.
+     * Per-input decisions fan out client-side from each id's `tokensBefore`.
      *
-     * Uses the V3 lua script (HMGET + multi-field HSET + conditional EXPIRE).
-     * Per-id bucket params come from the first request seen for that id.
+     * Boundary differs from rateLimitMany: an input whose cost lands exactly on
+     * the local budget (`next === 0`) is allowed here, rate-limited there. Per-id
+     * bucket params come from the first request seen for that id.
      */
     public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
@@ -209,16 +222,13 @@ export class KeyedRateLimiterService {
         let limited = 0
         const out: [string, KeyedRateLimit][] = requests.map((req) => {
             const tokensBefore = budgetById.get(req.id) ?? 0
+            // Boundary is `next < 0`, not `<= 0` — needed so the lua's floor-drain of
+            // one token under sustained overload actually lets that input through.
             if (tokensBefore >= req.cost) {
                 const next = tokensBefore - req.cost
                 budgetById.set(req.id, next)
-                const isRateLimited = next <= 0
-                if (isRateLimited) {
-                    limited++
-                } else {
-                    allowed++
-                }
-                return [req.id, { tokensBefore, tokens: next, isRateLimited }]
+                allowed++
+                return [req.id, { tokensBefore, tokens: next, isRateLimited: false }]
             }
             limited++
             return [req.id, { tokensBefore, tokens: -1, isRateLimited: true }]

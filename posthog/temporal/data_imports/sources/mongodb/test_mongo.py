@@ -9,9 +9,11 @@ from django.test import SimpleTestCase, override_settings
 from bson import Binary, DatetimeMS, ObjectId
 from bson.binary import UUID_SUBTYPE
 from parameterized import parameterized
+from pymongo.errors import ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 
 from posthog.temporal.data_imports.sources.mongodb.mongo import (
+    _get_rows_to_sync,
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
@@ -316,3 +318,143 @@ class TestGetLeadingIndexKeys(SimpleTestCase):
     def test_returns_empty_set_for_collection_with_no_indexes(self):
         coll = self._collection_with_indexes([])
         assert get_leading_index_keys(coll) == set()
+
+
+class TestMongoDBNonRetryableErrors(SimpleTestCase):
+    """The non-retryable match is case-sensitive substring matching, so the patterns
+    must match the exact casing pymongo produces."""
+
+    def setUp(self):
+        from posthog.temporal.data_imports.sources.mongodb.source import MongoDBSource
+
+        self.non_retryable = MongoDBSource().get_non_retryable_errors()
+
+    @parameterized.expand(
+        [
+            # Real pymongo OperationFailure string for bad credentials (code 18).
+            (
+                "operation_failure",
+                "Authentication failed., full error: {'ok': 0.0, 'errmsg': 'Authentication failed.', "
+                "'code': 18, 'codeName': 'AuthenticationFailed'}",
+            ),
+            # Real pymongo OperationFailure string for bad credentials on MongoDB Atlas (code 8000).
+            (
+                "atlas_bad_auth",
+                "bad auth : authentication failed, full error: {'ok': 0, 'errmsg': 'bad auth : "
+                "authentication failed', 'code': 8000, 'codeName': 'AtlasError'}",
+            ),
+            ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
+            ("ssl_failure", "SSL handshake failed: certificate verify failed"),
+            # pymongo InvalidURI raised before any network call when credentials in the connection
+            # string contain unescaped reserved characters — a malformed string the user must fix.
+            (
+                "unescaped_credentials",
+                "Username and password must be escaped according to RFC 3986, use urllib.parse.quote_plus",
+            ),
+            # Same unescaped-credential mistake surfacing via the "Port contains non-digit characters"
+            # variant, which carries the identical RFC-3986 hint.
+            (
+                "unescaped_credentials_port_variant",
+                "Port contains non-digit characters. Hint: username and password must be escaped "
+                "according to RFC 3986, use urllib.parse.quote_plus",
+            ),
+            # ServerSelectionTimeoutError variants — cluster unreachable for the whole selection
+            # timeout. All carry the "Topology Description:" suffix regardless of the per-reason text.
+            ("no_servers", "No servers found yet, Timeout: 5.0s, Topology Description: ..."),
+            (
+                "no_replica_set_members",
+                "No replica set members found yet, Timeout: 10.0s, Topology Description: "
+                "<TopologyDescription topology_type: ReplicaSetNoPrimary>",
+            ),
+            # Host resolves but every connection attempt is closed for the whole window — the driver
+            # never identifies the server (topology_type: Unknown) and wraps the per-server
+            # AutoReconnect. Persistent connectivity/config problem, not a momentary blip.
+            (
+                "connection_closed_selection_timeout",
+                "cluster0.example.mongodb.net:27017: connection closed (configured timeouts: "
+                "socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 10.0s, "
+                "Topology Description: <TopologyDescription id: abc, topology_type: Unknown, "
+                "servers: [<ServerDescription ('cluster0.example.mongodb.net', 27017) "
+                "server_type: Unknown, rtt: None, error=AutoReconnect('cluster0.example.mongodb.net:"
+                "27017: connection closed (configured timeouts: socketTimeoutMS: 20000.0ms, "
+                "connectTimeoutMS: 20000.0ms)')>]>",
+            ),
+            # Atlas SQL / Data Federation endpoint (*.query.mongodb.net) — unusable by the standard
+            # driver, so the topology stays Unknown and selection times out. Despite the "connection
+            # closed" text, the host suffix marks it as a wrong-endpoint config error, not a blip.
+            (
+                "atlas_sql_endpoint",
+                "atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net:27017: connection closed "
+                "(configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: "
+                "10.0s, Topology Description: <TopologyDescription id: 6a304febea674ebc4c8c051e, "
+                "topology_type: Unknown, servers: [<ServerDescription "
+                "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
+                "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
+            ),
+        ]
+    )
+    def test_known_errors_are_non_retryable(self, _name, error_msg):
+        assert any(pattern in error_msg for pattern in self.non_retryable), (
+            f"MongoDB error {error_msg!r} did not match any non-retryable pattern"
+        )
+
+    @parameterized.expand(
+        [
+            ("connection_reset", "connection closed"),
+            ("network_timeout", "NetworkTimeout: timed out reading from socket"),
+            # A mid-sync AutoReconnect carries the "(configured timeouts: ...)" suffix but no
+            # topology description — it's a momentary drop the driver can recover from, so it must
+            # not be caught by the "Topology Description:" server-selection matcher.
+            (
+                "mid_sync_auto_reconnect",
+                "cluster0.example.mongodb.net:27017: connection closed (configured timeouts: "
+                "socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)",
+            ),
+        ]
+    )
+    def test_transient_errors_are_retryable(self, _name, error_msg):
+        assert not any(pattern in error_msg for pattern in self.non_retryable), (
+            f"MongoDB error {error_msg!r} should remain retryable"
+        )
+
+    @parameterized.expand(
+        [
+            ("code_name", "AuthenticationFailed", "password"),
+            ("message", "Authentication failed", "password"),
+            ("atlas_bad_auth", "bad auth", "password"),
+            ("unreachable_topology", "Topology Description:", "allowlist"),
+            ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
+            ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
+        ]
+    )
+    def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
+        message = self.non_retryable[pattern]
+        assert message is not None
+        assert expected_substring in message.lower()
+
+
+class TestGetRowsToSync(SimpleTestCase):
+    """rows_to_sync is a best-effort progress estimate; a failed count must degrade to
+    0 without failing the sync, and expected pymongo errors must not be reported to
+    error tracking (they are transient/operational and classified by the real data read)."""
+
+    def test_returns_count_on_success(self):
+        coll = MagicMock()
+        coll.count_documents.return_value = 42
+        assert _get_rows_to_sync(coll, {}, MagicMock()) == 42
+
+    def test_pymongo_error_returns_zero_without_capture(self):
+        coll = MagicMock()
+        coll.count_documents.side_effect = ServerSelectionTimeoutError(
+            "atlas-sql.query.mongodb.net:27017: connection closed, Timeout: 10.0s"
+        )
+        with patch("posthog.temporal.data_imports.sources.mongodb.mongo.capture_exception") as capture:
+            assert _get_rows_to_sync(coll, {}, MagicMock()) == 0
+            capture.assert_not_called()
+
+    def test_unexpected_error_returns_zero_and_captures(self):
+        coll = MagicMock()
+        coll.count_documents.side_effect = ValueError("unexpected bug")
+        with patch("posthog.temporal.data_imports.sources.mongodb.mongo.capture_exception") as capture:
+            assert _get_rows_to_sync(coll, {}, MagicMock()) == 0
+            capture.assert_called_once()

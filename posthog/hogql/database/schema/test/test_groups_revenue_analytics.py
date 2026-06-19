@@ -18,7 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
 

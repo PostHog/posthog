@@ -7,9 +7,10 @@ import React from 'react'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { identifierToHuman } from 'lib/utils'
+import { identifierToHuman } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -320,6 +321,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
 
                 // Mark feature creation task as completed
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateEarlyAccessFeature)
+                tryShowMCPHint('early_access_features.create')
             }
         },
         showGAPromotionConfirmation: ({ onConfirm }) => {

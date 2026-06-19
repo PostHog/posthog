@@ -6,35 +6,19 @@ import type { navigationLogicType } from './navigationLogicType'
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
     actions({
-        showConfigurePinnedTabsModal: true,
-        hideConfigurePinnedTabsModal: true,
-        showConfigurePinnedTabsTooltip: true,
-        hideConfigurePinnedTabsTooltip: true,
+        showConfigureHomeModal: true,
+        hideConfigureHomeModal: true,
     }),
     windowValues(() => ({
         fullscreen: (window: Window) => !!window.document.fullscreenElement,
         mobileLayout: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     reducers({
-        isConfigurePinnedTabsModalOpen: [
+        isConfigureHomeModalOpen: [
             false,
             {
-                showConfigurePinnedTabsModal: () => true,
-                hideConfigurePinnedTabsModal: () => false,
-            },
-        ],
-        isConfigurePinnedTabsTooltipVisible: [
-            false,
-            {
-                showConfigurePinnedTabsTooltip: () => true,
-                hideConfigurePinnedTabsTooltip: () => false,
-            },
-        ],
-        isConfigurePinnedTabsTooltipDismissed: [
-            false,
-            { persist: true },
-            {
-                hideConfigurePinnedTabsTooltip: () => true,
+                showConfigureHomeModal: () => true,
+                hideConfigureHomeModal: () => false,
             },
         ],
     }),

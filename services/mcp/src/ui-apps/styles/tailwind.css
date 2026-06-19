@@ -66,3 +66,4 @@
 @source "../../../../../products/*/mcp/**/*.tsx";
 @source "../../../../../packages/quill/packages/primitives/src/**/*.{ts,tsx}";
 @source "../../../../../packages/quill/packages/components/src/**/*.{ts,tsx}";
+@source "../../../../../packages/quill/packages/charts/src/**/*.{ts,tsx}";

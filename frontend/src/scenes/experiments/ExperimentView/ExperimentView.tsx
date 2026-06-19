@@ -17,7 +17,6 @@ import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionRep
 import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
-import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
@@ -26,18 +25,19 @@ import { SharedMetricDetailsModal } from '../Metrics/SharedMetricDetailsModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
-import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { isLegacyExperiment } from '../utils'
-import { EditConclusionModal, LoadingState, PageHeaderCustom } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
+import { EditConclusionModal } from './ExperimentModals'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Info } from './Info'
+import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
+import { PageHeaderCustom } from './PageHeader'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { ResultsNotificationBanner } from './ResultsNotificationBanner'
 import { SettingsTab } from './SettingsTab'
@@ -119,7 +119,7 @@ const VariantsTab = (): JSX.Element => {
     )
 }
 
-export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
+export function ExperimentView(): JSX.Element {
     const { experimentLoading, experimentId, experiment, isExperimentDraft, exposureCriteria, showDebugPanel } =
         useValues(experimentLogic)
     const {
@@ -132,19 +132,15 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         removeMetric,
     } = useActions(experimentLogic)
 
-    if (!tabId) {
-        throw new Error('<ExperimentView /> must receive a tabId prop')
-    }
-
-    const { activeTabKey } = useValues(experimentSceneLogic({ tabId }))
-    const { setActiveTabKey } = useActions(experimentSceneLogic({ tabId }))
+    const { activeTabKey } = useValues(experimentSceneLogic)
+    const { setActiveTabKey } = useActions(experimentSceneLogic)
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     // Branch to legacy view for legacy experiments
     if (!experimentLoading && isLegacyExperiment(experiment)) {
-        return <LegacyExperimentView tabId={tabId} />
+        return <LegacyExperimentView />
     }
 
     return (
@@ -169,7 +165,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                             context="experiment"
                         />
                     )}
-                    <Info tabId={tabId} />
+                    <Info />
                     <ExperimentHeader />
                     <LemonTabs
                         activeKey={activeTabKey}
@@ -275,8 +271,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                             updateExposureCriteria()
                         }}
                     />
-                    <RunningTimeCalculatorModal />
-
                     <DistributionModal />
                     <ReleaseConditionsModal />
 

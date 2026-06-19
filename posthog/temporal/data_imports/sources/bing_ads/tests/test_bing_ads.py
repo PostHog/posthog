@@ -342,6 +342,32 @@ class TestBingAdsSource:
             assert isinstance(items, Iterable)
             list(items)
 
+    @parameterized.expand(
+        [
+            ("account_number", "F118FDGN"),
+            ("alphanumeric", "ABC123"),
+            ("empty", ""),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
+    @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
+    def test_bing_ads_source_non_numeric_account_id(self, _name, account_id, mock_integrations, mock_client_class):
+        """A non-numeric account ID raises a deterministic, non-retryable error instead of a bare int() crash."""
+        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
+
+        result = bing_ads_source(
+            account_id=account_id,
+            resource_name="campaigns",
+            access_token=self.access_token,
+            refresh_token=self.refresh_token,
+            resumable_source_manager=_mock_resumable_manager(),
+        )
+
+        with pytest.raises(ValueError, match="Bing Ads Account ID must be numeric"):
+            items = result.items()
+            assert isinstance(items, Iterable)
+            list(items)
+
     @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
     @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
     def test_bing_ads_source_incremental_missing_field(self, mock_integrations, mock_client_class):

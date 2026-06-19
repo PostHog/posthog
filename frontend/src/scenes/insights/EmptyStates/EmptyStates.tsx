@@ -10,6 +10,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { holidaysMatcher, isChristmas } from 'lib/holidays'
@@ -18,7 +19,8 @@ import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemo
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -489,10 +491,12 @@ export function InsightValidationError({
     detail,
     query,
     onRetry,
+    cta,
 }: {
     detail: string
     query?: Record<string, any> | null
     onRetry?: () => void
+    cta?: JSX.Element
 }): JSX.Element {
     return (
         <div
@@ -515,7 +519,7 @@ export function InsightValidationError({
 
             <p className="text-sm text-muted max-w-120 mb-2">{detail}</p>
 
-            {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
+            {cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)}
 
             {detail.includes('Exclusion') && (
                 <div className="mt-4">
@@ -837,6 +841,11 @@ export function SavedInsightsEmptyState({
                     </Link>
                 )}
             </div>
+            {!usingFilters && (
+                <div className="mt-4">
+                    <MCPUseCaseCard surfaceKey="insights.create" className="max-w-140" />
+                </div>
+            )}
         </div>
     )
 }

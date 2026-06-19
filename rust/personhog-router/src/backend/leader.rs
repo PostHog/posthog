@@ -15,7 +15,7 @@ use tonic::codec::CompressionEncoding;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
 
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_caller_tag, current_client_name};
 
 use super::retry::with_retry;
 use super::stash::{StashDecision, StashTable};
@@ -24,9 +24,8 @@ use crate::config::RetryConfig;
 
 pub type AddressResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
-/// Static configuration for `LeaderBackend`. Mirrors `ReplicaBackendConfig`
-/// in the same crate; bundles the knobs that come from `Config` so the
-/// constructor stays narrow as we add fields.
+/// Static configuration for `LeaderBackend`. Bundles the knobs that come
+/// from `Config` so the constructor stays narrow as we add fields.
 pub struct LeaderBackendConfig {
     pub num_partitions: u32,
     pub timeout: Duration,
@@ -207,11 +206,15 @@ impl LeaderOps for LeaderBackend {
             let client_fut = self.resolve_leader(partition);
             let req = leader_req;
             let client_name = current_client_name();
+            let caller_tag = current_caller_tag();
             async move {
                 let mut client = client_fut.await?;
                 let mut request = Request::new(req);
                 if let Ok(val) = client_name.parse() {
                     request.metadata_mut().insert("x-client-name", val);
+                }
+                if let Ok(val) = caller_tag.parse() {
+                    request.metadata_mut().insert("x-caller-tag", val);
                 }
                 client.get_person(request).await.map(|r| r.into_inner())
             }
@@ -301,11 +304,15 @@ impl LeaderBackend {
                 let client_fut = self.resolve_leader(partition);
                 let req = request.clone();
                 let client_name = current_client_name();
+                let caller_tag = current_caller_tag();
                 async move {
                     let mut client = client_fut.await?;
                     let mut request = Request::new(req);
                     if let Ok(val) = client_name.parse() {
                         request.metadata_mut().insert("x-client-name", val);
+                    }
+                    if let Ok(val) = caller_tag.parse() {
+                        request.metadata_mut().insert("x-caller-tag", val);
                     }
                     client
                         .update_person_properties(request)

@@ -25,7 +25,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
-import { isKeyOf } from 'lib/utils'
+import { isKeyOf } from 'lib/utils/guards'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -39,7 +39,7 @@ const statusText = {
 
 export function ManagedReverseProxy(): JSX.Element {
     const {
-        cloudflareOptInAcknowledged,
+        shouldShowCloudflareOptIn,
         formState,
         proxyRecords,
         proxyRecordsLoading,
@@ -183,7 +183,7 @@ export function ManagedReverseProxy(): JSX.Element {
     ]
 
     // Show opt-in banner if Cloudflare proxy is enabled but not yet acknowledged
-    if (cloudflareProxyEnabled && !cloudflareOptInAcknowledged) {
+    if (cloudflareProxyEnabled && shouldShowCloudflareOptIn) {
         return (
             <CloudflareOptInBanner onAcknowledge={acknowledgeCloudflareOptIn} restrictionReason={restrictionReason} />
         )

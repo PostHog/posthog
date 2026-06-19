@@ -24,8 +24,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { PropertyOperator } from '~/types'
 
@@ -55,7 +56,8 @@ import {
 } from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
 
-const LIVE_FEED_COLUMNS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'timestamp']
+const LIVE_FEED_COLUMNS_WITH_RECORDINGS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'recording', 'timestamp']
+const LIVE_FEED_COLUMNS_WITHOUT_RECORDINGS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'timestamp']
 const STATS_POLL_INTERVAL_MS = 1000
 
 const renderBrowserIcon = (d: BrowserBreakdownItem): JSX.Element => {
@@ -83,27 +85,18 @@ const renderCountryIcon = (d: CountryBreakdownItem): JSX.Element => {
 }
 
 const LiveDashboardFilterRow = ({
-    canEditLayout,
     isEditing,
     resetLayout,
     setEditing,
 }: {
-    canEditLayout: boolean
     isEditing: boolean
     resetLayout: () => void
     setEditing: (isEditing: boolean) => void
-}): JSX.Element | null => {
+}): JSX.Element => {
     const [displayFilters, setDisplayFilters] = useState(false)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { rawWebAnalyticsFilters, deviceTypeFilter, validatedDomainFilter } = useValues(webAnalyticsLogic)
     const { setCountryFilter, setReferrerFilter, setDeviceTypeFilter, setDomainFilter, setWebAnalyticsFilters } =
         useActions(webAnalyticsLogic)
-
-    const showLiveFilters = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS]
-
-    if (!showLiveFilters && !canEditLayout) {
-        return null
-    }
 
     const hasDomainFilter = !!validatedDomainFilter && validatedDomainFilter !== 'all'
     const livePropertyFilters = rawWebAnalyticsFilters.filter(isLiveStreamFilter)
@@ -161,51 +154,46 @@ const LiveDashboardFilterRow = ({
             left={null}
             right={
                 <>
-                    {canEditLayout &&
-                        (isEditing ? (
-                            <>
-                                <LemonButton type="secondary" size="small" onClick={() => resetLayout()}>
-                                    Reset layout
-                                </LemonButton>
-                                <LemonButton type="primary" size="small" onClick={() => setEditing(false)}>
-                                    Done
-                                </LemonButton>
-                            </>
-                        ) : (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconPencil />}
-                                onClick={() => setEditing(true)}
-                            >
-                                Edit layout
-                            </LemonButton>
-                        ))}
-                    {showLiveFilters && (
+                    {isEditing ? (
                         <>
-                            <Popover
-                                visible={displayFilters}
-                                onClickOutside={() => setDisplayFilters(false)}
-                                placement="bottom-end"
-                                overlay={filtersContent}
-                            >
-                                <LemonButton
-                                    icon={
-                                        <IconWithCount count={activeFilterCount} showZero={false}>
-                                            <IconFilter />
-                                        </IconWithCount>
-                                    }
-                                    type="secondary"
-                                    size="small"
-                                    data-attr="web-analytics-live-filters"
-                                    onClick={() => setDisplayFilters(!displayFilters)}
-                                >
-                                    Filters
-                                </LemonButton>
-                            </Popover>
-                            <WebAnalyticsDomainSelector />
+                            <LemonButton type="secondary" size="small" onClick={() => resetLayout()}>
+                                Reset layout
+                            </LemonButton>
+                            <LemonButton type="primary" size="small" onClick={() => setEditing(false)}>
+                                Done
+                            </LemonButton>
                         </>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPencil />}
+                            onClick={() => setEditing(true)}
+                        >
+                            Edit layout
+                        </LemonButton>
                     )}
+                    <Popover
+                        visible={displayFilters}
+                        onClickOutside={() => setDisplayFilters(false)}
+                        placement="bottom-end"
+                        overlay={filtersContent}
+                    >
+                        <LemonButton
+                            icon={
+                                <IconWithCount count={activeFilterCount} showZero={false}>
+                                    <IconFilter />
+                                </IconWithCount>
+                            }
+                            type="secondary"
+                            size="small"
+                            data-attr="web-analytics-live-filters"
+                            onClick={() => setDisplayFilters(!displayFilters)}
+                        >
+                            Filters
+                        </LemonButton>
+                    </Popover>
+                    <WebAnalyticsDomainSelector />
                 </>
             }
         />
@@ -287,14 +275,16 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS })
     )
 
-    const { statOrder, cardOrder, isEditing: isEditingRaw } = useValues(liveWebAnalyticsLayoutLogic)
+    const { statOrder, cardOrder, isEditing } = useValues(liveWebAnalyticsLayoutLogic)
     const { setStatOrder, setCardOrder, setEditing, resetLayout } = useActions(liveWebAnalyticsLayoutLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const canEditLayout = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_EDIT_LAYOUT]
+    const { currentTeam } = useValues(teamLogic)
     const drillDownEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_PERSON_DRILLDOWN]
+    const liveFeedColumns = currentTeam?.session_recording_opt_in
+        ? LIVE_FEED_COLUMNS_WITH_RECORDINGS
+        : LIVE_FEED_COLUMNS_WITHOUT_RECORDINGS
     const { openDrillDown } = useActions(livePersonDrillDownDrawerLogic)
-    const isEditing = canEditLayout && isEditingRaw
 
     const buildRowClickHandler = <T,>(
         isClickable: (item: T) => boolean,
@@ -493,7 +483,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             case 'live_events':
                 return (
                     <LiveChartCard title="Live events" isLoading={false} contentClassName="max-h-80 overflow-y-auto">
-                        <LiveEventsFeed events={recentEvents} columns={LIVE_FEED_COLUMNS} />
+                        <LiveEventsFeed events={recentEvents} columns={liveFeedColumns} />
                     </LiveChartCard>
                 )
         }
@@ -521,12 +511,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
 
     return (
         <div className="LivePageviews">
-            <LiveDashboardFilterRow
-                canEditLayout={canEditLayout}
-                isEditing={isEditing}
-                resetLayout={resetLayout}
-                setEditing={setEditing}
-            />
+            <LiveDashboardFilterRow isEditing={isEditing} resetLayout={resetLayout} setEditing={setEditing} />
 
             <LemonBanner
                 type="info"

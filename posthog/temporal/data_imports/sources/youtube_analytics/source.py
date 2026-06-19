@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class YouTubeAnalyticsSource(SimpleSource[YouTubeAnalyticsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.YOU_TUBE_ANALYTICS,
+            category=DataWarehouseSourceCategory.ANALYTICS,
             label="YouTube Analytics",
             iconPath="/static/services/youtube_analytics.png",
             fields=cast(list[FieldType], []),

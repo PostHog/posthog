@@ -1,19 +1,25 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconBook, IconTerminal } from '@posthog/icons'
+import { IconBook, IconTerminal, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { userLogic } from 'scenes/userLogic'
 
 import { NotebookSyncStatus } from '../types'
+import { notebookCollabLogic } from './notebookCollabLogic'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
+import { getNotebookPresenceParticipants, type NotebookPresenceParticipant } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+
+const MAX_PRESENCE_BUBBLES = 6
 
 const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tooltip: React.ReactNode }> = {
     synced: {
@@ -86,6 +92,96 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
             <LemonTag className="uppercase select-none">{content.content}</LemonTag>
         </Tooltip>
     ) : null
+}
+
+/**
+ * Surfaces when the collab SSE is disconnected *and* no reconnect attempt is in flight,
+ * so the user only sees the warning when something is actually wrong — not during the
+ * initial connect or the brief gap on a normal reconnect.
+ */
+export const NotebookCollabStatus = (props: NotebookLogicProps): JSX.Element | null => {
+    const { collabEnabled } = useValues(notebookLogic(props))
+    const { streamConnected, isConnecting, streamError } = useValues(notebookCollabLogic({ shortId: props.shortId }))
+
+    if (!collabEnabled || streamConnected || isConnecting) {
+        return null
+    }
+
+    const tooltip = streamError ? `Live updates paused. Last error: ${streamError}` : 'Live updates paused.'
+
+    return (
+        <Tooltip title={tooltip} placement="left">
+            <LemonButton size="small" icon={<IconWarning className="text-warning" />} type="tertiary" />
+        </Tooltip>
+    )
+}
+
+function notebookPresenceTooltip(participants: NotebookPresenceParticipant[]): string {
+    const visibleNames = participants.slice(0, MAX_PRESENCE_BUBBLES).map((participant) => participant.userName)
+    const overflowCount = participants.length - visibleNames.length
+    const names =
+        overflowCount > 0
+            ? `${formatNotebookPresenceNames(visibleNames)} and ${overflowCount} more`
+            : formatNotebookPresenceNames(visibleNames)
+    const verb = participants.length === 1 && !participants[0].isCurrentUser ? 'is' : 'are'
+    return `${names} ${verb} viewing this notebook`
+}
+
+function formatNotebookPresenceNames(names: string[]): string {
+    if (names.length <= 1) {
+        return names[0] ?? ''
+    }
+    if (names.length === 2) {
+        return `${names[0]} and ${names[1]}`
+    }
+    return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
+}
+
+export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null => {
+    const { user } = useValues(userLogic)
+    const { markdownRemoteParticipants } = useValues(notebookLogic(props))
+    const { remoteParticipants } = useValues(notebookCollabLogic({ shortId: props.shortId }))
+    const participants = getNotebookPresenceParticipants(
+        user,
+        markdownRemoteParticipants.length > 0 ? markdownRemoteParticipants : remoteParticipants
+    )
+
+    if (!participants.length) {
+        return null
+    }
+
+    const shownParticipants = participants.slice(0, MAX_PRESENCE_BUBBLES)
+    const overflowCount = participants.length - shownParticipants.length
+    const overflowTitle =
+        overflowCount > 0
+            ? participants
+                  .slice(MAX_PRESENCE_BUBBLES)
+                  .map((participant) => participant.userName)
+                  .join(', ')
+            : undefined
+    const tooltip = notebookPresenceTooltip(participants)
+
+    return (
+        <Tooltip title={tooltip} placement="left">
+            <div className="ProfileBubbles" aria-label={tooltip}>
+                {shownParticipants.map((participant) => (
+                    <ProfilePicture
+                        key={`${participant.userId}-${participant.clientId}`}
+                        user={participant.profileUser}
+                        name={participant.userName}
+                        title={participant.userName}
+                        size="md"
+                        index={participant.userId}
+                    />
+                ))}
+                {overflowCount > 0 ? (
+                    <div className="ProfileBubbles__more" title={overflowTitle}>
+                        +{overflowCount}
+                    </div>
+                ) : null}
+            </div>
+        </Tooltip>
+    )
 }
 
 interface NotebookExpandButtonProps extends Pick<LemonButtonProps, 'size' | 'type'> {

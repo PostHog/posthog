@@ -4,7 +4,7 @@ import { withUiApp } from '@/resources/ui-apps'
 import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
-import type { Context, ToolBase } from '@/tools/types'
+import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type ToolBase } from '@/tools/types'
 
 import { analyzeQuery } from '../shared'
 
@@ -12,7 +12,12 @@ const schema = InsightQueryInputSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = WithPostHogUrl<{ query: unknown; insight: Insight & { url: string }; results: unknown }>
+type Result = WithPostHogUrl<{
+    query: unknown
+    insight: Insight & { url: string }
+    results: unknown
+    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
+}>
 
 // Accept either a pre-encoded JSON string or a plain object for the override
 // params. LLM agents reading the insight-get response see `variables` as an
@@ -61,54 +66,38 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     }
 
     const path = `/insights/${insightResult.data.short_id}`
+    const fullUrl = `${context.api.getProjectBaseUrl(projectId)}${path}`
     const queryInfo = analyzeQuery(insightResult.data.query)
 
-    const useFormatted = output_format === 'optimized' && queryResult.data.formatted_results != null
+    // Trends/funnel UI visualizers consume the raw results array; every other
+    // visualization (HogQL/table, retention, lifecycle, paths) expects the
+    // `{ columns, results }` shape the structural guards look for.
+    const isSeries = queryInfo.visualization === 'trends' || queryInfo.visualization === 'funnel'
+    const results = isSeries
+        ? queryResult.data.results
+        : {
+              columns: queryResult.data.columns || [],
+              results: queryResult.data.results || [],
+          }
 
-    if (useFormatted) {
-        return withPostHogUrl(
-            context,
-            {
-                query: queryInfo.innerQuery || insightResult.data.query,
-                insight: {
-                    url: path,
-                    ...insightResult.data,
-                },
-                results: queryResult.data.formatted_results,
-            },
-            path
-        )
-    }
+    // Optimized output surfaces the server-formatted summary as the model-facing text, but the
+    // UI app still needs the structured results in structuredContent. Carry the formatted string
+    // under the override key (which build-tool-result strips from structuredContent and uses as
+    // the text payload) rather than overwriting `results` with it — mirrors query-wrapper-factory.
+    const surfaceFormatted = output_format === 'optimized' && queryResult.data.formatted_results != null
 
-    // JSON format or no formatter available — return raw results
-    if (queryInfo.visualization === 'trends' || queryInfo.visualization === 'funnel') {
-        return withPostHogUrl(
-            context,
-            {
-                query: queryInfo.innerQuery || insightResult.data.query,
-                insight: {
-                    url: path,
-                    ...insightResult.data,
-                },
-                results: queryResult.data.results,
-            },
-            path
-        )
-    }
-
-    // HogQL/table results have columns and results arrays
     return withPostHogUrl(
         context,
         {
-            query: insightResult.data.query,
+            query: queryInfo.innerQuery || insightResult.data.query,
             insight: {
-                url: path,
+                url: fullUrl,
                 ...insightResult.data,
             },
-            results: {
-                columns: queryResult.data.columns || [],
-                results: queryResult.data.results || [],
-            },
+            results,
+            ...(surfaceFormatted
+                ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: queryResult.data.formatted_results }
+                : {}),
         },
         path
     )

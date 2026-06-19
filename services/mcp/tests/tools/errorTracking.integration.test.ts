@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -130,6 +131,34 @@ describe('Error Tracking', { concurrent: false }, () => {
         return result.results
             .map((fingerprint: { fingerprint?: string | null }) => fingerprint.fingerprint)
             .filter((fingerprint: string | null | undefined): fingerprint is string => typeof fingerprint === 'string')
+    }
+
+    // The issues list reads the denormalized ClickHouse table, which lags Postgres deletes
+    // (issue merges) by a few seconds — re-list until the first listed issue resolves.
+    async function waitForFirstLiveIssueDetails(
+        listParams: Parameters<typeof issuesListTool.handler>[1] = {}
+    ): Promise<{ issueId: string; details: { id?: string | null } } | undefined> {
+        const deadline = Date.now() + 10_000
+        while (true) {
+            const listResult = await issuesListTool.handler(context, listParams)
+            const errorList = parseToolResponse(listResult) as ErrorTrackingIssueListResult
+            const issueId = (errorList.results ?? [])
+                .map((issue) => issue.id)
+                .find((id): id is string => typeof id === 'string')
+            if (!issueId) {
+                return undefined
+            }
+
+            try {
+                const detailsResult = await issueTool.handler(context, { issueId, volumeResolution: 0 })
+                return { issueId, details: parseToolResponse(detailsResult) }
+            } catch (error) {
+                if (!(error instanceof PostHogApiError) || error.status !== 404 || Date.now() >= deadline) {
+                    throw error
+                }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+        }
     }
 
     describe('query-error-tracking-issues-list tool', () => {
@@ -505,43 +534,24 @@ describe('Error Tracking', { concurrent: false }, () => {
 
     describe('Error tracking workflow', () => {
         it('should support listing errors and getting details workflow', async () => {
-            const listResult = await issuesListTool.handler(context, {})
-            const errorList = parseToolResponse(listResult)
+            const live = await waitForFirstLiveIssueDetails()
 
-            expect(Array.isArray(errorList.results)).toBe(true)
-
-            if (errorList.results.length > 0 && errorList.results[0].id) {
-                const firstError = errorList.results[0]
-                const detailsResult = await issueTool.handler(context, {
-                    issueId: firstError.id,
-                    volumeResolution: 0,
-                })
-                const errorDetails = parseToolResponse(detailsResult)
-
-                expect(errorDetails.id).toBe(firstError.id)
+            if (live) {
+                expect(live.details.id).toBe(live.issueId)
             }
         })
 
         it('should support full error tracking workflow: list, get details, and update status', async () => {
             const updateTool = GENERATED_TOOLS['error-tracking-issues-partial-update']!()
 
-            const listResult = await issuesListTool.handler(context, { status: 'all' })
-            const errorList = parseToolResponse(listResult)
+            const live = await waitForFirstLiveIssueDetails({ status: 'all' })
 
-            expect(Array.isArray(errorList.results)).toBe(true)
-
-            if (errorList.results.length === 0 || !errorList.results[0].id) {
+            if (!live) {
                 return
             }
 
-            const issueId = errorList.results[0].id
-
-            const detailsResult = await issueTool.handler(context, {
-                issueId,
-                volumeResolution: 0,
-            })
-            const errorDetails = parseToolResponse(detailsResult)
-            expect(errorDetails.id).toBe(issueId)
+            const { issueId } = live
+            expect(live.details.id).toBe(issueId)
 
             const updateResult = (await updateTool.handler(context, {
                 id: issueId,

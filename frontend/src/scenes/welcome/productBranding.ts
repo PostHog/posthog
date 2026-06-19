@@ -74,8 +74,8 @@ export const PRODUCT_BRANDING: Record<string, ProductBranding> = {
         rgb: '133 103 255',
     },
     llm_analytics: {
-        label: 'LLM analytics',
-        docsHref: 'https://posthog.com/docs/ai-engineering/llm-analytics',
+        label: 'AI observability',
+        docsHref: 'https://posthog.com/docs/ai-observability',
         Icon: IconLlmAnalytics,
         rgb: '182 42 217',
     },

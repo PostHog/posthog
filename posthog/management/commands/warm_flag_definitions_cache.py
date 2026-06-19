@@ -19,7 +19,8 @@ Usage:
 """
 
 from posthog.management.commands._base_hypercache_command import BaseHyperCacheCommand
-from posthog.models.feature_flag.local_evaluation import (
+
+from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
 )

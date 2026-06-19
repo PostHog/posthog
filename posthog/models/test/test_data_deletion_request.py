@@ -74,9 +74,9 @@ def test_non_event_removal_cannot_set_delete_all_events():
         ("", None),
         ("this is not hogql", "hogql_predicate"),
         ("nonexistent_column = 1", "hogql_predicate"),
-        ("event IN (SELECT event FROM events)", "Subqueries"),
+        ("event IN (SELECT event FROM events)", None),
     ],
-    ids=["valid", "blank", "invalid_syntax", "unknown_field", "subquery"],
+    ids=["valid", "blank", "invalid_syntax", "unknown_field", "subquery_allowed"],
 )
 def test_hogql_predicate_validation(team, predicate, error_match):
     request = DataDeletionRequest(
@@ -87,6 +87,62 @@ def test_hogql_predicate_validation(team, predicate, error_match):
     else:
         with pytest.raises(ValidationError, match=error_match):
             request.clean()
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "person_id IN (SELECT id FROM persons WHERE properties.email = 'foo@example.com')",
+        "event IN (SELECT event FROM events WHERE timestamp > now() - INTERVAL 1 DAY)",
+    ],
+    ids=["person_subquery", "events_subquery"],
+)
+def test_hogql_predicate_allows_subqueries(team, predicate):
+    """Subqueries against persons / events / cohorts are allowed in deletion predicates.
+
+    HogQL's table resolver injects the ``team_id`` guard into each subquery, so
+    cross-team data cannot leak through; the team-scoping test below is the
+    regression net for that invariant.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    request = DataDeletionRequest(
+        **_base_kwargs(team_id=team.id, events=["$pageview"], hogql_predicate=predicate),
+    )
+    request.clean()
+    sql, _ = compile_hogql_predicate(request)
+    assert sql
+
+
+def test_hogql_predicate_subquery_is_team_scoped(db):
+    """Compiling the same person-subquery predicate for two different teams must
+    splice each team's id into the inner WHERE clause — that's how HogQL prevents
+    cross-team leaks via subqueries.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    org = Organization.objects.create(name="scoping-org")
+    team_a = Team.objects.create(organization=org, name="team-a")
+    team_b = Team.objects.create(organization=org, name="team-b")
+    assert team_a.id != team_b.id
+
+    predicate = "person_id IN (SELECT id FROM persons WHERE properties.email = 'foo@example.com')"
+
+    req_a = DataDeletionRequest(**_base_kwargs(team_id=team_a.id, events=["$pageview"], hogql_predicate=predicate))
+    req_b = DataDeletionRequest(**_base_kwargs(team_id=team_b.id, events=["$pageview"], hogql_predicate=predicate))
+
+    sql_a, _ = compile_hogql_predicate(req_a)
+    sql_b, _ = compile_hogql_predicate(req_b)
+
+    # HogQL inlines ``team_id`` as a literal int (not a parameter), so the bare
+    # team id appears directly in the SQL. Confirm each team's id shows up in
+    # its own SQL but not in the other's, and the standard ``equals(team_id, …)``
+    # guard shape is present — that's HogQL's table resolver wrapping the
+    # ``persons`` subquery with the team scope.
+    assert f"equals(team_id, {team_a.id})" in sql_a
+    assert f"equals(team_id, {team_b.id})" in sql_b
+    assert f"equals(team_id, {team_b.id})" not in sql_a
+    assert f"equals(team_id, {team_a.id})" not in sql_b
 
 
 def test_compile_hogql_predicate_returns_sql_and_values(team):

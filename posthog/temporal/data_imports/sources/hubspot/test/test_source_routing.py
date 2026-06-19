@@ -64,7 +64,7 @@ class TestShouldUseSearchPath:
         schema = MagicMock()
         schema.initial_sync_complete = initial_sync_complete
         return patch(
-            "products.data_warehouse.backend.models.ExternalDataSchema.objects.get",
+            "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
             return_value=schema,
         )
 
@@ -105,7 +105,7 @@ class TestShouldUseSearchPath:
         src = HubspotSource()
         inputs = _make_inputs()
         with patch(
-            "products.data_warehouse.backend.models.ExternalDataSchema.objects.get",
+            "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
             side_effect=Exception("db down"),
         ):
             assert src._should_use_search_path(inputs) is False
@@ -135,7 +135,7 @@ class TestSourceForPipelineRouting:
                 return_value=True,
             ),
             patch(
-                "products.data_warehouse.backend.models.ExternalDataSchema.objects.get",
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
                 return_value=schema,
             ),
         ):
@@ -165,7 +165,7 @@ class TestSourceForPipelineRouting:
                 return_value=True,
             ),
             patch(
-                "products.data_warehouse.backend.models.ExternalDataSchema.objects.get",
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
                 return_value=schema,
             ),
         ):
@@ -217,3 +217,42 @@ class TestSettingsShape:
         field = config.incremental_fields[0]
         assert field["field"] == config.cursor_filter_property_field
         assert field["type"] == IncrementalFieldType.DateTime
+
+
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        # HubspotSourceOldConfig path
+        "Hubspot refresh token not found for job 019cdc50-67a5-0000-c023-0d6a4e057e9b",
+        # HubspotSourceConfig OAuth path
+        "Hubspot refresh or access token not found for job 019cdc50-67a5-0000-c023-0d6a4e057e9b",
+        # OAuthMixin.get_oauth_integration when the integration row was deleted (id varies per source)
+        "Integration not found: 56366",
+        "Integration not found: 157288",
+    ],
+)
+def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
+    """Each ValueError raised when a token is missing must match a non-retryable pattern,
+    otherwise the job retries a permanent misconfiguration forever."""
+    patterns = HubspotSource().get_non_retryable_errors()
+    assert any(pattern in error_msg for pattern in patterns), (
+        f"HubSpot error {error_msg!r} did not match any non-retryable pattern"
+    )
+
+
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        # Raised by fetch_data when a token refresh succeeds but the retried request is still rejected
+        "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/companies",
+        "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/deals",
+        "403 Client Error: Forbidden for url: https://api.hubapi.com/crm/v3/objects/contacts",
+    ],
+)
+def test_unauthorized_error_is_non_retryable(error_msg: str) -> None:
+    """A 401/403 from the HubSpot API means the credentials/OAuth grant can't access the data —
+    retrying can't recover, so it must match a non-retryable pattern."""
+    patterns = HubspotSource().get_non_retryable_errors()
+    assert any(pattern in error_msg for pattern in patterns), (
+        f"HubSpot error {error_msg!r} did not match any non-retryable pattern"
+    )

@@ -1,7 +1,13 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { clickAtIndex, getHogChartTooltip, hoverAtIndex, waitForHogChartTooltip } from 'lib/hog-charts/testing'
+import {
+    clickAtIndex,
+    getHogChartTooltip,
+    hoverUntilTooltip,
+    waitForHogChartTooltip,
+} from '@posthog/quill-charts/testing'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -142,14 +148,13 @@ export const chart = {
         index: number,
         totalLabels = trendsSeries.pageviews.labels.length
     ): Promise<InsightTooltipAccessor> {
-        const canvas = await screen.findByRole('img', { name: /chart with/i })
+        const canvas = await screen.findByRole('img', { name: /chart with/i }, { timeout: DEBOUNCE_TIMEOUT })
         const wrapper = canvas.parentElement!
-        hoverAtIndex(wrapper, index, totalLabels)
-        const tooltip = await waitForHogChartTooltip()
+        const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels)
         return createInsightTooltipAccessor(tooltip)
     },
     async clickAtIndex(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<void> {
-        const canvas = await screen.findByRole('img', { name: /chart with/i })
+        const canvas = await screen.findByRole('img', { name: /chart with/i }, { timeout: DEBOUNCE_TIMEOUT })
         const wrapper = canvas.parentElement!
         await clickAtIndex(wrapper, index, totalLabels)
     },

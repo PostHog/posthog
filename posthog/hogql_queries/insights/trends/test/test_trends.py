@@ -33,7 +33,7 @@ from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS
 from posthog.hogql_queries.insights.trends.test.test_trends_persons import get_actors
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action, Cohort, Entity, Filter, Organization, Person
+from posthog.models import Entity, Filter, Organization, Person
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.person.util import create_person_distinct_id
@@ -42,6 +42,8 @@ from posthog.models.utils import uuid7
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
@@ -62,12 +64,16 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optiona
     return ret_dict
 
 
-def _create_cohort(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    groups = kwargs.pop("groups")
+def _create_cohort(
+    *,
+    team: Team,
+    name: str,
+    groups: list[dict[str, Any]],
+    pending_version: int | None = 0,
+) -> Cohort:
     cohort = Cohort.objects.create(team=team, name=name, groups=groups, last_calculation=timezone.now())
-    cohort.calculate_people_ch(pending_version=0)
+    if pending_version is not None:
+        cohort.calculate_people_ch(pending_version=pending_version)
     return cohort
 
 
@@ -7458,6 +7464,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             name="cohort_2",
             groups=[{"properties": [{"key": "key_2", "value": "value_2", "type": "person"}]}],
+            pending_version=None,
         )
 
         # try different versions

@@ -12,7 +12,7 @@ import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { logger, serializeError } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionFilters } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals, logEntry } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
@@ -35,18 +35,19 @@ export interface BatchHogFlowRequestMessage {
 
 export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServerConfig> {
     protected name = 'CdpBatchHogFlowRequestsConsumer'
-    private cyclotronJobQueue: CyclotronJobQueue
+    private cyclotronJobQueue: JobQueue
     protected kafkaConsumer: KafkaConsumerInterface
     private hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService
 
     constructor(
         config: PluginsServerConfig,
         deps: CdpConsumerBaseDeps,
+        jobQueue: JobQueue,
         topic: string = KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
         groupId: string = 'cdp-batch-hogflow-requests-consumer'
     ) {
         super(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+        this.cyclotronJobQueue = jobQueue
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic })
         this.hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(
             new InternalFetchService(config.INTERNAL_API_BASE_URL, config.INTERNAL_API_SECRET)
@@ -354,7 +355,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
         logger.info('💤', 'Stopping cyclotron job queue...')
-        await this.cyclotronJobQueue.stop()
+        await this.cyclotronJobQueue.stopProducer()
         logger.info('💤', 'Stopping consumer...')
         // IMPORTANT: super always comes last
         await super.stop()

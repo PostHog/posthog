@@ -209,7 +209,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} tabId="test-tab" />)
+            render(<CohortEdit id={cohortId} />)
 
             const inProgressElements = await screen.findAllByText('In progress...')
             expect(inProgressElements.length).toBeGreaterThan(0)
@@ -237,7 +237,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} tabId="test-tab" />)
+            render(<CohortEdit id={cohortId} />)
 
             const inProgressElements = await screen.findAllByText('In progress...')
             expect(inProgressElements.length).toBeGreaterThan(0)
@@ -265,7 +265,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} tabId="test-tab" />)
+            render(<CohortEdit id={cohortId} />)
 
             await screen.findByText(
                 "We're queuing a recalculation. The table below shows results from the previous calculation."
@@ -292,7 +292,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} tabId="test-tab" />)
+            render(<CohortEdit id={cohortId} />)
 
             // Wait a bit for component to render then verify no loading states
             await new Promise((resolve) => setTimeout(resolve, 100))
@@ -301,7 +301,6 @@ describe('cohortEditLogic', () => {
 
         it('shows retry button and contact support link when calculation fails', async () => {
             const cohortId = 2
-            const tabId = 'test-tab-error'
 
             useMocks({
                 get: {
@@ -333,7 +332,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} tabId={tabId} />)
+            render(<CohortEdit id={cohortId} />)
 
             // Verify error message is shown
             await screen.findByText(/Calculation failed:/)
@@ -349,7 +348,7 @@ describe('cohortEditLogic', () => {
             expect(screen.getByText('contact support')).toBeInTheDocument()
 
             // Get the logic instance and verify clicking retry triggers submitCohort
-            logic = cohortEditLogic({ id: cohortId, tabId })
+            logic = cohortEditLogic({ id: cohortId })
             logic.mount()
 
             await expectLogic(logic, async () => {

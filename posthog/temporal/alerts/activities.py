@@ -10,17 +10,15 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertCalculationInterval, AlertState
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
-from posthog.tasks.alerts.checks import AlertCheckException, add_alert_check, check_alert_for_insight
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
+    add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
     next_check_time,
@@ -41,6 +39,8 @@ from posthog.temporal.alerts.types import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.alerts.backend.evaluation import check_alert_for_insight
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -61,10 +61,12 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
 
         # Hourly before daily before weekly/monthly so the cheaper, more
         # time-sensitive checks get workers first when the due batch is large.
+        # Keep ordering in sync with calculation_interval_to_order in posthog/tasks/alerts/utils.py.
         calculation_interval_order = Case(
-            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(0)),
-            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(1)),
-            default=Value(2),
+            When(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value, then=Value(0)),
+            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(1)),
+            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(2)),
+            default=Value(3),
             output_field=IntegerField(),
         )
 
@@ -164,6 +166,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                     alert.config,
                     threshold_config,
                     alert.calculation_interval,
+                    detector_config=alert.detector_config,
                 )
         except ValueError as e:
             disable_invalid_alert(alert, str(e))
@@ -198,8 +201,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 non_retryable=True,
             )
 
-        # CH workload management keys off this tag to isolate alert queries from other tenants.
-        tag_queries(alert_config_id=str(alert.id))
+        # CH workload management keys off these tags to isolate alert queries from other tenants.
+        tag_queries(alert_config_id=str(alert.id), product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
 
         # Snapshot before add_alert_check mutates alert.state — needed to detect the
         # NOT_FIRING/ERRORED -> FIRING transition that triggers an investigation.
@@ -219,7 +222,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         except Exception as err:
             logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
             capture_exception(
-                AlertCheckException(err),
+                err,
                 additional_properties={
                     "alert_configuration_id": str(alert.id),
                     "insight_id": alert.insight_id,
@@ -363,3 +366,13 @@ async def run_investigation_safety_net() -> int:
 
     async with Heartbeater():
         return await _sweep()
+
+
+@temporalio.activity.defn
+async def cleanup_alert_checks() -> int:
+    @database_sync_to_async(thread_sensitive=False)
+    def _cleanup() -> int:
+        return AlertCheck.clean_up_old_checks()
+
+    async with Heartbeater():
+        return await _cleanup()

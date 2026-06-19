@@ -2,7 +2,7 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
-from products.data_warehouse.backend.models import QueryTabState
+from products.data_tools.backend.models.query_tab_state import QueryTabState
 
 
 class TestQueryTabState(APIBaseTest):

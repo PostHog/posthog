@@ -94,12 +94,12 @@ RIGHT: *calls read-data-schema* → "Here are the events in your project
 
 There are four metric types. Each has `kind: "ExperimentMetric"`:
 
-| metric_type   | When to use                                                                            | Key fields                                         |
-| ------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `"mean"`      | Average of a numeric property per user (revenue, session duration, pageviews per user) | `source` EventsNode                                |
-| `"funnel"`    | Conversion rate from exposure through one or more ordered actions                      | `series` array of EventsNode steps (**1 or more**) |
-| `"ratio"`     | Rate of one event relative to another                                                  | `numerator`, `denominator` EventsNode              |
-| `"retention"` | Do users come back after exposure?                                                     | `start_event`, `completion_event`, window config   |
+| metric_type   | When to use                                                                            | Required fields                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `"mean"`      | Average of a numeric property per user (revenue, session duration, pageviews per user) | `source`                                                                                                                       |
+| `"funnel"`    | Conversion rate from exposure through one or more ordered actions                      | `series` (1 or more steps)                                                                                                     |
+| `"ratio"`     | Rate of one event relative to another                                                  | `numerator`, `denominator` — set `math: "sum"` + `math_property` on a side to aggregate a property; filters never aggregate    |
+| `"retention"` | Do users come back after exposure?                                                     | `start_event`, `completion_event`, `retention_window_start`, `retention_window_end`, `retention_window_unit`, `start_handling` |
 
 **Funnel metrics and the implicit exposure step**
 
@@ -120,7 +120,14 @@ Examples:
 
 Both can reference the same event — the difference is whether you care about count/magnitude (mean) or yes/no conversion (funnel).
 
-See `references/metric-configuration.md` for detailed JSON examples of each type.
+**Retention: same vs different start/completion event**
+
+The retention window is measured from the start event, so the events you pick decide what's measured:
+
+- **Different** start and completion events → conversion-style retention ("did they reach the target action within the window?"). `retention_window_start: 0` is fine — same-day completions count.
+- **Same** start and completion event → repeat retention ("did they do it _again_ later?"). This **requires `retention_window_start` ≥ 1** with `start_handling: "first_seen"`. With `From 0` the start occurrence is its own completion, so the metric is always 100%. When a user says "retention of <event>" they usually mean repeat retention, so default to `From 1`.
+
+See `references/metric-configuration.md` for the full rendered `ExperimentMetric` schema (all four metric types, with required fields per type) plus WRONG/RIGHT JSON pairs for the failure modes that come up most often (ratio with `is_set` filter instead of `math: "sum"` + `math_property`; retention without `retention_window_start` / `start_handling`; retention with the same start and completion event and `retention_window_start: 0`, which always reads 100%). Read it before assembling a ratio or retention payload — the required fields are authoritative.
 
 ### Step 3: Primary vs secondary
 

@@ -9,6 +9,9 @@ AGENTSH_DAEMON_PORT = 18080
 SESSION_ID_FILE = "/tmp/agentsh-session-id"
 ENV_FILE = "/tmp/agent-env"
 ENV_WRAPPER_SCRIPT = "/tmp/agentsh-env-wrapper.sh"
+# Sourced via BASH_ENV on every `bash -c` the agent runs, so git/gh pick up a
+# mid-session GitHub credential refresh (the backend rewrites ENV_FILE in place).
+BASH_ENV_SCRIPT = "/tmp/agentsh-bash-env.sh"
 AGENTSH_AUDIT_DB = "/var/lib/agentsh/events.db"
 INFRASTRUCTURE_DOMAINS = [
     "*.posthog.com",
@@ -18,30 +21,76 @@ INFRASTRUCTURE_DOMAINS = [
 ]
 
 
+# Any failure parsing a `SANDBOX_*_URL` value (malformed scheme, non-string,
+# bad port like `http://host:abc` / `:99999`) should degrade silently to "no
+# host/port added" rather than crash `generate_policy_yaml` and block sandbox
+# boot. A typo in `.env` shouldn't be a hard failure.
 def _hostname_from_url(url: str | None) -> str | None:
     if not url:
         return None
-    parsed = urlparse(url)
-    return parsed.hostname
+    try:
+        return urlparse(url).hostname
+    except (ValueError, AttributeError):
+        return None
 
 
-def _get_infrastructure_domains() -> list[str]:
-    domains = list(INFRASTRUCTURE_DOMAINS)
+def _port_from_url(url: str | None) -> int | None:
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except (ValueError, AttributeError):
+        return None
+    if port is not None:
+        return port
+    if parsed.scheme == "https":
+        return 443
+    if parsed.scheme == "http":
+        return 80
+    return None
 
-    for candidate in [
-        getattr(settings, "SANDBOX_API_URL", None),
-        getattr(settings, "SANDBOX_LLM_GATEWAY_URL", None),
-    ]:
-        hostname = _hostname_from_url(candidate)
+
+# Sandbox-host URLs in `.env` for local dev. Their hostnames and (non-standard)
+# ports feed the DEBUG-only network rule below — e.g. llm-gateway on 3308, MCP
+# wrangler on 8787 — so locally-hosted services pass the agentsh syscall-layer
+# firewall. These settings are only read into the DEBUG rule; in prod they have
+# no effect even if defined.
+_DEBUG_SANDBOX_URL_SETTINGS = (
+    "SANDBOX_API_URL",
+    "SANDBOX_LLM_GATEWAY_URL",
+    "SANDBOX_MCP_URL",
+)
+
+
+def _get_debug_only_domains() -> list[str]:
+    """Hostnames added ONLY when DEBUG is on: dev loopback aliases plus any
+    sandbox URL hosts parsed from `SANDBOX_*_URL` settings. Kept separate from
+    the prod-safe `INFRASTRUCTURE_DOMAINS` set so a stray dev hostname can't
+    accidentally widen prod's allowlist.
+    """
+    domains: list[str] = ["localhost", "host.docker.internal"]
+    for setting_name in _DEBUG_SANDBOX_URL_SETTINGS:
+        hostname = _hostname_from_url(getattr(settings, setting_name, None))
         if hostname and hostname not in domains:
             domains.append(hostname)
-
-    if getattr(settings, "DEBUG", False):
-        for hostname in ["localhost", "host.docker.internal"]:
-            if hostname not in domains:
-                domains.append(hostname)
-
     return domains
+
+
+def _get_debug_only_ports() -> list[int]:
+    """Ports added ONLY when DEBUG is on. The prod-safe set is
+    `[443, 80, 22]` (cloud routing only); in DEBUG we additionally expose
+    Django (8000) and Caddy (8010), plus any non-standard ports parsed from
+    `SANDBOX_*_URL` (e.g. llm-gateway 3308, MCP wrangler 8787). Without this,
+    locally-hosted services on custom ports are denied at the agentsh
+    syscall layer even when their hostname is allowed.
+    """
+    ports: list[int] = [8000, 8010]
+    for setting_name in _DEBUG_SANDBOX_URL_SETTINGS:
+        port = _port_from_url(getattr(settings, setting_name, None))
+        if port is not None and port not in ports:
+            ports.append(port)
+    return ports
 
 
 def generate_env_wrapper() -> str:
@@ -61,6 +110,19 @@ while IFS= read -r -d $'\\0' line; do
   export "$line"
 done < {ENV_FILE}
 exec "$@"
+"""
+
+
+def generate_bash_env_script() -> str:
+    """
+    Generate the script sourced via ``BASH_ENV``.
+    """
+    return f"""\
+while IFS= read -r -d $'\\0' kv 2>/dev/null; do
+  case "$kv" in
+    GH_TOKEN=*|GITHUB_TOKEN=*) export "$kv" ;;
+  esac
+done < {ENV_FILE} 2>/dev/null
 """
 
 
@@ -144,14 +206,10 @@ def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
     is allowed (audit-only mode).
     """
     if allowed_domains is not None:
-        merged_domains = list(allowed_domains)
-        for domain in _get_infrastructure_domains():
-            if domain not in merged_domains:
-                merged_domains.append(domain)
-
-        allowed_ports = [443, 80, 22]
-        if getattr(settings, "DEBUG", False):
-            allowed_ports.extend([8000, 8010])
+        prod_domains = list(allowed_domains)
+        for domain in INFRASTRUCTURE_DOMAINS:
+            if domain not in prod_domains:
+                prod_domains.append(domain)
 
         network_rules: list[dict] = [
             {
@@ -164,18 +222,35 @@ def generate_policy_yaml(allowed_domains: list[str] | None = None) -> str:
                 "cidrs": ["169.254.169.254/32", "fd00:ec2::254/128"],
                 "decision": "deny",
             },
+            # Prod-safe allow rule: only the caller-provided domains plus our
+            # baked-in infrastructure domains, and only the cloud-routing ports
+            # (443, 80, 22). This rule is identical in every environment.
             {
                 "name": "allow-domains",
-                "domains": merged_domains,
-                "ports": allowed_ports,
+                "domains": prod_domains,
+                "ports": [443, 80, 22],
                 "decision": "allow",
             },
+        ]
+        # DEBUG-only additions live in their own rule so a stray dev hostname
+        # or port can't widen the prod allowlist by accident. Append after the
+        # prod rule, before default-deny.
+        if getattr(settings, "DEBUG", False):
+            network_rules.append(
+                {
+                    "name": "allow-debug-domains",
+                    "domains": _get_debug_only_domains(),
+                    "ports": _get_debug_only_ports(),
+                    "decision": "allow",
+                }
+            )
+        network_rules.append(
             {
                 "name": "default-deny-network",
                 "domains": ["*"],
                 "decision": "deny",
-            },
-        ]
+            }
+        )
     else:
         network_rules = [
             {
@@ -267,6 +342,7 @@ def build_exec_prefix() -> str:
 
 def build_setup_script(workspace_path: str) -> str:
     return (
+        f"rm -f {SESSION_ID_FILE} {SESSION_ID_FILE}.tmp; "
         f"nohup agentsh server --config /etc/agentsh/config.yaml > /var/log/agentsh/agentsh.log 2>&1 & "
         f"AGENTSH_OK=0; "
         f"for i in $(seq 1 30); do "
@@ -279,6 +355,10 @@ def build_setup_script(workspace_path: str) -> str:
         f"  cat /var/log/agentsh/agentsh.log >&2 2>/dev/null; "
         f"  exit 1; "
         f"fi; "
-        f"agentsh session create --workspace {workspace_path} --policy default --json "
-        f"| jq -r .id > {SESSION_ID_FILE}"
+        f"SESSION_ID=$(agentsh session create --workspace {workspace_path} --policy default --json | jq -r .id); "
+        f'if [ -z "$SESSION_ID" ] || [ "$SESSION_ID" = "null" ]; then '
+        f"  echo 'agentsh session create failed' >&2; "
+        f"  exit 1; "
+        f"fi; "
+        f'printf %s "$SESSION_ID" > {SESSION_ID_FILE}.tmp && mv {SESSION_ID_FILE}.tmp {SESSION_ID_FILE}'
     )

@@ -11,9 +11,13 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.response import Response
 
+from posthog.models.organization import OrganizationMembership
+
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.api.test._access_control_base import WarehouseAccessControlTestMixin
-from products.data_warehouse.backend.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 
 MANAGED_VIEWSET_KIND = "revenue_analytics"
 
@@ -33,9 +37,7 @@ class TestDataWarehouseManagedViewSetAccessControl(WarehouseAccessControlTestMix
             ("editor", status.HTTP_200_OK),
         ]
     )
-    @patch(
-        "products.data_warehouse.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views"
-    )
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
     def test_enable_access_matrix(self, access_level, expected_status, mock_sync_views):
         # sync_views is heavy (builds HogQL Database, resolves revenue analytics views);
         # we only care about the AC decision here so mock it out.
@@ -110,6 +112,60 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
             self._path("provision/"), data={"database_name": "x"}, content_type="application/json"
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("products.data_warehouse.backend.api.data_warehouse.managed_warehouse.provision")
+    def test_provision_blocked_for_project_editor_who_is_not_org_admin(self, mock_provision):
+        mock_provision.return_value = Response({"status": "provisioning"}, status=status.HTTP_202_ACCEPTED)
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(
+            self._path("provision/"), data={"database_name": "x"}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_provision.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.data_warehouse.managed_warehouse.provision")
+    def test_provision_allowed_for_org_admin_with_project_editor_access(self, mock_provision):
+        mock_provision.return_value = Response({"status": "provisioning"}, status=status.HTTP_202_ACCEPTED)
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(
+            self._path("provision/"), data={"database_name": "x"}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        mock_provision.assert_called_once_with(self.team.organization_id, "x")
+
+    @patch("products.data_warehouse.backend.api.data_warehouse.managed_warehouse.reset_password")
+    def test_reset_password_blocked_for_project_editor_who_is_not_org_admin(self, mock_reset_password):
+        mock_reset_password.return_value = Response({"username": "root", "password": "secret"})
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(self._path("reset-password/"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_reset_password.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.data_warehouse.managed_warehouse.reset_password")
+    def test_reset_password_allowed_for_org_admin_with_project_editor_access(self, mock_reset_password):
+        mock_reset_password.return_value = Response({"username": "root", "password": "secret"})
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        response = self.client.post(self._path("reset-password/"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_reset_password.assert_called_once_with(self.team.organization_id)
 
 
 @pytest.mark.ee

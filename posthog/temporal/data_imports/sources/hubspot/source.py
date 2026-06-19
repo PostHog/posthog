@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -47,6 +48,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.HUBSPOT,
+            category=DataWarehouseSourceCategory.CRM,
             caption="Select an existing Hubspot account to link to PostHog or create a new connection",
             iconPath="/static/services/hubspot.png",
             docsUrl="https://posthog.com/docs/cdp/sources/hubspot",
@@ -85,6 +87,22 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         return {
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
             "missing or unknown hub id": None,
+            # HubSpot's CRM API returns 401/403 when the OAuth grant can't read the requested object
+            # (token revoked, or the connected app is missing a scope like `crm.objects.companies.read`).
+            # `fetch_data` already refreshes the access token once on a 401; if the retried request is
+            # still rejected, the credentials genuinely lack access and retrying can't recover. Match the
+            # stable host, not the per-object URL path (companies/deals/contacts/...), which varies.
+            "401 Client Error: Unauthorized for url: https://api.hubapi.com": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            "403 Client Error: Forbidden for url: https://api.hubapi.com": "Your HubSpot credentials do not have permission to access this data. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            # Raised by source_for_pipeline when the source config carries no refresh token at all
+            # (integration never connected or lost its token). Retrying cannot recover.
+            "Hubspot refresh token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
+            # Raised by source_for_pipeline (OAuth path) when the integration is missing its access or refresh token.
+            "Hubspot refresh or access token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
+            # Raised by OAuthMixin.get_oauth_integration when the referenced integration row no longer
+            # exists (e.g. the HubSpot connection was deleted while the source still points at it).
+            # Retrying cannot recreate a deleted integration. Match the stable prefix, not the volatile id.
+            "Integration not found": "The linked HubSpot integration no longer exists. Please reconnect your HubSpot account.",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options
@@ -192,8 +210,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         endpoint_config = HUBSPOT_ENDPOINT_CONFIGS.get(inputs.schema_name)
         if endpoint_config is None or not endpoint_config.cursor_filter_property_field:
             return False
-
-        from products.data_warehouse.backend.models import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         try:
             schema = ExternalDataSchema.objects.get(id=inputs.schema_id, team_id=inputs.team_id)

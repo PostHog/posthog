@@ -6,7 +6,7 @@
 
 use axum::http::{HeaderMap, Method};
 use bytes::Bytes;
-use tracing::{error, Span};
+use tracing::{debug, Span};
 
 use crate::{
     api::CaptureError,
@@ -81,7 +81,6 @@ pub fn extract_payload_bytes(
     } else if !body.is_empty() {
         body
     } else {
-        error!("missing payload on {:?} request", method);
         return Err(CaptureError::EmptyPayload);
     };
 
@@ -119,7 +118,7 @@ pub fn extract_payload_bytes(
                 let max_chars = std::cmp::min(payload.len(), MAX_PAYLOAD_SNIPPET_SIZE);
                 let form_data_snippet = String::from_utf8(payload[..max_chars].to_vec())
                     .unwrap_or(String::from("INVALID_UTF8"));
-                error!(
+                debug!(
                     form_data = form_data_snippet,
                     "expected form data in {} request payload", *method
                 );

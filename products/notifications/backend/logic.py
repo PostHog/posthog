@@ -143,6 +143,7 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
         target_type=data.target_type,
         target_id=data.target_id,
         resolved_user_ids=resolved_user_ids,
+        metadata=data.metadata,
     )
 
     def _on_commit() -> None:

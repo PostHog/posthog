@@ -4,21 +4,21 @@
   
   SELECT tuple(uniqMerge(tupleElement(cohort_metrics, 1)), countMerge(tupleElement(cohort_metrics, 2)), sumMerge(tupleElement(cohort_metrics, 3))) AS cohort_metrics, %(hogql_val_7)s AS cohort_period 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_0)s)), sumStateIf(1, equals(events.event, %(hogql_val_1)s))) AS cohort_metrics, %(hogql_val_2)s AS cohort_period 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s)), less(events.timestamp, toDateTime64(%(hogql_val_5)s, 6, %(hogql_val_6)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_0)s)), sumStateIf(1, equals(events.event, %(hogql_val_1)s))) AS cohort_metrics, %(hogql_val_2)s AS cohort_period 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s)), less(events.timestamp, toDateTime64(%(hogql_val_5)s, 6, %(hogql_val_6)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(cohort_metrics, 1)), countMerge(tupleElement(cohort_metrics, 2)), sumMerge(tupleElement(cohort_metrics, 3))) AS cohort_metrics, %(hogql_val_15)s AS cohort_period 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_8)s)), sumStateIf(1, equals(events.event, %(hogql_val_9)s))) AS cohort_metrics, %(hogql_val_10)s AS cohort_period 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_11)s, 6, %(hogql_val_12)s)), less(events.timestamp, toDateTime64(%(hogql_val_13)s, 6, %(hogql_val_14)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_8)s)), sumStateIf(1, equals(events.event, %(hogql_val_9)s))) AS cohort_metrics, %(hogql_val_10)s AS cohort_period 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_11)s, 6, %(hogql_val_12)s)), less(events.timestamp, toDateTime64(%(hogql_val_13)s, 6, %(hogql_val_14)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(cohort_metrics, 1)), countMerge(tupleElement(cohort_metrics, 2)), sumMerge(tupleElement(cohort_metrics, 3))) AS cohort_metrics, %(hogql_val_23)s AS cohort_period 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_16)s)), sumStateIf(1, equals(events.event, %(hogql_val_17)s))) AS cohort_metrics, %(hogql_val_18)s AS cohort_period 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_19)s, 6, %(hogql_val_20)s)), less(events.timestamp, toDateTime64(%(hogql_val_21)s, 6, %(hogql_val_22)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_16)s)), sumStateIf(1, equals(events.event, %(hogql_val_17)s))) AS cohort_metrics, %(hogql_val_18)s AS cohort_period 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_19)s, 6, %(hogql_val_20)s)), less(events.timestamp, toDateTime64(%(hogql_val_21)s, 6, %(hogql_val_22)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -27,18 +27,18 @@
   
   SELECT tuple(uniqMerge(tupleElement(comprehensive_metrics, 1)), countMerge(tupleElement(comprehensive_metrics, 2)), sumMerge(tupleElement(comprehensive_metrics, 3)), avgMerge(tupleElement(comprehensive_metrics, 4))) AS comprehensive_metrics, source AS source 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_0)s)), sumStateIf(1, equals(events.event, %(hogql_val_1)s)), avgStateIf(1, equals(events.event, %(hogql_val_2)s))) AS comprehensive_metrics, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', '') AS source 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s), 0)) 
-  GROUP BY source) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_0)s)), sumStateIf(1, equals(events.event, %(hogql_val_1)s)), avgStateIf(1, equals(events.event, %(hogql_val_2)s))) AS comprehensive_metrics, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', '') AS source 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s), 0)) 
+    GROUP BY source) 
   GROUP BY source 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(comprehensive_metrics, 1)), countMerge(tupleElement(comprehensive_metrics, 2)), sumMerge(tupleElement(comprehensive_metrics, 3)), avgMerge(tupleElement(comprehensive_metrics, 4))) AS comprehensive_metrics, source AS source 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_6)s)), sumStateIf(1, equals(events.event, %(hogql_val_7)s)), avgStateIf(1, equals(events.event, %(hogql_val_8)s))) AS comprehensive_metrics, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_9)s), ''), 'null'), '^"|"$', '') AS source 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_10)s), ''), 'null'), '^"|"$', ''), %(hogql_val_11)s), 0)) 
-  GROUP BY source) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_6)s)), sumStateIf(1, equals(events.event, %(hogql_val_7)s)), avgStateIf(1, equals(events.event, %(hogql_val_8)s))) AS comprehensive_metrics, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_9)s), ''), 'null'), '^"|"$', '') AS source 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_10)s), ''), 'null'), '^"|"$', ''), %(hogql_val_11)s), 0)) 
+    GROUP BY source) 
   GROUP BY source 
   LIMIT 50000
   '''
@@ -48,15 +48,15 @@
   
   SELECT tuple(uniqMerge(tupleElement(funnel_metrics, 1)), countMerge(tupleElement(funnel_metrics, 2)), countMerge(tupleElement(funnel_metrics, 3))) AS funnel_metrics 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_0)s)), countStateIf(equals(events.event, %(hogql_val_1)s))) AS funnel_metrics 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0))) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_0)s)), countStateIf(equals(events.event, %(hogql_val_1)s))) AS funnel_metrics 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s), 0))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(funnel_metrics, 1)), countMerge(tupleElement(funnel_metrics, 2)), countMerge(tupleElement(funnel_metrics, 3))) AS funnel_metrics 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_4)s)), countStateIf(equals(events.event, %(hogql_val_5)s))) AS funnel_metrics 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', ''), %(hogql_val_7)s), 0))) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_4)s)), countStateIf(equals(events.event, %(hogql_val_5)s))) AS funnel_metrics 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', ''), %(hogql_val_7)s), 0))) 
   LIMIT 50000
   '''
 # ---
@@ -65,18 +65,18 @@
   
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(activity_metrics, 1)), avgMerge(tupleElement(activity_metrics, 2))) AS activity_metrics, date AS date 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS activity_metrics, toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS date 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), less(toDate(toTimeZone(events.timestamp, %(hogql_val_1)s)), %(hogql_val_2)s)) 
-  GROUP BY date) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS activity_metrics, toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS date 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), less(toDate(toTimeZone(events.timestamp, %(hogql_val_1)s)), %(hogql_val_2)s)) 
+    GROUP BY date) 
   GROUP BY date 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(activity_metrics, 1)), avgMerge(tupleElement(activity_metrics, 2))) AS activity_metrics, date AS date 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS activity_metrics, toDate(toTimeZone(events.timestamp, %(hogql_val_3)s)) AS date 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s))) 
-  GROUP BY date) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS activity_metrics, toDate(toTimeZone(events.timestamp, %(hogql_val_3)s)) AS date 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s))) 
+    GROUP BY date) 
   GROUP BY date 
   LIMIT 50000
   '''
@@ -86,15 +86,15 @@
   
   SELECT tuple(uniqMerge(tupleElement(metrics, 1)), countMerge(tupleElement(metrics, 2)), sumMerge(tupleElement(metrics, 3))) AS metrics 
   FROM (
-  SELECT tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_0)s)), countStateIf(equals(events.event, %(hogql_val_1)s)), sumStateIf(1, 1)) AS metrics 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)), less(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)))) 
+    SELECT tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_0)s)), countStateIf(equals(events.event, %(hogql_val_1)s)), sumStateIf(1, 1)) AS metrics 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)), less(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(metrics, 1)), countMerge(tupleElement(metrics, 2)), sumMerge(tupleElement(metrics, 3))) AS metrics 
   FROM (
-  SELECT tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_6)s)), countStateIf(equals(events.event, %(hogql_val_7)s)), sumStateIf(1, 1)) AS metrics 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_8)s, 6, %(hogql_val_9)s)))) 
+    SELECT tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_6)s)), countStateIf(equals(events.event, %(hogql_val_7)s)), sumStateIf(1, 1)) AS metrics 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_8)s, 6, %(hogql_val_9)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -103,15 +103,15 @@
   
   SELECT tuple(uniqMerge(tupleElement(metrics, 1)), countMerge(tupleElement(metrics, 2)), sumMerge(tupleElement(metrics, 3))) AS metrics, %(hogql_val_4)s AS source_type 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState(), sumStateIf(1, equals(events.event, %(hogql_val_0)s))) AS metrics, %(hogql_val_1)s AS source_type 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countState(), sumStateIf(1, equals(events.event, %(hogql_val_0)s))) AS metrics, %(hogql_val_1)s AS source_type 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(metrics, 1)), countMerge(tupleElement(metrics, 2)), sumMerge(tupleElement(metrics, 3))) AS metrics, %(hogql_val_9)s AS source_type 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState(), sumStateIf(1, equals(events.event, %(hogql_val_5)s))) AS metrics, %(hogql_val_6)s AS source_type 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_7)s, 6, %(hogql_val_8)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countState(), sumStateIf(1, equals(events.event, %(hogql_val_5)s))) AS metrics, %(hogql_val_6)s AS source_type 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_7)s, 6, %(hogql_val_8)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -120,26 +120,26 @@
   
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(value_metrics, 1)), avgMerge(tupleElement(value_metrics, 2))) AS value_metrics, host AS host 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
-  GROUP BY host) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+    GROUP BY host) 
   GROUP BY host 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(value_metrics, 1)), avgMerge(tupleElement(value_metrics, 2))) AS value_metrics, host AS host 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', '') AS host 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)), less(events.timestamp, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s))) 
-  GROUP BY host) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', '') AS host 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)), less(events.timestamp, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s))) 
+    GROUP BY host) 
   GROUP BY host 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(value_metrics, 1)), avgMerge(tupleElement(value_metrics, 2))) AS value_metrics, host AS host 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_8)s), ''), 'null'), '^"|"$', '') AS host 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_9)s, 6, %(hogql_val_10)s))) 
-  GROUP BY host) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(1)) AS value_metrics, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_8)s), ''), 'null'), '^"|"$', '') AS host 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_9)s, 6, %(hogql_val_10)s))) 
+    GROUP BY host) 
   GROUP BY host 
   LIMIT 50000
   '''
@@ -149,15 +149,15 @@
   
   SELECT countMerge(total_pageviews) AS total_pageviews 
   FROM (
-  SELECT countState() AS total_pageviews 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), less(events.timestamp, minus(now64(6, %(hogql_val_0)s), toIntervalDay(1))))) 
+    SELECT countState() AS total_pageviews 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), less(events.timestamp, minus(now64(6, %(hogql_val_0)s), toIntervalDay(1))))) 
   LIMIT 50000 UNION ALL 
   SELECT countMerge(total_pageviews) AS total_pageviews 
   FROM (
-  SELECT countState() AS total_pageviews 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))) 
+    SELECT countState() AS total_pageviews 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))) 
   LIMIT 50000
   '''
 # ---
@@ -166,18 +166,18 @@
   
   SELECT tuple(uniqMerge(tupleElement(daily_metrics, 1)), countMerge(tupleElement(daily_metrics, 2)), sumMerge(tupleElement(daily_metrics, 3))) AS daily_metrics, date AS date 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState(), sumStateIf(1, equals(events.event, %(hogql_val_0)s))) AS daily_metrics, toDate(toTimeZone(events.timestamp, %(hogql_val_1)s)) AS date 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), less(toDate(toTimeZone(events.timestamp, %(hogql_val_2)s)), %(hogql_val_3)s)) 
-  GROUP BY date) 
+    SELECT tuple(uniqState(events.distinct_id), countState(), sumStateIf(1, equals(events.event, %(hogql_val_0)s))) AS daily_metrics, toDate(toTimeZone(events.timestamp, %(hogql_val_1)s)) AS date 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), less(toDate(toTimeZone(events.timestamp, %(hogql_val_2)s)), %(hogql_val_3)s)) 
+    GROUP BY date) 
   GROUP BY date 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(daily_metrics, 1)), countMerge(tupleElement(daily_metrics, 2)), sumMerge(tupleElement(daily_metrics, 3))) AS daily_metrics, date AS date 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState(), sumStateIf(1, equals(events.event, %(hogql_val_4)s))) AS daily_metrics, toDate(toTimeZone(events.timestamp, %(hogql_val_5)s)) AS date 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), equals(toDate(toTimeZone(events.timestamp, %(hogql_val_6)s)), %(hogql_val_7)s)) 
-  GROUP BY date) 
+    SELECT tuple(uniqState(events.distinct_id), countState(), sumStateIf(1, equals(events.event, %(hogql_val_4)s))) AS daily_metrics, toDate(toTimeZone(events.timestamp, %(hogql_val_5)s)) AS date 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), equals(toDate(toTimeZone(events.timestamp, %(hogql_val_6)s)), %(hogql_val_7)s)) 
+    GROUP BY date) 
   GROUP BY date 
   LIMIT 50000
   '''
@@ -187,18 +187,18 @@
   
   SELECT tuple(uniqMerge(tupleElement(stats_tuple, 1)), countMerge(tupleElement(stats_tuple, 2)), sumMerge(tupleElement(stats_tuple, 3))) AS stats_tuple, date_key AS date_key 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(1), sumState(1)) AS stats_tuple, toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS date_key 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), less(toDate(toTimeZone(events.timestamp, %(hogql_val_1)s)), %(hogql_val_2)s)) 
-  GROUP BY date_key) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(1), sumState(1)) AS stats_tuple, toDate(toTimeZone(events.timestamp, %(hogql_val_0)s)) AS date_key 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), less(toDate(toTimeZone(events.timestamp, %(hogql_val_1)s)), %(hogql_val_2)s)) 
+    GROUP BY date_key) 
   GROUP BY date_key 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(stats_tuple, 1)), countMerge(tupleElement(stats_tuple, 2)), sumMerge(tupleElement(stats_tuple, 3))) AS stats_tuple, date_key AS date_key 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(1), sumState(1)) AS stats_tuple, toDate(toTimeZone(events.timestamp, %(hogql_val_3)s)) AS date_key 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(toDate(toTimeZone(events.timestamp, %(hogql_val_4)s)), %(hogql_val_5)s)) 
-  GROUP BY date_key) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(1), sumState(1)) AS stats_tuple, toDate(toTimeZone(events.timestamp, %(hogql_val_3)s)) AS date_key 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(toDate(toTimeZone(events.timestamp, %(hogql_val_4)s)), %(hogql_val_5)s)) 
+    GROUP BY date_key) 
   GROUP BY date_key 
   LIMIT 50000
   '''
@@ -208,9 +208,9 @@
   
   SELECT uniqMerge(unique_users) AS unique_users, countMerge(total_events) AS total_events 
   FROM (
-  SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_0)s))) 
+    SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_0)s))) 
   LIMIT 50000
   '''
 # ---
@@ -219,12 +219,14 @@
   
   SELECT uniqMerge(unique_users) AS unique_users, countMerge(total_events) AS total_events, host AS host 
   FROM (
-  SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
-  GROUP BY host ORDER BY total_events DESC 
-  LIMIT 10) 
-  GROUP BY host ORDER BY total_events DESC 
+    SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+    GROUP BY host 
+    ORDER BY total_events DESC 
+    LIMIT 10) 
+  GROUP BY host 
+  ORDER BY total_events DESC 
   LIMIT 10
   '''
 # ---
@@ -233,15 +235,15 @@
   
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(session_metrics, 1)), avgMerge(tupleElement(session_metrics, 2))) AS session_metrics 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s))) AS session_metrics 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s))) AS session_metrics 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(user_metrics, 1)), countMerge(tupleElement(user_metrics, 2))) AS user_metrics, tuple(sumMerge(tupleElement(session_metrics, 1)), avgMerge(tupleElement(session_metrics, 2))) AS session_metrics 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s))) AS session_metrics 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_metrics, tuple(sumState(1), avgState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s))) AS session_metrics 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -250,9 +252,9 @@
   
   SELECT tuple(uniqMerge(tupleElement(user_stats, 1)), countMerge(tupleElement(user_stats, 2))) AS user_stats, tuple(sumMerge(tupleElement(metric_stats, 1)), avgMerge(tupleElement(metric_stats, 2))) AS metric_stats 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, tuple(sumState(1), avgState(1)) AS metric_stats 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, tuple(sumState(1), avgState(1)) AS metric_stats 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -261,12 +263,12 @@
   
   SELECT sumMerge(total_filtered_count) AS total_filtered_count 
   FROM (
-  SELECT sumState(filtered_count) AS total_filtered_count 
-  FROM (
-  SELECT countIf(equals(events.event, %(hogql_val_0)s)) AS filtered_count 
-  FROM events 
-  WHERE equals(events.team_id, 420) 
-  GROUP BY events.distinct_id)) 
+    SELECT sumState(filtered_count) AS total_filtered_count 
+    FROM (
+      SELECT countIf(equals(events.event, %(hogql_val_0)s)) AS filtered_count 
+      FROM events 
+      WHERE equals(events.team_id, 420) 
+      GROUP BY events.distinct_id)) 
   LIMIT 50000
   '''
 # ---
@@ -275,10 +277,10 @@
   
   SELECT host AS host, uniqMerge(unique_users) AS unique_users, sumMerge(click_count) AS click_count, avgMerge(avg_duration) AS avg_duration 
   FROM (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host, uniqState(events.distinct_id) AS unique_users, sumStateIf(1, equals(events.event, %(hogql_val_1)s)) AS click_count, avgState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s)) AS avg_duration 
-  FROM events 
-  WHERE equals(events.team_id, 420) 
-  GROUP BY host) 
+    SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host, uniqState(events.distinct_id) AS unique_users, sumStateIf(1, equals(events.event, %(hogql_val_1)s)) AS click_count, avgState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s)) AS avg_duration 
+    FROM events 
+    WHERE equals(events.team_id, 420) 
+    GROUP BY host) 
   GROUP BY host 
   LIMIT 50000
   '''
@@ -288,14 +290,14 @@
   
   SELECT sumMerge(final_users) AS final_users, avgMerge(final_avg_duration) AS final_avg_duration 
   FROM (
-  SELECT sumState(combined_stats.total_users) AS final_users, avgState(combined_stats.avg_duration) AS final_avg_duration 
-  FROM (
-  SELECT tuple(uniqState(events.distinct_id), avgState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s))) AS user_duration_tuple, tupleElement(user_duration_tuple, 1) AS total_users, tupleElement(user_duration_tuple, 2) AS avg_duration 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_2)s), less(events.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s))) UNION ALL 
-  SELECT tuple(uniqState(events.distinct_id), avgState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s), ''), 'null'), '^"|"$', ''), %(hogql_val_6)s))) AS user_duration_tuple, tupleElement(user_duration_tuple, 1) AS total_users, tupleElement(user_duration_tuple, 2) AS avg_duration 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_7)s), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_8)s, 6, %(hogql_val_9)s)))) AS combined_stats) 
+    SELECT sumState(combined_stats.total_users) AS final_users, avgState(combined_stats.avg_duration) AS final_avg_duration 
+    FROM (
+      SELECT tuple(uniqState(events.distinct_id), avgState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s))) AS user_duration_tuple, tupleElement(user_duration_tuple, 1) AS total_users, tupleElement(user_duration_tuple, 2) AS avg_duration 
+      FROM events 
+      WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_2)s), less(events.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s))) UNION ALL 
+      SELECT tuple(uniqState(events.distinct_id), avgState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_5)s), ''), 'null'), '^"|"$', ''), %(hogql_val_6)s))) AS user_duration_tuple, tupleElement(user_duration_tuple, 1) AS total_users, tupleElement(user_duration_tuple, 2) AS avg_duration 
+      FROM events 
+      WHERE and(equals(events.team_id, 420), equals(events.event, %(hogql_val_7)s), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_8)s, 6, %(hogql_val_9)s)))) AS combined_stats) 
   LIMIT 50000
   '''
 # ---
@@ -323,12 +325,12 @@
   
   SELECT sumMerge(total_pageviews) AS total_pageviews, uniqMerge(unique_users) AS unique_users 
   FROM (
-  SELECT sumState(pageview_count) AS total_pageviews, uniqState(user_id) AS unique_users 
-  FROM (
-  SELECT events.distinct_id AS user_id, countIf(equals(events.event, %(hogql_val_0)s)) AS pageview_count 
-  FROM events 
-  WHERE equals(events.team_id, 420) 
-  GROUP BY events.distinct_id)) 
+    SELECT sumState(pageview_count) AS total_pageviews, uniqState(user_id) AS unique_users 
+    FROM (
+      SELECT events.distinct_id AS user_id, countIf(equals(events.event, %(hogql_val_0)s)) AS pageview_count 
+      FROM events 
+      WHERE equals(events.team_id, 420) 
+      GROUP BY events.distinct_id)) 
   LIMIT 50000
   '''
 # ---
@@ -337,9 +339,9 @@
   
   SELECT uniqMerge(unique_users) AS unique_users, NULL AS previous_unique_users, countMerge(total_events) AS total_events, 123 AS constant_value 
   FROM (
-  SELECT uniqState(events.distinct_id) AS unique_users, NULL AS previous_unique_users, countState() AS total_events, 123 AS constant_value 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)))) 
+    SELECT uniqState(events.distinct_id) AS unique_users, NULL AS previous_unique_users, countState() AS total_events, 123 AS constant_value 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -348,21 +350,21 @@
   
   SELECT tuple(uniqMerge(tupleElement(pageview_metrics, 1)), countMerge(tupleElement(pageview_metrics, 2))) AS pageview_metrics 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_0)s))) AS pageview_metrics 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_0)s))) AS pageview_metrics 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(pageview_metrics, 1)), countMerge(tupleElement(pageview_metrics, 2))) AS pageview_metrics 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_3)s))) AS pageview_metrics 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)), less(events.timestamp, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_3)s))) AS pageview_metrics 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)), less(events.timestamp, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(pageview_metrics, 1)), countMerge(tupleElement(pageview_metrics, 2))) AS pageview_metrics 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_8)s))) AS pageview_metrics 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_9)s, 6, %(hogql_val_10)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countStateIf(equals(events.event, %(hogql_val_8)s))) AS pageview_metrics 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_9)s, 6, %(hogql_val_10)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -389,9 +391,9 @@
   
   SELECT tuple(uniqMerge(tupleElement(user_stats, 1)), countMerge(tupleElement(user_stats, 2))) AS user_stats, tuple(sumMerge(tupleElement(metric_stats, 1)), avgMerge(tupleElement(metric_stats, 2))) AS metric_stats 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, tuple(sumState(1), avgState(1)) AS metric_stats 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, tuple(sumState(1), avgState(1)) AS metric_stats 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -400,11 +402,11 @@
   
   SELECT sumMerge(aggregated_total) AS aggregated_total 
   FROM (
-  SELECT sumState(filtered_metrics.total_count) AS aggregated_total 
-  FROM (
-  SELECT tuple(uniq(events.distinct_id), count()) AS user_metrics, sum(1) AS total_count 
-  FROM events 
-  WHERE equals(events.team_id, 420)) AS filtered_metrics) 
+    SELECT sumState(filtered_metrics.total_count) AS aggregated_total 
+    FROM (
+      SELECT tuple(uniq(events.distinct_id), count()) AS user_metrics, sum(1) AS total_count 
+      FROM events 
+      WHERE equals(events.team_id, 420)) AS filtered_metrics) 
   LIMIT 50000
   '''
 # ---
@@ -413,15 +415,15 @@
   
   SELECT tuple(uniqMerge(tupleElement(pageview_stats, 1)), countMerge(tupleElement(pageview_stats, 2))) AS pageview_stats, tuple(uniqMerge(tupleElement(click_stats, 1)), countMerge(tupleElement(click_stats, 2))) AS click_stats 
   FROM (
-  SELECT tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_0)s)), countStateIf(equals(events.event, %(hogql_val_1)s))) AS pageview_stats, tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_2)s)), countStateIf(equals(events.event, %(hogql_val_3)s))) AS click_stats 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)), lessOrEquals(events.timestamp, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)))) 
+    SELECT tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_0)s)), countStateIf(equals(events.event, %(hogql_val_1)s))) AS pageview_stats, tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_2)s)), countStateIf(equals(events.event, %(hogql_val_3)s))) AS click_stats 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)), lessOrEquals(events.timestamp, toDateTime64(%(hogql_val_6)s, 6, %(hogql_val_7)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(pageview_stats, 1)), countMerge(tupleElement(pageview_stats, 2))) AS pageview_stats, tuple(uniqMerge(tupleElement(click_stats, 1)), countMerge(tupleElement(click_stats, 2))) AS click_stats 
   FROM (
-  SELECT tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_8)s)), countStateIf(equals(events.event, %(hogql_val_9)s))) AS pageview_stats, tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_10)s)), countStateIf(equals(events.event, %(hogql_val_11)s))) AS click_stats 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_12)s, 6, %(hogql_val_13)s)), lessOrEquals(events.timestamp, toDateTime64(%(hogql_val_14)s, 6, %(hogql_val_15)s)))) 
+    SELECT tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_8)s)), countStateIf(equals(events.event, %(hogql_val_9)s))) AS pageview_stats, tuple(uniqStateIf(events.distinct_id, equals(events.event, %(hogql_val_10)s)), countStateIf(equals(events.event, %(hogql_val_11)s))) AS click_stats 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_12)s, 6, %(hogql_val_13)s)), lessOrEquals(events.timestamp, toDateTime64(%(hogql_val_14)s, 6, %(hogql_val_15)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -430,9 +432,9 @@
   
   SELECT tuple(uniqMerge(tupleElement(conditional_stats, 1)), countMerge(tupleElement(conditional_stats, 2)), sumMerge(tupleElement(conditional_stats, 3))) AS conditional_stats 
   FROM (
-  SELECT tuple(uniqStateIf(events.distinct_id, 1), countStateIf(1), sumStateIf(1, 1)) AS conditional_stats 
-  FROM events 
-  WHERE equals(events.team_id, 420)) 
+    SELECT tuple(uniqStateIf(events.distinct_id, 1), countStateIf(1), sumStateIf(1, 1)) AS conditional_stats 
+    FROM events 
+    WHERE equals(events.team_id, 420)) 
   LIMIT 50000
   '''
 # ---
@@ -441,9 +443,9 @@
   
   SELECT tuple(uniqMerge(tupleElement(mixed_tuple, 1)), tupleElement(mixed_tuple, 2), countMerge(tupleElement(mixed_tuple, 3)), tupleElement(mixed_tuple, 4), tupleElement(mixed_tuple, 5)) AS mixed_tuple 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), NULL, countState(), %(hogql_val_0)s, 42) AS mixed_tuple 
-  FROM events 
-  WHERE equals(events.team_id, 420)) 
+    SELECT tuple(uniqState(events.distinct_id), NULL, countState(), %(hogql_val_0)s, 42) AS mixed_tuple 
+    FROM events 
+    WHERE equals(events.team_id, 420)) 
   LIMIT 50000
   '''
 # ---
@@ -452,9 +454,9 @@
   
   SELECT tuple(uniqMerge(tupleElement(mixed_stats, 1)), tupleElement(mixed_stats, 2), countMerge(tupleElement(mixed_stats, 3))) AS mixed_stats, sumMerge(total_sum) AS total_sum 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), %(hogql_val_0)s, countState()) AS mixed_stats, sumState(1) AS total_sum 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), %(hogql_val_0)s, countState()) AS mixed_stats, sumState(1) AS total_sum 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -463,10 +465,10 @@
   
   SELECT tuple(uniqMerge(tupleElement(user_stats, 1)), countMerge(tupleElement(user_stats, 2))) AS user_stats, host AS host 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
-  GROUP BY host) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+    GROUP BY host) 
   GROUP BY host 
   LIMIT 50000
   '''
@@ -476,15 +478,15 @@
   
   SELECT countMerge(total_pageviews) AS total_pageviews 
   FROM (
-  SELECT countState() AS total_pageviews 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), less(events.timestamp, minus(now64(6, %(hogql_val_0)s), toIntervalDay(1))))) 
+    SELECT countState() AS total_pageviews 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), less(events.timestamp, minus(now64(6, %(hogql_val_0)s), toIntervalDay(1))))) 
   LIMIT 50000 UNION ALL 
   SELECT countMerge(total_pageviews) AS total_pageviews 
   FROM (
-  SELECT countState() AS total_pageviews 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))) 
+    SELECT countState() AS total_pageviews 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, minus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))) 
   LIMIT 50000
   '''
 # ---
@@ -493,15 +495,15 @@
   
   SELECT tuple(uniqMerge(tupleElement(user_stats, 1)), countMerge(tupleElement(user_stats, 2))) AS user_stats, tuple(sumMerge(tupleElement(metric_stats, 1)), avgMerge(tupleElement(metric_stats, 2))) AS metric_stats, %(hogql_val_3)s AS data_source 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, tuple(sumState(1), avgState(1)) AS metric_stats, %(hogql_val_0)s AS data_source 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, tuple(sumState(1), avgState(1)) AS metric_stats, %(hogql_val_0)s AS data_source 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), less(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) 
   LIMIT 50000 UNION ALL 
   SELECT tuple(uniqMerge(tupleElement(user_stats, 1)), countMerge(tupleElement(user_stats, 2))) AS user_stats, tuple(sumMerge(tupleElement(metric_stats, 1)), avgMerge(tupleElement(metric_stats, 2))) AS metric_stats, %(hogql_val_7)s AS data_source 
   FROM (
-  SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, tuple(sumState(1), avgState(1)) AS metric_stats, %(hogql_val_4)s AS data_source 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_5)s, 6, %(hogql_val_6)s)))) 
+    SELECT tuple(uniqState(events.distinct_id), countState()) AS user_stats, tuple(sumState(1), avgState(1)) AS metric_stats, %(hogql_val_4)s AS data_source 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_5)s, 6, %(hogql_val_6)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -510,9 +512,9 @@
   
   SELECT uniqMerge(unique_users) AS unique_users, countMerge(total_events) AS total_events 
   FROM (
-  SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)))) 
+    SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events 
+    FROM events 
+    WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s)))) 
   LIMIT 50000
   '''
 # ---
@@ -521,10 +523,10 @@
   
   SELECT host AS host, countMerge(total_count) AS total_count, countMerge(click_count) AS click_count 
   FROM (
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host, countState() AS total_count, countStateIf(equals(events.event, %(hogql_val_1)s)) AS click_count 
-  FROM events 
-  WHERE equals(events.team_id, 420) 
-  GROUP BY host) 
+    SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host, countState() AS total_count, countStateIf(equals(events.event, %(hogql_val_1)s)) AS click_count 
+    FROM events 
+    WHERE equals(events.team_id, 420) 
+    GROUP BY host) 
   GROUP BY host 
   LIMIT 50000
   '''

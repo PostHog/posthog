@@ -456,11 +456,13 @@ async fn fetch_group_properties(
 }
 
 /// Apply person and cohort results to the flag evaluation state.
-fn apply_person_cohort_to_state(
-    state: &mut FlagEvaluationState,
-    result: PersonCohortResult,
-    distinct_id: String,
-) {
+///
+/// `distinct_id` is intentionally not injected here. `evaluate_all_feature_flags`
+/// folds `self.distinct_id` into `person_property_overrides` upfront via
+/// `merge_distinct_id_into_person_properties`, and overrides extend on top of
+/// these DB-loaded properties at merge time, so adding `distinct_id` here would
+/// just be overwritten on the way out.
+fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonCohortResult) {
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
 
     if let Some(ref person) = result.person {
@@ -472,8 +474,7 @@ fn apply_person_cohort_to_state(
         state.set_cohort_matches(cohort_matches);
     }
 
-    let mut all_person_properties: HashMap<String, Value> = if let Some(ref person) = result.person
-    {
+    let person_properties: HashMap<String, Value> = if let Some(ref person) = result.person {
         match person.properties.as_object() {
             Some(obj) => obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             None => HashMap::new(),
@@ -482,11 +483,7 @@ fn apply_person_cohort_to_state(
         HashMap::new()
     };
 
-    // Always add distinct_id to person properties to match Python implementation.
-    // This allows flags to filter on distinct_id even when no other person properties exist.
-    all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
-
-    state.set_person_properties(all_person_properties);
+    state.set_person_properties(person_properties);
     person_processing_timer.fin();
 }
 
@@ -538,14 +535,14 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             fetch_group_properties(&reader, team_id, group_type_to_key),
         )?;
 
-        apply_person_cohort_to_state(flag_evaluation_state, person_cohort, distinct_id);
+        apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
         for (idx, props) in group.group_properties {
             flag_evaluation_state.set_group_properties(idx, props);
         }
     } else {
         let person_cohort =
             fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids).await?;
-        apply_person_cohort_to_state(flag_evaluation_state, person_cohort, distinct_id);
+        apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
     }
 
     Ok(())
@@ -2164,6 +2161,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
             PropertyFilter {
                 key: "age".to_string(),
@@ -2173,6 +2171,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
         ];
 
@@ -2189,6 +2188,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
             PropertyFilter {
                 key: "cohort".to_string(),
@@ -2198,6 +2198,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
         ];
 
@@ -2220,6 +2221,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
             PropertyFilter {
                 key: "missing_property".to_string(), // This property is NOT in overrides
@@ -2229,6 +2231,7 @@ mod tests {
                 group_type_index: None,
                 negation: None,
                 compiled_regex: None,
+                extra: Default::default(),
             },
         ];
 
@@ -2261,6 +2264,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         }];
 
         let result = locally_computable_property_overrides(&overrides, &flag_property_filters);
@@ -2310,6 +2314,7 @@ mod tests {
             negation: None,
             group_type_index: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);
@@ -2328,6 +2333,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         let result = match_flag_value_to_flag_filter(&filter, &flag_evaluation_results);

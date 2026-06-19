@@ -152,6 +152,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
             query_type="revenue_example_events_query",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
         )

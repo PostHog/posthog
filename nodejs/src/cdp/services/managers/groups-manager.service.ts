@@ -2,7 +2,7 @@ import { sanitizeString } from '~/utils/db/utils'
 import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { TeamManager } from '~/utils/team-manager'
-import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
+import { GroupReadRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
 import { GroupTypeIndex, Team } from '../../../types'
 import { GroupType, HogFunctionInvocationGlobals } from '../../types'
@@ -31,7 +31,7 @@ export class GroupsManagerService {
 
     constructor(
         private teamManager: TeamManager,
-        private groupRepository: GroupRepository
+        private groupRepository: GroupReadRepository
     ) {
         this.groupTypesLoader = new LazyLoader({
             name: 'groups_manager_types',
@@ -147,7 +147,10 @@ export class GroupsManagerService {
         }
 
         if (teamsToLoad.length > 0) {
-            const repoResult = await this.groupRepository.fetchGroupTypesByTeamIds(teamsToLoad)
+            const repoResult = await this.groupRepository.fetchGroupTypesByTeamIds(
+                teamsToLoad,
+                'cdp/hogflow-group-type-resolution'
+            )
             for (const teamId of teamsToLoad) {
                 const groupTypes = repoResult[String(teamId)] ?? []
                 const mapping: GroupTypeMapping = {}
@@ -170,7 +173,12 @@ export class GroupsManagerService {
         const groupIndexes = parsed.map((p) => p.groupTypeIndex) as GroupTypeIndex[]
         const groupKeys = parsed.map((p) => p.groupKey)
 
-        const rows = await this.groupRepository.fetchGroupsByKeys(teamIds, groupIndexes, groupKeys)
+        const rows = await this.groupRepository.fetchGroupsByKeys(
+            teamIds,
+            groupIndexes,
+            groupKeys,
+            'cdp/hogflow-group-property-enrichment'
+        )
 
         const result: Record<string, Record<string, any> | null | undefined> = {}
         for (const row of rows) {

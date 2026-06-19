@@ -16,7 +16,7 @@ import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics
 import type { signalSourcesLogicType } from './signalSourcesLogicType'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
 
-export type DataWarehouseSource = 'Linear' | 'Zendesk' | 'Github'
+export type DataWarehouseSource = 'Linear' | 'Zendesk' | 'Github' | 'PgAnalyze'
 
 /** Matches Cymbal `EmitSignalRequest.source_type` + `products.signals.backend.api.emit_signal` checks. */
 export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
@@ -52,6 +52,12 @@ const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
         requiredTable: 'tickets',
         enableErrorMessage: 'Failed to enable Zendesk Tickets',
     },
+    PgAnalyze: {
+        sourceProduct: SignalSourceProduct.PGANALYZE,
+        sourceType: SignalSourceType.ISSUE,
+        requiredTable: 'issues',
+        enableErrorMessage: 'Failed to enable pganalyze',
+    },
 }
 
 /** Values subset used by data-warehouse source helpers */
@@ -59,6 +65,7 @@ interface SignalSourcesLogicValuesForDw {
     githubIssuesConfig: SignalSourceConfig | null
     linearIssuesConfig: SignalSourceConfig | null
     zendeskTicketsConfig: SignalSourceConfig | null
+    pgAnalyzeIssuesConfig: SignalSourceConfig | null
 }
 
 function getDataWarehouseSourceConfig(
@@ -70,6 +77,9 @@ function getDataWarehouseSourceConfig(
     }
     if (dwSource === 'Linear') {
         return values.linearIssuesConfig
+    }
+    if (dwSource === 'PgAnalyze') {
+        return values.pgAnalyzeIssuesConfig
     }
     return values.zendeskTicketsConfig
 }
@@ -127,6 +137,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
+        toggleHealthChecks: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
     }),
@@ -178,6 +189,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const { sourceProduct, sourceType } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
                 return toggleSourceConfigState(state, sourceProduct, sourceType)
             },
+            toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
+                toggleSourceConfigState(state, SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
         },
         togglingSourceKeys: [
             new Set<string>(),
@@ -242,6 +255,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     (c) => c.source_product === SignalSourceProduct.ZENDESK && c.source_type === SignalSourceType.TICKET
                 ) ?? null,
         ],
+        pgAnalyzeIssuesConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.PGANALYZE && c.source_type === SignalSourceType.ISSUE
+                ) ?? null,
+        ],
         isSessionAnalysisToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
@@ -259,9 +280,27 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.ZENDESK}_${SignalSourceType.TICKET}`),
         ],
+        isPgAnalyzeIssuesToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.PGANALYZE}_${SignalSourceType.ISSUE}`),
+        ],
         isErrorTrackingToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean => keys.has('error_tracking'),
+        ],
+        healthChecksConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.HEALTH_CHECKS &&
+                        c.source_type === SignalSourceType.HEALTH_ISSUE
+                ) ?? null,
+        ],
+        isHealthChecksToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean =>
+                keys.has(`${SignalSourceProduct.HEALTH_CHECKS}_${SignalSourceType.HEALTH_ISSUE}`),
         ],
         errorTrackingIsFullyEnabled: [
             (s) => [s.sourceConfigs],
@@ -343,6 +382,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     Github: { sourceProduct: SignalSourceProduct.GITHUB, sourceType: SignalSourceType.ISSUE },
                     Linear: { sourceProduct: SignalSourceProduct.LINEAR, sourceType: SignalSourceType.ISSUE },
                     Zendesk: { sourceProduct: SignalSourceProduct.ZENDESK, sourceType: SignalSourceType.TICKET },
+                    PgAnalyze: { sourceProduct: SignalSourceProduct.PGANALYZE, sourceType: SignalSourceType.ISSUE },
                 }
                 const mapped = mapping[product]
                 if (mapped) {
@@ -420,6 +460,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.SESSION_REPLAY,
                     sourceType: SignalSourceType.SESSION_ANALYSIS_CLUSTER,
+                    enabled: desiredEnabled,
+                })
+            },
+            toggleHealthChecks: () => {
+                // The optimistic reducer flips the config before this listener runs,
+                // so config.enabled already reflects the desired state.
+                const config = values.healthChecksConfig
+                const desiredEnabled = config?.enabled ?? true
+                actions.toggleSignalSource({
+                    sourceProduct: SignalSourceProduct.HEALTH_CHECKS,
+                    sourceType: SignalSourceType.HEALTH_ISSUE,
                     enabled: desiredEnabled,
                 })
             },

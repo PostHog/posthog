@@ -36,25 +36,44 @@ import {
 import {
     StatusTagSetting,
     SyncFrequencyLabelMap,
+    allowedSyncFrequencies,
     defaultQuery,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
 
-import { syncMethodModalLogic } from '../SourceScene/syncMethodModalLogic'
-import { sourceSettingsLogic } from '../SourceScene/tabs/sourceSettingsLogic'
-import { SchemaConfigurationSection } from './schemaSceneLogic'
+import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
+import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
+
+// null means "all columns" on either side, so switching to null after a partial list flags
+// every previously-excluded column as added.
+function getAddedColumns(prev: string[] | null, next: string[] | null, available: { name: string }[]): string[] {
+    const allColumns = available.map((c) => c.name)
+    const prevSet = new Set(prev ?? allColumns)
+    const nextSet = new Set(next ?? allColumns)
+    return allColumns.filter((c) => nextSet.has(c) && !prevSet.has(c))
+}
 
 export interface ConfigurationTabProps {
     sourceId: string
     schema: ExternalDataSourceSchema
     source: ExternalDataSource | null
     section: SchemaConfigurationSection
+    onConfigureSyncMethod: () => void
+    onViewSyncHistory: () => void
 }
 
-export function ConfigurationTab({ sourceId, schema, source, section }: ConfigurationTabProps): JSX.Element {
-    const logic = sourceSettingsLogic({ id: sourceId })
-    const { isProjectTime } = useValues(logic)
-    const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable } = useActions(logic)
+export function ConfigurationTab({
+    sourceId,
+    schema,
+    source,
+    section,
+    onConfigureSyncMethod,
+    onViewSyncHistory,
+}: ConfigurationTabProps): JSX.Element {
+    const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
+    const { isProjectTime, refreshingSchemas } = useValues(logic)
+    const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
+        useActions(logic)
 
     switch (section) {
         case 'details':
@@ -65,10 +84,23 @@ export function ConfigurationTab({ sourceId, schema, source, section }: Configur
                     reloadSchema={reloadSchema}
                     cancelSchema={cancelSchema}
                     updateSchema={updateSchema}
+                    onConfigureSyncMethod={onConfigureSyncMethod}
+                    onViewSyncHistory={onViewSyncHistory}
                 />
             )
         case 'sync-method':
             return <SyncMethodSection sourceId={sourceId} source={source} schema={schema} />
+        case 'columns':
+            return (
+                <ColumnsSection
+                    source={source}
+                    schema={schema}
+                    updateSchema={updateSchema}
+                    resyncSchema={resyncSchema}
+                    refreshSchemas={refreshSchemas}
+                    refreshingSchemas={refreshingSchemas}
+                />
+            )
         case 'schedule':
             return (
                 <ScheduleSection
@@ -106,12 +138,16 @@ function DetailsSection({
     reloadSchema,
     cancelSchema,
     updateSchema,
+    onConfigureSyncMethod,
+    onViewSyncHistory,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     reloadSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     updateSchema: (schema: ExternalDataSourceSchema) => void
+    onConfigureSyncMethod: () => void
+    onViewSyncHistory: () => void
 }): JSX.Element {
     return (
         <div>
@@ -131,12 +167,14 @@ function DetailsSection({
                     </div>
                     <SourceEditorAction source={source}>
                         <LemonSwitch
-                            disabledReason={
-                                schema.sync_type === null ? 'You must set up the sync method first' : undefined
-                            }
                             checked={schema.should_sync}
                             label={schema.should_sync ? 'Syncing' : 'Disabled'}
                             onChange={(active) => {
+                                if (active && !schema.sync_type) {
+                                    // No sync method saved yet — open the sync method section to set one up.
+                                    onConfigureSyncMethod()
+                                    return
+                                }
                                 if (!active && schema.sync_type === 'cdc') {
                                     LemonDialog.open({
                                         title: 'Disable CDC table?',
@@ -261,6 +299,9 @@ function DetailsSection({
                         )}
                     </SourceEditorAction>
                 )}
+                <LemonButton type="secondary" onClick={onViewSyncHistory}>
+                    View sync history
+                </LemonButton>
             </div>
         </div>
     )
@@ -275,13 +316,12 @@ function SyncMethodSection({
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
 }): JSX.Element {
-    // We use syncMethodModalLogic only for loading the schema's incremental fields — saving goes
-    // through a direct bulkUpdateSchemas call so the logic's reset-on-success listener (used by
-    // the modal flow in the new source wizard) doesn't blow the inline form back into a loading state.
-    const logic = syncMethodModalLogic({ schema })
+    // Incremental fields + saving both go through schemaSceneLogic — deliberately NOT
+    // syncMethodModalLogic, which connects sourceManagementLogic and would mount + poll the full
+    // sources list (the heavy `external_data_sources` fetch this page is meant to avoid).
+    const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
     const { schemaIncrementalFields, schemaIncrementalFieldsLoading } = useValues(logic)
-    const { loadSchemaIncrementalFields } = useActions(logic)
-    const { loadSource } = useActions(sourceSettingsLogic({ id: sourceId }))
+    const { loadSchemaIncrementalFields, loadSchema } = useActions(logic)
 
     const formRef = useRef<SyncMethodFormHandle>(null)
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
@@ -291,8 +331,8 @@ function SyncMethodSection({
 
     // Load incremental fields only when the schema id changes. We intentionally exclude the kea
     // action refs from the deps — if they aren't stable, the effect would re-fire on every parent
-    // re-render (e.g. the 5s sourceSettingsLogic auto-refresh), reset `schemaIncrementalFields`
-    // to null, unmount the form, and blow away the user's in-progress radio/field selections.
+    // re-render, reset `schemaIncrementalFields` to null, unmount the form, and blow away the
+    // user's in-progress radio/field selections.
     useEffect(() => {
         loadSchemaIncrementalFields(schema.id)
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -319,7 +359,7 @@ function SyncMethodSection({
                 ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
             })
             lemonToast.success('Sync method saved')
-            loadSource()
+            loadSchema()
         } catch (e: any) {
             lemonToast.error(e?.message || "Can't save sync method at this time")
         } finally {
@@ -391,6 +431,128 @@ function SyncMethodSection({
     )
 }
 
+function ColumnsSection({
+    source,
+    schema,
+    updateSchema,
+    resyncSchema,
+    refreshSchemas,
+    refreshingSchemas,
+}: {
+    source: ExternalDataSource | null
+    schema: ExternalDataSourceSchema
+    updateSchema: (schema: ExternalDataSourceSchema) => void
+    resyncSchema: (schema: ExternalDataSourceSchema) => void
+    refreshSchemas: () => void
+    refreshingSchemas: boolean
+}): JSX.Element {
+    const available = schema.available_columns ?? []
+    const hasAvailableColumns = available.length > 0
+    const synced = schema.enabled_columns
+
+    const alwaysRetained = new Set<string>([
+        ...(schema.primary_key_columns ?? []),
+        ...(schema.incremental_field ? [schema.incremental_field] : []),
+    ])
+    const syncedCount = synced ? new Set([...synced, ...alwaysRetained]).size : available.length
+    const summaryLine = !synced
+        ? `Syncing all ${available.length || 'discovered'} columns`
+        : `Syncing ${syncedCount} of ${available.length} columns`
+
+    const handleSave = (nextSyncedColumns: string[] | null): void => {
+        const syncType = schema.sync_type
+        const added = getAddedColumns(schema.enabled_columns ?? null, nextSyncedColumns, available)
+        const requiresPrompt =
+            !!schema.last_synced_at &&
+            (syncType === 'incremental' || syncType === 'append' || syncType === 'cdc') &&
+            added.length > 0
+
+        if (!requiresPrompt) {
+            updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
+            lemonToast.success('Columns saved')
+            return
+        }
+
+        LemonDialog.open({
+            title: 'New columns added to a partial-sync table',
+            description: (
+                <div className="flex flex-col gap-2">
+                    <span>
+                        You added {added.length === 1 ? '1 column' : `${added.length} columns`} to a{' '}
+                        <code>{syncType}</code> table. Existing rows will be backfilled with <code>NULL</code> for the
+                        new column(s) unless you full-resync the table.
+                    </span>
+                    {added.length <= 6 && (
+                        <span className="text-xs text-muted">Added: {added.map((c) => `"${c}"`).join(', ')}</span>
+                    )}
+                </div>
+            ),
+            primaryButton: {
+                children: 'Full resync now',
+                onClick: () => {
+                    // Bypass the bulk-update debounce so the Temporal workflow reads the new
+                    // enabled_columns from the DB; firing resync against the queued (but unsent)
+                    // PATCH would otherwise re-sync against the old column selection.
+                    void api.externalDataSchemas
+                        .update(schema.id, { enabled_columns: nextSyncedColumns })
+                        .then(() => {
+                            updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
+                            resyncSchema({ ...schema, enabled_columns: nextSyncedColumns })
+                            lemonToast.success('Columns saved — full resync queued')
+                        })
+                        .catch((e: any) => {
+                            lemonToast.error(e?.message || "Can't save columns at this time")
+                        })
+                },
+            },
+            secondaryButton: {
+                children: 'Sync forward only',
+                onClick: () => {
+                    updateSchema({ ...schema, enabled_columns: nextSyncedColumns })
+                    lemonToast.success('Columns saved')
+                },
+            },
+        })
+    }
+
+    return (
+        <div>
+            <SectionHeader
+                title="Columns"
+                description="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced."
+            />
+            <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
+                {!hasAvailableColumns ? (
+                    <div className="flex flex-col items-center gap-2 text-center text-muted-alt py-6">
+                        <span className="text-sm">No columns discovered yet for this schema.</span>
+                        <SourceEditorAction source={source}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                loading={refreshingSchemas}
+                                onClick={() => refreshSchemas()}
+                            >
+                                Pull new schemas
+                            </LemonButton>
+                        </SourceEditorAction>
+                    </div>
+                ) : (
+                    <>
+                        <span className="text-sm text-secondary">{summaryLine}</span>
+                        <SourceEditorAction source={source}>
+                            {({ disabledReason }) => (
+                                <fieldset disabled={!!disabledReason}>
+                                    <ColumnSelectionPicker schema={schema} onSave={handleSave} />
+                                </fieldset>
+                            )}
+                        </SourceEditorAction>
+                    </>
+                )}
+            </div>
+        </div>
+    )
+}
+
 function ScheduleSection({
     sourceId,
     source,
@@ -404,16 +566,11 @@ function ScheduleSection({
     isProjectTime: boolean
     setIsProjectTime: (v: boolean) => void
 }): JSX.Element {
-    const { loadSource } = useActions(sourceSettingsLogic({ id: sourceId }))
+    const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
     const isCdc = schema.sync_type === 'cdc'
-    const makeOption = (value: DataWarehouseSyncInterval): LemonSelectOption<DataWarehouseSyncInterval> => ({
-        value,
-        label: SyncFrequencyLabelMap[value],
-    })
-    const cdcOnlyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = [makeOption('1min')]
-    const standardOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = (
-        ['5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'] as const
-    ).map(makeOption)
+    const frequencyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = allowedSyncFrequencies(
+        schema.sync_type
+    ).map((value) => ({ value, label: SyncFrequencyLabelMap[value] }))
 
     const [draftFrequency, setDraftFrequency] = useState<DataWarehouseSyncInterval>(
         schema.sync_frequency || (isCdc ? '5min' : '6hour')
@@ -451,7 +608,7 @@ function ScheduleSection({
                 },
             ])
             lemonToast.success('Schedule saved')
-            loadSource()
+            loadSchema()
         } catch (e: any) {
             lemonToast.error(e?.message || "Can't save schedule at this time")
         } finally {
@@ -481,7 +638,7 @@ function ScheduleSection({
                         }
                         value={draftFrequency}
                         onChange={(value) => setDraftFrequency(value as DataWarehouseSyncInterval)}
-                        options={isCdc ? [...cdcOnlyOptions, ...standardOptions] : standardOptions}
+                        options={frequencyOptions}
                     />
                 </div>
                 <AnchorTimeField

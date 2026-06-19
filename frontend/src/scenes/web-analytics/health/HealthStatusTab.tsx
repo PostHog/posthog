@@ -8,8 +8,7 @@ import { HealthCheck } from './healthCheckTypes'
 import { webAnalyticsHealthLogic } from './webAnalyticsHealthLogic'
 
 export function HealthStatusTab(): JSX.Element {
-    const { overallHealthStatus, checksByCategory, webAnalyticsHealthStatusLoading } =
-        useValues(webAnalyticsHealthLogic)
+    const { overallHealthStatus, checksByCategory, healthIssuesLoading } = useValues(webAnalyticsHealthLogic)
     const { refreshHealthChecks, trackSectionToggled } = useActions(webAnalyticsHealthLogic)
 
     return (
@@ -20,7 +19,7 @@ export function HealthStatusTab(): JSX.Element {
                 passedCount={overallHealthStatus.passedCount}
                 totalCount={overallHealthStatus.totalCount}
                 onRefresh={refreshHealthChecks}
-                loading={webAnalyticsHealthStatusLoading}
+                loading={healthIssuesLoading}
             />
 
             <div className="space-y-3">
@@ -86,7 +85,13 @@ function OverallHealthBanner({
                         {passedCount} of {totalCount} checks passed
                     </div>
                 </div>
-                <LemonButton type="secondary" size="small" icon={<IconRefresh />} onClick={onRefresh} loading={loading}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconRefresh />}
+                    onClick={() => onRefresh()}
+                    loading={loading}
+                >
                     Refresh
                 </LemonButton>
             </div>

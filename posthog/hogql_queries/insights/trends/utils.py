@@ -63,7 +63,7 @@ def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode | Gr
 
 
 def group_node_to_expr(group: GroupNode, team: Team) -> ast.Expr | None:
-    from posthog.models import Action
+    from products.actions.backend.models.action import Action
 
     group_filters: list[ast.Expr] = []
     for node in group.nodes:

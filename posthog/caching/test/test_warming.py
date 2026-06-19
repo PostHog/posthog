@@ -4,10 +4,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from posthog.caching.warming import insights_to_keep_fresh, schedule_warming_for_teams_task
-from posthog.models import Insight, InsightViewed
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
 
 
 class TestWarming(APIBaseTest):

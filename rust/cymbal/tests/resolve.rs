@@ -153,7 +153,7 @@ async fn sourcemap_nulls_dont_go_on_frames() {
     let content = "{\"colno\":15,\"filename\":\"irrelevant_for_test\",\"function\":\"?\",\"in_app\":true,\"lineno\":476,\"platform\":\"web:javascript\"}";
     let frame: RawFrame = serde_json::from_str(content).unwrap();
 
-    let jsdata_bytes = include_bytes!("static/sourcemap_with_nulls.jsdata").to_vec();
+    let jsdata_bytes = include_bytes!("static/sourcemap_with_nulls.jsdata");
     let (data, decompressed_bytes): (SourceAndMap, usize) =
         read_symbol_data_with_byte_count(jsdata_bytes).unwrap();
     let smc = OwnedSourceMapCache::from_source_and_map(data, decompressed_bytes).unwrap();

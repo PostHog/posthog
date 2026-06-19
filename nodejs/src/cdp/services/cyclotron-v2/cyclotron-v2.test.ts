@@ -3,8 +3,9 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { CyclotronV2Janitor } from './janitor'
 import { CyclotronV2Manager } from './manager'
-import { CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
+import { CyclotronV2BatchLimit, CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
 import { CyclotronV2Worker } from './worker'
+import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const QUEUE = 'test-queue'
@@ -265,22 +266,178 @@ describe('Cyclotron V2', () => {
             }
         })
 
-        it('createJob coerces non-UUID personId to null', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, personId: 'not-a-uuid' as any })
+        it('createJob accepts a non-UUID personId (column is TEXT)', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, personId: 'group-key-not-a-uuid' })
             const row = await queryJob(id)
-            expect(row.person_id).toBeNull()
+            expect(row.person_id).toBe('group-key-not-a-uuid')
         })
 
-        it('bulkCreateJobs coerces non-UUID personIds to null instead of failing the batch', async () => {
+        it('bulkCreateJobs accepts mixed UUID and non-UUID personIds', async () => {
             const validPersonId = uuidv7()
             const ids = await manager.bulkCreateJobs([
                 { teamId: 1, queueName: QUEUE, personId: validPersonId },
-                { teamId: 1, queueName: QUEUE, personId: 'group-key-not-a-uuid' as any },
+                { teamId: 1, queueName: QUEUE, personId: 'group-key-not-a-uuid' },
             ])
             expect(ids).toHaveLength(2)
             const rows = await Promise.all(ids.map(queryJob))
             expect(rows[0].person_id).toBe(validPersonId)
-            expect(rows[1].person_id).toBeNull()
+            expect(rows[1].person_id).toBe('group-key-not-a-uuid')
+        })
+
+        describe('overwriteExisting (rerun re-enqueue)', () => {
+            it('createJob with overwriteExisting=true refuses to clobber an in-flight (running) row', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                // Dequeue → row is now 'running'.
+                const worker = createWorker()
+                const jobs = await dequeueOneBatch(worker)
+                expect(jobs).toHaveLength(1)
+                expect((await queryJob(id)).status).toBe('running')
+
+                const { CyclotronJobConflictError } = await import('./manager.js')
+                await expect(
+                    manager.createJob({
+                        id,
+                        teamId: 1,
+                        queueName: QUEUE,
+                        overwriteExisting: true,
+                    })
+                ).rejects.toBeInstanceOf(CyclotronJobConflictError)
+
+                // Existing row's status untouched.
+                expect((await queryJob(id)).status).toBe('running')
+            })
+
+            it('createJob with overwriteExisting=true refuses to clobber an available (queued, not yet dequeued) row', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                expect((await queryJob(id)).status).toBe('available')
+
+                const { CyclotronJobConflictError } = await import('./manager.js')
+                await expect(
+                    manager.createJob({ id, teamId: 1, queueName: QUEUE, overwriteExisting: true })
+                ).rejects.toBeInstanceOf(CyclotronJobConflictError)
+            })
+
+            it('createJob with overwriteExisting=true resets an existing terminal row to available', async () => {
+                const id = uuidv7()
+                // First insert + drive to terminal state via the worker.
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE, state: Buffer.from('v1') })
+                const worker = createWorker()
+                const jobs = await dequeueOneBatch(worker)
+                await jobs[0].ack()
+                expect((await queryJob(id)).status).toBe('completed')
+
+                // Re-create with the same id and overwriteExisting=true — this
+                // is the rerun path. The row should flip back to 'available'
+                // with the new state.
+                await manager.createJob({
+                    id,
+                    teamId: 1,
+                    queueName: QUEUE,
+                    state: Buffer.from('v2'),
+                    overwriteExisting: true,
+                })
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(row.state).toEqual(Buffer.from('v2'))
+                expect(row.lock_id).toBeNull()
+                expect(row.last_heartbeat).toBeNull()
+                // transition_count bumps so the janitor's poison-pill guard
+                // still has signal across reruns.
+                expect(row.transition_count).toBeGreaterThan(0)
+            })
+
+            it('createJob with overwriteExisting=true on a never-seen id behaves like a normal insert', async () => {
+                const id = uuidv7()
+                await manager.createJob({
+                    id,
+                    teamId: 1,
+                    queueName: QUEUE,
+                    state: Buffer.from('fresh'),
+                    overwriteExisting: true,
+                })
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(row.state).toEqual(Buffer.from('fresh'))
+            })
+
+            it('bulkCreateJobs with overwriteExisting reports skipped ids via CyclotronJobConflictError when some are still active', async () => {
+                const terminalId = uuidv7()
+                const activeId = uuidv7()
+                // Drive terminalId to completed, leave activeId in 'available'.
+                await manager.bulkCreateJobs([
+                    { id: terminalId, teamId: 1, queueName: QUEUE },
+                    { id: activeId, teamId: 1, queueName: QUEUE },
+                ])
+                const worker = createWorker()
+                const dequeued = await dequeueOneBatch(worker)
+                const completedJob = dequeued.find((j) => j.id === terminalId)!
+                await completedJob.ack()
+                // The other one will still be 'running' at this point — reschedule it
+                // back to 'available' so the test mirrors a more common case.
+                const activeJob = dequeued.find((j) => j.id === activeId)!
+                await activeJob.reschedule()
+                expect((await queryJob(activeId)).status).toBe('available')
+
+                const { CyclotronJobConflictError } = await import('./manager.js')
+                await expect(
+                    manager.bulkCreateJobs([
+                        {
+                            id: terminalId,
+                            teamId: 1,
+                            queueName: QUEUE,
+                            overwriteExisting: true,
+                            state: Buffer.from('reset'),
+                        },
+                        {
+                            id: activeId,
+                            teamId: 1,
+                            queueName: QUEUE,
+                            overwriteExisting: true,
+                            state: Buffer.from('would-clobber'),
+                        },
+                    ])
+                ).rejects.toBeInstanceOf(CyclotronJobConflictError)
+
+                // The terminal one was still upserted; the active one was not.
+                expect((await queryJob(terminalId)).state).toEqual(Buffer.from('reset'))
+                expect((await queryJob(activeId)).state).toBeNull()
+            })
+
+            it('bulkCreateJobs with overwriteExisting flag upserts every row in the batch', async () => {
+                const ids = [uuidv7(), uuidv7()]
+                // Seed both as completed.
+                await manager.bulkCreateJobs(ids.map((id) => ({ id, teamId: 1, queueName: QUEUE })))
+                const worker = createWorker()
+                const dequeued = await dequeueOneBatch(worker)
+                await Promise.all(dequeued.map((j) => j.ack()))
+
+                // Re-create both via bulk upsert.
+                const resultIds = await manager.bulkCreateJobs(
+                    ids.map((id) => ({
+                        id,
+                        teamId: 1,
+                        queueName: QUEUE,
+                        state: Buffer.from('rerun'),
+                        overwriteExisting: true,
+                    }))
+                )
+                expect(resultIds).toEqual(ids)
+                for (const id of ids) {
+                    const row = await queryJob(id)
+                    expect(row.status).toBe('available')
+                    expect(row.state).toEqual(Buffer.from('rerun'))
+                }
+            })
+
+            it('without overwriteExisting, re-creating with the same id throws on the PK conflict', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                await expect(manager.createJob({ id, teamId: 1, queueName: QUEUE })).rejects.toThrow(
+                    /duplicate key value/i
+                )
+            })
         })
     })
 
@@ -330,6 +487,159 @@ describe('Cyclotron V2', () => {
 
             expect(jobs).toHaveLength(1)
             expect(jobs[0].queueName).toBe(QUEUE)
+        })
+
+        describe('CyclotronV2RateLimitedWorker', () => {
+            // The hook is consulted on every poll. It receives the number of
+            // rows actually visible (capped at batchMaxSize). Returning a
+            // positive limit clamps the SQL LIMIT to min(limit, batchMaxSize);
+            // 0 skips the dequeue and sleeps; undefined falls back to batchMaxSize.
+            const createRateLimitedWorker = (
+                getBatchLimit: (requested: number) => Promise<CyclotronV2BatchLimit | undefined>,
+                overrides?: Record<string, unknown>
+            ): CyclotronV2RateLimitedWorker =>
+                new CyclotronV2RateLimitedWorker(
+                    {
+                        pool: { dbUrl: DB_URL },
+                        queueName: QUEUE,
+                        batchMaxSize: 100,
+                        pollDelayMs: 10,
+                        includeEmptyBatches: true,
+                        ...overrides,
+                    },
+                    getBatchLimit
+                )
+
+            it('clamps the batch to the granted limit', async () => {
+                await manager.bulkCreateJobs(Array.from({ length: 10 }, () => ({ teamId: 1, queueName: QUEUE })))
+
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => ({ limit: 3 }))
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(3)
+                expect(await countByStatus('available')).toBe(7)
+            })
+
+            it('skips the dequeue entirely when the granted limit is 0', async () => {
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => ({ limit: 0, sleepMs: 5 }), {
+                    includeEmptyBatches: false,
+                })
+                const jobs = await dequeueOneBatch(worker, 200)
+
+                expect(jobs).toHaveLength(0)
+                // Critical: the SQL UPDATE never fires — rows stay 'available'.
+                expect(await countByStatus('available')).toBe(2)
+                expect(await countByStatus('running')).toBe(0)
+            })
+
+            it('falls back to batchMaxSize when the hook returns undefined', async () => {
+                await manager.bulkCreateJobs(Array.from({ length: 5 }, () => ({ teamId: 1, queueName: QUEUE })))
+
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => undefined)
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(5)
+            })
+
+            it('exits promptly when stopConsuming is called during a throttled sleep', async () => {
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => ({ limit: 0, sleepMs: 100 }))
+
+                await worker.connect(async () => {})
+                // Let the loop reach the sleep branch.
+                await new Promise((resolve) => setTimeout(resolve, 50))
+
+                const stopStarted = Date.now()
+                await worker.stopConsuming()
+                const stopDuration = Date.now() - stopStarted
+
+                // At most one sleepMs (100ms) + small overhead — never indefinite.
+                expect(stopDuration).toBeLessThan(300)
+            })
+
+            it('keeps looping after the hook rejects', async () => {
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+
+                // Reject once, then return a valid decision so dequeueOneBatch
+                // captures a non-empty batch and resolves.
+                let calls = 0
+                const worker = createRateLimitedWorker(() => {
+                    calls += 1
+                    if (calls === 1) {
+                        return Promise.reject(new Error('boom'))
+                    }
+                    return Promise.resolve({ limit: 5 })
+                })
+
+                const jobs = await dequeueOneBatch(worker, 1000)
+                expect(jobs).toHaveLength(2)
+                // The first call rejected — the loop's catch swallowed it and tried again.
+                expect(calls).toBeGreaterThan(1)
+            })
+
+            it('skips the limiter entirely when there is no work to dequeue', async () => {
+                // Idle queue → peek returns no rows → worker sleeps without
+                // ever consulting the rate limiter. Keeps the bucket at
+                // capacity and the limiter's metrics silent during idle.
+                let hookCalls = 0
+                const worker = createRateLimitedWorker(() => {
+                    hookCalls += 1
+                    return Promise.resolve({ limit: 5 })
+                })
+
+                await worker.connect(async () => {})
+                // Let the loop poll several times (pollDelayMs is 10ms in tests).
+                await new Promise((resolve) => setTimeout(resolve, 200))
+                await worker.stopConsuming()
+
+                // Many poll cycles ran (~20 at 10ms cadence) but no jobs exist,
+                // so the limiter hook is never invoked.
+                expect(hookCalls).toBe(0)
+            })
+
+            it('passes the visible row count to the limiter hook', async () => {
+                // Sparse-traffic regression guard. 3 ready rows + batchMaxSize=100
+                // → hook must be asked for 3 tokens, not 100. Without pre-sizing,
+                // a single trickle of jobs would drain the full bucket per send.
+                await manager.bulkCreateJobs(Array.from({ length: 3 }, () => ({ teamId: 1, queueName: QUEUE })))
+
+                const requestedHistory: number[] = []
+                const worker = createRateLimitedWorker((requested) => {
+                    requestedHistory.push(requested)
+                    return Promise.resolve({ limit: requested })
+                })
+
+                await dequeueOneBatch(worker)
+
+                // First (and only relevant) call: 3 rows visible → 3 requested.
+                expect(requestedHistory[0]).toBe(3)
+            })
+
+            it('caps the visible row count at batchMaxSize', async () => {
+                // Backlog of 10 rows with batchMaxSize=4 should ask for 4
+                // (the batch ceiling), not 10.
+                await manager.bulkCreateJobs(Array.from({ length: 10 }, () => ({ teamId: 1, queueName: QUEUE })))
+
+                const requestedHistory: number[] = []
+                const worker = createRateLimitedWorker(
+                    (requested) => {
+                        requestedHistory.push(requested)
+                        return Promise.resolve({ limit: requested })
+                    },
+                    { batchMaxSize: 4 }
+                )
+
+                await dequeueOneBatch(worker)
+
+                expect(requestedHistory[0]).toBe(4)
+            })
         })
 
         it.each([
@@ -423,12 +733,12 @@ describe('Cyclotron V2', () => {
             expect(job.actionId).toBe('a-on-job')
         })
 
-        it('reschedule coerces non-UUID personId to null instead of failing', async () => {
+        it('reschedule accepts a non-UUID personId', async () => {
             const { id, job } = await seedAndDequeue({ personId: uuidv7() })
-            await job.reschedule({ personId: 'bad-uuid' as any })
+            await job.reschedule({ personId: 'group-key-not-a-uuid' })
 
             const row = await queryJob(id)
-            expect(row.person_id).toBeNull()
+            expect(row.person_id).toBe('group-key-not-a-uuid')
         })
 
         it('reschedule({ distinctId }) updates distinct_id column', async () => {

@@ -157,6 +157,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
     actions({
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
         setGroupRepeatedItems: (groupRepeatedItems: boolean) => ({ groupRepeatedItems }),
+        setShowLineTooltips: (showLineTooltips: boolean) => ({ showLineTooltips }),
         setMiniFilter: (key: MiniFilterKey, enabled: boolean) => ({ key, enabled }),
         setMiniFilters: (keys: MiniFilterKey[], enabled: boolean) => ({ keys, enabled }),
         setSearchQuery: (search: string) => ({ search }),
@@ -180,6 +181,14 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
             { persist: true },
             {
                 setGroupRepeatedItems: (_, { groupRepeatedItems }) => groupRepeatedItems,
+            },
+        ],
+
+        showLineTooltips: [
+            true,
+            { persist: true },
+            {
+                setShowLineTooltips: (_, { showLineTooltips }) => showLineTooltips,
             },
         ],
 

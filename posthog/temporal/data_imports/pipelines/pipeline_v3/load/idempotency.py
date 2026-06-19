@@ -28,7 +28,12 @@ def get_redis_client():
         redis_client = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
         redis_client.ping()
     except Exception as e:
+        logger.warning(
+            "Redis unavailable for idempotency check — falling back to delta history scan",
+            error=str(e),
+        )
         capture_exception(e)
+        redis_client = None
 
     try:
         yield redis_client

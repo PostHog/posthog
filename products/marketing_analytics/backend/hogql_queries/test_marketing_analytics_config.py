@@ -10,8 +10,16 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_conf
     MarketingAnalyticsConfig,
 )
 
+_MULTI_TOUCH_FLAG = "marketing-analytics-multi-touch-attribution"
+
 
 class TestMarketingAnalyticsConfig(BaseTest):
+    @staticmethod
+    def _multi_touch_flag_calls(mock_ff) -> list:
+        # from_team also checks the precomputation flag unconditionally, so assert on the
+        # multi-touch flag specifically rather than the total feature_enabled call count.
+        return [call for call in mock_ff.call_args_list if call.args and call.args[0] == _MULTI_TOUCH_FLAG]
+
     def _set_attribution_mode(self, mode: AttributionMode) -> None:
         # Access the cached_property to ensure the config exists, then update it
         ma_config = self.team.marketing_analytics_config
@@ -39,7 +47,7 @@ class TestMarketingAnalyticsConfig(BaseTest):
 
         assert config.attribution_mode == AttributionMode.LINEAR
         assert config.is_multi_touch
-        mock_ff.assert_called_once()
+        assert len(self._multi_touch_flag_calls(mock_ff)) == 1
 
     @patch(
         "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.posthoganalytics.feature_enabled",
@@ -74,7 +82,7 @@ class TestMarketingAnalyticsConfig(BaseTest):
             config = MarketingAnalyticsConfig.from_team(self.team)
 
         assert config.attribution_mode == AttributionMode.FIRST_TOUCH
-        mock_ff.assert_not_called()
+        assert self._multi_touch_flag_calls(mock_ff) == []
 
     def test_is_multi_touch_property(self):
         config = MarketingAnalyticsConfig()

@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 import React from 'react'
 
 import api, { ApiError } from 'lib/api'
@@ -11,6 +12,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -27,10 +30,12 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
+import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
-import { maxThreadLogic } from './maxThreadLogic'
+import { MAX_DASHBOARD_CONTEXT_WAIT_MS, maxThreadLogic } from './maxThreadLogic'
+import { MaxContextType } from './maxTypes'
 import {
     MOCK_CONVERSATION,
     MOCK_CONVERSATION_ID,
@@ -39,7 +44,6 @@ import {
     maxMocks,
     mockStream,
 } from './testUtils'
-import { EnhancedToolCall } from './Thread'
 
 jest.mock(
     '@posthog/hogvm',
@@ -60,6 +64,12 @@ describe('maxThreadLogic', () => {
             get: {
                 ...maxMocks.get,
                 '/api/environments/:team_id/conversations/:conversation_id/': MOCK_IN_PROGRESS_CONVERSATION,
+                // loadQueueData fires on mount; without a shaped default it hits the empty-response
+                // floor (no `messages`/`max_queue_messages`) and the queue reducers reduce to undefined.
+                '/api/environments/:team_id/conversations/:conversation_id/queue': {
+                    messages: [],
+                    max_queue_messages: 0,
+                },
             },
         })
         initKeaTests()
@@ -70,11 +80,11 @@ describe('maxThreadLogic', () => {
         jest.spyOn(maxGlobalLogicInstance.selectors, 'dataProcessingAccepted').mockReturnValue(true)
 
         // Set up maxLogic with matching conversationId so that activeThreadKey matches
-        maxLogicInstance = maxLogic({ tabId: 'test' })
+        maxLogicInstance = maxLogic({ panelId: 'test' })
         maxLogicInstance.mount()
         maxLogicInstance.actions.setConversationId(MOCK_CONVERSATION_ID)
 
-        logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+        logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
         logic.mount()
     })
 
@@ -238,7 +248,7 @@ describe('maxThreadLogic', () => {
     })
 
     it('adds a thinking message to an ephemeral group', async () => {
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
         logic.mount()
 
         // Only a human message–should create an ephemeral group
@@ -271,7 +281,7 @@ describe('maxThreadLogic', () => {
     })
 
     it('adds a thinking message to the last group of messages with IDs', async () => {
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
         logic.mount()
 
         // Human and assistant messages with IDs–should append thinking message
@@ -316,7 +326,7 @@ describe('maxThreadLogic', () => {
     })
 
     it('does not add a thinking message when the last message is without ID', async () => {
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
         logic.mount()
 
         // Human with ID and assistant messages without ID–should not add the message
@@ -355,7 +365,7 @@ describe('maxThreadLogic', () => {
         const streamSpy = mockStream()
         logic.unmount()
         maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+        logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
         logic.mount()
 
         expect(streamSpy).toHaveBeenCalledTimes(0)
@@ -409,7 +419,7 @@ describe('maxThreadLogic', () => {
             } as any)
 
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -434,7 +444,7 @@ describe('maxThreadLogic', () => {
 
             // Don't add any context data, so compiledContext will be null
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -452,11 +462,130 @@ describe('maxThreadLogic', () => {
             )
         })
 
+        // Simulate being on a dashboard scene whose data has not loaded yet: dashboardLogic.dashboard
+        // is null, so its maxContext returns []. The first message must wait for the load, otherwise
+        // it ships with no dashboard context and Max can't see the open dashboard.
+        const mockLoadingDashboardScene = (): { values: { dashboard: any } } => {
+            const fakeDashboardLogic: any = {
+                selectors: {
+                    maxContext: () =>
+                        fakeDashboardLogic.values.dashboard
+                            ? [{ type: MaxContextType.DASHBOARD, data: fakeDashboardLogic.values.dashboard }]
+                            : [],
+                },
+                values: { dashboard: null as any },
+            }
+            jest.spyOn(sceneLogic.selectors, 'activeSceneId').mockReturnValue(Scene.Dashboard)
+            jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue(fakeDashboardLogic)
+            jest.spyOn(sceneLogic.selectors, 'activeLoadedScene').mockReturnValue({
+                paramsToProps: () => ({ id: 1 }),
+                sceneParams: {},
+            } as any)
+            return fakeDashboardLogic
+        }
+
+        it('waits for the open dashboard to load before sending the first message (regression for #61414)', async () => {
+            jest.useFakeTimers()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            try {
+                const streamSpy = mockStream()
+                const fakeDashboardLogic = mockLoadingDashboardScene()
+
+                maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+                logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+                logic.mount()
+
+                // Fire the first message while the dashboard is still loading.
+                logic.actions.askMax('what am I seeing on this dashboard?')
+
+                // The gate holds the send while the dashboard is loading.
+                await jest.advanceTimersByTimeAsync(300)
+                expect(streamSpy).toHaveBeenCalledTimes(0)
+
+                // Dashboard finishes loading → gate releases → the message sends WITH the dashboard context.
+                fakeDashboardLogic.values.dashboard = { id: 1, name: 'Test Dashboard', tiles: [] }
+                await jest.advanceTimersByTimeAsync(500)
+
+                expect(streamSpy).toHaveBeenCalledTimes(1)
+                expect(streamSpy).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        ui_context: expect.objectContaining({
+                            dashboards: expect.arrayContaining([expect.objectContaining({ id: 1 })]),
+                        }),
+                    }),
+                    expect.any(Object)
+                )
+                // A normal load must NOT report a timeout.
+                expect(captureSpy).not.toHaveBeenCalledWith('max dashboard context wait timed out', expect.anything())
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('reports a telemetry event and still sends if the dashboard never loads within the cap', async () => {
+            jest.useFakeTimers()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            try {
+                const streamSpy = mockStream()
+                mockLoadingDashboardScene() // dashboard stays null past the wait cap
+
+                maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+                logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+                logic.mount()
+
+                logic.actions.askMax('what am I seeing on this dashboard?')
+
+                // Advance past the 8s wait cap without the dashboard ever loading.
+                await jest.advanceTimersByTimeAsync(8100)
+
+                // The cap must never block the user — the message still sends...
+                expect(streamSpy).toHaveBeenCalledTimes(1)
+                // ...but we record that the wait timed out, so the cap's impact is observable in prod.
+                expect(captureSpy).toHaveBeenCalledWith(
+                    'max dashboard context wait timed out',
+                    expect.objectContaining({ dashboard_id: 1, waited_ms: expect.any(Number) })
+                )
+                // waited_ms is real elapsed time, so it must be at least the cap (never under-reported).
+                const timeoutCall = captureSpy.mock.calls.find((c) => c[0] === 'max dashboard context wait timed out')
+                expect(timeoutCall?.[1]?.waited_ms).toBeGreaterThanOrEqual(MAX_DASHBOARD_CONTEXT_WAIT_MS)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('releases the gate and sends if the user navigates away while the dashboard is still loading', async () => {
+            jest.useFakeTimers()
+            try {
+                const streamSpy = mockStream()
+                mockLoadingDashboardScene()
+
+                maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+                logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+                logic.mount()
+
+                logic.actions.askMax('what am I seeing on this dashboard?')
+
+                // Still on the (never-loading) dashboard → the gate holds.
+                await jest.advanceTimersByTimeAsync(300)
+                expect(streamSpy).toHaveBeenCalledTimes(0)
+
+                // User leaves the dashboard before it ever loads. The gate re-reads the scene each tick,
+                // so it must stop waiting and send rather than block until the timeout.
+                jest.spyOn(sceneLogic.selectors, 'activeSceneId').mockReturnValue(Scene.SavedInsights)
+                jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue(null as any)
+                await jest.advanceTimersByTimeAsync(300)
+
+                expect(streamSpy).toHaveBeenCalledTimes(1)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('sends form_answers in ui_context when provided', async () => {
             const streamSpy = mockStream()
 
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             const formAnswers = { q1: 'answer1', q2: 'answer2' }
@@ -488,7 +617,7 @@ describe('maxThreadLogic', () => {
             } as any)
 
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             const formAnswers = { q1: 'answer1' }
@@ -513,7 +642,7 @@ describe('maxThreadLogic', () => {
             const streamSpy = mockStream()
 
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -700,7 +829,7 @@ describe('maxThreadLogic', () => {
             })
 
             logic.unmount()
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
             await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -791,6 +920,159 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('client tool execution round trip', () => {
+        const pendingClientToolThread = (): any[] => [
+            {
+                type: AssistantMessageType.Human,
+                content: 'Do the thing',
+                id: 'human-1',
+                status: 'completed',
+            },
+            {
+                type: AssistantMessageType.Assistant,
+                content: '',
+                id: 'assistant-1',
+                status: 'completed',
+                tool_calls: [{ id: 'tc-1', name: 'search', args: { payload: 'data' } }],
+            },
+        ]
+
+        it('runs the registered handler and resumes with its result, even while conversationLoading is still true', async () => {
+            const streamSpy = mockStream()
+            const clientExecution = jest.fn().mockResolvedValue({ ok: true })
+            maxGlobalLogic().actions.registerTool({
+                identifier: 'search',
+                name: 'Search PostHog data',
+                clientExecution,
+            } as any)
+            // The round trip must fire even though conversationLoading is still true at this point
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            logic.actions.setThread(pendingClientToolThread())
+
+            await expectLogic(logic, () => {
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['executePendingClientToolCall', 'continueWithClientToolResult', 'streamConversation'])
+
+            expect(clientExecution).toHaveBeenCalledWith({ payload: 'data' })
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: null,
+                    conversation: MOCK_CONVERSATION_ID,
+                    resume_payload: {
+                        action: 'client_tool_result',
+                        tool_call_id: 'tc-1',
+                        result: { ok: true },
+                    },
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('resumes with a refusal when a statically-marked client tool has no registered handler', async () => {
+            const streamSpy = mockStream()
+            logic.actions.setThread(pendingClientToolThread())
+
+            TOOL_DEFINITIONS['search'].clientExecuted = true
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.completeThreadGeneration()
+                }).toDispatchActions(['continueWithClientToolResult'])
+            } finally {
+                delete TOOL_DEFINITIONS['search'].clientExecuted
+            }
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    resume_payload: expect.objectContaining({
+                        action: 'client_tool_result',
+                        tool_call_id: 'tc-1',
+                        result: { client_execution_error: expect.stringContaining('no longer open') },
+                    }),
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('attempts the resume only once per tool call', async () => {
+            mockStream()
+            const clientExecution = jest.fn().mockResolvedValue({ ok: true })
+            maxGlobalLogic().actions.registerTool({
+                identifier: 'search',
+                name: 'Search PostHog data',
+                clientExecution,
+            } as any)
+            logic.actions.setThread(pendingClientToolThread())
+
+            await expectLogic(logic, () => {
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['continueWithClientToolResult'])
+            // A failing resume turn re-fires completeThreadGeneration with the same dangling call
+            await expectLogic(logic, () => {
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['executePendingClientToolCall'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(clientExecution).toHaveBeenCalledTimes(1)
+        })
+
+        it('drops the resume when a newer turn replaced the pending call while the handler ran', async () => {
+            const streamSpy = mockStream()
+            let resolveHandler: (value: Record<string, unknown>) => void = () => {}
+            const clientExecution = jest
+                .fn()
+                .mockImplementation(() => new Promise<Record<string, unknown>>((resolve) => (resolveHandler = resolve)))
+            maxGlobalLogic().actions.registerTool({
+                identifier: 'search',
+                name: 'Search PostHog data',
+                clientExecution,
+            } as any)
+            logic.actions.setThread(pendingClientToolThread())
+
+            await expectLogic(logic, () => {
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['executePendingClientToolCall'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(clientExecution).toHaveBeenCalled()
+
+            // A user message completes a whole new turn while the handler runs — resume must be dropped
+            logic.actions.setThread([
+                ...pendingClientToolThread(),
+                { type: AssistantMessageType.Human, content: 'Never mind', id: 'human-2', status: 'completed' },
+                { type: AssistantMessageType.Assistant, content: 'OK!', id: 'assistant-2', status: 'completed' },
+            ] as any)
+            resolveHandler({ ok: true })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(streamSpy).not.toHaveBeenCalled()
+        })
+
+        it('does nothing when the turn has no pending client tool call', async () => {
+            const streamSpy = mockStream()
+            const clientExecution = jest.fn()
+            maxGlobalLogic().actions.registerTool({
+                identifier: 'search',
+                name: 'Search PostHog data',
+                clientExecution,
+            } as any)
+            logic.actions.setThread([
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'All done!',
+                    id: 'assistant-1',
+                    status: 'completed',
+                } as any,
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['executePendingClientToolCall'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(clientExecution).not.toHaveBeenCalled()
+            expect(streamSpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('traceId functionality', () => {
         it('sets and stores traceId correctly', async () => {
             const testTraceId = 'test-trace-id-123'
@@ -843,7 +1125,7 @@ describe('maxThreadLogic', () => {
 
             // Create a second thread logic with a different conversation ID
             const otherConversationId = 'other-conversation-id'
-            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, tabId: 'test' })
+            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, panelId: 'test' })
             otherLogic.mount()
 
             // maxLogicInstance is still set to MOCK_CONVERSATION_ID (the first logic's conversation)
@@ -879,7 +1161,7 @@ describe('maxThreadLogic', () => {
 
             // Create a second thread logic with a different conversation ID
             const otherConversationId = 'other-conversation-id'
-            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, tabId: 'test' })
+            const otherLogic = maxThreadLogic({ conversationId: otherConversationId, panelId: 'test' })
             otherLogic.mount()
 
             // Now switch maxLogicInstance to point to the other conversation
@@ -993,7 +1275,7 @@ describe('maxThreadLogic', () => {
 
             logic.unmount()
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -1017,7 +1299,7 @@ describe('maxThreadLogic', () => {
 
             logic.unmount()
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -1131,7 +1413,7 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: conversationWithMessages,
             })
             logic.mount()
@@ -1169,7 +1451,7 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: conversationWithoutMessages,
             })
             logic.mount()
@@ -1192,7 +1474,7 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: conversationWithoutMessages,
             })
 
@@ -1218,7 +1500,7 @@ describe('maxThreadLogic', () => {
 
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: {
                     // No messages field — simulates a list-level cache entry for an in-progress chat.
                     ...MOCK_IN_PROGRESS_CONVERSATION,
@@ -1254,7 +1536,7 @@ describe('maxThreadLogic', () => {
             const getSpy = jest.spyOn(api.conversations, 'get')
             const streamSpy = mockStream()
 
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
             await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -1278,7 +1560,7 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: initialConversation,
             })
             logic.mount()
@@ -1306,7 +1588,7 @@ describe('maxThreadLogic', () => {
             // Simulate prop change by creating new logic instance with updated conversation
             logic = maxThreadLogic({
                 conversationId: MOCK_CONVERSATION_ID,
-                tabId: 'test',
+                panelId: 'test',
                 conversation: updatedConversation,
             })
             logic.mount()
@@ -1331,7 +1613,7 @@ describe('maxThreadLogic', () => {
 
     describe('command selection and activation', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
         })
 
@@ -1414,7 +1696,7 @@ describe('maxThreadLogic', () => {
 
     describe('assistant update event handling', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
         })
 
@@ -1566,7 +1848,7 @@ describe('maxThreadLogic', () => {
 
     describe('onEventImplementation message streaming', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
         })
 
@@ -2078,7 +2360,7 @@ describe('maxThreadLogic', () => {
 
     describe('enhanceThreadToolCalls', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
         })
 
@@ -2119,7 +2401,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('marks tool call as in_progress when no completion message and still loading', async () => {
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -2824,7 +3106,7 @@ describe('maxThreadLogic', () => {
 
     describe('agent mode functionality', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
         })
 
@@ -2936,7 +3218,7 @@ describe('maxThreadLogic', () => {
 
     describe('scene to agent mode mapping', () => {
         it('does not auto-set mode when conversation already exists', async () => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             // Set a conversation first
@@ -2957,7 +3239,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('syncAgentModeFromConversation does not lock agent mode', async () => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
             // Sync should not lock

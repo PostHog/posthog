@@ -1,3 +1,4 @@
+from email.utils import make_msgid
 from typing import Any, cast
 
 from django.db import transaction
@@ -12,11 +13,11 @@ from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
-from posthog.tasks.email import send_new_ticket_notification
+from posthog.models.instance_setting import get_instance_setting
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
-from .models import Ticket
+from .models import EmailOutboxMessage, Ticket
 from .models.constants import Channel
 from .tasks import post_reply_to_github, post_reply_to_slack, post_reply_to_teams, send_email_reply
 
@@ -125,16 +126,19 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
             # Customer-facing analytics (to customer's project)
             if is_team_message:
-                capture_message_sent(ticket, comment_id, content or "", created_by_id)
+                author = User.objects.filter(id=created_by_id).first() if created_by_id else None
+                capture_message_sent(ticket, comment_id, content or "", author=author)
             else:
+                author = None
                 capture_message_received(ticket, comment_id, content or "")
 
             # Internal analytics (PostHog tracking its own usage)
             props = {"channel_source": ticket.channel_source}
-            if is_team_message and created_by_id:
-                user = User.objects.filter(id=created_by_id).first()
-                if user:
-                    report_user_action(user, "support message sent", props, team=ticket.team)
+            if is_team_message:
+                if author:
+                    report_user_action(author, "support message sent", props, team=ticket.team)
+                else:
+                    report_team_action(ticket.team, "support message sent", props)
             else:
                 report_team_action(ticket.team, "support message received", props)
             # Send email notification on first customer message (i.e. new ticket)
@@ -142,6 +146,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 try:
                     conversations_settings = ticket.team.conversations_settings or {}
                     if conversations_settings.get("notification_recipients"):
+                        # posthog.tasks.__init__ eagerly imports every task module; this signal
+                        # module is wired at django.setup(), so import the task lazily.
+                        from posthog.tasks.email import send_new_ticket_notification  # noqa: PLC0415
+
                         send_new_ticket_notification.delay(
                             ticket_id=item_id,
                             team_id=team_id,
@@ -350,45 +358,53 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     if author_type == "customer":
         return
 
+    # Don't echo messages that originated from email back via email
+    if isinstance(item_context, dict) and item_context.get("from_email"):
+        return
+
     team_id = instance.team_id
     item_id = instance.item_id
-    comment_id = str(instance.id)
-    content = instance.content or ""
-    rich_content = instance.rich_content
-    created_by = instance.created_by
+    comment = instance
 
-    def do_send_email():
+    # Resolve the ticket + email config now (synchronously, in the comment's transaction)
+    # so the durable outbox row commits atomically with the reply. If Celery/the broker
+    # is down, the row still exists and flush_pending_email_replies will send it.
+    ticket = (
+        Ticket.objects.select_related("team", "email_config")
+        .filter(id=item_id, team_id=team_id, channel_source=Channel.EMAIL)
+        .first()
+    )
+    if not ticket or not ticket.email_from:
+        return
+
+    settings_dict = ticket.team.conversations_settings or {}
+    if not settings_dict.get("email_enabled"):
+        return
+
+    config = ticket.email_config
+    inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or (config.domain if config else None)
+    message_id = make_msgid(domain=inbound_domain) if inbound_domain else make_msgid()
+
+    # One outbox row per reply comment; get_or_create keeps the signal idempotent.
+    outbox, _ = EmailOutboxMessage.objects.get_or_create(
+        comment=comment,
+        defaults={
+            "team_id": team_id,
+            "ticket": ticket,
+            "message_id": message_id,
+        },
+    )
+
+    outbox_id = str(outbox.id)
+
+    def enqueue_immediate_send():
+        # Low-latency happy path; the periodic sweeper is the durability backstop.
         try:
-            ticket = Ticket.objects.filter(
-                id=item_id,
-                team_id=team_id,
-                channel_source=Channel.EMAIL,
-            ).first()
-
-            if not ticket or not ticket.email_from:
-                return
-
-            team = ticket.team
-            settings_dict = team.conversations_settings or {}
-            if not settings_dict.get("email_enabled"):
-                return
-
-            author_name = ""
-            if created_by:
-                author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
-
-            cast(Any, send_email_reply).delay(
-                ticket_id=str(ticket.id),
-                team_id=team_id,
-                comment_id=comment_id,
-                content=content,
-                rich_content=rich_content,
-                author_name=author_name,
-            )
+            cast(Any, send_email_reply).delay(outbox_id=outbox_id)
         except Exception:
             logger.exception("email_reply_signal_failed", item_id=item_id)
 
-    transaction.on_commit(do_send_email)
+    transaction.on_commit(enqueue_immediate_send)
 
 
 @receiver(post_save, sender=Comment)

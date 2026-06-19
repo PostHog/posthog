@@ -38,10 +38,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.models import Cohort
-from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.person.util import create_person
 from posthog.models.utils import UUIDT
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import recalculate_cohortpeople
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))  # for persons-inner-where-optimization

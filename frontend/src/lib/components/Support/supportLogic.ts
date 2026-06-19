@@ -7,8 +7,7 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { uuid } from 'lib/utils'
-import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
+import { uuid } from 'lib/utils/dom'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -27,6 +26,7 @@ import {
     UserType,
 } from '~/types'
 
+import { parseExceptionEvent } from './exceptionUtils'
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
 
@@ -43,7 +43,7 @@ export function getPublicSupportSnippet(
     return (
         (includeCurrentLocation ? getCurrentLocationLink() : '') +
         getSessionReplayLink() +
-        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
+        `\nAdmin (internal): http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
     ).trimStart()
 }
 
@@ -52,11 +52,15 @@ function getCurrentLocationLink(): string {
     return `\nLocation: ${cleanedCurrentUrl}`
 }
 
+// The recording lives in PostHog's own telemetry project, which the reporting user is not a member
+// of, so this link is for PostHog staff triaging the ticket/issue — never the user. We rewrite to the
+// internal http://go/session/ golink to make that explicit.
 function getSessionReplayLink(): string {
-    const replayUrl = posthog
-        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
-        .replace(window.location.origin + '/replay/', 'http://go/session/')
-    return `\nSession: ${replayUrl}`
+    const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
+    if (!replayUrl) {
+        return ''
+    }
+    return `\nSession: ${replayUrl.replace(window.location.origin + '/replay/', 'http://go/session/')}`
 }
 
 function getErrorTrackingLink(uuid?: string): string {
@@ -102,14 +106,14 @@ function getDjangoAdminLink(
         return ''
     }
     const link = `https://${cloudRegion.toLowerCase()}.posthog.com/admin/posthog/user/${user.id}/change/`
-    return `\nAdmin: ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
+    return `\nAdmin (internal): ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
 }
 
 function getBillingAdminLink(currentOrganization: OrganizationBasicType | null): string {
     if (!currentOrganization) {
         return ''
     }
-    return `\nBilling admin: http://go/billing/${currentOrganization.id}`
+    return `\nBilling admin (internal): http://go/billing/${currentOrganization.id}`
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
@@ -188,6 +192,16 @@ const TARGET_AREA_TO_NAME_GENERAL = [
 
 const TARGET_AREA_TO_NAME_PRODUCTS = [
     {
+        value: 'ai_gateway',
+        'data-attr': `support-form-target-area-ai_gateway`,
+        label: 'AI gateway',
+    },
+    {
+        value: 'llm-analytics',
+        'data-attr': `support-form-target-area-llm-analytics`,
+        label: 'AI observability',
+    },
+    {
         value: 'apps',
         'data-attr': `support-form-target-area-apps`,
         label: 'Apps (incl. integrations, plugins, webhooks, and custom apps)',
@@ -243,24 +257,19 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         label: 'Heatmaps',
     },
     {
-        value: 'llm-analytics',
-        'data-attr': `support-form-target-area-llm-analytics`,
-        label: 'LLM analytics',
-    },
-    {
         value: 'logs',
         'data-attr': `support-form-target-area-logs`,
         label: 'Logs',
     },
     {
-        value: 'max-ai',
-        'data-attr': `support-form-target-area-max-ai`,
+        value: 'posthog-ai',
+        'data-attr': `support-form-target-area-posthog-ai`,
         label: 'PostHog AI',
     },
     {
         value: 'posthog-mcp',
         'data-attr': `support-form-target-area-posthog-mcp`,
-        label: 'MCP Server',
+        label: 'PostHog MCP',
     },
     {
         value: 'analytics',
@@ -276,6 +285,16 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         value: 'session_replay',
         'data-attr': `support-form-target-area-session_replay`,
         label: 'Session replay (incl. recordings)',
+    },
+    {
+        value: 'signals',
+        'data-attr': `support-form-target-area-signals`,
+        label: 'Signals',
+    },
+    {
+        value: 'slack',
+        'data-attr': `support-form-target-area-slack`,
+        label: 'Slack app',
     },
     {
         value: 'surveys',
@@ -303,6 +322,11 @@ export const TARGET_AREA_TO_NAME = [
     { title: 'General', options: TARGET_AREA_TO_NAME_GENERAL },
     { title: 'Individual product', options: TARGET_AREA_TO_NAME_PRODUCTS },
 ]
+
+// `key` is the label (not the value) so the searchable input shows readable text on edit, not the raw target_area
+export const TARGET_AREA_OPTIONS: { key: string; label: string; value: string }[] = TARGET_AREA_TO_NAME.flatMap(
+    (group) => group.options.map((option) => ({ key: option.label, label: option.label, value: option.value }))
+)
 
 export const SEVERITY_LEVEL_TO_NAME = {
     critical: 'Outage, data loss, or data breach',
@@ -337,6 +361,7 @@ export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea):
 }
 
 export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
+    'ai-gateway': 'ai_gateway',
     insights: 'analytics',
     recordings: 'session_replay',
     replay: 'session_replay',
@@ -373,6 +398,16 @@ export const SUPPORT_TICKET_TEMPLATES = {
     support:
         "Please explain as fully as possible what you're aiming to do, and what you'd like help with.\n\nIf your question involves an existing insight or dashboard, please include a link to it.",
 }
+
+const SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS = {
+    severity: 22084126888475,
+    distinct_id: 22129191462555,
+    target_area: 27242745654043,
+    organization_id: 27031528411291,
+    support_type: 26073267652251,
+    account_owner: 37742340880411,
+    exception_event: 39967113285659,
+} as const
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
     const pathParts = pathname.split('/')
@@ -459,7 +494,7 @@ export const supportLogic = kea<supportLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ values }) => ({
         sendSupportRequest: {
             defaults: {
                 name: '',
@@ -471,9 +506,9 @@ export const supportLogic = kea<supportLogicType>([
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
-                    name: !values.user ? (!name ? 'Please enter your name' : '') : '',
-                    email: !values.user ? (!email ? 'Please enter your email' : '') : '',
-                    message: !message ? 'Please enter a message' : '',
+                    name: !values.user && !name ? 'Please enter your name' : undefined,
+                    email: !values.user && !email ? 'Please enter your email' : undefined,
+                    message: !message ? 'Please enter a message' : undefined,
                     kind: !kind ? 'Please choose' : undefined,
                     severity_level: !severity_level ? 'Please choose' : undefined,
                     target_area: !target_area ? 'Please choose' : undefined,
@@ -483,9 +518,7 @@ export const supportLogic = kea<supportLogicType>([
                 // name must be present for zendesk to accept the ticket
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
-                actions.submitZendeskTicket(formValues)
-                // Form closing and resetting is now handled in submitZendeskTicket listener
-                // based on success/failure of the submission
+                await supportLogic.asyncActions.submitZendeskTicket(formValues)
             },
         },
     })),
@@ -589,8 +622,8 @@ export const supportLogic = kea<supportLogicType>([
 
             const isNewOrganization = values.isCurrentOrganizationNew
 
-            const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-            const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+            const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
+            const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
             const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
             if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
@@ -643,23 +676,23 @@ export const supportLogic = kea<supportLogicType>([
                     tags: [planLevelTag, accountOwnerTag, ...(tags || [])],
                     custom_fields: [
                         {
-                            id: 22084126888475,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.severity,
                             value: severity_level,
                         },
                         {
-                            id: 22129191462555,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.distinct_id,
                             value: posthog.get_distinct_id(),
                         },
                         {
-                            id: 27242745654043,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.target_area,
                             value: target_area ?? '',
                         },
                         {
-                            id: 27031528411291,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.organization_id,
                             value: userLogic?.values?.user?.organization?.id ?? '',
                         },
                         {
-                            id: 26073267652251,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.support_type,
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
@@ -667,11 +700,11 @@ export const supportLogic = kea<supportLogicType>([
                                   : 'free_support',
                         },
                         {
-                            id: 37742340880411,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.account_owner,
                             value: accountOwner?.name || 'unassigned',
                         },
                         {
-                            id: 39967113285659,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.exception_event,
                             value: exception_event ? parseExceptionEvent(exception_event) : '',
                         },
                     ],

@@ -1020,7 +1020,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_feature_flag_specific_access_control(self):
         """Test feature flag-specific access controls"""
-        from posthog.models.feature_flag import FeatureFlag
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.other_user)
 
@@ -1052,7 +1052,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
     def test_insight_specific_access_control(self):
         """Test insight-specific access controls"""
-        from posthog.models.insight import Insight
+        from products.product_analytics.backend.models.insight import Insight
 
         insight = Insight.objects.create(team=self.team, created_by=self.other_user)
 

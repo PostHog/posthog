@@ -1,7 +1,7 @@
 /**
  * OpenAPI schema preprocessing to fix known Orval code generation issues.
  *
- * Three patterns are handled before handing schemas to Orval:
+ * Four patterns are handled before handing schemas to Orval:
  *
  * 1. Named schemas that should be inlined (SCHEMAS_TO_INLINE)
  *    Each entry maps a component name to the inline schema that replaces every
@@ -29,6 +29,15 @@
  *    validator, which parses bounds as i64 — then reject the overflowed value.
  *    We clamp any integer schema's min/max/exclusiveMin/exclusiveMax to int32
  *    range, which is far more than enough for every PostHog identifier.
+ *
+ * 4. `default: null` on null-permitting schemas (stripNullDefaults)
+ *    Pydantic emits `default: null` for every `Optional[...] = None` field.
+ *    Orval mirrors that into `.default(null)`, which makes Zod fill the field
+ *    with `null` whenever the caller omits it (`safeParse` applies defaults).
+ *    For request schemas that turns "field not sent" into "field sent as null",
+ *    which the backend then rejects (`extra="forbid"`) or silently overwrites.
+ *    Removing the null default lets Orval emit a plain `.nullable()` instead,
+ *    so an omitted field stays omitted while an explicit `null` still parses.
  */
 
 export const INT32_MIN = -2147483648
@@ -124,6 +133,65 @@ export function clampIntegerBounds(obj) {
 }
 
 /**
+ * Returns true when the schema accepts `null` — covers every shape Pydantic
+ * and drf-spectacular emit:
+ * - `nullable: true` (OpenAPI 3.0)
+ * - `type: 'null'` (OpenAPI 3.1 / JSON Schema)
+ * - `type: ['string', 'null']` (OpenAPI 3.1 type-array form)
+ * - `anyOf` / `oneOf` with a null variant (OpenAPI 3.1 union form)
+ * - Untyped `typing.Any` — Pydantic emits a bare `{}` (no type, no $ref, no
+ *   variants, no enum, no properties) which accepts every value including null.
+ *
+ * A schema with `allOf` is treated as constrained (intersection of refs), so
+ * `{ allOf: [{ $ref: '...' }], default: null }` does NOT match — fall back to
+ * the explicit nullable keys above when the constituent permits null.
+ */
+export function schemaAllowsNull(schema) {
+    if (!schema || typeof schema !== 'object') {
+        return false
+    }
+    if (schema.nullable === true || schema.type === 'null') {
+        return true
+    }
+    if (Array.isArray(schema.type) && schema.type.includes('null')) {
+        return true
+    }
+    for (const key of ['anyOf', 'oneOf']) {
+        const variants = schema[key]
+        if (Array.isArray(variants) && variants.some(schemaAllowsNull)) {
+            return true
+        }
+    }
+    const constrained = ['type', 'allOf', 'anyOf', 'oneOf', '$ref', 'enum', 'const', 'properties']
+    if (constrained.every((key) => !(key in schema))) {
+        return true
+    }
+    return false
+}
+
+/**
+ * Strip `default: null` from any schema that already permits null. See the
+ * file-level doc for why this matters. Mutates in place.
+ */
+export function stripNullDefaults(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return
+    }
+    if (Array.isArray(obj)) {
+        for (const item of obj) {
+            stripNullDefaults(item)
+        }
+        return
+    }
+    if ('default' in obj && obj.default === null && schemaAllowsNull(obj)) {
+        delete obj.default
+    }
+    for (const value of Object.values(obj)) {
+        stripNullDefaults(value)
+    }
+}
+
+/**
  * Run standard preprocessing on a full OpenAPI schema.
  * Mutates the schema in place, also returns it for convenience.
  */
@@ -134,5 +202,6 @@ export function preprocessSchema(schema) {
     }
     stripCollidingInlineEnums(schema)
     clampIntegerBounds(schema)
+    stripNullDefaults(schema)
     return schema
 }

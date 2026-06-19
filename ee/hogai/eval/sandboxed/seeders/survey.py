@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from posthog.models import FeatureFlag
-
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 logger = logging.getLogger(__name__)

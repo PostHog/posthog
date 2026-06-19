@@ -670,6 +670,12 @@ class TestBytecodeExecute:
         assert self._run_program("if (lower('Tdd4gh') == 'tdd4gh') return upper('test');") == "TEST"
         assert self._run_program("return reverse('spinner');") == "rennips"
 
+    def test_random_float(self):
+        for _ in range(50):
+            value = self._run_program("return randomFloat();")
+            assert isinstance(value, float)
+            assert 0.0 <= value < 1.0
+
     def test_bytecode_empty_statements(self):
         assert self._run_program(";") is None
         assert self._run_program(";;") is None

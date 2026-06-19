@@ -221,3 +221,127 @@ func TestUpdateProcKeys_RestartAllFailedEnabledOnceOneCrashes(t *testing.T) {
 		t.Error("RestartAllFailed should be enabled when at least one proc has crashed")
 	}
 }
+
+// ── updateProcKeys: Restart binding gating ──────────────────────────────────────
+
+// waitRunning blocks until the proc reaches IsRunning, registering a cleanup
+// before the spin loop so a t.Fatal inside the loop doesn't leak the subprocess.
+// Skips on PTY allocation failure.
+func waitRunning(t *testing.T, p *process.Process, send func(tea.Msg)) {
+	t.Helper()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	t.Cleanup(func() { p.Stop() })
+	deadline := time.After(2 * time.Second)
+	for !p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatalf("proc %s never reached running state", p.Name)
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+// TestUpdateProcKeys_RestartBindingGating verifies the `r` (Restart) binding
+// is enabled in exactly the states where it has meaningful work: a running
+// proc (existing behavior) or a crashed proc (new behavior). Never-started,
+// cleanly-exited, and manually-stopped procs are all the user's chosen end-
+// state and must leave `r` disabled.
+func TestUpdateProcKeys_RestartBindingGating(t *testing.T) {
+	cases := []struct {
+		name        string
+		setup       func(t *testing.T) Model
+		wantEnabled bool
+	}{
+		{
+			name: "fresh proc (never started)",
+			setup: func(t *testing.T) Model {
+				return readyModel(t, "backend")
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "running proc",
+			setup: func(t *testing.T) Model {
+				m := modelWithProcs(t, map[string]string{"sleeper": "sleep 30"})
+				waitRunning(t, findProc(t, m, "sleeper"), m.mgr.Send())
+				return m
+			},
+			wantEnabled: true,
+		},
+		{
+			name: "crashed proc",
+			setup: func(t *testing.T) Model {
+				m := modelWithProcs(t, map[string]string{"flaky": "exit 1"})
+				runUntilStatus(t, findProc(t, m, "flaky"), m.mgr.Send(), process.StatusCrashed)
+				return m
+			},
+			wantEnabled: true,
+		},
+		{
+			name: "clean exit",
+			setup: func(t *testing.T) Model {
+				m := modelWithProcs(t, map[string]string{"oneshot": "true"})
+				runUntilStatus(t, findProc(t, m, "oneshot"), m.mgr.Send(), process.StatusDone)
+				return m
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "manually stopped",
+			setup: func(t *testing.T) Model {
+				m := modelWithProcs(t, map[string]string{"sleeper": "sleep 30"})
+				p := findProc(t, m, "sleeper")
+				waitRunning(t, p, m.mgr.Send())
+				p.Stop()
+				return m
+			},
+			wantEnabled: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.setup(t)
+			m.updateProcKeys()
+			if got := m.keys.Restart.Enabled(); got != tc.wantEnabled {
+				t.Errorf("Restart.Enabled() = %v, want %v", got, tc.wantEnabled)
+			}
+		})
+	}
+}
+
+// ── `r` keypress on a crashed proc actually restarts it ─────────────────────────
+
+func TestHandleNormalKey_RestartKeyRevivesCrashedProc(t *testing.T) {
+	// End-to-end check that pressing `r` on a crashed proc kicks off Start
+	// (not just that the binding is enabled). We use `sleep 30` as the shell
+	// — once the second start fires, the proc should be running again.
+	m := modelWithProcs(t, map[string]string{"flaky": "exit 1"})
+	runUntilStatus(t, findProc(t, m, "flaky"), m.mgr.Send(), process.StatusCrashed)
+
+	// Swap the shell to a long-running command so the post-`r` start lands on
+	// a process that won't immediately crash again — lets us observe the
+	// running state without races.
+	p := findProc(t, m, "flaky")
+	p.Cfg.Shell = "sleep 30"
+	t.Cleanup(func() { p.Stop() })
+
+	m.updateProcKeys()
+	if !m.keys.Restart.Enabled() {
+		t.Fatal("precondition: Restart binding should be enabled on a crashed proc")
+	}
+
+	next, _ := m.Update(keypress('r'))
+	_ = next
+
+	deadline := time.After(2 * time.Second)
+	for !p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatalf("crashed proc never restarted (status: %s)", p.Status())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}

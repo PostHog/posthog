@@ -7,6 +7,7 @@ import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { BillingProductV2AddonType } from '~/types'
 
@@ -39,6 +40,7 @@ export const BillingProductAddonActions = ({
 }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading } =
         useValues(billingLogic)
+    const { preflight } = useValues(preflightLogic)
     const {
         currentAndUpgradePlans,
         billingProductLoading,
@@ -271,6 +273,13 @@ export const BillingProductAddonActions = ({
     } else if (billing?.trial && billing?.trial?.target === addon.type) {
         // Current trial on this addon
         content = renderTrialActions()
+    } else if (addon.type === 'enterprise' && !preflight?.is_debug) {
+        // In local development, show the standard "Add" purchase flow instead of the sales "Contact us" button.
+        content = (
+            <LemonButton type="primary" to="https://posthog.com/talk-to-a-human" targetBlank>
+                Contact us
+            </LemonButton>
+        )
     } else if (addon.contact_support) {
         content = (
             <LemonButton type="secondary" to="https://posthog.com/talk-to-a-human">

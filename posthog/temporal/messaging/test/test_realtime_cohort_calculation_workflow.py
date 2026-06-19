@@ -1290,11 +1290,13 @@ class TestCoordinatorWorkflowInsufficientData:
         workflow_logger = Mock()
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
@@ -1335,11 +1337,13 @@ class TestCoordinatorWorkflowInsufficientData:
         workflow_logger = Mock()
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
@@ -1380,11 +1384,13 @@ class TestCoordinatorWorkflowInsufficientData:
         workflow_logger = Mock()
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
@@ -1429,11 +1435,13 @@ class TestCoordinatorWorkflowInsufficientData:
         mock_selection_result.cohort_ids = []
 
         with (
-            patch("temporalio.workflow.logger", workflow_logger),
+            patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.LOGGER") as mock_logger,
             patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
             patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
             patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
         ):
+            mock_logger.bind.return_value = workflow_logger
+
             # Mock workflow info
             mock_info.return_value.workflow_id = "test-workflow-id"
 
@@ -1479,9 +1487,10 @@ class TestBatchUpdateCohortMetrics:
 
         from asgiref.sync import sync_to_async
 
-        from posthog.models.cohort.cohort import Cohort, CohortType
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
+
+        from products.cohorts.backend.models.cohort import Cohort, CohortType
 
         # Create test organization and team
         organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
@@ -1550,9 +1559,10 @@ class TestBatchUpdateCohortMetrics:
         """Test that first calculation always updates duration regardless of threshold."""
         from asgiref.sync import sync_to_async
 
-        from posthog.models.cohort.cohort import Cohort, CohortType
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
+
+        from products.cohorts.backend.models.cohort import Cohort, CohortType
 
         # Create test organization and team
         organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
@@ -1592,9 +1602,10 @@ class TestBatchUpdateCohortMetrics:
         """Test that cohorts with zero previous duration always get updated."""
         from asgiref.sync import sync_to_async
 
-        from posthog.models.cohort.cohort import Cohort, CohortType
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
+
+        from products.cohorts.backend.models.cohort import Cohort, CohortType
 
         # Create test organization and team
         organization = await sync_to_async(Organization.objects.create)(name="Test Organization")

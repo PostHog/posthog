@@ -4,16 +4,17 @@ from typing import Any
 from django.conf import settings
 
 from posthog.models import Team
-from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.temporal.data_imports.sources.common.base import (
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
+    WebhookSyncResult,
 )
 from posthog.temporal.data_imports.sources.common.config import Config
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
 def get_webhook_url(hog_function_id: str) -> str:
@@ -157,6 +158,17 @@ def create_and_register_webhook(
         error=result.error,
         pending_inputs=list(result.pending_inputs),
     )
+
+
+def reconcile_webhook_events(
+    source: WebhookSource,
+    config: Config,
+    hog_fn_result: WebhookHogFunctionCreateResult,
+    team_id: int,
+    eligible_schema_names: list[str],
+) -> WebhookSyncResult:
+    """Reconcile a registered webhook's events with the selected schemas (no-op by default)."""
+    return source.sync_webhook_events(config, hog_fn_result.webhook_url, team_id, eligible_schema_names)
 
 
 @dataclasses.dataclass

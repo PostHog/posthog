@@ -1,3 +1,4 @@
+import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -23,5 +24,10 @@ export function TaskDetailScene({ taskId }: TaskDetailSceneLogicProps): JSX.Elem
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
     }
 
-    return <TaskDetailPage taskId={taskId} />
+    return (
+        <>
+            <AllowTrainingCallout featureName="PostHog Code" />
+            <TaskDetailPage taskId={taskId} />
+        </>
+    )
 }

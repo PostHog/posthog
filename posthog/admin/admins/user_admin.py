@@ -49,6 +49,14 @@ class UserChangeForm(DjangoUserChangeForm):
 
         return is_staff
 
+    def clean_passkeys_enabled_for_2fa(self):
+        # Mirror the API-side guard in UserSerializer.validate_passkeys_enabled_for_2fa:
+        # only allow enabling if the user has a verified passkey.
+        value = bool(self.cleaned_data.get("passkeys_enabled_for_2fa", False))
+        if value and not WebauthnCredential.objects.filter(user=self.instance, verified=True).exists():
+            raise ValidationError("Cannot enable passkeys for 2FA — this user has no verified passkey.")
+        return value
+
 
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin):
@@ -81,6 +89,7 @@ class UserAdmin(DjangoUserAdmin):
                     "strapi_id",
                     "revoke_sessions_link",
                     "two_factor_status",
+                    "passkeys_enabled_for_2fa",
                     "allow_impersonation",
                 )
             },

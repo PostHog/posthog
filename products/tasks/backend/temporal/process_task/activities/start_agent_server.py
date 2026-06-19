@@ -7,10 +7,11 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import Task
+from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
+from products.tasks.backend.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.services.sandbox import Sandbox, SandboxBase
-from products.tasks.backend.temporal.exceptions import OAuthTokenError, SandboxExecutionError
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -72,7 +73,7 @@ def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxBa
             " https://gateway.us.posthog.com/health 2>&1 || echo 'CURL_GATEWAY: failed'"
         )
 
-        if ctx.allowed_domains is not None:
+        if ctx.allowed_domains is not None and not (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox):
             cmd = (
                 f"cd /scripts && env -0 > {ENV_FILE} && "
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(checks)}"
@@ -139,6 +140,19 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 cause=e,
             )
 
+        event_stream_ingest_enabled = ctx.sandbox_event_ingest_enabled
+        event_ingest_token: str | None = None
+        if event_stream_ingest_enabled:
+            try:
+                task_run = TaskRun.objects.get(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id)
+                event_ingest_token = create_sandbox_event_ingest_token(task_run)
+            except Exception as e:
+                raise SandboxExecutionError(
+                    "Failed to create sandbox event ingest token",
+                    {"task_id": ctx.task_id, "run_id": ctx.run_id, "error": str(e)},
+                    cause=e,
+                )
+
         mcp_configs = get_sandbox_ph_mcp_configs(
             token=access_token,
             project_id=ctx.team_id,
@@ -150,6 +164,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 token=access_token,
                 team_id=ctx.team_id,
                 user_id=task.created_by_id,
+                interaction_origin=ctx.interaction_origin,
             )
             if user_mcp_configs:
                 mcp_configs = mcp_configs + user_mcp_configs
@@ -167,12 +182,24 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 "No MCP configs were resolved for this run. PostHog MCP tools will be unavailable in the agent session.",
             )
 
-        if ctx.allowed_domains is not None:
+        # Modal enforces egress at the edge (gVisor only), so agentsh is skipped only when it does.
+        agentsh_domains = (
+            None if (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox) else ctx.allowed_domains
+        )
+
+        if ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox and ctx.allowed_domains is not None:
             environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Applying agentsh network policy for '{environment_name}' with allowlist: {format_allowed_domains_for_log(ctx.allowed_domains)}",
+                f"Enforcing network allowlist for '{environment_name}' via Modal (agentsh disabled)",
+            )
+        elif agentsh_domains is not None:
+            environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Applying agentsh network policy for '{environment_name}' with allowlist: {format_allowed_domains_for_log(agentsh_domains)}",
             )
         elif ctx.sandbox_environment_id:
             environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id
@@ -196,7 +223,8 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 model=ctx.model,
                 reasoning_effort=ctx.reasoning_effort,
                 mcp_configs=mcp_configs or None,
-                allowed_domains=ctx.allowed_domains,
+                allowed_domains=agentsh_domains,
+                event_ingest_token=event_ingest_token,
             )
 
             # Mark startup-time token issuance so follow-ups within the next
@@ -205,10 +233,10 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 mark_mcp_token_issued(ctx.run_id)
 
             # emit agentsh logs
-            if ctx.allowed_domains is not None:
+            if agentsh_domains is not None:
                 _emit_agentsh_log_tail(ctx, sandbox)
         except Exception as e:
-            if ctx.allowed_domains is not None:
+            if agentsh_domains is not None:
                 _emit_agentsh_log_tail(ctx, sandbox)
             _emit_agent_server_log_tail(ctx, sandbox)
             raise SandboxExecutionError(
@@ -222,7 +250,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 cause=e,
             )
 
-        if ctx.allowed_domains is not None:
+        if agentsh_domains is not None:
             emit_agent_log(ctx.run_id, "debug", "agentsh policy initialized successfully")
             _emit_agentsh_log_tail(ctx, sandbox)
         _emit_agent_server_log_tail(ctx, sandbox)
@@ -234,4 +262,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {sandbox_url}")
         activity.logger.info(f"Agent server started at {sandbox_url} for task {ctx.task_id}")
 
-        return StartAgentServerOutput(sandbox_url=sandbox_url, connect_token=connect_token)
+        return StartAgentServerOutput(
+            sandbox_url=sandbox_url,
+            connect_token=connect_token,
+        )

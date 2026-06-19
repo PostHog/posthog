@@ -1,6 +1,8 @@
 import re
 from typing import Literal, NotRequired, TypedDict
 
+STALE_EVENT_DAYS = 30
+
 
 class CoreFilterDefinition(TypedDict):
     """Like the CoreFilterDefinition type in the frontend, except no JSX.Element allowed."""
@@ -289,11 +291,50 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Deep link opened",
             "description": "When a user opens the mobile app via a deep link.",
         },
-        # Events emitted by the @posthog/mcp analytics SDK. @posthog/mcp is rolled out behind a
-        # feature flag (currently enabled only for some PostHog staff for internal testing). For
-        # traffic where it's enabled, these events fire *alongside* the older events further down;
-        # for traffic where it's not, only the older events fire. Once @posthog/mcp reaches general
-        # availability the older events will be retired.
+        # Canonical events emitted by the @posthog/mcp analytics SDK. PostHog-owned events are
+        # always `$`-prefixed, so these `$mcp_*` names are the final, going-forward names. They
+        # fire alongside the legacy non-`$` names just below (which the server dual-emits during
+        # the cutover so existing dashboards keep working) — those legacy names are being retired.
+        "$mcp_tool_call": {
+            "label": "MCP tool call",
+            "description": "Fires every time an MCP server tool is invoked via @posthog/mcp. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent. Canonical replacement for the legacy `mcp_tool_call`.",
+        },
+        "$mcp_tools_list": {
+            "label": "MCP tools listed",
+            "description": "Fires when an MCP client requests the list of available tools. Useful for measuring discovery — whether new clients are finding the server. Canonical replacement for the legacy `mcp_tools_list`.",
+        },
+        "$mcp_initialize": {
+            "label": "MCP initialize",
+            "description": "Fires when an MCP client completes the handshake with the server. Carries the client and server name/version so you can break down usage by client. Canonical replacement for the legacy `mcp_initialize`.",
+        },
+        "$mcp_resources_list": {
+            "label": "MCP resources listed",
+            "description": "Fires when an MCP client requests the list of available resources.",
+        },
+        "$mcp_resource_read": {
+            "label": "MCP resource read",
+            "description": "Fires when an MCP resource is fetched by a client. Includes the resource name.",
+        },
+        "$mcp_prompts_list": {
+            "label": "MCP prompts listed",
+            "description": "Fires when an MCP client requests the list of available prompts.",
+        },
+        "$mcp_prompt_get": {
+            "label": "MCP prompt fetched",
+            "description": "Fires when an MCP prompt is fetched by a client. Includes the prompt name.",
+        },
+        "$mcp_custom": {
+            "label": "MCP custom event",
+            "description": "A custom MCP analytics event emitted by a server through the SDK's custom-event API. Properties depend on what the caller passed.",
+        },
+        "$mcp_missing_capability": {
+            "label": "MCP missing capability",
+            "description": "Fires when an agent reports functionality it couldn't find via the `get_more_tools` virtual tool (when `reportMissing` is enabled). Carries the agent's reasoning in `$mcp_intent` — a capability gap, not a tool invocation.",
+        },
+        # Legacy in-tree @posthog/mcp event names (non-`$`-prefixed). These were emitted by the
+        # MCP server's hand-rolled analytics path before it moved onto the SDK. The server now
+        # dual-emits them alongside the canonical `$mcp_*` names above so existing insights keep
+        # working through the cutover; they will be removed once those insights are migrated.
         "mcp_tool_call": {
             "label": "MCP tool call",
             "description": "Fires every time an MCP server tool is invoked. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent.",
@@ -2534,7 +2575,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do — descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
             "examples": [
                 "Run a HogQL/SQL query against PostHog.",
-                "Fetch the trace referenced by an LLM analytics URL.",
+                "Fetch the trace referenced by an AI observability URL.",
             ],
         },
         "$mcp_resource_name": {

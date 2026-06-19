@@ -48,7 +48,7 @@ interface SnapshotDiffViewerProps {
     isApproving?: boolean
     onMarkTolerated?: () => void
     quarantineEntry?: QuarantinedIdentifierEntryApi | null
-    onQuarantine?: (reason: string, identifiers: string[], expiresAt: string | null) => void
+    onQuarantine?: (reason: string, identifiers: string[], expiresAt: string | null, sourceRunId: string | null) => void
     onUnquarantine?: () => void
     commitSha?: string
     prNumber?: number | null

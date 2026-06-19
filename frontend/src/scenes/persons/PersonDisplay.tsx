@@ -149,7 +149,7 @@ export function PersonDisplay({
             className={clsx('PersonDisplay', muted && 'PersonDisplay--muted', className)}
             onClick={!noPopover ? handleClick : undefined}
         >
-            {noLink || !href || (visible && !person?.properties) ? (
+            {noLink || !href || !person?.properties ? (
                 content
             ) : (
                 <Link

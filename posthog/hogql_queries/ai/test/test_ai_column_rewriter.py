@@ -118,8 +118,13 @@ class TestAiColumnToPropertyRewriter:
         query = parse_select("SELECT trace_id FROM posthog.ai_events AS ai_events")
         result = rewrite_query_for_events_table(query)
         assert isinstance(result, ast.SelectQuery)
-        assert isinstance(result.select[0], ast.Field)
-        assert result.select[0].chain == ["properties", "$ai_trace_id"]
+        # Rewritten select item is re-aliased to its original column name so the
+        # query's output schema stays stable for downstream consumers.
+        item = result.select[0]
+        assert isinstance(item, ast.Alias)
+        assert item.alias == "trace_id"
+        assert isinstance(item.expr, ast.Field)
+        assert item.expr.chain == ["properties", "$ai_trace_id"]
         assert result.select_from is not None
         assert isinstance(result.select_from.table, ast.Field)
         assert result.select_from.table.chain == ["events"]
@@ -154,6 +159,25 @@ class TestAiColumnToPropertyRewriter:
         assert inner_select.alias == "trace_id"
         assert isinstance(inner_select.expr, ast.Field)
         assert inner_select.expr.chain == ["properties", "$ai_trace_id"]
+
+    def test_subquery_inner_bare_field_gets_alias_for_outer_reference(self):
+        # Regression: sentiment GENERATIONS_QUERY had `SELECT trace_id` (no AS) inside
+        # a subquery, and the outer query referenced `trace_id`. After rewrite the
+        # inner column became `properties.$ai_trace_id` and the outer reference failed
+        # with `Unable to resolve field: trace_id. Did you mean: $ai_trace_id?`.
+        query = parse_select("SELECT trace_id FROM (SELECT trace_id FROM posthog.ai_events AS ai_events)")
+        result = rewrite_query_for_events_table(query)
+        assert isinstance(result, ast.SelectQuery)
+        assert isinstance(result.select[0], ast.Field)
+        assert result.select[0].chain == ["trace_id"]
+        assert result.select_from is not None
+        inner = result.select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        inner_item = inner.select[0]
+        assert isinstance(inner_item, ast.Alias)
+        assert inner_item.alias == "trace_id"
+        assert isinstance(inner_item.expr, ast.Field)
+        assert inner_item.expr.chain == ["properties", "$ai_trace_id"]
 
     def test_force_rewrite_ignores_scope(self):
         node = ast.Field(chain=["trace_id"])
@@ -233,18 +257,28 @@ class TestAiColumnToPropertyRewriter:
         query = parse_select("SELECT e.trace_id, e.latency, e.is_error, e.timestamp FROM posthog.ai_events AS e")
         result = rewrite_query_for_events_table(query)
         assert isinstance(result, ast.SelectQuery)
-        # String column: e.trace_id → events.properties.$ai_trace_id
-        assert isinstance(result.select[0], ast.Field)
-        assert result.select[0].chain == ["events", "properties", "$ai_trace_id"]
-        # Numeric column: e.latency → toFloat(events.properties.$ai_latency)
-        assert isinstance(result.select[1], ast.Call)
-        assert result.select[1].name == "toFloat"
-        # Boolean column: e.is_error → if(events.properties.$ai_is_error = 'true', 1, 0)
-        assert isinstance(result.select[2], ast.Call)
-        assert result.select[2].name == "if"
-        # Native column: e.timestamp → events.timestamp
-        assert isinstance(result.select[3], ast.Field)
-        assert result.select[3].chain == ["events", "timestamp"]
+        # String column: e.trace_id → Alias("trace_id", events.properties.$ai_trace_id)
+        item0 = result.select[0]
+        assert isinstance(item0, ast.Alias)
+        assert item0.alias == "trace_id"
+        assert isinstance(item0.expr, ast.Field)
+        assert item0.expr.chain == ["events", "properties", "$ai_trace_id"]
+        # Numeric column: e.latency → Alias("latency", toFloat(events.properties.$ai_latency))
+        item1 = result.select[1]
+        assert isinstance(item1, ast.Alias)
+        assert item1.alias == "latency"
+        assert isinstance(item1.expr, ast.Call)
+        assert item1.expr.name == "toFloat"
+        # Boolean column: e.is_error → Alias("is_error", if(events.properties.$ai_is_error = 'true', 1, 0))
+        item2 = result.select[2]
+        assert isinstance(item2, ast.Alias)
+        assert item2.alias == "is_error"
+        assert isinstance(item2.expr, ast.Call)
+        assert item2.expr.name == "if"
+        # Native column: e.timestamp → events.timestamp (already keeps its name, no alias needed)
+        item3 = result.select[3]
+        assert isinstance(item3, ast.Field)
+        assert item3.chain == ["events", "timestamp"]
         # FROM clause rewritten, alias stripped
         assert result.select_from is not None
         assert isinstance(result.select_from.table, ast.Field)

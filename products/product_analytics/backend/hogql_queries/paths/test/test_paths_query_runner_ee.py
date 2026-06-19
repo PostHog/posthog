@@ -3783,8 +3783,7 @@ class TestClickhousePathsEdgeValidation(TestCase):
     def test_no_start_point(self):
         edges = set(self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d")])
         edges.remove(("1_a", "2_b"))  # remove first start point
-        edges = list(edges)  # type: ignore
 
-        results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(edges)
+        results = PathsQueryRunner(query={"pathsFilter": {}}, team=MagicMock()).validate_results(list(edges))
 
         self.assertCountEqual(results, self.BASIC_PATH_2)

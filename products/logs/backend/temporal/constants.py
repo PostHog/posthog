@@ -39,3 +39,14 @@ MAX_COHORTS_PER_BATCH = int(os.environ.get("LOGS_ALERTING_MAX_COHORTS_PER_BATCH"
 # ThreadPoolExecutor inside asgiref's pool deadlocked under Temporal cancellation).
 # Per-pod CH parallelism = max_concurrent_activities × MAX_CONCURRENT_COHORTS_PER_BATCH.
 MAX_CONCURRENT_COHORTS_PER_BATCH = int(os.environ.get("LOGS_ALERTING_MAX_CONCURRENT_COHORTS_PER_BATCH", "5"))
+
+# Bounded concurrency for fanning out emit_signal in emit_alert_signals_activity.
+# emit_signal is expensive (Postgres reads + Temporal workflow start), so this runs
+# off the eval hot path in its own activity with bounded parallelism.
+EMIT_SIGNAL_CONCURRENCY = int(os.environ.get("LOGS_ALERTING_EMIT_SIGNAL_CONCURRENCY", "20"))
+
+# How many notified alerts to send to one emit_alert_signals_activity invocation.
+# The whole list crosses the workflow->activity gRPC boundary as a single payload
+# (Temporal ~2 MiB hard limit), so a platform-wide spike that notifies thousands of
+# alerts in one cycle must be chunked. Also bounds retry blast radius per chunk.
+EMIT_SIGNAL_BATCH_SIZE = int(os.environ.get("LOGS_ALERTING_EMIT_SIGNAL_BATCH_SIZE", "500"))

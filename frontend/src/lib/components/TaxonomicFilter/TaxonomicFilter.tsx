@@ -22,20 +22,11 @@ import { urls } from 'scenes/urls'
 
 import { CategoryDropdown } from './CategoryDropdown'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
-import { TaxonomicFilterAdapter } from './TaxonomicFilterAdapter'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 let uniqueMemoizedIndex = 0
 
-export function TaxonomicFilter(props: TaxonomicFilterProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_HEADLESS]) {
-        return <TaxonomicFilterAdapter {...props} />
-    }
-    return <TaxonomicFilterLegacy {...props} />
-}
-
-function TaxonomicFilterLegacy({
+export function TaxonomicFilter({
     taxonomicFilterLogicKey: taxonomicFilterLogicKeyInput,
     groupType,
     value,
@@ -70,6 +61,7 @@ function TaxonomicFilterLegacy({
     enableKeywordShortcuts,
     excludedOperators,
     selectingKeyOnly,
+    collapseUrlsToContainsRow,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -117,6 +109,7 @@ function TaxonomicFilterLegacy({
         enableKeywordShortcuts,
         excludedOperators,
         selectingKeyOnly,
+        collapseUrlsToContainsRow,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

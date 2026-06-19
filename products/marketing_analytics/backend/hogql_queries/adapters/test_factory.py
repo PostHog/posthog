@@ -13,7 +13,6 @@ from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, NativeMa
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 
-from products.data_warehouse.backend.models import DataWarehouseTable
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     BingAdsConfig,
     GoogleAdsConfig,
@@ -28,6 +27,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestMarketingSourceFactoryCustomSourceMappings(BaseTest):

@@ -8,7 +8,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
-from products.data_warehouse.backend.models import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -16,7 +16,10 @@ if TYPE_CHECKING:
     from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 
-INVALID_CONNECTION_ID_ERROR = "Invalid connectionId for this team"
+INVALID_CONNECTION_ID_ERROR = (
+    "Invalid connectionId: not a direct external data source (access_method='direct') in this team. "
+    "Warehouse import sources are not valid here."
+)
 
 
 def get_direct_connection_source(team: "Team", connection_id: str | None) -> ExternalDataSource | None:

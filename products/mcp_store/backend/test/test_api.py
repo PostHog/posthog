@@ -713,7 +713,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
-    @patch("products.mcp_store.backend.presentation.views.register_dcr_client", return_value="dcr-client-id")
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client", return_value=("dcr-client-id", None))
     def test_install_custom_populates_created_by(self, _mock_dcr, mock_discover, _allow):
         """install_custom path must stamp created_by on the MCPOAuthState row."""
         mock_discover.return_value = {
@@ -784,7 +784,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "token_endpoint": "https://auth.legit.com/token",
             "registration_endpoint": "https://auth.legit.com/register",
         }
-        mock_dcr.return_value = "per-user-dcr-client"
+        mock_dcr.return_value = ("per-user-dcr-client", None)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -799,6 +799,38 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         assert installation.sensitive_configuration["dcr_client_id"] == "per-user-dcr-client"
         # EncryptedJSONField stringifies leaf values on round-trip; accept either bool or str.
         assert installation.sensitive_configuration["dcr_is_user_provided"] in (False, "False")
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_install_custom_persists_dcr_minted_client_secret(self, mock_discover, mock_dcr, _allow):
+        """When the auth server registers a confidential client during DCR, persist the secret.
+
+        Some providers (e.g. Supabase) ignore ``token_endpoint_auth_method=none``
+        and register a confidential client anyway, returning a ``client_secret``
+        that the token endpoint then requires. Dropping it makes the subsequent
+        token exchange fail with 422 ``Required parameter: client_secret``.
+        """
+        mock_discover.return_value = {
+            "issuer": "https://auth.legit.com",
+            "authorization_endpoint": "https://auth.legit.com/authorize",
+            "token_endpoint": "https://auth.legit.com/token",
+            "registration_endpoint": "https://auth.legit.com/register",
+        }
+        mock_dcr.return_value = ("dcr-minted-client", "dcr-minted-secret")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "Legit", "url": "https://mcp.legit.com/mcp", "auth_type": "oauth"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        installation = MCPServerInstallation.objects.get(url="https://mcp.legit.com/mcp", user=self.user)
+        sensitive = installation.sensitive_configuration
+        assert sensitive["dcr_client_id"] == "dcr-minted-client"
+        assert sensitive["dcr_client_secret"] == "dcr-minted-secret"
+        assert sensitive["dcr_is_user_provided"] in (False, "False")
 
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
@@ -851,7 +883,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "token_endpoint": "https://auth.legit.com/token",
             "registration_endpoint": "https://auth.legit.com/register",
         }
-        mock_dcr.return_value = "dcr-minted-client"
+        mock_dcr.return_value = ("dcr-minted-client", None)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -873,7 +905,10 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         assert sensitive["dcr_is_user_provided"] in (False, "False")
 
     @ALLOW_URL
-    @patch("products.mcp_store.backend.presentation.views.register_dcr_client", return_value="new-dcr-client")
+    @patch(
+        "products.mcp_store.backend.presentation.views.register_dcr_client",
+        return_value=("new-dcr-client", None),
+    )
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     def test_reinstall_clears_stale_tokens_and_flags_reauth(self, mock_discover, _mock_dcr, _allow):
         """Re-running install_custom swaps the DCR client; stale tokens from the old client must be cleared.
@@ -1099,7 +1134,7 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
     @patch(
         "products.mcp_store.backend.presentation.views.register_dcr_client",
-        return_value="minted-per-user-client",
+        return_value=("minted-per-user-client", None),
     )
     @patch(
         "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
