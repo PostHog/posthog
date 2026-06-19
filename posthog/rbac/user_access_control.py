@@ -995,9 +995,7 @@ class UserAccessControl:
     @cached_property
     def blocked_resource_ids_by_scope(self) -> dict[APIScopeObject, set[str]]:
         """Per-resource set of object IDs the user is denied (effective access resolves to
-        "none"), built from the single preload via the canonical object resolver
-        (``_blocked_and_allowed_object_ids``) so it stays in lockstep with
-        ``filter_queryset_by_access_level`` instead of reimplementing the precedence rules.
+        "none"), built from the single preload via the canonical object resolver.
 
         Consumed by HogQL object-level access control (schema filtering / printer guard) and by
         the query cache fingerprint. Empty for org admins (they bypass object AC) and when there is
