@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { IconBolt, IconGear, IconSearch, IconTarget, IconX } from '@posthog/icons'
+import { IconBolt, IconGear, IconSearch, IconSparkles, IconTarget, IconX } from '@posthog/icons'
 import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -94,6 +95,7 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
+    const showRecap = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RECAP]
     const showTileToggles = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
     const showQueryEngineToggle = !!featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
     const isUsingNewEngine = !!currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
@@ -139,6 +141,15 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                 </SceneMenuBarMenu>
             )}
             <SceneMenuBarMenu label="View" dataAttr="web-analytics-menubar-view">
+                {showRecap && (
+                    <SceneMenuBarItem
+                        onClick={() => router.actions.push(urls.webAnalyticsRecap())}
+                        data-attr="web-analytics-menubar-weekly-recap"
+                    >
+                        <IconSparkles />
+                        Weekly recap
+                    </SceneMenuBarItem>
+                )}
                 <SceneMenuBarItem
                     onClick={() => window.location.assign(urls.sessionAttributionExplorer())}
                     data-attr="web-analytics-menubar-session-attribution"

@@ -298,6 +298,7 @@ export const urls = {
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',
+    webAnalyticsRecap: (): string => '/web/recap',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkHealth: (): string => '/health/sdk-health',
     exports: (): string => '/exports',
