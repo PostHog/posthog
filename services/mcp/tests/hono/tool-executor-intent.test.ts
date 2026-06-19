@@ -34,6 +34,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             safelyGetAnalyticsContext: vi.fn().mockResolvedValue(undefined),
             trackEvent: vi.fn(),
             getSessionUuid: vi.fn().mockResolvedValue(undefined),
+            getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
             api: {},

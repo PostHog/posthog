@@ -1297,6 +1297,12 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert data["range_pairs"][0]["column"] == "timestamp"
         assert set(data["range_pairs"][0]["variables"]) == {"start_ts", "end_ts"}
 
+        # The endpoint isn't materialized yet, so its backing table doesn't exist in the database.
+        # The execution-query preview must still be produced (printed without type resolution)
+        # rather than failing with "Unknown table".
+        assert data["execution_query"] is not None
+        assert data["display_execution_query"] is not None
+
     def test_preview_with_bucket_override(self):
         self._create_endpoint_with_variables()
 

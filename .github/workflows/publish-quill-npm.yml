@@ -43,7 +43,6 @@ jobs:
               with:
                   node-version-file: .nvmrc
                   registry-url: https://registry.npmjs.org
-                  cache: 'pnpm'
 
             - name: Ensure modern npm (OIDC trusted publishing support)
               run: npm install -g npm@11.6.4

@@ -50,7 +50,7 @@ export function FunnelStepsBarChart({
     // when the user toggles dark mode even though the function takes no arguments.
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { insightProps } = useValues(insightLogic)
-    const { visibleStepsWithConversionMetrics, getFunnelsColor, breakdownFilter, querySource } = useValues(
+    const { visibleStepsWithConversionMetrics, getFunnelsColor, breakdownFilter, querySource, insightData } = useValues(
         funnelDataLogic(insightProps)
     )
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
@@ -98,9 +98,11 @@ export function FunnelStepsBarChart({
                 breakdownFilter={breakdownFilter}
                 groupTypeLabel={groupTypeLabel}
                 showPersonsModal={showPersonsModal}
+                resolvedDateRange={insightData?.resolved_date_range}
+                compareTo={querySource?.compareFilter?.compare_to}
             />
         ),
-        [steps, breakdownFilter, groupTypeLabel, showPersonsModal]
+        [steps, breakdownFilter, groupTypeLabel, showPersonsModal, insightData?.resolved_date_range, querySource]
     )
 
     if (steps.length === 0) {
