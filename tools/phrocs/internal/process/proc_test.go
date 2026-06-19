@@ -966,10 +966,7 @@ func TestProcess_autorestartGivesUpAfterCap(t *testing.T) {
 
 	// Wait for the give-up notice, which is only written once the cap is hit.
 	deadline := time.After(5 * time.Second)
-	for {
-		if strings.Contains(strings.Join(p.Lines(), "\n"), "gave up") {
-			break
-		}
+	for !strings.Contains(strings.Join(p.Lines(), "\n"), "gave up") {
 		select {
 		case <-deadline:
 			t.Fatalf("expected give-up notice after %d restarts", maxRestartAttempts)
