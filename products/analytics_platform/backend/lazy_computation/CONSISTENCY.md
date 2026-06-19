@@ -280,6 +280,17 @@ The choice of sharding key depends on which consistency approach is used:
 
 **Current recommendation**: keep `sipHash64(job_id)` for now. It's even, simple, and works with all approaches. Revisit if a single job's data becomes large enough that cross-shard parallelism matters.
 
+### Breakdown-key colocation (trialed for the PATHS tile)
+
+The "revisit" trigger above has been hit. On teams with very high breakdown cardinality (hundreds of thousands of distinct paths), the PATHS tile reads `web_stats_paths_preaggregated` in several seconds, while the equivalent batch pre-agg (`web_pre_aggregated_stats`, which keys `pathname` high in its `ORDER BY`) serves the same row count in ~100ms. With `sipHash64(job_id)` sharding, a single large job's path rows land on one shard and aggregate serially.
+
+**Technique — breakdown-key colocation:** shard by `sipHash64(breakdown_value)` and lead the `ORDER BY` with `(team_id, time_window_start, breakdown_value, …)`. Two effects:
+
+- **Shard-local aggregation.** Each breakdown value lives entirely on one shard, so each shard computes complete per-path aggregates independently and the coordinator only merges the top-N candidates — no per-key cross-shard merge. This is ClickHouse's `optimize_distributed_group_by_sharding_key` pattern.
+- **Read locality.** Leading the sort key with `time_window_start` then `breakdown_value` gives the time-range read a primary-index range-skip and co-locates the `GROUP BY breakdown_value` rows (mirrors v2's layout).
+
+We're A/B-ing this in a parallel table — `web_stats_paths_preaggregated_pathkey` (migration 0277) — against the original: same columns, only the `ORDER BY` and sharding key differ. Goal is to confirm it lands near v2 before committing. Mind the empty-`breakdown_value` hotspotting caveat above (rare for `$pathname`, but worth a guard if this generalizes to other breakdowns).
+
 ## Other approaches investigated but not applicable
 
 - **`max_replica_delay_for_distributed_queries`**: rejects replicas lagging by N seconds, but the granularity is seconds — too coarse for sub-second read-after-write where replication lag is measured in milliseconds.
