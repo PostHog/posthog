@@ -274,12 +274,7 @@ export function createErrorTrackingPipeline(
                                     afterRateLimit
                                         // Enrich, prepare, create, and emit events
                                         // Batch fetch person (read-only, no updates)
-                                        .pipeBatch(
-                                            createFetchPersonBatchStep(
-                                                personRepository,
-                                                'error-tracking/person-properties'
-                                            )
-                                        )
+                                        .pipeBatch(createFetchPersonBatchStep(personRepository))
                                         .sequentially((b) =>
                                             b
                                                 // Run Hog transformations (including GeoIP if team has it enabled)

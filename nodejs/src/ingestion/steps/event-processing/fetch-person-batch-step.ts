@@ -9,6 +9,10 @@ export interface FetchPersonBatchStepInput {
     team: Team
 }
 
+// Query name forwarded to the repository (the "what query" half of the personhog
+// read tag). The "who" half — pipeline/lane — is the repository's client label.
+const QUERY_NAME = 'fetch-person-batch-step'
+
 function personKey(teamId: number, distinctId: string): string {
     return `${teamId}:${distinctId}`
 }
@@ -26,12 +30,11 @@ function personKey(teamId: number, distinctId: string): string {
  * fields on the ClickHouse event.
  *
  * This is a batch step to avoid N+1 queries when processing multiple events.
- * `source` is the query-source tag forwarded to the repository for
- * per-pipeline observability.
+ * The per-pipeline identity (client name) comes from the repository's client
+ * label; this step only tags the query.
  */
 export function createFetchPersonBatchStep<T extends FetchPersonBatchStepInput>(
-    personRepository: PersonReadRepository,
-    source: string
+    personRepository: PersonReadRepository
 ): BatchProcessingStep<T, T & { person: Person | null }> {
     return async function fetchPersonBatchStep(inputs: T[]): Promise<PipelineResult<T & { person: Person | null }>[]> {
         if (inputs.length === 0) {
@@ -44,7 +47,7 @@ export function createFetchPersonBatchStep<T extends FetchPersonBatchStepInput>(
             .map((input) => ({ teamId: input.team.id, distinctId: input.event.distinct_id }))
 
         // Batch fetch all persons in a single query
-        const persons = lookups.length > 0 ? await personRepository.fetchPersonsByDistinctIds(lookups, source) : []
+        const persons = lookups.length > 0 ? await personRepository.fetchPersonsByDistinctIds(lookups, QUERY_NAME) : []
 
         // Build lookup map
         const personMap = new Map(persons.map((p) => [personKey(p.team_id, p.distinct_id), p as Person]))
