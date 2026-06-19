@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { execHog } from 'lib/hog'
@@ -122,8 +122,10 @@ export const Table = (props: TableProps): JSX.Element => {
         isColumnPinned,
         isPinningEnabled,
         isTransposed,
+        hasSortedTable,
+        hasMoreData,
     } = useValues(dataVisualizationLogic)
-    const { toggleColumnPin } = useActions(dataVisualizationLogic)
+    const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
 
@@ -279,36 +281,48 @@ export const Table = (props: TableProps): JSX.Element => {
     )
 
     return (
-        <LemonTable
-            className="DataVisualizationTable"
-            dataSource={tabularData}
-            columns={tableColumns}
-            pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
-            loading={responseLoading}
-            useURLForSorting={false}
-            pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
-            maxHeaderWidth="15rem"
-            emptyState={
-                responseError ? (
-                    <InsightErrorState
-                        query={props.query}
-                        excludeDetail
-                        title={
-                            queryCancelled
-                                ? 'The query was cancelled'
-                                : response && 'error' in response
-                                  ? (response as any).error
-                                  : responseError
-                        }
-                    />
-                ) : (
-                    <InsightEmptyState heading="There are no matching rows for this query" detail="" />
-                )
-            }
-            footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
-            rowClassName="DataVizRow"
-            embedded={props.embedded}
-            allowContentScroll={!!props.embedded}
-        />
+        <>
+            {hasSortedTable && hasMoreData && (
+                <LemonBanner type="info" className="mb-2" dismissKey="data-visual">
+                    Sorting only reorders the rows already loaded, not the full dataset.
+                </LemonBanner>
+            )}
+            <LemonTable
+                className="DataVisualizationTable"
+                dataSource={tabularData}
+                columns={tableColumns}
+                pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
+                loading={responseLoading}
+                useURLForSorting={false}
+                onSort={(newSorting) => {
+                    if (newSorting) {
+                        setTableSorted()
+                    }
+                }}
+                pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
+                maxHeaderWidth="15rem"
+                emptyState={
+                    responseError ? (
+                        <InsightErrorState
+                            query={props.query}
+                            excludeDetail
+                            title={
+                                queryCancelled
+                                    ? 'The query was cancelled'
+                                    : response && 'error' in response
+                                      ? (response as any).error
+                                      : responseError
+                            }
+                        />
+                    ) : (
+                        <InsightEmptyState heading="There are no matching rows for this query" detail="" />
+                    )
+                }
+                footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
+                rowClassName="DataVizRow"
+                embedded={props.embedded}
+                allowContentScroll={!!props.embedded}
+            />
+        </>
     )
 }

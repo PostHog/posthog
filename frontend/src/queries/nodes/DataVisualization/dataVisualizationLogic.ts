@@ -401,7 +401,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 variablesOverride: props.variablesOverride,
                 limitContext: props.limitContext,
             }),
-            ['response', 'responseLoading', 'responseError', 'queryCancelled'],
+            ['response', 'responseLoading', 'responseError', 'queryCancelled', 'hasMoreData'],
             themeLogic,
             ['isDarkModeOn'],
             sceneLogic,
@@ -470,6 +470,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         }),
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
         toggleColumnPin: (columnName: string) => ({ columnName }),
+        setTableSorted: true,
         setTransposeResults: (transpose: boolean) => ({ transpose }),
         _setQuery: (node: DataVisualizationNode) => ({ node }),
     })),
@@ -770,6 +771,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
                     return [...state, columnName]
                 },
+            },
+        ],
+        hasSortedTable: [
+            false,
+            {
+                setTableSorted: () => true,
             },
         ],
     })),
