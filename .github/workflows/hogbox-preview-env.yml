@@ -198,6 +198,7 @@ jobs:
                     --name "preview-pr-${PR}" \
                     --snapshot "alias:posthog-preview-golden" \
                     --cpus 8 --memory-mib 16384 --disk-gib 100 \
+                    --ttl-seconds 1800 \
                     up --branch "pull/${PR}/head" --no-seed --frontend-dist "$FE_DIST")
                   echo "$out"
                   {
@@ -236,7 +237,8 @@ jobs:
                           `| 🔑 **Login** | \`test@posthog.com\` / \`12345678\` (demo data) |\n` +
                           `| 🧩 **Running** | this PR's backend **and** frontend, on the PostHog \`:master\` base |\n` +
                           `| 🔗 **Link** | **stable across rebuilds** — a re-push swaps the box underneath, the URL stays |\n` +
-                          `| 🔒 **Access** | tailnet only (PostHog VPN) |\n\n` +
+                          `| 🔒 **Access** | tailnet only (PostHog VPN) |\n` +
+                          `| 💤 **Idle** | sleeps after ~30 min idle (snapshot to S3, zero node cost) and wakes on your next visit in ~30s, behind a brief "waking up" screen |\n\n` +
                           `<sub>commit \`${(process.env.SHA || '').slice(0, 7)}\` &middot; box \`${process.env.BOX}\` &middot; up in ${process.env.SECS}s &middot; ` +
                           `<a href="${runUrl}">build log</a> &middot; rebuilds on every push, torn down on close</sub>`;
                       const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
