@@ -66,9 +66,13 @@ def _evaluate_due(inputs: EvaluateDueVisionActionsInputs) -> list[DueVisionActio
         )
         for action in actions:
             scheduled_at = action.next_run_at
+            # Claim via a direct .update() rather than save(): VisionAction.save() re-derives
+            # next_run_at when the schedule key changed, and we've already advanced it here — going
+            # through .update() bypasses that override so the claim can't double-recompute the cursor.
             action._recompute_next_run_at()
-            action.last_run_at = now
-            action.save(update_fields=["next_run_at", "last_run_at", "updated_at"])
+            VisionAction.objects.for_team(inputs.team_id).filter(pk=action.id).update(
+                next_run_at=action.next_run_at, last_run_at=now, updated_at=now
+            )
             due.append(DueVisionAction(vision_action_id=action.id, team_id=action.team_id, scheduled_at=scheduled_at))
     return due
 

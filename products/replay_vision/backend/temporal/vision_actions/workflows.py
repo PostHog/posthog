@@ -76,7 +76,9 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                 retry_policy=_RECORD_RETRY,
             )
             if skip_reason is not None:
-                return  # final_status stays SKIPPED (the initialized default)
+                # final_status stays SKIPPED; record why so the run isn't an unexplained skip.
+                error_info = {"skip_reason": skip_reason}
+                return
 
             synth = await wf.execute_activity(
                 synthesize_group_summary_activity,
@@ -86,9 +88,12 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
             )
             if synth.status in (SynthesisStatus.ABORTED_NO_CONSENT, SynthesisStatus.ABORTED_NO_USER):
                 final_status = VisionActionRunStatus.FAILED.value
+                error_info = {"aborted": synth.status.value}
                 return
             if synth.status in (SynthesisStatus.SKIPPED_EMPTY, SynthesisStatus.SKIPPED_OVER_BUDGET):
-                return  # final_status stays SKIPPED (the initialized default)
+                # final_status stays SKIPPED; record why so the run isn't an unexplained skip.
+                error_info = {"skip_reason": synth.status.value}
+                return
 
             await wf.execute_activity(
                 emit_action_ready_activity,

@@ -222,19 +222,33 @@ def _final_status(mocks: _Mocks) -> str:
     return mocks.arg_for(act.update_vision_action_run_activity).status
 
 
+def _final_error(mocks: _Mocks) -> dict | None:
+    return mocks.arg_for(act.update_vision_action_run_activity).error
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "synth_status, expected_final, expect_emit",
+    "synth_status, expected_final, expect_emit, expected_error",
     [
-        (SynthesisStatus.SYNTHESIZED, VisionActionRunStatus.COMPLETED.value, True),
-        (SynthesisStatus.SKIPPED_EMPTY, VisionActionRunStatus.SKIPPED.value, False),
-        (SynthesisStatus.SKIPPED_OVER_BUDGET, VisionActionRunStatus.SKIPPED.value, False),
-        (SynthesisStatus.ABORTED_NO_CONSENT, VisionActionRunStatus.FAILED.value, False),
-        (SynthesisStatus.ABORTED_NO_USER, VisionActionRunStatus.FAILED.value, False),
+        (SynthesisStatus.SYNTHESIZED, VisionActionRunStatus.COMPLETED.value, True, None),
+        (SynthesisStatus.SKIPPED_EMPTY, VisionActionRunStatus.SKIPPED.value, False, {"skip_reason": "skipped_empty"}),
+        (
+            SynthesisStatus.SKIPPED_OVER_BUDGET,
+            VisionActionRunStatus.SKIPPED.value,
+            False,
+            {"skip_reason": "skipped_over_budget"},
+        ),
+        (
+            SynthesisStatus.ABORTED_NO_CONSENT,
+            VisionActionRunStatus.FAILED.value,
+            False,
+            {"aborted": "aborted_no_consent"},
+        ),
+        (SynthesisStatus.ABORTED_NO_USER, VisionActionRunStatus.FAILED.value, False, {"aborted": "aborted_no_user"}),
     ],
 )
 async def test_process_maps_synthesis_status(
-    synth_status: SynthesisStatus, expected_final: str, expect_emit: bool
+    synth_status: SynthesisStatus, expected_final: str, expect_emit: bool, expected_error: dict | None
 ) -> None:
     mocks = _Mocks(
         results={
@@ -249,6 +263,8 @@ async def test_process_maps_synthesis_status(
     assert synthesize_group_summary_activity in call_fns
     assert (act.emit_action_ready_activity in call_fns) is expect_emit
     assert _final_status(mocks) == expected_final
+    # Skip/abort runs carry the reason so they aren't unexplained; a completed run records no error.
+    assert _final_error(mocks) == expected_error
     # The schedule cursor is advanced by the eligibility claim, never by this workflow.
     assert act.evaluate_due_vision_actions_activity not in call_fns
 
@@ -265,6 +281,7 @@ async def test_process_skips_when_validate_returns_reason() -> None:
 
     assert act.emit_action_ready_activity not in mocks.calls()
     assert _final_status(mocks) == VisionActionRunStatus.SKIPPED.value
+    assert _final_error(mocks) == {"skip_reason": "no_delivery_flow"}
 
 
 @pytest.mark.asyncio
