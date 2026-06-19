@@ -39,7 +39,7 @@ export const scene: SceneExport<SchemaSceneProps> = {
 const SECTION_LABELS: Record<SchemaConfigurationSection, string> = {
     details: 'Details',
     'sync-method': 'Sync method',
-    columns: 'Columns',
+    columns: 'Columns and filters',
     schedule: 'Schedule',
     'danger-zone': 'Danger zone',
 }
