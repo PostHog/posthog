@@ -30,10 +30,12 @@ export interface NativeToolSchema {
     args: TSchema
     /** TypeBox schema for the return value (informational; not enforced at runtime today). */
     returns: TSchema
-    /** Required integrations / scopes the team must have to use this tool. */
+    /** Required integrations / scopes / per-principal identity providers. */
     requires: {
         integrations: string[]
         scopes: string[]
+        /** Provider ids needing a linked per-principal credential. */
+        identities: string[]
     }
     /** Hint for runner timeout selection + authoring UI cost annotations. */
     cost_hint: 'cheap' | 'medium' | 'expensive'
@@ -159,6 +161,7 @@ export function defineNativeTool<TArgsSchema extends TSchema, TReturnSchema exte
             requires: {
                 integrations: def.requires?.integrations ?? [],
                 scopes: def.requires?.scopes ?? [],
+                identities: def.requires?.identities ?? [],
             },
             cost_hint: def.cost_hint ?? 'medium',
         },

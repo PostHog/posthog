@@ -278,6 +278,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "id": {"type": "string"},
                             "requires_approval": {"type": "boolean", "default": False},
                             "approval_policy": _APPROVAL_POLICY_JSON_SCHEMA,
+                            "requires_identities": {"type": "array", "items": {"type": "string"}, "default": []},
                         },
                         "required": ["kind", "id"],
                         "additionalProperties": False,
@@ -290,6 +291,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "path": {"type": "string"},
                             "requires_approval": {"type": "boolean", "default": False},
                             "approval_policy": _APPROVAL_POLICY_JSON_SCHEMA,
+                            "requires_identities": {"type": "array", "items": {"type": "string"}, "default": []},
                         },
                         "required": ["kind", "id", "path"],
                         "additionalProperties": False,
@@ -348,7 +350,10 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "url": {"type": "string", "format": "uri"},
                     "auth": {
                         "type": "object",
-                        "properties": {"integration": {"type": "string"}},
+                        "properties": {
+                            "integration": {"type": "string"},
+                            "provider": {"type": "string"},
+                        },
                         "additionalProperties": False,
                     },
                     "secrets": {
@@ -442,6 +447,41 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             },
         },
         "integrations": {"default": [], "type": "array", "items": {"type": "string"}},
+        # Identity providers users can link against. Mirror IdentityProviderConfigSchema
+        # in services/agent-shared/src/spec/spec.ts.
+        "identity_providers": {
+            "default": [],
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "const": "posthog"},
+                            "id": {"type": "string", "minLength": 1, "default": "posthog"},
+                            "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
+                        },
+                        "required": ["kind"],
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "const": "oauth2"},
+                            "id": {"type": "string", "minLength": 1},
+                            "authorize_url": {"type": "string", "format": "uri"},
+                            "token_url": {"type": "string", "format": "uri"},
+                            "client_id": {"type": "string", "minLength": 1},
+                            "client_secret_ref": {"type": "string"},
+                            "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
+                            "userinfo_url": {"type": "string", "format": "uri"},
+                        },
+                        "required": ["kind", "id", "authorize_url", "token_url", "client_id"],
+                        "additionalProperties": False,
+                    },
+                ]
+            },
+        },
         # Two accepted forms — mirrors `SecretRefSchema` in
         # services/agent-shared/src/spec/spec.ts. The bare-string form
         # declares a resolvable name without authority to be sent over the

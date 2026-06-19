@@ -347,6 +347,9 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
         id: z.string(),
         requires_approval: z.boolean().default(false),
         approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
+        // Provider ids (from spec.identity_providers[]) needing a linked
+        // per-principal credential; a missing link gates into auth_required.
+        requires_identities: z.array(z.string()).default([]),
     }),
     z.object({
         kind: z.literal('custom'),
@@ -354,6 +357,7 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
         path: z.string(),
         requires_approval: z.boolean().default(false),
         approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
+        requires_identities: z.array(z.string()).default([]),
     }),
     // NOTE: the registry-pin shape `{ kind: 'custom_template', from_template,
     // alias, version }` is a *draft-only* authoring shape, validated by the
@@ -468,7 +472,11 @@ export const McpRefSchema = z.object({
     url: z.string().url(),
     auth: z
         .object({
+            /** Team-level integration credential (shared across the team). */
             integration: z.string().optional(),
+            /** Per-principal identity provider: stamps the linked user's bearer,
+             *  gates into auth_required if unlinked. Vs the team-wide `integration`. */
+            provider: z.string().optional(),
         })
         .optional(),
     /**
@@ -678,6 +686,36 @@ export const ResumeConfigSchema = z.object({
         .default(7 * 24 * 60 * 60 * 1000),
 })
 
+/**
+ * A per-app identity provider users can link against. Two kinds:
+ *   - `posthog` — managed: the backend auto-provisions a per-app first-party
+ *     OAuthApplication; the author supplies nothing but optional scopes.
+ *   - `oauth2`  — bring-your-own: the author registers an OAuth app at a third
+ *     party (GitHub, Linear, the `dogs` test IdP), points its redirect at our
+ *     callback, and supplies endpoints + client_id + a `client_secret_ref`
+ *     (a key in the agent's encrypted_env). One generic provider serves them all.
+ */
+export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
+    z.object({
+        kind: z.literal('posthog'),
+        id: z.string().min(1).default('posthog'),
+        scopes: z.array(z.string()).default([]),
+    }),
+    z.object({
+        kind: z.literal('oauth2'),
+        id: z.string().min(1),
+        authorize_url: z.string().url(),
+        token_url: z.string().url(),
+        client_id: z.string().min(1),
+        /** Key in encrypted_env holding the client secret. Omit for public PKCE clients. */
+        client_secret_ref: z.string().optional(),
+        scopes: z.array(z.string()).default([]),
+        /** Userinfo endpoint, used for the email cross-check warn at link time. */
+        userinfo_url: z.string().url().optional(),
+    }),
+])
+export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema>
+
 export const AgentSpecSchema = z.object({
     model: ModelIdSchema,
     triggers: z.array(TriggerSchema).default([]),
@@ -685,6 +723,8 @@ export const AgentSpecSchema = z.object({
     mcps: z.array(McpRefSchema).default([]),
     skills: z.array(SkillRefSchema).default([]),
     integrations: z.array(z.string()).default([]),
+    /** Identity providers users can link against (the credential axis). */
+    identity_providers: z.array(IdentityProviderConfigSchema).default([]),
     secrets: z.array(SecretRefSchema).default([]),
     limits: SpecLimitsSchema.default({
         max_turns: 50,
