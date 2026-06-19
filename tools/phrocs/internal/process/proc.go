@@ -27,6 +27,19 @@ const flushInterval = 16 * time.Millisecond
 const stopGracePeriod = 3 * time.Second
 const defaultShell = "/bin/bash"
 
+// Autorestart backoff: when a proc with autorestart crashes, it's restarted
+// after an exponential delay that grows with each consecutive rapid crash, so a
+// crash-looping proc backs off instead of thrashing. After maxRestartAttempts
+// consecutive crashes the proc is left dead and must be restarted manually. A
+// proc that stays up longer than restartStableRunTime is considered healthy, so
+// its next crash starts the count (and backoff) over from scratch.
+const (
+	restartBackoffBase   = 1 * time.Second
+	restartBackoffMax    = 30 * time.Second
+	maxRestartAttempts   = 10
+	restartStableRunTime = 60 * time.Second
+)
+
 type Status int
 
 const (
@@ -135,6 +148,9 @@ type Process struct {
 	exitCode       *int
 	metrics        *Metrics
 	metricsEnabled atomic.Bool
+
+	restartCount   int  // consecutive rapid autorestarts since the last healthy run
+	autoRestarting bool // set when the next Start is an autorestart, so it keeps restartCount
 }
 
 // SetLogDir enables per-process log file teeing. When non-empty, Start opens
@@ -427,6 +443,12 @@ func (p *Process) Start(send func(tea.Msg)) error {
 		p.mu.Unlock()
 		return nil
 	}
+	// A manual start (anything that isn't an autorestart) grants a fresh
+	// restart budget — the user has presumably fixed whatever was crashing.
+	if !p.autoRestarting {
+		p.restartCount = 0
+	}
+	p.autoRestarting = false
 	p.status = StatusPending
 	// Preserve the current emulator dimensions (set by Resize) so the
 	// child process sees the correct terminal size from the start.
@@ -638,6 +660,7 @@ func (p *Process) handleExit(cmd *exec.Cmd, exitErr error, send func(tea.Msg)) {
 		st = StatusCrashed
 	}
 	p.mu.Lock()
+	ranFor := time.Since(p.startedAt)
 	if p.cmd == cmd && p.status != StatusStopped {
 		p.status = st
 		p.metrics = nil
@@ -646,6 +669,17 @@ func (p *Process) handleExit(cmd *exec.Cmd, exitErr error, send func(tea.Msg)) {
 	}
 	finalStatus := p.status
 	shouldRestart := p.cmd == cmd && p.Cfg.Autorestart && st == StatusCrashed && finalStatus != StatusStopped
+	var attempt int
+	if shouldRestart {
+		// A proc that stayed up long enough is treated as healthy, so a later
+		// crash restarts the backoff from scratch rather than inheriting a
+		// stale count from an earlier crash loop.
+		if ranFor >= restartStableRunTime {
+			p.restartCount = 0
+		}
+		p.restartCount++
+		attempt = p.restartCount
+	}
 	if p.logFile != nil {
 		_ = p.logFile.Close()
 		p.logFile = nil
@@ -655,8 +689,67 @@ func (p *Process) handleExit(cmd *exec.Cmd, exitErr error, send func(tea.Msg)) {
 	send(StatusMsg{Name: p.Name, Status: finalStatus})
 
 	if shouldRestart {
-		_ = p.Start(send)
+		p.scheduleRestart(cmd, attempt, send)
 	}
+}
+
+// scheduleRestart waits out the backoff for the given attempt and then restarts
+// the process, unless the attempt cap has been hit or the process was stopped or
+// manually restarted while we waited. Runs on the cmd.Wait goroutine, so the
+// backoff sleep here doesn't block anything else.
+func (p *Process) scheduleRestart(cmd *exec.Cmd, attempt int, send func(tea.Msg)) {
+	if attempt > maxRestartAttempts {
+		p.writeNotice(fmt.Sprintf(
+			"\r\n[phrocs] %s keeps crashing — gave up after %d restarts. Fix it and restart manually.\r\n",
+			p.Name, maxRestartAttempts), send)
+		return
+	}
+
+	backoff := restartBackoffFor(attempt)
+	p.writeNotice(fmt.Sprintf(
+		"\r\n[phrocs] %s crashed — restarting in %s (attempt %d/%d)…\r\n",
+		p.Name, backoff.Round(time.Second), attempt, maxRestartAttempts), send)
+	time.Sleep(backoff)
+
+	// Bail if the process was stopped or already replaced (e.g. a manual
+	// restart) while we were backing off.
+	p.mu.Lock()
+	if p.cmd != cmd || p.status == StatusStopped {
+		p.mu.Unlock()
+		return
+	}
+	p.autoRestarting = true
+	p.mu.Unlock()
+
+	_ = p.Start(send)
+}
+
+// restartBackoffFor returns the exponential backoff delay for a given 1-based
+// restart attempt, capped at restartBackoffMax.
+func restartBackoffFor(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	backoff := restartBackoffBase
+	for i := 1; i < attempt; i++ {
+		backoff *= 2
+		if backoff >= restartBackoffMax {
+			return restartBackoffMax
+		}
+	}
+	return backoff
+}
+
+// writeNotice injects a phrocs-generated line into the process's output buffer
+// so the user sees autorestart activity inline with the proc's own logs.
+func (p *Process) writeNotice(msg string, send func(tea.Msg)) {
+	p.mu.Lock()
+	if p.emulator != nil {
+		_, _ = p.emulator.Write([]byte(msg))
+	}
+	p.unread = true
+	p.mu.Unlock()
+	send(OutputMsg{Name: p.Name})
 }
 
 // readLoop reads process output, feeds it through a VT terminal emulator,
