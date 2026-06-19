@@ -21,6 +21,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { RepoSwitcher } from '../components/RepoSwitcher'
 import { RunSummaryStats } from '../components/RunSummaryStats'
+import { VisualReviewIntro } from '../components/VisualReviewIntro'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { RunApi } from '../generated/api.schemas'
 import { ReviewState, VisualReviewRunsSceneLogicProps, visualReviewRunsSceneLogic } from './visualReviewRunsSceneLogic'
@@ -152,6 +153,7 @@ export function VisualReviewRunsScene(): JSX.Element {
                     </div>
                 }
             />
+            <VisualReviewIntro />
             <VisualReviewTabs activeKey="runs" repoId={repoId} />
 
             <div className="mb-3 flex items-center gap-2 flex-wrap">

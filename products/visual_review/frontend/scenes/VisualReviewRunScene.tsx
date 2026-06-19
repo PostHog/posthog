@@ -16,6 +16,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
+import { VisualReviewIntro } from '../components/VisualReviewIntro'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
@@ -310,6 +311,7 @@ export function VisualReviewRunScene(): JSX.Element {
         return (
             <SceneContent>
                 <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <VisualReviewIntro />
                 <RunInProgressEmptyState
                     isProcessing={isRunProcessing}
                     createdAt={run.created_at}
@@ -323,6 +325,7 @@ export function VisualReviewRunScene(): JSX.Element {
         return (
             <SceneContent>
                 <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <VisualReviewIntro />
                 <LemonBanner type="error">
                     This run failed to process.{run.error_message ? ` ${run.error_message}` : ''} Check the CI logs for
                     details, or rerun the job to try again.
@@ -411,6 +414,7 @@ export function VisualReviewRunScene(): JSX.Element {
                     ) : undefined
                 }
             />
+            <VisualReviewIntro />
             <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
 
             {run.is_stale && (
