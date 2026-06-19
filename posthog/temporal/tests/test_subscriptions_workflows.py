@@ -2542,7 +2542,8 @@ async def test_notify_subscription_failure_emails_owner_on_transition(team, user
     args = send_mock.call_args.args
     assert args[0].id == subscription.id  # subscription
     assert args[2] == "SlackApiError"  # error_type
-    assert args[3] == [user.email]  # targets
+    assert args[3] == failed.id  # delivery_id
+    assert args[4] == [user.email]  # targets
 
 
 @pytest.mark.asyncio

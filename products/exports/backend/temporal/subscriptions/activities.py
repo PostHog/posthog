@@ -530,16 +530,20 @@ async def notify_subscription_failure(inputs: NotifySubscriptionFailureInputs) -
             LOGGER.info("notify_subscription_failure.skipped_no_author_email", subscription_id=inputs.subscription_id)
             return
 
-        # Notify only on the transition into failure. The just-failed delivery row is
-        # excluded; if the most recent prior finished delivery also failed, we already
-        # notified for this streak.
+        # Notify only on the transition into failure. Look at the most recent prior
+        # delivery that actually attempted to send (COMPLETED or FAILED) — SKIPPED runs
+        # (no assets, over-budget) sent nothing, so they neither start nor break a streak.
+        # If that prior attempt already failed, we notified then and stay quiet.
+        # Order by -created_at (not -finished_at): deliveries for one subscription never
+        # overlap, so the two orderings agree, and -created_at is covered by the existing
+        # (subscription, -created_at) index — no post-sort.
         previous_status = (
             SubscriptionDelivery.objects.filter(
                 subscription_id=inputs.subscription_id,
-                finished_at__isnull=False,
+                status__in=[SubscriptionDelivery.Status.COMPLETED, SubscriptionDelivery.Status.FAILED],
             )
             .exclude(pk=inputs.delivery_id)
-            .order_by("-finished_at")
+            .order_by("-created_at")
             .values_list("status", flat=True)
             .first()
         )
@@ -552,6 +556,7 @@ async def notify_subscription_failure(inputs: NotifySubscriptionFailureInputs) -
             subscription,
             reason,
             inputs.error_type,
+            inputs.delivery_id,
             [subscription.created_by.email],
         )
 

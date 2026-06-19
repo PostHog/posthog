@@ -13,6 +13,7 @@ from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlrea
 from posthog.event_usage import EventSource
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import resolve_exception_class
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import (
@@ -61,16 +62,39 @@ from products.exports.backend.temporal.subscriptions.types import (
 )
 
 
-def _terminal_error_type(error: BaseException) -> str:
-    """The original exception class name for the owner-facing failure email.
+async def _maybe_notify_owner_of_failure(
+    subscription_id: int,
+    delivery_id: uuid.UUID | None,
+    caught_error: BaseException | None,
+    trigger_type: str,
+) -> None:
+    """Best-effort owner email for a genuine (non-auto-disable) scheduled delivery failure.
 
-    A delivery failure surfaces to the workflow wrapped in an ActivityError; Temporal
-    stashes the underlying exception's class name on the ApplicationError cause, so unwrap
-    one level to avoid reporting the unhelpful "ActivityError" to the subscription owner.
+    Only scheduled runs notify — manual and target-change sends already show their result
+    in the UI. Swallows its own errors so a broken notification can't mask the delivery
+    error or skip the schedule-advance that runs after it (mirrors update_delivery_record).
+    Shared by both workflows' finally blocks, which must stay in sync.
     """
-    if isinstance(error, ActivityError) and isinstance(error.cause, ApplicationError):
-        return error.cause.type or type(error.cause).__name__
-    return type(error).__name__
+    if caught_error is None or delivery_id is None or trigger_type != SubscriptionTriggerType.SCHEDULED:
+        return
+    try:
+        await temporalio.workflow.execute_activity(
+            notify_subscription_failure,
+            NotifySubscriptionFailureInputs(
+                subscription_id=subscription_id,
+                delivery_id=delivery_id,
+                # Same helper the SLO interceptor uses, so the owner's "reference for
+                # support" matches the error_type recorded against this failure.
+                error_type=resolve_exception_class(caught_error),
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=2),
+            retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+        )
+    except Exception:
+        temporalio.workflow.logger.warning(
+            "notify_subscription_failure failed (owner notification is best-effort)",
+            extra={"subscription_id": subscription_id},
+        )
 
 
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
@@ -413,26 +437,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     if caught_error is None:
                         raise
 
-            # Proactively email the owner that their scheduled delivery failed. Auto-disable
-            # paths return normally above (and send their own "disabled" email), so reaching
-            # the except block means a genuine, still-enabled failure that will be retried.
-            # Best-effort and fire-once-per-streak — gated to scheduled runs since manual and
-            # target-change sends already surface their result to the user in the UI.
-            if (
-                caught_error is not None
-                and delivery_id is not None
-                and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
-            ):
-                await temporalio.workflow.execute_activity(
-                    notify_subscription_failure,
-                    NotifySubscriptionFailureInputs(
-                        subscription_id=inputs.subscription_id,
-                        delivery_id=delivery_id,
-                        error_type=_terminal_error_type(caught_error),
-                    ),
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                )
+            await _maybe_notify_owner_of_failure(inputs.subscription_id, delivery_id, caught_error, inputs.trigger_type)
 
             # Advance schedule — always for scheduled deliveries, even on failure.
             # The activity itself no-ops when the subscription is disabled, so a
@@ -600,23 +605,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     if caught_error is None:
                         raise
 
-            # Proactively email the owner on a genuine (non-auto-disable) scheduled failure.
-            # See ProcessSubscriptionWorkflow for the rationale; kept in sync with it.
-            if (
-                caught_error is not None
-                and delivery_id is not None
-                and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
-            ):
-                await temporalio.workflow.execute_activity(
-                    notify_subscription_failure,
-                    NotifySubscriptionFailureInputs(
-                        subscription_id=inputs.subscription_id,
-                        delivery_id=delivery_id,
-                        error_type=_terminal_error_type(caught_error),
-                    ),
-                    start_to_close_timeout=dt.timedelta(minutes=2),
-                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-                )
+            await _maybe_notify_owner_of_failure(inputs.subscription_id, delivery_id, caught_error, inputs.trigger_type)
 
             # Advance schedule for scheduled deliveries even on failure — the activity
             # no-ops when the subscription is disabled, so a just-auto-disabled sub

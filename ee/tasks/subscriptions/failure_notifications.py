@@ -57,7 +57,10 @@ def failure_target_label(subscription: Subscription) -> str | None:
     if not target_value:
         return None
     if subscription.target_type == Subscription.SubscriptionTarget.SLACK:
-        channel_name = target_value.split("|")[-1].strip()
+        # Stored as `channel_id|channel_name`; show the name, not the raw id. With no name
+        # part we have nothing human-readable, so omit the target rather than print an id.
+        _, _, channel_name = target_value.partition("|")
+        channel_name = channel_name.strip()
         if not channel_name:
             return None
         return channel_name if channel_name.startswith("#") else f"#{channel_name}"
@@ -68,6 +71,7 @@ def send_notification_for_failed_subscription(
     subscription: Subscription,
     reason: FailureReason,
     error_type: str | None,
+    delivery_id: uuid.UUID,
     targets: list[str],
 ) -> None:
     logger.info(
@@ -82,10 +86,10 @@ def send_notification_for_failed_subscription(
         if subscription.title
         else "Your PostHog subscription failed to send"
     )
-    # uuid4 campaign key: re-send suppression is handled upstream (we only notify on the
-    # transition into failure), so MessagingRecord must not also collapse the distinct
-    # failure emails a subscription legitimately sends over its lifetime.
-    campaign_key = f"subscription-failed-notification-{subscription.id}-{uuid.uuid4()}"
+    # Keyed on the failed delivery, not a fresh uuid: a Temporal activity retry (worker
+    # crash/timeout) then reuses the same key, so MessagingRecord dedups the duplicate
+    # send. Distinct failures still differ — each delivery attempt has its own id.
+    campaign_key = f"subscription-failed-notification-{delivery_id}"
 
     message = EmailMessage(
         campaign_key=campaign_key,

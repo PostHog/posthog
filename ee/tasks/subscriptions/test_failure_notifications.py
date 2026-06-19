@@ -1,3 +1,5 @@
+import uuid
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -53,7 +55,7 @@ class TestFailureTargetLabel(APIBaseTest):
         [
             ("slack_id_and_name", "slack", "C12345|#alerts", "#alerts"),
             ("slack_name_without_hash", "slack", "C12345|alerts", "#alerts"),
-            ("slack_id_only", "slack", "C12345", "#C12345"),
+            ("slack_id_only", "slack", "C12345", None),
             ("email_single", "email", "a@b.com", "a@b.com"),
             ("email_multiple", "email", "a@b.com,c@d.com", "a@b.com,c@d.com"),
             ("empty", "slack", "", None),
@@ -83,7 +85,9 @@ class TestSendNotificationForFailedSubscription(APIBaseTest):
         sub = self._make_subscription()
 
         with patch("ee.tasks.subscriptions.failure_notifications.EmailMessage") as email_cls:
-            send_notification_for_failed_subscription(sub, SLACK_FAILURE_REASON, "SlackApiError", [self.user.email])
+            send_notification_for_failed_subscription(
+                sub, SLACK_FAILURE_REASON, "SlackApiError", uuid.uuid4(), [self.user.email]
+            )
 
         kwargs = email_cls.call_args.kwargs
         assert kwargs["template_name"] == "subscription_failed"
@@ -101,22 +105,25 @@ class TestSendNotificationForFailedSubscription(APIBaseTest):
         sub = self._make_subscription(title=None)
 
         with patch("ee.tasks.subscriptions.failure_notifications.EmailMessage") as email_cls:
-            send_notification_for_failed_subscription(sub, GENERIC_FAILURE_REASON, None, [self.user.email])
+            send_notification_for_failed_subscription(
+                sub, GENERIC_FAILURE_REASON, None, uuid.uuid4(), [self.user.email]
+            )
 
         kwargs = email_cls.call_args.kwargs
         assert kwargs["subject"] == "Your PostHog subscription failed to send"
         assert kwargs["template_context"]["subscription_title"] == "your subscription"
 
-    def test_unique_campaign_key_per_call(self):
+    def test_campaign_key_is_idempotent_per_delivery(self):
+        # Keyed on the delivery id so a Temporal activity retry reuses the key (and
+        # MessagingRecord dedups), while distinct deliveries still get distinct keys.
         sub = self._make_subscription()
+        delivery_id = uuid.uuid4()
 
         with patch("ee.tasks.subscriptions.failure_notifications.EmailMessage") as email_cls:
-            send_notification_for_failed_subscription(sub, SLACK_FAILURE_REASON, None, [self.user.email])
-            send_notification_for_failed_subscription(sub, SLACK_FAILURE_REASON, None, [self.user.email])
+            send_notification_for_failed_subscription(sub, SLACK_FAILURE_REASON, None, delivery_id, [self.user.email])
+            send_notification_for_failed_subscription(sub, SLACK_FAILURE_REASON, None, delivery_id, [self.user.email])
+            send_notification_for_failed_subscription(sub, SLACK_FAILURE_REASON, None, uuid.uuid4(), [self.user.email])
 
-        first_key = email_cls.call_args_list[0].kwargs["campaign_key"]
-        second_key = email_cls.call_args_list[1].kwargs["campaign_key"]
-        assert first_key != second_key
-        prefix = f"subscription-failed-notification-{sub.id}-"
-        assert first_key.startswith(prefix)
-        assert second_key.startswith(prefix)
+        keys = [c.kwargs["campaign_key"] for c in email_cls.call_args_list]
+        assert keys[0] == keys[1] == f"subscription-failed-notification-{delivery_id}"
+        assert keys[2] != keys[0]
