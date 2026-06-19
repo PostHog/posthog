@@ -50,7 +50,9 @@ export function ScoutRowCard({
             )}
         >
             <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 min-w-0 flex-1">
+                {/* overflow-hidden clips the name group so a long name + badges never spill
+                    onto the cadence/emitted column or the sparkline — the name truncates first. */}
+                <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                     {asHeader ? (
                         // min-w keeps the name from being squeezed to zero width by the
                         // trailing metadata (badges, cadence, emitted count) — truncate
@@ -84,13 +86,13 @@ export function ScoutRowCard({
                     </Tooltip>
                     <ScoutOriginBadge skillName={config.skill_name} />
                     <DryRunBadge config={config} />
-                    <span className="whitespace-nowrap text-[11px] text-muted">
-                        {formatRunIntervalShort(config.run_interval_minutes)}
-                    </span>
+                </div>
+                {/* Cadence + emitted count get their own non-shrinking column so they can't
+                    overlap the sparkline (the name group absorbs any width pressure). */}
+                <div className="flex items-center gap-1 shrink-0 whitespace-nowrap text-[11px] text-muted">
+                    <span>{formatRunIntervalShort(config.run_interval_minutes)}</span>
                     {rollup && rollup.emittedCount > 0 ? (
-                        <span className="whitespace-nowrap text-[11px] text-muted">
-                            · {pluralize(rollup.emittedCount, 'signal')} emitted
-                        </span>
+                        <span>· {pluralize(rollup.emittedCount, 'signal')} emitted</span>
                     ) : null}
                 </div>
                 <div className="shrink-0">

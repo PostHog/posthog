@@ -545,6 +545,7 @@ class TestBuildEmitExtra:
         return _build_extra(
             run_id="run-uuid",
             task_run_id="task-run-uuid",
+            task_id=None,
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=2,
@@ -571,7 +572,7 @@ class TestBuildEmitExtra:
         ]
         # Optional fields omitted, not None — pydantic with extra="forbid" tolerates absence
         # but rejects unexpected keys, so omission is the right shape.
-        for opt in ("hypothesis", "severity", "dedupe_keys", "time_range", "mcp_trace_id", "tags"):
+        for opt in ("task_id", "hypothesis", "severity", "dedupe_keys", "time_range", "mcp_trace_id", "tags"):
             assert opt not in extra
 
     def test_skill_version_cast_to_float(self) -> None:
@@ -584,6 +585,7 @@ class TestBuildEmitExtra:
         extra = _build_extra(
             run_id="run-uuid",
             task_run_id="task-run-uuid",
+            task_id="task-uuid",
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=1,
@@ -596,6 +598,7 @@ class TestBuildEmitExtra:
             mcp_trace_id="trace-abc",
             tags=["cost-spike", "post-deploy-regression"],
         )
+        assert extra["task_id"] == "task-uuid"
         assert extra["hypothesis"] == "checkout post-deploy regression"
         assert extra["severity"] == "P1"
         assert extra["dedupe_keys"] == ["checkout-500-spike"]

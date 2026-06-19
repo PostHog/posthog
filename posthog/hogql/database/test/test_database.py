@@ -804,8 +804,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
         for i in range(3):
-            table = DataWarehouseTable.objects.create(
+            DataWarehouseTable.objects.create(
                 name=f"whatever{i}",
+                team=self.team,
+                columns={"id": "String"},
+                credential=credential,
+                url_pattern="",
+            )
+            # Give the view a materialized backing table so the build exercises that path with no IO
+            backing_table = DataWarehouseTable.objects.create(
+                name=f"whatever_view{i}",
                 team=self.team,
                 columns={"id": "String"},
                 credential=credential,
@@ -816,7 +824,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 name=f"whatever_view{i}",
                 query={"query": f"SELECT id FROM whatever{i}"},
                 columns={"id": "String"},
-                table=table,
+                table=backing_table,
                 status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
         # Endpoint-origin saved query so the endpoint build loop is exercised under assertNumQueries(0).

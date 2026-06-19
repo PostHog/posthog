@@ -42,6 +42,7 @@ from .appfigures.source import AppfiguresSource
 from .appfollow.source import AppfollowSource
 from .apple_search_ads.source import AppleSearchAdsSource
 from .appsflyer.source import AppsFlyerSource
+from .appstack.source import AppstackSource
 from .apptivo.source import ApptivoSource
 from .asana.source import AsanaSource
 from .ashby.source import AshbySource
@@ -306,6 +307,7 @@ from .leadfeeder.source import LeadfeederSource
 from .lemlist.source import LemlistSource
 from .less_annoying_crm.source import LessAnnoyingCRMSource
 from .lever.source import LeverSource
+from .lightfield.source import LightfieldSource
 from .lightspeed_retail.source import LightspeedRetailSource
 from .linear.source import LinearSource
 from .linkedin_ads.source import LinkedInAdsSource

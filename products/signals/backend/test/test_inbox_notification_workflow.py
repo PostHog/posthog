@@ -152,21 +152,24 @@ async def test_workflow_waits_then_notifies_when_pr_opens():
 @pytest.mark.parametrize(
     "states,timeout_seconds,polls",
     [
-        ([NO_TASK], 10, False),  # a task-less report can never produce a PR, so skip on the first fetch
-        ([WAIT, TERMINAL], 10, True),  # task reaches a terminal state without ever opening a PR
-        ([WAIT], 3, True),  # PR never opens, so the wait runs out the timeout
+        ([NO_TASK], 10, False),  # task-less report: no PR possible, notify immediately on the first fetch
+        ([WAIT, TERMINAL], 10, True),  # task reaches a terminal state without a PR — notify once we know
+        ([WAIT], 3, True),  # PR never opens, so notify after the wait runs out the timeout
     ],
 )
-async def test_workflow_skips_when_no_pr_is_produced(states, timeout_seconds, polls):
+async def test_workflow_notifies_even_without_pr(states, timeout_seconds, polls):
+    # The PR is enrichment, not a gate: an actionable report still notifies even when no PR
+    # is ever produced. We only poll first when an implementation task exists (to attach the
+    # PR link); a task-less report notifies right away.
     recorder = _Recorder(states)
     with override_settings(
         SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=timeout_seconds,
         SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS=1,
     ):
         sent = await _run_workflow(recorder)
-    assert sent == 0
-    assert recorder.dispatch_calls == 0
+    assert sent == 1
+    assert recorder.dispatch_calls == 1
     if polls:
-        assert recorder.state_calls >= 2  # initial fetch + at least one poll before giving up
+        assert recorder.state_calls >= 2  # initial fetch + at least one poll while waiting for the PR
     else:
         assert recorder.state_calls == 1  # decided on the first fetch — no task means no polling

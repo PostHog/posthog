@@ -292,6 +292,11 @@ class AppsFlyerSourceConfig(config.Config):
 
 
 @config.config
+class AppstackSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class ApptivoSourceConfig(config.Config):
     pass
 
@@ -1682,6 +1687,11 @@ class LessAnnoyingCRMSourceConfig(config.Config):
 @config.config
 class LeverSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class LightfieldSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3472,6 +3482,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.APPFOLLOW: AppfollowSourceConfig,
         ExternalDataSourceType.APPLESEARCHADS: AppleSearchAdsSourceConfig,
         ExternalDataSourceType.APPSFLYER: AppsFlyerSourceConfig,
+        ExternalDataSourceType.APPSTACK: AppstackSourceConfig,
         ExternalDataSourceType.APPTIVO: ApptivoSourceConfig,
         ExternalDataSourceType.ASANA: AsanaSourceConfig,
         ExternalDataSourceType.ASHBY: AshbySourceConfig,
@@ -3736,6 +3747,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
         ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
         ExternalDataSourceType.LEVER: LeverSourceConfig,
+        ExternalDataSourceType.LIGHTFIELD: LightfieldSourceConfig,
         ExternalDataSourceType.LIGHTSPEEDRETAIL: LightspeedRetailSourceConfig,
         ExternalDataSourceType.LINEAR: LinearSourceConfig,
         ExternalDataSourceType.LINKEDINADS: LinkedinAdsSourceConfig,

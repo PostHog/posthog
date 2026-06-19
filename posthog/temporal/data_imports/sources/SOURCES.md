@@ -256,6 +256,7 @@ doesn't conflict with concurrent PRs.
 - appfigures
 - appfollow
 - apple_search_ads
+- appstack
 - apptivo
 - assemblyai
 - auth0
@@ -453,6 +454,7 @@ doesn't conflict with concurrent PRs.
 - lemlist
 - less_annoying_crm
 - lever
+- lightfield
 - linkedin_pages
 - linkrunner
 - linnworks

@@ -463,9 +463,66 @@ def test_dispatch_posts_nothing_without_suggested_reviewers(org_and_team):
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
-    # No reviewers to route → the team channel is not posted to.
+    # No suggested reviewer → nothing sent, even with a team channel configured (no fallback).
     assert sent == 0
     assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.django_db
+def test_dispatch_posts_nothing_without_reviewers_or_team_channel(org_and_team):
+    org, team = org_and_team
+    _make_reviewer_user(org, "creator@example.com", "creator-bot")
+    report = _make_ready_report(team, priority=AutonomyPriority.P2)  # no reviewers, no team channel
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    # No destination at all → nothing sent.
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.django_db
+def test_dispatch_skips_non_actionable_report(org_and_team):
+    org, team = org_and_team
+    creator = _make_reviewer_user(org, "creator@example.com", "creator-bot")
+    _make_slack_integration(team, creator)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    # Not in the inbox Reports tab → must not notify, even with a team channel.
+    report = _make_ready_report(team, actionability=ActionabilityChoice.NOT_ACTIONABLE)
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 0
+    assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.django_db
+def test_dispatch_notifies_requires_human_input_report_without_priority(org_and_team):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "rhi@example.com", "rhi-bot")
+    _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    # Actionable (requires_human_input) with no priority but a resolvable reviewer → still notifies.
+    report = _make_ready_report(
+        team, actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT, priority=None, suggested_logins=["rhi-bot"]
+    )
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email", return_value=None),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    assert fake_client.chat_postMessage.call_args.kwargs["channel"] == "CTEAM"
 
 
 @pytest.mark.django_db
