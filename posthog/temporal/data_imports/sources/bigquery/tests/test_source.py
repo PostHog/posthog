@@ -5,7 +5,7 @@ from freezegun import freeze_time
 from unittest import mock
 
 from dateutil import parser
-from google.api_core.exceptions import BadRequest, Forbidden, NotFound, PermissionDenied
+from google.api_core.exceptions import BadRequest, Forbidden, InvalidArgument, NotFound, PermissionDenied
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery import bigquery as bq_module
@@ -658,6 +658,28 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
 @pytest.mark.parametrize(
     "observed_error",
     [
+        # Federated EXTERNAL_QUERY view whose upstream schema drifted — a column the view selects was
+        # renamed/dropped in the source database, so BigQuery can't compile the view.
+        str(
+            BadRequest(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/p/queries/j?maxResults=0"
+                "&location=us-central1: Invalid table-valued function EXTERNAL_QUERY; failed to parse "
+                "view 'analytics.SurveyResponse'\nFailed to get query schema from PostgreSQL server, "
+                'prepare statement failed. Error: ERROR:  column "participantId" does not exist'
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_unparseable_view(observed_error):
+    """A view whose definition no longer matches the underlying data (e.g. a federated query
+    references a dropped column) can't be recovered by retrying — the user must fix the view."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
         # Administrator-set custom cost control on the customer's BigQuery project — surfaced as a
         # `Forbidden` whose str() is "403 Custom quota exceeded: ...".
         str(
@@ -822,3 +844,37 @@ def test_bigquery_billing_not_enabled_is_non_retryable():
     assert billing_key in non_retryable_errors, "expected billing key to be non-retryable"
     # Mirror the substring match used by `update_external_data_job_model`.
     assert billing_key in internal_error
+
+
+def test_bigquery_cdc_staleness_is_non_retryable():
+    """A CDC table whose pending upserts are staler than its max_staleness can't be read via the
+    Storage Read API (it never applies CDC changes), so the read fails as an InvalidArgument.
+    Retrying within the sync's window can't recover it — the apply happens on BigQuery's schedule —
+    so it must be recognised as non-retryable instead of hammering the Read API every attempt."""
+    error_msg = str(
+        InvalidArgument(
+            "request failed: The table has un-applied upsert data that is not fresh enough to meet "
+            "table's max_staleness."
+        )
+    )
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "CDC max_staleness read failure should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
+    "other_error",
+    [
+        # A genuine config error about max_staleness must not be swallowed by the freshness key.
+        "400 Invalid value for max_staleness: must be a valid INTERVAL",
+        # Transient server errors must stay retryable.
+        "503 Service unavailable, please retry",
+    ],
+)
+def test_bigquery_cdc_staleness_key_does_not_match_unrelated_errors(other_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert "un-applied upsert data that is not fresh enough" not in other_error
+    assert not any(key in other_error for key in non_retryable_errors)

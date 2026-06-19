@@ -254,11 +254,27 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             ]
         )
 
+        current_results = current_response.results or []
+        previous_results = previous_response.results or []
+
+        # STEPS returns an empty list for a period with no matching events. Backfill it with a
+        # zeroed step skeleton (cloned from the populated period) so the grouped-bar chart still
+        # draws a bar per step on both sides instead of collapsing to a single bar. TRENDS and
+        # TIME_TO_CONVERT always return a populated skeleton, so this only fires for STEPS.
+        # Breakdown STEPS (list-of-lists) is a later slice; the `isinstance(dict)` guard skips it.
+        if self.context.funnelsFilter.funnelVizType == FunnelVizType.STEPS:
+            populated = current_results or previous_results
+            is_flat_steps = bool(populated) and all(isinstance(row, dict) for row in populated)
+            if is_flat_steps and not previous_results:
+                previous_results = self._zeroed_steps_skeleton(current_results)
+            elif is_flat_steps and not current_results:
+                current_results = self._zeroed_steps_skeleton(previous_results)
+
         merged_results = []
-        for row in current_response.results or []:
+        for row in current_results:
             row["compare_label"] = "current"
             merged_results.append(row)
-        for row in previous_response.results or []:
+        for row in previous_results:
             row["compare_label"] = "previous"
             merged_results.append(row)
 
@@ -274,6 +290,23 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                 date_to=self.query_date_range.date_to(),
             ),
         )
+
+    def _zeroed_steps_skeleton(self, steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Clone a flat list of step dicts with all counts and conversion times zeroed.
+
+        Used for the empty side of a STEPS compare so it mirrors the populated period's step
+        names/orders/types while reporting zero conversions.
+        """
+        return [
+            {
+                **step,
+                "count": 0,
+                "people": [],
+                "average_conversion_time": None,
+                "median_conversion_time": None,
+            }
+            for step in steps
+        ]
 
     def _calculate_compare_time_to_convert(self) -> FunnelsQueryResponse:
         """Compare for the TIME_TO_CONVERT viz: both histograms must share an x-axis.
@@ -392,8 +425,12 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         compare_filter = self.query.compareFilter
         if compare_filter is None or not compare_filter.compare:
             return False
-        # Compare is supported for the TRENDS and TIME_TO_CONVERT viz modes. STEPS lands in a later slice.
-        if self.context.funnelsFilter.funnelVizType not in (FunnelVizType.TRENDS, FunnelVizType.TIME_TO_CONVERT):
+        # Compare is supported for the STEPS, TRENDS and TIME_TO_CONVERT viz modes. FLOW is excluded.
+        if self.context.funnelsFilter.funnelVizType not in (
+            FunnelVizType.STEPS,
+            FunnelVizType.TRENDS,
+            FunnelVizType.TIME_TO_CONVERT,
+        ):
             return False
         return self._team_flag_funnels_compare()
 

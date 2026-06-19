@@ -63,6 +63,11 @@ describe('buildMovingAverageSeries', () => {
         const ma = buildMovingAverageSeries({ sourceSeries: SOURCE, window: 3, label: 'Smoothed' })
         expect(ma.label).toBe('Smoothed')
     })
+
+    it('forwards the excluded flag so it hides alongside a hidden source', () => {
+        const ma = buildMovingAverageSeries({ sourceSeries: SOURCE, window: 3, excluded: true })
+        expect(ma.visibility?.excluded).toBe(true)
+    })
 })
 
 describe('buildTrendLineSeries', () => {
@@ -86,5 +91,10 @@ describe('buildTrendLineSeries', () => {
         expect(tl.data.every(Number.isFinite)).toBe(true)
         expect(tl.data[0]).toBeCloseTo(expectedFirst, 2)
         expect(tl.data[data.length - 1]).toBeCloseTo(expectedLast, 2)
+    })
+
+    it('forwards the excluded flag so it hides alongside a hidden source', () => {
+        const tl = buildTrendLineSeries({ sourceSeries: SOURCE, kind: 'linear', excluded: true })
+        expect(tl.visibility?.excluded).toBe(true)
     })
 })

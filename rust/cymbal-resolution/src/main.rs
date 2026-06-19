@@ -99,23 +99,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn init_posthog_client(config: &CymbalConfig) {
-    match &config.posthog_api_key {
-        Some(key) => {
-            let ph_config = posthog_rs::ClientOptionsBuilder::default()
-                .api_key(key.clone())
-                .api_endpoint(config.posthog_endpoint.clone())
-                .build()
-                .expect("Invalid PostHog client configuration");
-            posthog_rs::init_global(ph_config)
-                .await
-                .expect("Failed to initialize PostHog client");
-            tracing::info!("PostHog client initialized");
-        }
-        None => {
-            posthog_rs::disable_global();
-            tracing::warn!("PostHog client disabled");
-        }
-    }
+    common_posthog::init(
+        "cymbal-resolution",
+        config.posthog_api_key.as_deref(),
+        &config.posthog_endpoint,
+    )
+    .await
+    .expect("Failed to initialize PostHog client");
 }
 
 fn init_tracing() {
