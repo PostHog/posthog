@@ -640,6 +640,27 @@
     }
 }
 
+.Notebook__markdown-v2-shell {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
+    margin: 0 auto;
+}
+
+.Notebook__markdown-v2-top-actions {
+    display: flex;
+    justify-content: flex-end;
+    width: 100%;
+    padding: 0 0.5rem;
+    margin-bottom: 0.5rem;
+
+    &:empty {
+        display: none;
+    }
+}
+
 .Notebook__markdown-v2 {
     // Notebook provides its own width constraint; let the canvas fill it. Overriding the
     // variable (not the canvas rule) keeps the debug toolbar's right-edge calc in sync,
@@ -677,6 +698,7 @@ body:has(.Notebook--markdown-v2),
     }
 
     .Notebook_content,
+    .Notebook__markdown-v2-shell,
     .Notebook__markdown-v2,
     .Notebook__markdown-v2 .MarkdownNotebook__debug-layout,
     .Notebook__markdown-v2 .MarkdownNotebook__main,

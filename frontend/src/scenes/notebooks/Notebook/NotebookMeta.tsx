@@ -241,7 +241,7 @@ export const NotebookTableOfContentsButton = (props: Pick<LemonButtonProps, 'siz
     )
 }
 
-type NotebookKernelInfoButtonProps = Pick<LemonButtonProps, 'size' | 'type'> & {
+type NotebookKernelInfoButtonProps = Pick<LemonButtonProps, 'children' | 'size' | 'type'> & {
     onBeforeShowKernelInfo?: () => void
 }
 
@@ -267,6 +267,7 @@ export const NotebookKernelInfoButton = ({
                 }
                 setShowKernelInfo(nextShowKernelInfo)
             }}
+            active={showKernelInfo}
             icon={<IconTerminal />}
             tooltip={showKernelInfo ? 'Hide kernel info' : 'Show kernel info'}
             tooltipPlacement="left"

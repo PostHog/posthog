@@ -164,11 +164,7 @@ export function NotebookScene(): JSX.Element {
                             <NotebookTableOfContentsButton type="secondary" size="small" />
                         </>
                     ) : null}
-                    <NotebookKernelInfoButton
-                        type="secondary"
-                        size="small"
-                        onBeforeShowKernelInfo={isMarkdownNotebook ? () => setIsMarkdownSourceOpen(false) : undefined}
-                    />
+                    {!isMarkdownNotebook ? <NotebookKernelInfoButton type="secondary" size="small" /> : null}
                     {!isMarkdownNotebook ? (
                         <NotebookExpandButton type="secondary" size="small" inPanel={false} />
                     ) : null}

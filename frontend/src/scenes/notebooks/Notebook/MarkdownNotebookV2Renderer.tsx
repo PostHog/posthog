@@ -33,11 +33,13 @@ import {
 import { MarkdownNotebookSavedInsightPicker } from './MarkdownNotebookSavedInsightPicker'
 import { getMarkdownNotebookMarkdown, notebookArtifactContentToMarkdown } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
+import { NotebookKernelInfoButton } from './NotebookMeta'
 import {
     NOTEBOOK_AI_PRESENCE_COLOR,
     NOTEBOOK_AI_PRESENCE_CLIENT_ID,
     NOTEBOOK_AI_PRESENCE_NAME,
 } from './notebookPresence'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const NOTEBOOK_AI_FOLLOW_UP_PROMPT_MARKDOWN = '<Prompt question="" />'
 const NOTEBOOK_AI_PRESENCE_DEPARTURE_IDLE_MS = 5_000
@@ -59,6 +61,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         publishMarkdownCaret,
         setMarkdownAIPresenceActive,
     } = useActions(notebookLogic)
+    const { setShowKernelInfo } = useActions(notebookSettingsLogic)
     const remoteMarkdown = getMarkdownNotebookMarkdown(notebook?.content)
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)
@@ -72,10 +75,36 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     const aiPresenceDepartureTimeoutRef = useRef<number | null>(null)
     const aiPresenceFadeTimeoutRef = useRef<number | null>(null)
     const [focusAIPromptRequest, setFocusAIPromptRequest] = useState<number | undefined>(undefined)
+    const [internalDebugOpen, setInternalDebugOpen] = useState(false)
+    const isDebugOpen = debugOpen ?? internalDebugOpen
 
     useEffect(() => {
         markdownEditorValueRef.current = markdownEditorValue
     }, [markdownEditorValue])
+
+    const setMarkdownSourceOpen = useCallback(
+        (isOpen: boolean): void => {
+            if (debugOpen === undefined) {
+                setInternalDebugOpen(isOpen)
+            }
+            onDebugOpenChange?.(isOpen)
+        },
+        [debugOpen, onDebugOpenChange]
+    )
+
+    const closeMarkdownSource = useCallback((): void => {
+        setMarkdownSourceOpen(false)
+    }, [setMarkdownSourceOpen])
+
+    const handleDebugOpenChange = useCallback(
+        (isOpen: boolean): void => {
+            if (isOpen) {
+                setShowKernelInfo(false)
+            }
+            setMarkdownSourceOpen(isOpen)
+        },
+        [setMarkdownSourceOpen, setShowKernelInfo]
+    )
 
     const updateMarkdownEditorValue = useCallback(
         (updater: (markdown: string) => string): void => {
@@ -481,30 +510,41 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
 
     return (
         <MarkdownNotebookRuntimeContext.Provider value={runtimeContext}>
-            <MarkdownNotebook
-                value={markdownEditorValue}
-                remoteValue={remoteMarkdown}
-                remoteVersion={notebook?.version}
-                mode={isEditable ? 'edit' : 'view'}
-                registry={NOTEBOOK_MARKDOWN_REGISTRY}
-                extraInsertCommands={isEditable ? buildSavedInsightInsertCommands : undefined}
-                onChange={isEditable ? handleMarkdownEditorChange : undefined}
-                onConflict={reportMarkdownMergeConflicts}
-                remoteCarets={remoteCarets}
-                onCaretChange={isEditable ? publishMarkdownCaret : undefined}
-                onAskAI={isEditable ? handleAskAI : undefined}
-                isAskAIDisabled={inlineAIRequests.length > 0}
-                createAIConversationId={uuid}
-                deferRemoteValue={markdownEditorInteractionActive}
-                onInteractionStateChange={setMarkdownEditorInteractionActive}
-                className="Notebook__markdown-v2"
-                data-attr="notebook-markdown-v2"
-                autoFocus={isEditable}
-                showDebug={isEditable}
-                debugOpen={debugOpen}
-                onDebugOpenChange={onDebugOpenChange}
-                focusAIPromptRequest={focusAIPromptRequest}
-            />
+            <div className="Notebook__markdown-v2-shell">
+                <div className="Notebook__markdown-v2-top-actions">
+                    <NotebookKernelInfoButton
+                        type="secondary"
+                        size="small"
+                        onBeforeShowKernelInfo={closeMarkdownSource}
+                    >
+                        Kernel
+                    </NotebookKernelInfoButton>
+                </div>
+                <MarkdownNotebook
+                    value={markdownEditorValue}
+                    remoteValue={remoteMarkdown}
+                    remoteVersion={notebook?.version}
+                    mode={isEditable ? 'edit' : 'view'}
+                    registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                    extraInsertCommands={isEditable ? buildSavedInsightInsertCommands : undefined}
+                    onChange={isEditable ? handleMarkdownEditorChange : undefined}
+                    onConflict={reportMarkdownMergeConflicts}
+                    remoteCarets={remoteCarets}
+                    onCaretChange={isEditable ? publishMarkdownCaret : undefined}
+                    onAskAI={isEditable ? handleAskAI : undefined}
+                    isAskAIDisabled={inlineAIRequests.length > 0}
+                    createAIConversationId={uuid}
+                    deferRemoteValue={markdownEditorInteractionActive}
+                    onInteractionStateChange={setMarkdownEditorInteractionActive}
+                    className="Notebook__markdown-v2"
+                    data-attr="notebook-markdown-v2"
+                    autoFocus={isEditable}
+                    showDebug={isEditable}
+                    debugOpen={isDebugOpen}
+                    onDebugOpenChange={handleDebugOpenChange}
+                    focusAIPromptRequest={focusAIPromptRequest}
+                />
+            </div>
             {inlineAIRequests.map((request) => (
                 <InlineNotebookAIRunner
                     key={request.conversationId}
