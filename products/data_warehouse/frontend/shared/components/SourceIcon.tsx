@@ -78,7 +78,7 @@ export function SourceIcon({
     disableTooltip = false,
 }: {
     type: string
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
     size?: 'xsmall' | 'small' | 'medium'
     sizePx?: number
     disableTooltip?: boolean

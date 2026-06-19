@@ -141,3 +141,27 @@ def validate_direct_mysql_source_config(
         raise ExposedHogQLError(host_errors or "Invalid MySQL host.")
 
     return mysql_source.get_implementation, config
+
+def validate_direct_snowflake_source_config(source: ExternalDataSource, team: "Team") -> tuple["SnowflakeImplementation", "SnowflakeSourceConfig"]:
+    from posthog.temporal.data_imports.sources import SourceRegistry
+    from posthog.temporal.data_imports.sources.snowflake.source import SnowflakeSource
+
+    from products.data_warehouse.backend.types import ExternalDataSourceType
+
+    if not source.is_direct_snowflake:
+        raise ExposedHogQLError("Invalid direct Snowflake connection.")
+
+    snowflake_source = cast(SnowflakeSource, SourceRegistry.get_source(ExternalDataSourceType.SNOWFLAKE))
+    config = snowflake_source.parse_config(source.job_inputs or {})
+
+    is_ssh_valid, ssh_valid_errors = snowflake_source.ssh_tunnel_is_valid(config, team.pk)
+    if not is_ssh_valid:
+        raise ExposedHogQLError(ssh_valid_errors or "Invalid SSH tunnel configuration.")
+
+    valid_host, host_errors = snowflake_source.is_database_host_valid(
+        config.host, team.pk, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+    )
+    if not valid_host:
+        raise ExposedHogQLError(host_errors or "Invalid Snowflake host.")
+
+    return snowflake_source.get_implementation, config

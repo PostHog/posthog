@@ -17,7 +17,10 @@ from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
-from posthog.temporal.data_imports.sources.snowflake.snowflake import SnowflakeImplementation
+from posthog.temporal.data_imports.sources.snowflake.snowflake import (
+    SnowflakeImplementation,
+    get_connection_metadata as get_connection_metadata_snowflake,
+)
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -249,6 +252,9 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # a broken object on the source side that retrying can't repair.
             "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
         }
+
+    def get_connection_metadata(self, config: SnowflakeSourceConfig, team_id: int) -> dict[str, str | None]:
+        return get_connection_metadata_snowflake(config)
 
     def validate_credentials(
         self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None

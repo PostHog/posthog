@@ -10,6 +10,7 @@ import IconPostHog from 'public/posthog-icon.svg'
 import IconDuckDB from 'public/services/duckdb.svg'
 import IconMySQL from 'public/services/mysql.png'
 import IconPostgres from 'public/services/postgres.png'
+import IconSnowflake from 'public/services/snowflake.png'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
@@ -19,6 +20,7 @@ export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 export const LOADING_CONNECTIONS = '__loading_connections__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
 export const ADD_MYSQL_DIRECT_CONNECTION = '__add_mysql_direct_connection__'
+export const ADD_SNOWFLAKE_DIRECT_CONNECTION = '__add_snowflake_direct_connection__'
 export const CONFIGURE_SOURCES = '__configure_sources__'
 
 export interface ConnectionSelectOption {
@@ -33,23 +35,29 @@ export interface ConnectionSelectOptionGroup {
     options: ConnectionSelectOption[]
 }
 
-type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql'
+type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql' | 'snowflake'
 
 const ENGINE_LABELS: Record<ConnectionEngine, string> = {
     duckdb: 'DuckDB',
     postgres: 'Postgres',
     mysql: 'MySQL',
+    snowflake: 'Snowflake',
 }
 
 const ENGINE_ICONS: Record<ConnectionEngine, string> = {
     duckdb: IconDuckDB,
     postgres: IconPostgres,
     mysql: IconMySQL,
+    snowflake: IconSnowflake,
 }
 
 function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOption, 'engine'>): ConnectionEngine {
-    if (source.engine === 'duckdb' || source.engine === 'mysql') {
-        return source.engine
+    switch (source.engine) {
+        case 'duckdb':
+        case 'postgres':
+        case 'mysql':
+        case 'snowflake':
+            return source.engine
     }
     return 'postgres'
 }
@@ -103,15 +111,15 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                 const sourceOptions = connectionOptionsLoading
                     ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
                     : (connectionOptions ?? []).map((source) => {
-                          const engine = getConnectionEngine(source)
+                        const engine = getConnectionEngine(source)
 
-                          return {
-                              value: source.id,
-                              label: `${source.prefix ? source.prefix : source.id} (${ENGINE_LABELS[engine]})`,
-                              iconSrc: ENGINE_ICONS[engine],
-                              managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
-                          }
-                      })
+                        return {
+                            value: source.id,
+                            label: `${source.prefix ? source.prefix : source.id} (${ENGINE_LABELS[engine]})`,
+                            iconSrc: ENGINE_ICONS[engine],
+                            managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
+                        }
+                    })
 
                 return [
                     {
@@ -129,6 +137,7 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                             { value: CONFIGURE_SOURCES, label: 'Configure sources' },
                             { value: ADD_POSTGRES_DIRECT_CONNECTION, label: '+ Add Postgres direct connection' },
                             { value: ADD_MYSQL_DIRECT_CONNECTION, label: '+ Add MySQL direct connection' },
+                            { value: ADD_SNOWFLAKE_DIRECT_CONNECTION, label: '+ Add Snowflake direct connection' },
                         ],
                     },
                 ]

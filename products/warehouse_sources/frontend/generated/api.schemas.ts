@@ -1662,6 +1662,7 @@ export const AccessMethodEnumApi = {
  * * `duckdb` - duckdb
  * * `postgres` - postgres
  * * `mysql` - mysql
+ * * `snowflake` - snowflake
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -1669,6 +1670,7 @@ export const EngineEnumApi = {
     Duckdb: 'duckdb',
     Postgres: 'postgres',
     Mysql: 'mysql',
+    Snowflake: 'snowflake',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -1715,7 +1717,8 @@ export interface ExternalDataSourceSerializersApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -2451,7 +2454,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -2566,7 +2570,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake */
     readonly engine: EngineEnumApi | null
 }
 

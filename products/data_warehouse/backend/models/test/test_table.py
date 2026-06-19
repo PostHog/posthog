@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     IntegerDatabaseField,

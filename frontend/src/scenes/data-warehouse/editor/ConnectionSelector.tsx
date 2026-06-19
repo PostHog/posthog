@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import {
     ADD_MYSQL_DIRECT_CONNECTION,
     ADD_POSTGRES_DIRECT_CONNECTION,
+    ADD_SNOWFLAKE_DIRECT_CONNECTION,
     CONFIGURE_SOURCES,
     POSTHOG_WAREHOUSE,
     connectionSelectorLogic,
@@ -69,6 +70,11 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
 
                 if (nextValue === ADD_MYSQL_DIRECT_CONNECTION) {
                     router.actions.push(urls.dataWarehouseSourceNew('MySQL', undefined, undefined, 'direct'))
+                    return
+                }
+
+                if (nextValue === ADD_SNOWFLAKE_DIRECT_CONNECTION) {
+                    router.actions.push(urls.dataWarehouseSourceNew('Snowflake', undefined, undefined, 'direct'))
                     return
                 }
 

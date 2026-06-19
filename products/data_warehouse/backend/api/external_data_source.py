@@ -96,6 +96,7 @@ from products.data_warehouse.backend.data_load.service import (
 )
 from products.data_warehouse.backend.direct_mysql import upsert_direct_mysql_table
 from products.data_warehouse.backend.direct_postgres import upsert_direct_postgres_table
+from products.data_warehouse.backend.direct_snowflake import upsert_direct_snowflake_table
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     delete_webhook_and_hog_function,
@@ -105,6 +106,7 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.mysql_helpers import get_mysql_source_location, reconcile_mysql_schemas
 from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location, reconcile_postgres_schemas
+from products.data_warehouse.backend.snowflake_helpers import get_snowflake_source_location, reconcile_snowflake_schemas
 from products.data_warehouse.backend.postgres_warehouse_migration import (
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
 )
@@ -128,6 +130,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import (
     mysql_columns_to_dwh_columns,
     postgres_columns_to_dwh_columns,
+    snowflake_columns_to_dwh_columns,
     validate_source_prefix,
 )
 
@@ -417,6 +420,19 @@ def get_mysql_source_table_location(
     )
 
 
+def get_snowflake_source_table_location(
+    *,
+    schema_name: str,
+    source_schema: SourceSchema | None,
+    default_schema: str | None,
+) -> tuple[str | None, str | None, str | None]:
+    return (
+        source_schema.source_catalog if source_schema else None,
+        source_schema.source_schema if source_schema else None,
+        source_schema.source_table_name if source_schema else None,
+    )
+
+
 CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
 
 
@@ -451,7 +467,7 @@ class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
         read_only=True,
         required=False,
         allow_null=True,
-        choices=["duckdb", "postgres", "mysql"],
+        choices=["duckdb", "postgres", "mysql", "snowflake"],
         help_text="Backend engine detected for the direct connection.",
     )
     function_source = serializers.CharField(
@@ -473,7 +489,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         source="connection_metadata.engine",
         read_only=True,
         allow_null=True,
-        choices=["duckdb", "postgres", "mysql"],
+        choices=["duckdb", "postgres", "mysql", "snowflake"],
         help_text="Backend engine detected for the direct connection.",
     )
 
@@ -636,7 +652,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         allow_null=True,
         required=False,
-        choices=["duckdb", "postgres", "mysql"],
+        choices=["duckdb", "postgres", "mysql", "snowflake"],
         help_text="Backend engine detected for the direct connection.",
     )
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
@@ -1034,6 +1050,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                         source_schemas=discovered_schemas,
                         team_id=instance.team_id,
                     )
+                elif updated_source.source_type == ExternalDataSourceType.SNOWFLAKE:
+                    reconcile_snowflake_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
                 else:
                     reconcile_mysql_schemas(
                         source=updated_source,
@@ -1382,11 +1404,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
         is_direct_postgres = is_direct_query and source_type == ExternalDataSourceType.POSTGRES
         is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
+        is_direct_snowflake = is_direct_query and source_type == ExternalDataSourceType.SNOWFLAKE
 
-        if is_direct_query and not (is_direct_postgres or is_direct_mysql):
+        if is_direct_query and not (is_direct_postgres or is_direct_mysql or is_direct_snowflake):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+                data={
+                    "message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."
+                },
             )
 
         if is_direct_query:
@@ -1652,6 +1677,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_schema=source_schema,
                     default_schema=default_source_schema or source_config.to_dict().get("database"),
                 )
+            elif is_direct_snowflake:
+                metadata_source_catalog, metadata_source_schema, metadata_source_table_name = (
+                    get_snowflake_source_table_location(
+                        schema_name=schema_name,
+                        source_schema=source_schema,
+                        default_schema=default_source_schema or source_config.to_dict().get("database"),
+                    )
+                )
             else:
                 metadata_source_catalog = source_schema.source_catalog if source_schema else None
                 metadata_source_schema = source_schema.source_schema if source_schema else None
@@ -1806,6 +1839,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         source_schema.detected_primary_keys if source_schema else None,
                         incremental_field,
                         # Direct-mysql columns are keyed by raw, case-sensitive source names.
+                        normalize=False,
+                    ),
+                    source_schema=cast(str, metadata_source_schema),
+                    source_table_name=cast(str, metadata_source_table_name),
+                )
+                schema_model.save(update_fields=["table"])
+            elif new_source_model.is_direct_snowflake and should_sync:
+                schema_model.table = upsert_direct_snowflake_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
+                    columns=filter_dwh_columns_by_enabled_columns(
+                        snowflake_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        enabled_columns,
+                        source_schema.detected_primary_keys if source_schema else None,
+                        incremental_field,
+                        # Direct-snowflake columns are keyed by raw, case-sensitive source names.
                         normalize=False,
                     ),
                     source_schema=cast(str, metadata_source_schema),
@@ -3226,7 +3276,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
                 access_method=ExternalDataSource.AccessMethod.DIRECT,
-                source_type__in=(ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL),
+                source_type__in=(
+                    ExternalDataSourceType.POSTGRES,
+                    ExternalDataSourceType.MYSQL,
+                    ExternalDataSourceType.SNOWFLAKE,
+                ),
             )
             .exclude(deleted=True)
             .only("id", "prefix", "connection_metadata")

@@ -474,6 +474,47 @@ def mysql_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[s
     }
 
 
+def snowflake_column_to_dwh_column(_column_name: str, snowflake_type: str, nullable: bool) -> dict[str, Any]:
+    normalized_type = snowflake_type.lower()
+    clickhouse_type: str | None = None
+
+    if normalized_type.startswith("number"):
+        clickhouse_type = "Decimal"
+    elif normalized_type.startswith("float"):
+        clickhouse_type = "Float64"
+    elif normalized_type.startswith("boolean"):
+        clickhouse_type = "Bool"
+    elif normalized_type.startswith("date"):
+        clickhouse_type = "Date"
+    elif normalized_type.startswith("timestamp"):
+        clickhouse_type = "DateTime64"
+    elif (
+        normalized_type.startswith("variant")
+        or normalized_type.startswith("object")
+        or normalized_type.startswith("array")
+    ):
+        clickhouse_type = "String"
+    else:
+        clickhouse_type = "String"
+
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def snowflake_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: snowflake_column_to_dwh_column(column_name, snowflake_type, nullable)
+        for column_name, snowflake_type, nullable in columns
+    }
+
+
 def _is_safe_public_ip(host: str) -> bool:
     ip = ip_address(host)
 

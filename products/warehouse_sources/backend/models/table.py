@@ -16,6 +16,7 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
@@ -34,6 +35,10 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 from products.data_warehouse.backend.direct_mysql import DIRECT_MYSQL_SCHEMA_OPTION, DIRECT_MYSQL_TABLE_OPTION
+from products.data_warehouse.backend.direct_snowflake import (
+    DIRECT_SNOWFLAKE_SCHEMA_OPTION,
+    DIRECT_SNOWFLAKE_TABLE_OPTION,
+)
 from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_CATALOG_OPTION,
     DIRECT_POSTGRES_SCHEMA_OPTION,
@@ -463,7 +468,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable:
+    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -541,6 +546,27 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 fields=fields,
                 mysql_schema=mysql_schema,
                 mysql_table_name=mysql_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        if self.external_data_source and self.external_data_source.is_direct_snowflake:
+            job_inputs = self.external_data_source.job_inputs or {}
+            snowflake_schema = (
+                self.options.get(DIRECT_SNOWFLAKE_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_SNOWFLAKE_SCHEMA_OPTION), str)
+                else job_inputs.get("schema", "public")
+            )
+            snowflake_table_name = (
+                self.options.get(DIRECT_SNOWFLAKE_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_SNOWFLAKE_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectSnowflakeTable(
+                name=self.name,
+                fields=fields,
+                snowflake_schema=snowflake_schema,
+                snowflake_table_name=snowflake_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
             )

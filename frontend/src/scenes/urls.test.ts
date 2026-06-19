@@ -1,7 +1,7 @@
 import { urls } from './urls'
 
 describe('urls', () => {
-    it.each(['Postgres', 'MySQL'] as const)(
+    it.each(['Postgres', 'MySQL', 'Snowflake'] as const)(
         'includes direct access method when opening the new %s source wizard in direct mode',
         (sourceType) => {
             expect(urls.dataWarehouseSourceNew(sourceType, undefined, undefined, 'direct')).toEqual(
