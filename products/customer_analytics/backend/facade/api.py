@@ -37,7 +37,7 @@ from products.customer_analytics.backend.logic.usage_spike_notifications import 
 )
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
-from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.notebooks.backend.facade import api as notebooks
 
 from . import contracts
 
@@ -76,16 +76,10 @@ def _account_tags(account: Account) -> list[str]:
 
 
 def _account_notes(account: Account) -> list[contracts.AccountNote]:
-    links = (
-        ResourceNotebook.objects.filter(
-            account=account,
-            notebook__deleted=False,
-            notebook__visibility=Notebook.Visibility.INTERNAL,
-        )
-        .select_related("notebook")
-        .order_by("-notebook__last_modified_at")
-    )
-    return [contracts.AccountNote(title=link.notebook.title, short_id=link.notebook.short_id) for link in links]
+    return [
+        contracts.AccountNote(title=note.title, short_id=note.short_id)
+        for note in notebooks.list_account_internal_notes(account.id)
+    ]
 
 
 def get_account_context_data(

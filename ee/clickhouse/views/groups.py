@@ -48,8 +48,8 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
 from products.event_definitions.backend.models.property_definition import PropertyType
-from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.notebooks.backend.util import (
+from products.notebooks.backend.facade import api as notebooks
+from products.notebooks.backend.facade.content import (
     create_bullet_list,
     create_empty_paragraph,
     create_heading_with_text,
@@ -258,8 +258,7 @@ class FindGroupSerializer(GroupSerializer):
         fields = [*GroupSerializer.Meta.fields, "notebook"]
 
     def get_notebook(self, obj: Group) -> str | None:
-        notebooks = ResourceNotebook.objects.filter(group=obj.id).first()
-        return notebooks.notebook.short_id if notebooks else None
+        return notebooks.get_group_notebook_short_id(obj.id)
 
 
 class CreateGroupSerializer(serializers.ModelSerializer):
@@ -532,7 +531,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         if (
             not skip_create_notebook
             and self._is_crm_enabled(cast(User, request.user))
-            and not ResourceNotebook.objects.filter(group=group.id).exists()
+            and not notebooks.group_has_notebook(group.id)
         ):
             try:
                 self._create_notebook_for_group(group=group)
@@ -890,13 +889,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             create_heading_with_text(text="Last interaction", level=2),
             create_bullet_list(items=["Date: ", "Context: ", "Next steps: "]),
         ]
-        notebook = Notebook.objects.create(
-            team=self.team,
-            title=notebook_title,
-            content=notebook_content,
-            visibility=Notebook.Visibility.INTERNAL,
-        )
-        ResourceNotebook.objects.create(notebook=notebook, group=group.id)
+        notebooks.create_group_notebook(self.team.id, group.id, title=notebook_title, content=notebook_content)
 
 
 _DW_FILTER_REQUIRED_FIELDS = ("table_name", "timestamp_field", "key_field")
