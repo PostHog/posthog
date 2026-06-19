@@ -394,6 +394,7 @@
           ExternalDataSourceType.NEBIUSAI: NebiusAISourceConfig,
           ExternalDataSourceType.NEON: NeonSourceConfig,
           ExternalDataSourceType.NETSUITE: NetSuiteSourceConfig,
+          ExternalDataSourceType.NEWRELIC: NewRelicSourceConfig,
           ExternalDataSourceType.NEWYORKTIMES: NewYorkTimesSourceConfig,
           ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
           ExternalDataSourceType.NEWSDATA: NewsDataSourceConfig,
