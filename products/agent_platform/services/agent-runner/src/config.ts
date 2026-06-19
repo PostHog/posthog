@@ -30,10 +30,12 @@ const DEV_S3_BUCKET = 'posthog'
 const DEV_S3_ACCESS_KEY_ID = 'any'
 const DEV_S3_SECRET_ACCESS_KEY = 'any'
 
-// Deterministic local ai-gateway phs_ bearer (dev only) — matches
-// bin/setup-gateway-e2e's DEV_GATEWAY_PHS, which publishes the matching
-// credential blob to the gateway's local valkey.
-const DEV_GATEWAY_PHS = 'phs_localgatewaye2elocalgatewaye2e0001'
+// Deterministic local ai-gateway phs_ bearer (dev only) — must stay
+// byte-identical to bin/setup-gateway-e2e's DEV_GATEWAY_PHS, which publishes the
+// matching credential blob to the gateway's local valkey (a mismatch 401s the
+// whole e2e silently). Exported so config.test.ts asserts against this const
+// instead of re-hardcoding the literal.
+export const DEV_GATEWAY_PHS = 'phs_localgatewaye2elocalgatewaye2e0001'
 
 export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     // Bus (publishes lifecycle events) + smokescreen (tool/gateway/MCP egress) are

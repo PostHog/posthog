@@ -55,9 +55,17 @@ fi
 upsert_env() {
     local file="$1" key="$2" value="$3"
     touch "$file"
-    # Drop any existing assignment, then append the fresh one.
-    grep -vE "^${key}=" "$file" >"${file}.tmp" 2>/dev/null || true
-    mv "${file}.tmp" "$file"
+    # Drop any existing assignment, then append the fresh one. grep -v exits 0
+    # (lines kept) or 1 (none kept — file empty or only this key); both are fine.
+    # Exit >=2 is a real grep error — don't overwrite the original with a possibly
+    # truncated temp; leave the file intact and just append below.
+    local rc=0
+    grep -vE "^${key}=" "$file" >"${file}.tmp" 2>/dev/null || rc=$?
+    if [ "$rc" -le 1 ]; then
+        mv "${file}.tmp" "$file"
+    else
+        rm -f "${file}.tmp"
+    fi
     printf '%s=%s\n' "$key" "$value" >>"$file"
 }
 
@@ -67,54 +75,15 @@ upsert_env() {
 log "bringing up sibling gateway deps (postgres + valkey)"
 (cd "$AI_GATEWAY_REPO" && docker compose up -d --wait --remove-orphans >/dev/null)
 
-# 2-3. Enable the team, mint the phs_, publish the blob to the gateway's Valkey.
-#      AI_GATEWAY_REDIS_URL points the dedicated hypercache alias at :6381 so
-#      the write lands where the gateway reads (posthog:1:cache/...).
+# 2-3. Enable the team, mint the phs_, publish the blob to the gateway's Valkey
+#      — all in the testable `setup_local_gateway_credential` management command
+#      (was an inline `manage.py shell` heredoc). AI_GATEWAY_REDIS_URL points the
+#      dedicated hypercache alias at :6381 so the write lands where the gateway
+#      reads (posthog:1:cache/...).
 log "provisioning phs_ + publishing credential blob to $GATEWAY_REDIS_URL"
 provision_out="$(
-    DEBUG="${DEBUG:-1}" AI_GATEWAY_REDIS_URL="$GATEWAY_REDIS_URL" DEV_GATEWAY_PHS="$DEV_PHS" \
-        python "$REPO_ROOT/manage.py" shell 2>&1 <<'PY'
-import os
-from django.conf import settings
-from django.utils import timezone
-
-from posthog.models import Team
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-from posthog.models.utils import hash_key_value, mask_key_value
-from posthog.storage.gateway_credential_cache import project_gateway_credential
-
-assert not settings.CLOUD_DEPLOYMENT, "refusing to run against a cloud deployment"
-
-phs = os.environ["DEV_GATEWAY_PHS"]
-team = Team.objects.order_by("pk").first()
-assert team is not None, "no team in the local db — bootstrap one first"
-
-# Admit the team to the gateway (enabled and not revoked).
-team.llm_gateway_enabled_at = team.llm_gateway_enabled_at or timezone.now()
-team.llm_gateway_revoked_at = None
-team.save(update_fields=["llm_gateway_enabled_at", "llm_gateway_revoked_at"])
-
-secure = hash_key_value(phs)
-key, created = ProjectSecretAPIKey.objects.get_or_create(
-    team=team,
-    label="local-gateway-e2e",
-    defaults={"secure_value": secure, "mask_value": mask_key_value(phs), "scopes": ["llm_gateway:read"]},
-)
-changed = []
-if key.secure_value != secure:
-    key.secure_value, key.mask_value = secure, mask_key_value(phs)
-    changed += ["secure_value", "mask_value"]
-if key.scopes != ["llm_gateway:read"]:
-    key.scopes = ["llm_gateway:read"]
-    changed.append("scopes")
-if changed:
-    key.save(update_fields=changed)
-
-# Publish synchronously — don't depend on a running Celery worker locally.
-project_gateway_credential(key)
-
-print(f"__GATEWAY_E2E_TEAM_ID__={team.id}")
-PY
+    DEBUG="${DEBUG:-1}" AI_GATEWAY_REDIS_URL="$GATEWAY_REDIS_URL" \
+        python "$REPO_ROOT/manage.py" setup_local_gateway_credential --phs "$DEV_PHS" 2>&1
 )" || true
 TEAM_ID="$(printf '%s\n' "$provision_out" | sed -n 's/^__GATEWAY_E2E_TEAM_ID__=//p')"
 if [ -z "${TEAM_ID:-}" ]; then
@@ -131,11 +100,21 @@ log "team $TEAM_ID enabled; phs_ minted + blob published"
 #    (start-ai-gateway re-invokes this script on every gateway boot) don't keep
 #    stacking +$100 topups onto the same team.
 log "funding team $TEAM_ID gateway ledger (+${TOPUP_USD} USD if not already funded)"
-if (cd "$AI_GATEWAY_REPO" && docker compose exec -T postgres psql -U postgres -d ai_gateway -v ON_ERROR_STOP=1 -c \
-    "INSERT INTO ledger_entries (team_id, transaction_type, source, destination, amount_usd) SELECT ${TEAM_ID}, 'topup', 'funding', 'prepaid', ${TOPUP_USD} WHERE NOT EXISTS (SELECT 1 FROM ledger_entries WHERE team_id = ${TEAM_ID} AND transaction_type = 'topup' AND source = 'funding');" >/dev/null 2>&1); then
+# Capture stderr (discard stdout) so a real SQL error — e.g. a sibling renames a
+# ledger_entries column — is surfaced instead of being silently indistinguishable
+# from the expected "schema not created yet" on a fresh stack.
+fund_rc=0
+fund_err="$(
+    cd "$AI_GATEWAY_REPO" && docker compose exec -T postgres psql -U postgres -d ai_gateway -v ON_ERROR_STOP=1 -c \
+        "INSERT INTO ledger_entries (team_id, transaction_type, source, destination, amount_usd) SELECT ${TEAM_ID}, 'topup', 'funding', 'prepaid', ${TOPUP_USD} WHERE NOT EXISTS (SELECT 1 FROM ledger_entries WHERE team_id = ${TEAM_ID} AND transaction_type = 'topup' AND source = 'funding');" 2>&1 >/dev/null
+)" || fund_rc=$?
+if [ "$fund_rc" -eq 0 ]; then
     log "ledger funded (or already funded — no-op)"
-else
+elif printf '%s' "$fund_err" | grep -qiE "does not exist"; then
     log "ledger not funded — gateway hasn't created the schema yet; start the gateway, then re-run this to fund"
+else
+    log "ledger funding failed unexpectedly (not a missing-schema case) — psql said:"
+    printf '%s\n' "$fund_err" >&2
 fi
 
 # 5. Switch the sibling gateway to resolver mode (validate phs_ vs the blob).

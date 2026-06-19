@@ -1,4 +1,4 @@
-import { AgentRunnerConfigSchema, defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
+import { AgentRunnerConfigSchema, DEV_GATEWAY_PHS, defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 
 // Minimal prod env satisfying every `requiredInProd` field, so prod tests can
 // load the config and assert the remaining (still-optional) fields.
@@ -28,6 +28,12 @@ describe('loadAgentRunnerConfig', () => {
         expect(cfg.logLevel).toBe('info')
         expect(cfg.bundleS3Bucket).toBe('prod-bundles')
         expect(cfg.memoryS3Bucket).toBe('prod-memory')
+        // The dev-only defaults must NOT leak into prod: their only guard is
+        // `isDev()`, so without this assert a hardcoded phs_ / analytics key
+        // could ship to prod unnoticed. Prod must inject these explicitly.
+        expect(cfg.posthogAiGatewayKey).toBeUndefined()
+        expect(cfg.posthogAnalyticsApiKey).toBeUndefined()
+        expect(cfg.posthogAnalyticsHost).toBeUndefined()
     })
 
     it('fails closed at config-load in prod when required infra env is unset', () => {
@@ -44,7 +50,7 @@ describe('loadAgentRunnerConfig', () => {
         // Local default is the gateway, with the deterministic dev phs_ bearer.
         expect(cfg.useAiGateway).toBe(true)
         expect(cfg.aiGatewayUrl).toBe('http://localhost:8080/v1')
-        expect(cfg.posthogAiGatewayKey).toBe('phs_localgatewaye2elocalgatewaye2e0001')
+        expect(cfg.posthogAiGatewayKey).toBe(DEV_GATEWAY_PHS)
     })
 
     it('defaults sandboxBackend to docker in dev so bin/start works without configuration', () => {
