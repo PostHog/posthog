@@ -54,6 +54,11 @@ _MAX_SKILL_FILE_PATH_LENGTH = 500
 # classifying a config's origin downstream. Keep reads of it pointed at this constant.
 HARNESS_SEEDED_BY = "signals_scout_harness"
 
+# Stamped on `LLMSkill.category` for every scout row so the skills surface can group scouts into
+# their own tab without knowing anything about the `signals-scout-*` naming convention. The skills
+# product treats `category` as an opaque string; this is the value the harness writes.
+SCOUT_SKILL_CATEGORY = "scout"
+
 
 @dataclass(frozen=True)
 class CanonicalSkillFile:
@@ -324,6 +329,7 @@ def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonica
                 "source": "products/signals/skills",
                 "canonical_hash": canonical_hash,
             },
+            category=SCOUT_SKILL_CATEGORY,
             version=1,
             is_latest=True,
         )
@@ -375,6 +381,7 @@ def _update_skill_from_canonical(
             body=canonical.body,
             allowed_tools=list(canonical.allowed_tools),
             metadata=new_metadata,
+            category=SCOUT_SKILL_CATEGORY,
             version=new_version,
             is_latest=True,
         )

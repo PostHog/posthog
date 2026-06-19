@@ -16,12 +16,14 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     drop_slot,
     drop_slot_and_publication,
     get_max_slot_wal_keep_size_mb,
+    get_publication_tables,
     get_slot_lag_bytes,
     is_slot_invalidation_error,
     publication_exists,
     remove_table_from_publication,
     slot_exists,
 )
+from posthog.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 
 if TYPE_CHECKING:
     from posthog.temporal.data_imports.cdc.types import CDCStreamReader
@@ -40,16 +42,21 @@ class PostgresCDCAdapter:
             PgCDCConnectionParams,
             PgCDCStreamReader,
         )
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
         inputs = source.job_inputs or {}
         cdc_config = self.parse_cdc_config(source)
+        # Two-arg form honors the SSH-tunnel `require_tls` opt-out, matching the management
+        # path (slot_manager.cdc_pg_connection) so a tunnelled source that opted out of TLS
+        # is not force-upgraded on the data path.
+        config = PostgresSource().parse_config(inputs)
         params = PgCDCConnectionParams(
             host=inputs.get("host", ""),
             port=int(inputs.get("port", 5432)),
             database=inputs.get("database", ""),
             user=inputs.get("user", ""),
             password=inputs.get("password", ""),
-            sslmode=inputs.get("sslmode", "prefer"),
+            require_ssl=source_requires_ssl(source, config),
             slot_name=cdc_config.slot_name,
             publication_name=cdc_config.publication_name,
         )
@@ -221,10 +228,16 @@ class PostgresCDCAdapter:
                 publication_exists(conn, cdc_config.publication_name) if cdc_config.publication_name else False
             )
             lag_bytes = get_slot_lag_bytes(conn, cdc_config.slot_name) if cdc_config.slot_name else None
+            published_tables = (
+                get_publication_tables(conn, cdc_config.publication_name)
+                if cdc_config.publication_name and pub_present
+                else []
+            )
         return {
             "slot_exists": slot_present,
             "publication_exists": pub_present,
             "lag_bytes": lag_bytes,
+            "published_tables": published_tables,
         }
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:

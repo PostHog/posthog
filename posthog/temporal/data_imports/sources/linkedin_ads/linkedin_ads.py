@@ -11,7 +11,6 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value, initial_datetime
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -19,10 +18,16 @@ from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsS
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
-from .client import LinkedinAdsClient, LinkedinAdsResource
+from .client import LinkedinAdsClient, LinkedinAdsDailyRateLimitError, LinkedinAdsResource
 from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
 
 module_logger = structlog.get_logger(__name__)
+
+# On the first sync there's no saved cursor, so analytics would otherwise start from the epoch.
+# Syncing stats from 1970 fans out into dozens of empty yearly windows per stats resource, and that
+# call volume exhausts LinkedIn's per-member/app daily budget and trips the 429 DAY throttle. Cap the
+# initial lookback like the other ad-reporting sources do (mirrors Bing Ads' 5-year window).
+INITIAL_ANALYTICS_LOOKBACK_DAYS = 365 * 5
 
 
 @dataclass
@@ -141,28 +146,25 @@ def linkedin_ads_source(
         now = dt.datetime.now()
         date_start = None
         date_end = now.strftime("%Y-%m-%d")
+        default_start = (now - dt.timedelta(days=INITIAL_ANALYTICS_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
         if should_use_incremental_field and schema.filter_field_names:
             if incremental_field is None or incremental_field_type is None:
                 raise ValueError("incremental_field and incremental_field_type can't be None")
 
             if db_incremental_field_last_value is None:
-                last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(
-                    incremental_field_type
-                )
+                date_start = default_start
             else:
-                last_value = db_incremental_field_last_value
-
-            if isinstance(last_value, dt.datetime):
-                date_start = last_value.strftime("%Y-%m-%d")
-            elif isinstance(last_value, dt.date):
-                date_start = last_value.isoformat()
-            elif isinstance(last_value, str):
-                date_start = last_value
+                last_value: int | dt.datetime | dt.date | str = db_incremental_field_last_value
+                if isinstance(last_value, dt.datetime):
+                    date_start = last_value.strftime("%Y-%m-%d")
+                elif isinstance(last_value, dt.date):
+                    date_start = last_value.isoformat()
+                elif isinstance(last_value, str):
+                    date_start = last_value
 
         else:
-            start_date = initial_datetime
-            date_start = start_date.strftime("%Y-%m-%d")
+            date_start = default_start
 
         resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
         starting_page_token = resume_config.page_token if resume_config is not None else None
@@ -191,21 +193,30 @@ def linkedin_ads_source(
         batcher = Batcher(logger=logger)
         pending_next_page_token: str | None = None
 
-        for page, next_page_token in data_pages:
-            # None signals an unflattenable PK (malformed creative URN) — drop the row.
-            flattened_records = [
-                flat for record in page if (flat := _flatten_linkedin_record(record, schema)) is not None
-            ]
-            for record in flattened_records:
-                batcher.batch(record)
-                if batcher.should_yield():
-                    yield batcher.get_table()
-                    if pending_next_page_token is not None:
-                        resumable_source_manager.save_state(LinkedInAdsResumeConfig(page_token=pending_next_page_token))
-                        pending_next_page_token = None
+        try:
+            for page, next_page_token in data_pages:
+                # None signals an unflattenable PK (malformed creative URN) — drop the row.
+                flattened_records = [
+                    flat for record in page if (flat := _flatten_linkedin_record(record, schema)) is not None
+                ]
+                for record in flattened_records:
+                    batcher.batch(record)
+                    if batcher.should_yield():
+                        yield batcher.get_table()
+                        if pending_next_page_token is not None:
+                            resumable_source_manager.save_state(
+                                LinkedInAdsResumeConfig(page_token=pending_next_page_token)
+                            )
+                            pending_next_page_token = None
 
-            if next_page_token is not None:
-                pending_next_page_token = next_page_token
+                if next_page_token is not None:
+                    pending_next_page_token = next_page_token
+        except LinkedinAdsDailyRateLimitError:
+            # The per-member/app daily call budget only resets at midnight UTC, so there's no more
+            # data to fetch today. Stop here rather than failing the job: progress so far is durable
+            # (resume token for entity finders, incremental field value for analytics) and the next
+            # scheduled sync continues from where we left off.
+            logger.info(f"LinkedInAds: daily rate limit reached, stopping {resource_name} early for this run")
 
         if batcher.should_yield(include_incomplete_chunk=True):
             yield batcher.get_table()

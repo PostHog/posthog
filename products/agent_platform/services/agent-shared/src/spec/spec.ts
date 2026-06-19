@@ -833,7 +833,6 @@ export interface AgentApplication {
     description: string
     live_revision_id: string | null
     archived: boolean
-    encrypted_env: string | null
 }
 
 export interface AgentRevision {
@@ -847,6 +846,14 @@ export interface AgentRevision {
     bundle_uri: string
     bundle_sha256: string | null
     spec: AgentSpec
+    /**
+     * Encrypted JSON env block — the secret values this revision runs with.
+     * Decrypted at session start by the runner's secret resolver (same
+     * `EncryptedFields` key schedule as before). Lives on the revision (not
+     * the application) so a draft preview runs against its own secrets,
+     * isolated from the live revision. NULL means "no secrets set".
+     */
+    encrypted_env: string | null
 }
 
 /**

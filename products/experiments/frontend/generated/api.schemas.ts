@@ -283,16 +283,6 @@ export interface ExperimentRunningTimeCalculationApi {
     recommended_sample_size?: number | null
 }
 
-export interface ExperimentToSavedMetricApi {
-    readonly id: number
-    experiment: number
-    saved_metric: number
-    metadata?: unknown
-    readonly created_at: string
-    readonly query: unknown
-    readonly name: string
-}
-
 /**
  * * `web` - web
  * * `product` - product
@@ -303,6 +293,130 @@ export const ExperimentTypeEnumApi = {
     Web: 'web',
     Product: 'product',
 } as const
+
+/**
+ * * `won` - won
+ * * `lost` - lost
+ * * `inconclusive` - inconclusive
+ * * `stopped_early` - stopped_early
+ * * `invalid` - invalid
+ */
+export type ConclusionEnumApi = (typeof ConclusionEnumApi)[keyof typeof ConclusionEnumApi]
+
+export const ConclusionEnumApi = {
+    Won: 'won',
+    Lost: 'lost',
+    Inconclusive: 'inconclusive',
+    StoppedEarly: 'stopped_early',
+    Invalid: 'invalid',
+} as const
+
+export type ExperimentStatusEnumApi = (typeof ExperimentStatusEnumApi)[keyof typeof ExperimentStatusEnumApi]
+
+export const ExperimentStatusEnumApi = {
+    Draft: 'draft',
+    Running: 'running',
+    Paused: 'paused',
+    Stopped: 'stopped',
+} as const
+
+/**
+ * Lightweight, read-only serializer for the experiment list endpoint.
+ *
+ * The list view (and the MCP list tool) render only the scalar and feature-flag fields
+ * shared via ``ExperimentBaseSerializer`` — never the metric definitions. Omitting
+ * ``metrics``/``metrics_secondary``/``saved_metrics`` lets the list query defer the large
+ * JSON columns and skip the saved-metric prefetch plus per-row fingerprinting; that work
+ * belongs to the detail response served by ``ExperimentSerializer``.
+ *
+ * Because the metric fields, the write-side machinery, and the action-name-refreshing
+ * ``to_representation`` all live on ``ExperimentSerializer`` rather than the shared base,
+ * this serializer needs no overrides: it gets DRF's default ``get_fields`` (no write-only
+ * ``holdout_id`` to configure), default ``to_representation`` (no metrics to normalize), and
+ * a plain ``ListSerializer`` that never touches the deferred columns. See
+ * ``EnterpriseExperimentsViewSet.safely_get_queryset``.
+ */
+export interface ExperimentBasicApi {
+    readonly id: number
+    /**
+     * Name of the experiment.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Description of the experiment hypothesis and expected outcomes.
+     * @maxLength 3000
+     * @nullable
+     */
+    description?: string | null
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
+    feature_flag_key: string
+    readonly feature_flag: MinimalFeatureFlagApi
+    readonly holdout: ExperimentHoldoutApi
+    /** @nullable */
+    readonly exposure_cohort: number | null
+    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+    parameters?: ExperimentParametersApi | null
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    running_time_calculation?: ExperimentRunningTimeCalculationApi | null
+    /** Whether the experiment is archived. */
+    archived?: boolean
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    /** Experiment type: web for frontend UI changes, product for backend/API changes.
+     *
+     * * `web` - web
+     * * `product` - product */
+    type?: ExperimentTypeEnumApi | null
+    /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
+     *
+     * * `won` - won
+     * * `lost` - lost
+     * * `inconclusive` - inconclusive
+     * * `stopped_early` - stopped_early
+     * * `invalid` - invalid */
+    conclusion?: ConclusionEnumApi | null
+    /**
+     * Comment about the experiment conclusion.
+     * @nullable
+     */
+    conclusion_comment?: string | null
+    /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+    readonly status: ExperimentStatusEnumApi
+    /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+    readonly is_legacy: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export interface PaginatedExperimentBasicListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExperimentBasicApi[]
+}
+
+export interface ExperimentToSavedMetricApi {
+    readonly id: number
+    experiment: number
+    saved_metric: number
+    metadata?: unknown
+    readonly created_at: string
+    readonly query: unknown
+    readonly name: string
+}
 
 export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
 
@@ -514,33 +628,12 @@ export interface ExperimentApiMetricApi {
 export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
 
 /**
- * * `won` - won
- * * `lost` - lost
- * * `inconclusive` - inconclusive
- * * `stopped_early` - stopped_early
- * * `invalid` - invalid
- */
-export type ConclusionEnumApi = (typeof ConclusionEnumApi)[keyof typeof ConclusionEnumApi]
-
-export const ConclusionEnumApi = {
-    Won: 'won',
-    Lost: 'lost',
-    Inconclusive: 'inconclusive',
-    StoppedEarly: 'stopped_early',
-    Invalid: 'invalid',
-} as const
-
-export type ExperimentStatusEnumApi = (typeof ExperimentStatusEnumApi)[keyof typeof ExperimentStatusEnumApi]
-
-export const ExperimentStatusEnumApi = {
-    Draft: 'draft',
-    Running: 'running',
-    Paused: 'paused',
-    Stopped: 'stopped',
-} as const
-
-/**
- * Mixin for serializers to add user access control fields
+ * Full experiment representation for the detail, create, and update endpoints.
+ *
+ * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+ * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+ * fields, and refreshes stale action names while serializing. The list endpoint uses the
+ * leaner ``ExperimentBasicSerializer`` instead.
  */
 export interface ExperimentApi {
     readonly id: number
@@ -625,6 +718,8 @@ export interface ExperimentApi {
     update_feature_flag_params?: boolean
     /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
     readonly status: ExperimentStatusEnumApi
+    /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+    readonly is_legacy: boolean
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -632,17 +727,13 @@ export interface ExperimentApi {
     readonly user_access_level: string | null
 }
 
-export interface PaginatedExperimentListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExperimentApi[]
-}
-
 /**
- * Mixin for serializers to add user access control fields
+ * Full experiment representation for the detail, create, and update endpoints.
+ *
+ * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+ * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+ * fields, and refreshes stale action names while serializing. The list endpoint uses the
+ * leaner ``ExperimentBasicSerializer`` instead.
  */
 export interface PatchedExperimentApi {
     readonly id?: number
@@ -727,6 +818,8 @@ export interface PatchedExperimentApi {
     update_feature_flag_params?: boolean
     /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
     readonly status?: ExperimentStatusEnumApi
+    /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+    readonly is_legacy?: boolean
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -760,16 +853,23 @@ export interface EndExperimentApi {
 }
 
 /**
- * * `manual` - manual
- * * `experiment_launch` - experiment_launch
- * * `experiment_stop` - experiment_stop
- * * `experiment_update` - experiment_update
+ * * `manual` - Manual
+ * * `cold_run` - Cold Run
+ * * `stale_refresh` - Stale Refresh
+ * * `auto_refresh` - Auto Refresh
+ * * `config_change` - Config Change
+ * * `experiment_launch` - Experiment Launch
+ * * `experiment_stop` - Experiment Stop
+ * * `experiment_update` - Experiment Update
  */
-export type RecalculateMetricsRequestTriggerEnumApi =
-    (typeof RecalculateMetricsRequestTriggerEnumApi)[keyof typeof RecalculateMetricsRequestTriggerEnumApi]
+export type TriggerEnumApi = (typeof TriggerEnumApi)[keyof typeof TriggerEnumApi]
 
-export const RecalculateMetricsRequestTriggerEnumApi = {
+export const TriggerEnumApi = {
     Manual: 'manual',
+    ColdRun: 'cold_run',
+    StaleRefresh: 'stale_refresh',
+    AutoRefresh: 'auto_refresh',
+    ConfigChange: 'config_change',
     ExperimentLaunch: 'experiment_launch',
     ExperimentStop: 'experiment_stop',
     ExperimentUpdate: 'experiment_update',
@@ -781,11 +881,15 @@ export const RecalculateMetricsRequestTriggerEnumApi = {
 export interface RecalculateMetricsRequestApi {
     /** What triggered this recalculation (manual is the default for user-initiated runs)
      *
-     * * `manual` - manual
-     * * `experiment_launch` - experiment_launch
-     * * `experiment_stop` - experiment_stop
-     * * `experiment_update` - experiment_update */
-    trigger?: RecalculateMetricsRequestTriggerEnumApi
+     * * `manual` - Manual
+     * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
+     * * `auto_refresh` - Auto Refresh
+     * * `config_change` - Config Change
+     * * `experiment_launch` - Experiment Launch
+     * * `experiment_stop` - Experiment Stop
+     * * `experiment_update` - Experiment Update */
+    trigger?: TriggerEnumApi
 }
 
 /**
@@ -805,19 +909,14 @@ export const ExperimentMetricsRecalculationStatusEnumApi = {
 } as const
 
 /**
- * * `manual` - Manual
- * * `experiment_launch` - Experiment Launch
- * * `experiment_stop` - Experiment Stop
- * * `experiment_update` - Experiment Update
+ * * `recalculation` - recalculation
+ * * `timeseries_fallback` - timeseries_fallback
  */
-export type ExperimentMetricsRecalculationTriggerEnumApi =
-    (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
+export type ResultSourceEnumApi = (typeof ResultSourceEnumApi)[keyof typeof ResultSourceEnumApi]
 
-export const ExperimentMetricsRecalculationTriggerEnumApi = {
-    Manual: 'manual',
-    ExperimentLaunch: 'experiment_launch',
-    ExperimentStop: 'experiment_stop',
-    ExperimentUpdate: 'experiment_update',
+export const ResultSourceEnumApi = {
+    Recalculation: 'recalculation',
+    TimeseriesFallback: 'timeseries_fallback',
 } as const
 
 /**
@@ -881,10 +980,14 @@ export interface ExperimentMetricsRecalculationApi {
     /** What triggered this recalculation
      *
      * * `manual` - Manual
+     * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
+     * * `auto_refresh` - Auto Refresh
+     * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update */
-    readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
+    readonly trigger: TriggerEnumApi
     /** When the job was created */
     readonly created_at: string
     /**
@@ -904,6 +1007,11 @@ export interface ExperimentMetricsRecalculationApi {
     readonly query_to: string | null
     /** True if returning an existing job rather than a newly created one */
     readonly is_existing: boolean
+    /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
+     *
+     * * `recalculation` - recalculation
+     * * `timeseries_fallback` - timeseries_fallback */
+    readonly result_source: ResultSourceEnumApi
     /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
     readonly results: readonly MetricRecalculationResultApi[]
 }
