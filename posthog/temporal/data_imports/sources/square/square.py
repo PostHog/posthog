@@ -25,6 +25,11 @@ SQUARE_HOSTS = {
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 
+# A Square cursor that outlives its ~5 minute TTL mid-stream forces a full restart.
+# Allow a few restarts so a transient stall during the re-scan doesn't fail the sync,
+# while still bounding the work for a stream that paginates slower than its cursor lives.
+MAX_CURSOR_RESTARTS = 3
+
 
 class SquareRetryableError(Exception):
     pass
@@ -165,7 +170,7 @@ def get_rows(
 
         return response.json()
 
-    restarted_after_invalid_cursor = False
+    restarts_remaining = MAX_CURSOR_RESTARTS
     while True:
         # Square encodes the original query in the cursor, so subsequent pages are
         # requested with the cursor alone — re-sending filters/sort can error.
@@ -174,10 +179,13 @@ def get_rows(
             data = fetch_page(params)
         except SquareInvalidCursorError:
             # An expired cursor can't be recovered by retrying it, so restart the
-            # stream from the beginning (merge dedupes on the primary key). Bounded
-            # to a single restart so a genuinely malformed query can't loop forever.
-            if cursor is None or restarted_after_invalid_cursor:
+            # stream from the beginning (merge dedupes on the primary key). A cursor-less
+            # initial request can't trigger this error, so a rejection there signals a
+            # malformed query rather than expiry — surface it instead of looping. The
+            # restart budget bounds the work when a stream keeps outliving its cursor.
+            if cursor is None or restarts_remaining <= 0:
                 raise
+            restarts_remaining -= 1
             logger.warning(f"Square: cursor for {endpoint} was rejected, restarting stream from the beginning")
             # Overwrite the stale cursor in the resume store now. Otherwise, if the
             # restart finishes within a single page (no fresh next_cursor to save),
@@ -187,7 +195,6 @@ def get_rows(
             if config.paginated:
                 resumable_source_manager.save_state(SquareResumeConfig(cursor=""))
             cursor = None
-            restarted_after_invalid_cursor = True
             continue
 
         items = data.get(config.data_key, [])
