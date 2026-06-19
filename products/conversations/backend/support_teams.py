@@ -103,12 +103,12 @@ def mark_teams_graph_message_seen(message_id: str) -> None:
     cache.set(key, True, timeout=SUPPORTHOG_TEAMS_GRAPH_MESSAGE_TTL_SECONDS)
 
 
-def claim_teams_graph_message(message_id: str) -> bool:
-    """Return True if this Graph message id was already claimed (duplicate)."""
+def is_teams_graph_message_seen(message_id: str) -> bool:
+    """Return True if this Graph message id was already processed (read-only check)."""
     if not message_id:
         return True
     key = f"{SUPPORTHOG_TEAMS_GRAPH_MESSAGE_KEY_PREFIX}{message_id}"
-    return not cache.add(key, True, timeout=SUPPORTHOG_TEAMS_GRAPH_MESSAGE_TTL_SECONDS)
+    return cache.get(key) is not None
 
 
 def get_teams_instance_settings() -> dict:

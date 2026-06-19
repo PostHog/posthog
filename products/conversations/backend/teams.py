@@ -28,11 +28,11 @@ from .cache import get_cached_teams_user, set_cached_teams_user
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
 from .support_teams import (
-    claim_teams_graph_message,
     get_bot_framework_token,
     get_bot_from_id,
     get_graph_token,
     invalidate_bot_framework_token,
+    is_teams_graph_message_seen,
     is_trusted_teams_service_url,
     mark_teams_graph_message_seen,
 )
@@ -588,7 +588,7 @@ def create_or_update_teams_ticket(
             )
             return None
 
-        if activity_id and claim_teams_graph_message(activity_id):
+        if activity_id and is_teams_graph_message_seen(activity_id):
             logger.debug(
                 "teams_thread_reply_duplicate_skipped",
                 team_id=team_id,
@@ -606,6 +606,7 @@ def create_or_update_teams_ticket(
                 item_context__teams_graph_message_id=activity_id,
             ).exists()
         ):
+            mark_teams_graph_message_seen(activity_id)
             return ticket
 
         Comment.objects.create(
@@ -625,6 +626,7 @@ def create_or_update_teams_ticket(
                 "teams_graph_message_id": activity_id,
             },
         )
+        mark_teams_graph_message_seen(activity_id)
 
         if not is_team_member:
             Ticket.objects.filter(id=ticket.id, team=team).update(

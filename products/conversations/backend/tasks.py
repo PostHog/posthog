@@ -10,6 +10,7 @@ from uuid import UUID
 from django.core import mail
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
+from django.db.models import F
 from django.db.models.fields.json import JSONField
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -903,6 +904,12 @@ def _parse_graph_datetime(value: str | None) -> datetime | None:
 TEAMS_DELTA_MAX_PAGES_PER_RUN = 20
 TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS = 30
 TEAMS_REPLIES_MAX_PAGES_PER_TICKET = 5
+# Cap the number of tickets whose threads we poll per channel per run.
+# Oldest-synced tickets are polled first so the sweep round-robins through
+# the backlog across successive every-minute runs.
+TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL = 20
+# Only poll threads on tickets created within this window.
+TEAMS_REPLIES_TICKET_AGE_DAYS = 30
 
 
 def _sync_one_ticket_thread_replies(
@@ -955,6 +962,7 @@ def _sync_one_ticket_thread_replies(
         data = resp.json()
         replies = data.get("value") or []
 
+        page_had_failure = False
         for reply in replies:
             msg_created = _parse_graph_datetime(reply.get("createdDateTime"))
             if msg_created and msg_created < watermark:
@@ -978,10 +986,14 @@ def _sync_one_ticket_thread_replies(
                     channel_id=channel_id,
                     ticket_id=str(ticket.id),
                 )
+                page_had_failure = True
                 continue
 
             if result and msg_created and (latest_synced_at is None or msg_created > latest_synced_at):
                 latest_synced_at = msg_created
+
+        if page_had_failure:
+            break
 
         url = data.get("@odata.nextLink")
 
@@ -1003,15 +1015,18 @@ def _sync_shared_channel_thread_replies(
     if not sync or not sync.primed:
         return
 
+    age_cutoff = timezone.now() - timedelta(days=TEAMS_REPLIES_TICKET_AGE_DAYS)
     tickets = (
         Ticket.objects.filter(
             team=team,
             channel_source=Channel.TEAMS,
             teams_channel_id=channel_id,
+            created_at__gte=age_cutoff,
         )
         .exclude(teams_conversation_id__isnull=True)
         .exclude(teams_conversation_id="")
         .exclude(status=Status.RESOLVED)
+        .order_by(F("teams_thread_replies_synced_at").asc(nulls_first=True))[:TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL]
     )
 
     for ticket in tickets:
