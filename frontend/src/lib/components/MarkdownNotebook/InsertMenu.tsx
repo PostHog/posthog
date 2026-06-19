@@ -172,7 +172,8 @@ export function buildInsertCommands(
     focusInsertedTable: (nodeId: string) => void,
     focusInsertedCode: (nodeId: string) => void,
     openAIPrompt?: (nodeId: string) => void,
-    isAskAIDisabled?: boolean
+    isAskAIDisabled?: boolean,
+    extraCommands: InsertCommand[] = []
 ): InsertCommand[] {
     const commonCategory = 'Common'
 
@@ -273,19 +274,6 @@ export function buildInsertCommands(
                                 { event: '$pageleave', kind: 'EventsNode' },
                             ],
                         },
-                    },
-                }),
-        },
-        {
-            key: 'query-saved-insight',
-            label: 'Saved insight',
-            category: 'Insight',
-            icon: <IconGraph />,
-            run: (targetNodeId) =>
-                insertComponent(targetNodeId, 'Query', {
-                    query: {
-                        kind: 'SavedInsightNode',
-                        shortId: '',
                     },
                 }),
         },
@@ -496,6 +484,7 @@ export function buildInsertCommands(
         ...mediaCommands,
         ...componentCommands,
         ...textStyleCommands,
+        ...extraCommands,
     ]
 }
 
