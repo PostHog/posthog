@@ -1,6 +1,6 @@
 import datetime as dt
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import structlog
 import temporalio
@@ -15,6 +15,7 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.user import User
 from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter, source_type_supports_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
@@ -395,7 +396,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         hogql_context = self.context.get("database", None)
         if not hogql_context:
-            hogql_context = Database.create_for(team_id=self.context["team_id"])
+            hogql_context = Database.create_for(
+                team_id=self.context["team_id"],
+                user=cast(User, self.context["request"].user),
+            )
 
         if schema.table and schema.table.deleted:
             return None
@@ -960,7 +964,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
         context["include_source"] = self.action == "retrieve"
         return context

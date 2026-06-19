@@ -1308,7 +1308,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
 
         return context
 

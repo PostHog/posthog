@@ -2299,6 +2299,16 @@ export namespace Schemas {
       value: number;
     }
 
+    export type LegendPosition = typeof LegendPosition[keyof typeof LegendPosition];
+
+
+    export const LegendPosition = {
+      Top: 'top',
+      Bottom: 'bottom',
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
     export type MetricSummary = typeof MetricSummary[keyof typeof MetricSummary];
 
 
@@ -2393,6 +2403,8 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       hiddenLegendIndexes?: number[] | null;
       hideWeekends?: boolean | null;
+      /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+      legendPosition?: LegendPosition | null;
       /** Metric display: change pill color when the metric decreased. Defaults to red. */
       metricChangeDecreaseColor?: string | null;
       /** Metric display: change pill color when the metric increased. Defaults to green. */
