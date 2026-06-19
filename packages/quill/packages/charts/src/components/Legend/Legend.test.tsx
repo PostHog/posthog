@@ -59,7 +59,6 @@ describe('Legend', () => {
             />
         )
         expect(container.querySelectorAll('[data-attr^="wrap-"]')).toHaveLength(ITEMS.length)
-        // The default toggle button still renders inside the wrapper and stays interactive.
         const wrapped = container.querySelector('[data-attr="wrap-returning"] button')!
         fireEvent.click(wrapped)
         expect(onClick).toHaveBeenCalledWith('returning')
