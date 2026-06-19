@@ -1190,9 +1190,7 @@ class Database(BaseModel):
         backing_table_ids = {
             sq.table_id
             for sq in (*saved_queries, *endpoint_saved_queries)
-            if sq.table_id is not None
-            and sq.table is not None
-            and f"team_{team.pk}_model_{sq.id.hex}/modeling" in sq.table.url_pattern
+            if sq.table_id is not None and sq.table is not None and sq.folder_path in sq.table.url_pattern
         }
 
         with timings.measure("data_warehouse_tables", emit_span=True):
