@@ -83,6 +83,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _recovery_conflict_abort_error,
     _rls_active_from_conn,
     _role_subject_to_rls,
+    _safe_close_connection,
     _statement_timeout_as_non_retryable,
     filter_postgres_incremental_fields,
     get_foreign_keys,
@@ -1243,6 +1244,154 @@ class TestServerCursorStatementTimeout:
             self._run(should_use_incremental_field=should_use_incremental_field)
         if expected_substr is not None:
             assert expected_substr in str(exc_info.value)
+
+
+class TestOffsetChunkingConnectRecoveryConflict:
+    """A recovery conflict raised by the connect itself in the offset-chunking fallback — a hot
+    standby cancelling the new connection's startup with "conflict with recovery" — must be retried
+    in-process, not escape `get_rows`. The bootstrap connect used to run outside the retry loop, so
+    the conflict bypassed the loop's recovery-conflict handler and failed the whole sync.
+    """
+
+    _RECOVERY_CONFLICT = "canceling statement due to conflict with recovery"
+
+    class _NamedCursor:
+        def __init__(self):
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            # The initial server-cursor read on a read replica hits the recovery conflict, which
+            # routes get_rows into the offset-chunking fallback.
+            raise psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery")
+
+        def fetchmany(self, _n):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _OffsetCursor:
+        # Unnamed client cursor used by the offset-chunking path; yields no rows so the loop ends.
+        def __init__(self):
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchall(self):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+
+        def cursor(self, *args, **kwargs):
+            if "name" in kwargs:
+                return TestOffsetChunkingConnectRecoveryConflict._NamedCursor()
+            # Unnamed setup cursor (metadata probes are patched out) stays benign.
+            return mock.MagicMock()
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def test_recovery_conflict_on_offset_chunking_connect_is_retried_in_process(self):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        connection = self._Connection()
+        connect_calls = {"n": 0}
+
+        def connect_side_effect(*args, **kwargs):
+            connect_calls["n"] += 1
+            # Calls 1 (setup) and 2 (initial server-cursor read) succeed; the offset-chunking
+            # bootstrap connect hits the recovery conflict twice before succeeding.
+            if connect_calls["n"] in (3, 4):
+                raise psycopg.errors.SerializationFailure(self._RECOVERY_CONFLICT)
+            return connection
+
+        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", side_effect=connect_side_effect) as connect_mock,
+            patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._OffsetCursor()),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+            patch(f"{module}.time.sleep"),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            # Before the fix the connect-time conflict escaped offset_chunking and raised here.
+            list(cast(Iterable[Any], response.items()))
+
+        # 1 setup + 1 initial read + 3 offset-chunking connects (2 conflicts + 1 success).
+        assert connect_mock.call_count == 5
+
+
+class TestSafeCloseConnection:
+    def test_none_is_a_noop(self):
+        # The offset-chunking path can reach a teardown handler with no connection (a connect that
+        # raised before assigning), so closing None must not raise.
+        _safe_close_connection(None)
+
+    def test_already_closed_is_a_noop(self):
+        connection = mock.Mock()
+        connection.closed = True
+        _safe_close_connection(connection)
+        connection.close.assert_not_called()
+
+    def test_open_connection_is_closed(self):
+        connection = mock.Mock()
+        connection.closed = False
+        _safe_close_connection(connection)
+        connection.close.assert_called_once()
 
 
 class TestPostgresSourceForPipelineSchemaResolution:
