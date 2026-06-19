@@ -154,6 +154,10 @@ describe('mcpDashboardOverviewLogic', () => {
                 tools: [{ tool: 'a', data: [0, 5, 0] }],
             })
         })
+
+        it('returns empty tools with the supplied labels when there are no rows', () => {
+            expect(buildToolDailySeries([], ['2024-01-01'])).toEqual({ labels: ['2024-01-01'], tools: [] })
+        })
     })
 
     describe('buildBucketKeys', () => {
@@ -193,6 +197,15 @@ describe('mcpDashboardOverviewLogic', () => {
                 labels: bucketKeys,
                 successes: [10, 0, 4],
                 errors: [2, 0, 1],
+            })
+        })
+
+        it('returns all-zero series when there are no rows', () => {
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            expect(buildDailyActivity([], bucketKeys)).toEqual({
+                labels: bucketKeys,
+                successes: [0, 0, 0],
+                errors: [0, 0, 0],
             })
         })
     })
