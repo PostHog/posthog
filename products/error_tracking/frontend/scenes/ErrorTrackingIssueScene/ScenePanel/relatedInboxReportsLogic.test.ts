@@ -79,4 +79,29 @@ describe('relatedInboxReportsLogic', () => {
             relatedReports: [],
         })
     })
+
+    it('only marks hasLoadedOnce after the first fetch resolves', async () => {
+        mockRetrieve.mockResolvedValue([])
+        logic = relatedInboxReportsLogic({ issueId: ISSUE_ID })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            hasLoadedOnce: false,
+        })
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            hasLoadedOnce: true,
+        })
+    })
+
+    it('marks hasLoadedOnce even when the fetch fails', async () => {
+        mockRetrieve.mockRejectedValue(new Error('boom'))
+        logic = relatedInboxReportsLogic({ issueId: ISSUE_ID })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            hasLoadedOnce: true,
+            relatedReports: [],
+        })
+    })
 })

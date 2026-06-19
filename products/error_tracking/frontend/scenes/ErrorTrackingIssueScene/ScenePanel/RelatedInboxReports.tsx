@@ -69,7 +69,13 @@ function LinkedReportRow({ report }: { report: ErrorTrackingLinkedReportApi }): 
 }
 
 function RelatedInboxReportsBody(): JSX.Element | null {
-    const { relatedReports, relatedReportsLoading } = useValues(relatedInboxReportsLogic)
+    const { relatedReports, relatedReportsLoading, hasLoadedOnce } = useValues(relatedInboxReportsLogic)
+
+    // Before the first fetch resolves we don't yet know whether this issue has any linked
+    // reports, so render nothing rather than flashing a skeleton on every issue page.
+    if (!hasLoadedOnce && relatedReports.length === 0) {
+        return null
+    }
 
     if (relatedReportsLoading && relatedReports.length === 0) {
         return <LemonSkeleton className="h-12 w-full" />

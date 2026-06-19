@@ -1,4 +1,4 @@
-import { afterMount, kea, key, path, props } from 'kea'
+import { afterMount, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from '~/lib/api'
@@ -42,6 +42,18 @@ export const relatedInboxReportsLogic = kea<relatedInboxReportsLogicType>([
             },
         ],
     })),
+
+    reducers({
+        // Stays false until the first fetch resolves so the loading skeleton never flashes
+        // on the common case of an issue with no linked reports.
+        hasLoadedOnce: [
+            false,
+            {
+                loadRelatedReportsSuccess: () => true,
+                loadRelatedReportsFailure: () => true,
+            },
+        ],
+    }),
 
     afterMount(({ actions }) => {
         actions.loadRelatedReports()
