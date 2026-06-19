@@ -1131,17 +1131,10 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None  # comparing against '' / 'null' itself: let the normal scrubbed read handle it
         if self._is_ai_column(prop.source):
             return None  # the printer handles the $ai columns
-
         if prop.source.kind == "json_subcolumn" and _is_dynamic_json_source(prop.source):
-            column = _json_subcolumn_value_expr(
-                prop.field_type,
-                [prop.key],
-                source=prop.source,
-                as_json=False,
-                materialization_mode=self.context.modifiers.materializationMode,
-            )
-        else:
-            column = prop.bare_column()
+            return None
+
+        column = prop.bare_column()
         value = _const(constant_expr.value)
         if node.op == ast.CompareOperationOp.Eq:
             eq = _call("equals", [column, value])
