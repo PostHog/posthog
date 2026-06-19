@@ -23,6 +23,17 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 _SNOWFLAKE_IMPLEMENTATION = SnowflakeImplementation()
 
+# cryptography raises ValueError("Unable to load PEM file ...") when the key-pair private key can't
+# be parsed — typically the user pasted the bare base64 DER body without the
+# `-----BEGIN/END PRIVATE KEY-----` framing, or a truncated key. The `{action}` placeholder lets each
+# call site supply its own context-appropriate verb ("resync." on the sync path, "try again." during
+# credential validation) while keeping the guidance text defined once.
+_MALFORMED_PEM_MESSAGE = (
+    "Your Snowflake key-pair private key could not be read. Paste the full PEM private key including "
+    "the -----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY----- lines (not just the base64 body), "
+    "then {action}"
+)
+
 SnowflakeErrors = {
     "No active warehouse selected in the current session": "No warehouse found for selected role",
     "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
@@ -217,11 +228,9 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # can never succeed until the customer re-registers the matching public key. The host and
             # request id in the message are volatile, so we match the stable phrase.
             "JWT token is invalid": "Snowflake rejected key-pair authentication because the signed token is invalid — the private key you configured doesn't match the public key registered on the Snowflake user (often after a key rotation, or if the public key was never set). Re-register the matching public key on your Snowflake user (ALTER USER ... SET RSA_PUBLIC_KEY), or paste the correct private key here, then resync.",
-            # cryptography raises ValueError("Unable to load PEM file ...") when the key-pair private
-            # key can't be parsed — typically the user pasted the bare base64 DER body without the
-            # `-----BEGIN/END PRIVATE KEY-----` framing, or a truncated key. Retrying can never
-            # succeed until they paste a valid PEM key.
-            "Unable to load PEM file": "Your Snowflake key-pair private key could not be read. Paste the full PEM private key including the -----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY----- lines (not just the base64 body), then resync.",
+            # See `_MALFORMED_PEM_MESSAGE`: the key-pair private key can't be parsed, so retrying can
+            # never succeed until the user pastes a valid PEM key.
+            "Unable to load PEM file": _MALFORMED_PEM_MESSAGE.format(action="resync."),
             # Snowflake error 002003 (SQLSTATE 42S02 for tables / 02000 for schemas): a table or
             # schema the source syncs was dropped or renamed in Snowflake, or the role's grant on it
             # was revoked, after the schema was discovered. The driver raises "<object> does not exist
@@ -265,10 +274,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # A malformed key-pair private key fails to parse in `load_pem_private_key` before we ever
             # reach Snowflake — a user config error, not an unexpected failure worth capturing.
             if "Unable to load PEM file" in str(e):
-                return (
-                    False,
-                    "Your Snowflake key-pair private key could not be read. Paste the full PEM private key including the -----BEGIN PRIVATE KEY----- and -----END PRIVATE KEY----- lines (not just the base64 body), then try again.",
-                )
+                return False, _MALFORMED_PEM_MESSAGE.format(action="try again.")
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."
         except Exception as e:
