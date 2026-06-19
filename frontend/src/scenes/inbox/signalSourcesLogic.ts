@@ -139,6 +139,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleErrorTrackingComplete: true,
         toggleHealthChecks: true,
         toggleConversations: true,
+        toggleScoutsSource: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
     }),
@@ -194,6 +195,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 toggleSourceConfigState(state, SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
             toggleConversations: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.CONVERSATIONS, SignalSourceType.TICKET),
+            toggleScoutsSource: (state: SignalSourceConfig[] | null) =>
+                toggleSourceConfigState(state, SignalSourceProduct.SIGNALS_SCOUT, SignalSourceType.CROSS_SOURCE_ISSUE),
         },
         togglingSourceKeys: [
             new Set<string>(),
@@ -317,6 +320,23 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
                 keys.has(`${SignalSourceProduct.HEALTH_CHECKS}_${SignalSourceType.HEALTH_ISSUE}`),
+        ],
+        // The scout source gate: a single team-level on/off that decides whether scout findings
+        // emit to the inbox at all. It is NOT a per-scout toggle (those live on SignalScoutConfig)
+        // and does not control whether scouts run — only whether what they find reaches the inbox.
+        scoutsSourceConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.SIGNALS_SCOUT &&
+                        c.source_type === SignalSourceType.CROSS_SOURCE_ISSUE
+                ) ?? null,
+        ],
+        isScoutsSourceToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean =>
+                keys.has(`${SignalSourceProduct.SIGNALS_SCOUT}_${SignalSourceType.CROSS_SOURCE_ISSUE}`),
         ],
         errorTrackingIsFullyEnabled: [
             (s) => [s.sourceConfigs],
@@ -497,6 +517,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.CONVERSATIONS,
                     sourceType: SignalSourceType.TICKET,
+                    enabled: desiredEnabled,
+                })
+            },
+            toggleScoutsSource: () => {
+                // The optimistic reducer flips the config before this listener runs,
+                // so config.enabled already reflects the desired state.
+                const config = values.scoutsSourceConfig
+                const desiredEnabled = config?.enabled ?? true
+                actions.toggleSignalSource({
+                    sourceProduct: SignalSourceProduct.SIGNALS_SCOUT,
+                    sourceType: SignalSourceType.CROSS_SOURCE_ISSUE,
                     enabled: desiredEnabled,
                 })
             },
