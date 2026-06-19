@@ -74,6 +74,7 @@ def test_transient_status_with_non_json_body_still_retryable() -> None:
     response.status_code = 429
     response.json.side_effect = ValueError("not json")
     response.text = "<html>rate limited</html>"
+    response.headers = {}
     with _patch_post(response):
         with pytest.raises(HubspotRetryableError, match="rate limited"):
             hubspot_refresh_access_token("refresh-token")
