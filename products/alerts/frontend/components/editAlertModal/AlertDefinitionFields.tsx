@@ -128,6 +128,8 @@ export function FunnelsDefinitionFields({
                 className="flex-auto"
                 data-attr="alertForm-funnel-conversion"
                 placeholder="select a conversion"
+                // Wide funnels generate ~2 options per step; cap the menu so it scrolls instead of overflowing.
+                menu={{ className: '!max-h-[400px]' }}
                 value={config ? funnelConfigToOptionKey(config, stepLabels.length) : undefined}
                 onChange={(key) =>
                     onSetAlertFormValue('config', {
