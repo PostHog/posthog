@@ -39,6 +39,7 @@ export function InsightSaveButton({
                                     onClick={() => saveInsight(false)}
                                     data-attr="insight-save-and-continue"
                                     fullWidth
+                                    loading={insightSaving}
                                 >
                                     {addingToDashboard ? 'Save, add to dashboard' : 'Save'} & continue editing
                                 </LemonButton>
@@ -49,9 +50,8 @@ export function InsightSaveButton({
                                     data-attr="insight-save-and-add-to-dashboard"
                                     fullWidth
                                     loading={insightSaving}
-                                    disabledReason={insightSaving ? 'Saving…' : undefined}
                                 >
-                                    Save & add to dashboard
+                                    Save & add to dashboard…
                                 </LemonButton>
                             )}
                             {saveAsAvailable && (

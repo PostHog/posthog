@@ -55,12 +55,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight } = useActions(
         insightLogic(insightLogicProps)
     )
-    const { openAddToDashboardModal, openAddToDashboardModalAfterSave } = useActions(
-        insightModalsLogic(insightLogicProps)
-    )
+    const { openAddToDashboardModal, saveAndAddToDashboard } = useActions(insightModalsLogic(insightLogicProps))
 
     // B branch of the add-to-dashboard A/A/B test (control + control_2 keep current behavior).
     const isAddToDashboardTest = useFeatureFlag('INSIGHT_ADD_TO_DASHBOARD_AAB', 'test')
+
+    // A saved insight with its own short_id — the precondition for every view-mode action in this header.
+    const isPersistedInsight = !!isSavedInsight && !!insight.short_id
 
     // New insights need a target folder; existing ones save in place. Shared by every save trigger in this header.
     const saveInsightToFolder = (redirectToViewMode?: boolean): void => {
@@ -168,23 +169,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </LemonButton>
                         )}
 
-                        {insightMode !== ItemMode.Edit &&
-                            isAddToDashboardTest &&
-                            isSavedInsight &&
-                            insight.short_id && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconPlusSmall />}
-                                    data-attr="insight-add-to-dashboard-prominent-button"
-                                    onClick={() => openAddToDashboardModal()}
-                                >
-                                    Add to dashboard
-                                </LemonButton>
-                            )}
+                        {insightMode !== ItemMode.Edit && isAddToDashboardTest && isPersistedInsight && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                data-attr="insight-add-to-dashboard-prominent-button"
+                                onClick={() => openAddToDashboardModal()}
+                            >
+                                Add to dashboard
+                            </LemonButton>
+                        )}
 
-                        {insightMode !== ItemMode.Edit && isSavedInsight && insight.short_id && (
-                            <InsightSubscribeProminentButton insightShortId={insight.short_id} />
+                        {insightMode !== ItemMode.Edit && isPersistedInsight && (
+                            <InsightSubscribeProminentButton insightShortId={insight.short_id!} />
                         )}
 
                         {insightMode !== ItemMode.Edit ? (
@@ -235,14 +233,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 // Only offered for already-saved insights: the add-to-dashboard modal is keyed by the
                                 // insight id, so saving a brand-new insight navigates to its real id and re-keys the
                                 // modal logic, dropping the open state. New insights use the view-mode button instead.
-                                // The modal opens on save success (not synchronously) so the save response can't
-                                // overwrite a dashboard the user adds while the save is still in flight.
+                                // `saveAndAddToDashboard` owns the save-then-open ordering (see insightModalsLogic).
                                 onSaveAndAddToDashboard={
-                                    isAddToDashboardTest && isSavedInsight
-                                        ? () => {
-                                              openAddToDashboardModalAfterSave()
-                                              saveInsightToFolder(false)
-                                          }
+                                    isAddToDashboardTest && isPersistedInsight
+                                        ? () => saveAndAddToDashboard()
                                         : undefined
                                 }
                             />

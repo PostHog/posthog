@@ -12,16 +12,13 @@ export const insightModalsLogic = kea<insightModalsLogicType>([
     path((key) => ['scenes', 'insights', 'insightModalsLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        actions: [insightLogic(props), ['saveInsightSuccess', 'saveInsightFailure']],
+        actions: [insightLogic(props), ['saveInsight', 'saveInsightSuccess', 'saveInsightFailure']],
     })),
 
     actions({
         openAddToDashboardModal: true,
         closeAddToDashboardModal: true,
-        // Defer opening the add-to-dashboard modal until the in-flight save completes. Opening it concurrently with a
-        // save races the save response (which carries the pre-modal `dashboards` list) against the dashboard the user
-        // picks, silently overwriting that addition. Setting the flag and opening on `saveInsightSuccess` serializes them.
-        openAddToDashboardModalAfterSave: true,
+        saveAndAddToDashboard: true,
         openTerraformModal: true,
         closeTerraformModal: true,
     }),
@@ -37,7 +34,7 @@ export const insightModalsLogic = kea<insightModalsLogicType>([
         pendingAddToDashboardAfterSave: [
             false,
             {
-                openAddToDashboardModalAfterSave: () => true,
+                saveAndAddToDashboard: () => true,
                 openAddToDashboardModal: () => false,
                 closeAddToDashboardModal: () => false,
                 saveInsightFailure: () => false,
@@ -53,6 +50,14 @@ export const insightModalsLogic = kea<insightModalsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        // Save first, then open the add-to-dashboard modal once the save lands. Opening it concurrently with the save
+        // races the save response (which carries the pre-modal `dashboards` list) against the dashboard the user picks,
+        // silently overwriting that addition. `pendingAddToDashboardAfterSave` carries the intent across the save, and
+        // reducers run before listeners, so the flag must NOT be cleared on `saveInsightSuccess` itself — it is read
+        // here and cleared by `openAddToDashboardModal`.
+        saveAndAddToDashboard: () => {
+            actions.saveInsight(false)
+        },
         saveInsightSuccess: () => {
             if (values.pendingAddToDashboardAfterSave) {
                 actions.openAddToDashboardModal()
