@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use metrics::{counter, gauge, histogram};
 use tokio_util::sync::CancellationToken;
@@ -295,12 +296,15 @@ impl WorkerRegistry {
     /// Add a worker to the pool if not already present (starts Healthy).
     /// Idempotent — re-adding an existing worker preserves its current health.
     pub fn add_worker(&self, worker: WorkerId) {
-        if self.workers.contains_key(&worker) {
+        // `entry` makes the check-and-insert atomic — a plain
+        // `contains_key` + `insert` could let a concurrent caller overwrite a
+        // fresh `WorkerHealth` and reset health state.
+        let Entry::Vacant(slot) = self.workers.entry(worker.clone()) else {
             return;
-        }
+        };
         set_state_gauge(&worker, WorkerState::Healthy);
         info!(worker = %worker, "Worker added to pool");
-        self.workers.insert(worker, WorkerHealth::new());
+        slot.insert(WorkerHealth::new());
         counter!("ingestion_consumer_worker_membership_total", "action" => "add").increment(1);
     }
 

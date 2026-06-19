@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::StreamExt;
 use k8s_openapi::api::discovery::v1::EndpointSlice;
@@ -30,6 +31,10 @@ use tracing::{info, warn};
 
 use crate::transport::HttpTransport;
 use crate::worker_registry::{WorkerId, WorkerRegistry};
+
+/// Pause before re-listing after the watcher stream closes, so a persistently
+/// failing watcher degrades to a slow retry rather than a hot loop.
+const WATCHER_RESTART_BACKOFF: Duration = Duration::from_secs(1);
 
 /// How the worker pool is discovered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -180,7 +185,6 @@ impl EndpointSliceDiscovery {
     ) {
         let api: Api<EndpointSlice> = Api::namespaced(self.client.clone(), &self.namespace);
         let label_selector = format!("kubernetes.io/service-name={}", self.service_name);
-        let config = WatcherConfig::default().labels(&label_selector);
 
         info!(
             service = %self.service_name,
@@ -189,36 +193,54 @@ impl EndpointSliceDiscovery {
             "starting EndpointSlice worker discovery"
         );
 
-        let stream = watcher::watcher(api, config);
-        tokio::pin!(stream);
-
         // Ready addresses per slice name, so one slice changing doesn't clobber
-        // addresses contributed by other slices.
+        // addresses contributed by other slices. Kept across watcher restarts:
+        // a fresh watcher re-lists from `Init`, which clears and repopulates it.
         let mut slices: HashMap<String, HashSet<SocketAddr>> = HashMap::new();
 
+        // The `kube` watcher reconnects internally on errors, so a `None` only
+        // surfaces when the stream is definitively closed. Re-enter the watcher
+        // rather than leaving the worker pool frozen until the pod restarts.
         loop {
-            tokio::select! {
-                _ = cancel.cancelled() => {
-                    info!("EndpointSlice discovery cancelled");
-                    break;
-                }
-                item = stream.next() => {
-                    match item {
-                        Some(Ok(event)) => {
-                            if let Some(desired) = Self::apply_event(event, &mut slices, self.port) {
-                                reconcile_membership(&registry, &transport, &desired);
+            let config = WatcherConfig::default().labels(&label_selector);
+            let stream = watcher::watcher(api.clone(), config);
+            tokio::pin!(stream);
+
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => {
+                        info!("EndpointSlice discovery cancelled");
+                        return;
+                    }
+                    item = stream.next() => {
+                        match item {
+                            Some(Ok(event)) => {
+                                if let Some(desired) = Self::apply_event(event, &mut slices, self.port) {
+                                    reconcile_membership(&registry, &transport, &desired);
+                                }
                             }
-                        }
-                        Some(Err(e)) => {
-                            warn!(error = %e, "EndpointSlice watcher error, stream will retry");
-                            counter!("ingestion_consumer_discovery_errors_total").increment(1);
-                        }
-                        None => {
-                            warn!("EndpointSlice watcher stream ended");
-                            break;
+                            Some(Err(e)) => {
+                                warn!(error = %e, "EndpointSlice watcher error, stream will retry");
+                                counter!("ingestion_consumer_discovery_errors_total").increment(1);
+                            }
+                            None => {
+                                warn!("EndpointSlice watcher stream ended, restarting");
+                                counter!("ingestion_consumer_discovery_errors_total").increment(1);
+                                break;
+                            }
                         }
                     }
                 }
+            }
+
+            // Brief pause before re-listing, so a persistently-closing stream
+            // can't become a hot reconnect loop.
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    info!("EndpointSlice discovery cancelled");
+                    return;
+                }
+                _ = tokio::time::sleep(WATCHER_RESTART_BACKOFF) => {}
             }
         }
     }
