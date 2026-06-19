@@ -91,7 +91,12 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def direct_engine(self) -> str | None:
-        """The direct-SQL engine for this source's type, or None if the type can't be queried live."""
+        """The direct-SQL engine for this source's type, or None if no engine maps to it.
+
+        This keys off ``source_type`` only and ignores ``access_method``/toggles — a non-None
+        result means "an engine exists for this type", not "this source is queryable". Whether a
+        source may actually be queried live is decided by ``is_direct_capable`` and the adapters.
+        """
         return DIRECT_ENGINE_BY_SOURCE_TYPE.get(self.source_type)
 
     @property
