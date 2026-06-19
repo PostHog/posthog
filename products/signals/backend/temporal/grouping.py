@@ -416,6 +416,10 @@ Write a PR title covering ALL the above signals (existing + new), then judge if 
     return prompt
 
 
+class HallucinatedSignalIdError(ValueError):
+    """The matching LLM returned a signal_id that was never among the candidates it was given."""
+
+
 async def match_signal_to_report(
     team_id: int | None,
     description: str,
@@ -447,7 +451,14 @@ async def match_signal_to_report(
         if isinstance(result, MatchFound):
             matched = candidates_by_id.get(result.signal_id)
             if matched is None:
-                raise ValueError(f"signal_id {result.signal_id} not found in candidates")
+                # The LLM claimed a match against an id it was never given. Re-anchor it to the
+                # valid candidate ids so the retry can self-correct instead of repeating the same id.
+                valid_ids = ", ".join(candidates_by_id.keys()) or "(none)"
+                raise HallucinatedSignalIdError(
+                    f'signal_id "{result.signal_id}" is not one of the candidates. The only valid '
+                    f"candidate signal_ids are: {valid_ids}. Either pick one of these exact ids, "
+                    'or respond with match_type "new" if none are related.'
+                )
             if result.query_index < 0 or result.query_index >= len(queries):
                 raise ValueError(f"query_index {result.query_index} out of range (0-{len(queries) - 1})")
             return ExistingReportMatch(
@@ -468,14 +479,31 @@ async def match_signal_to_report(
             ),
         )
 
-    return await call_llm(
-        team_id=team_id,
-        system_prompt=MATCHING_SYSTEM_PROMPT,
-        user_prompt=user_prompt,
-        validate=validate,
-        temperature=0.2,
-        stage="match",
-    )
+    try:
+        return await call_llm(
+            team_id=team_id,
+            system_prompt=MATCHING_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            validate=validate,
+            temperature=0.2,
+            stage="match",
+        )
+    except HallucinatedSignalIdError as e:
+        # The LLM kept hallucinating an out-of-set signal_id across every retry. Rather than crash
+        # the activity, treat it as "no match" and start a new report — a safe, recoverable outcome.
+        logger.warning(
+            f"Matching LLM repeatedly hallucinated a signal_id; falling back to a new report: {e}",
+            source_product=source_product,
+            source_type=source_type,
+        )
+        return NewReportMatch(
+            title=description.split("\n")[0][:200],
+            summary=description[:500],
+            match_metadata=NoMatchMetadata(
+                reason="Matching LLM hallucinated an out-of-set signal_id; defaulted to a new report",
+                rejected_signal_ids=list(candidates_by_id.keys()),
+            ),
+        )
 
 
 @dataclass
