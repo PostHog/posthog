@@ -181,6 +181,9 @@ tools:
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the
             session_analysis_cluster source requires the organization to have approved AI data processing.
+    signals-reports-linked-reports-retrieve:
+        operation: signals_reports_linked_reports_retrieve
+        enabled: false
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true
