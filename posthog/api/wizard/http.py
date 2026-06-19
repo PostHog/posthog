@@ -86,6 +86,10 @@ class SetupWizardViewSet(viewsets.ViewSet):
     permission_classes = ()
     # Required by APIScopePermission to derive the scope for the authenticate action.
     scope_object = "project"
+    # Keep these endpoints out of the public OpenAPI schema. Defining scope_object above would
+    # otherwise opt the viewset into schema generation, which fails because its actions are
+    # hand-rolled and carry no serializer for drf-spectacular to infer.
+    hide_api_docs = True
     lookup_field = "hash"
     lookup_url_kwarg = "hash"
 
