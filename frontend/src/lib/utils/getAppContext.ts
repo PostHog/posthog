@@ -1,3 +1,4 @@
+import { ApiConfig } from 'lib/api'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 
 import { AppContext, OrganizationType, PathType, TeamType, UserType } from '~/types'
@@ -49,13 +50,21 @@ export function getDefaultEventLabel(): string {
 export function getCurrentTeamId(): TeamType['id'] {
     const maybeTeamId = getAppContext()?.current_team?.id
     if (!maybeTeamId) {
+        // In OAuth mode there's no server-rendered context; the id is populated on ApiConfig once
+        // the remote user/@current loads resolve (see userLogic.loadUserSuccess). Use it before giving up.
+        if (isOAuthMode() && ApiConfig.hasCurrentTeamId()) {
+            return ApiConfig.getCurrentTeamId()
+        }
         throw new Error(`Project ID is not known.${getAppContext()?.anonymous ? ' User is anonymous.' : ''}`)
     }
     return maybeTeamId
 }
 
 export function getCurrentTeamIdOrNone(): TeamType['id'] | null {
-    return getAppContext()?.current_team?.id ?? null
+    return (
+        getAppContext()?.current_team?.id ??
+        (isOAuthMode() && ApiConfig.hasCurrentTeamId() ? ApiConfig.getCurrentTeamId() : null)
+    )
 }
 
 // NOTE: Any changes to the userId trigger a full page load so we don't use the logic
@@ -77,6 +86,9 @@ export function getCurrentUserIdOrNone(): UserType['uuid'] | null {
 export function getCurrentOrganizationId(): OrganizationType['id'] {
     const maybeOrgId = getAppContext()?.current_team?.organization
     if (!maybeOrgId) {
+        if (isOAuthMode() && ApiConfig.hasCurrentOrganizationId()) {
+            return ApiConfig.getCurrentOrganizationId()
+        }
         throw new Error(`Organization ID is not known.${getAppContext()?.anonymous ? ' User is anonymous.' : ''}`)
     }
     return maybeOrgId

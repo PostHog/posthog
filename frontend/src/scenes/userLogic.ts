@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api, { getCookie } from 'lib/api'
+import api, { ApiConfig, getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -294,6 +294,19 @@ export const userLogic = kea<userLogicType>([
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
+                // OAuth mode has no server-rendered app context, so seed ApiConfig from the freshly
+                // loaded remote user. This makes team/project/org ids available synchronously before
+                // the first project-scoped URL is built, avoiding "Project ID is not known." on bootstrap.
+                if (isOAuthMode()) {
+                    if (user.team) {
+                        ApiConfig.setCurrentTeamId(user.team.id)
+                        ApiConfig.setCurrentProjectId(user.team.project_id)
+                    }
+                    if (user.organization) {
+                        ApiConfig.setCurrentOrganizationId(user.organization.id)
+                    }
+                }
+
                 if (posthog) {
                     posthog.identify(user.distinct_id)
                     posthog.people.set({
