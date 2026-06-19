@@ -1,18 +1,16 @@
-import type { ReactRenderer } from '@storybook/react'
+import type { Decorator } from '@storybook/react'
 import { setupWorker } from 'msw/browser'
 
 import { handlers } from '~/mocks/handlers'
 import { HTTP_METHODS, MockSignature, Mocks, mocksToHandlers } from '~/mocks/utils'
 import type { AppContext } from '~/types'
 
-import type { DecoratorFunction } from 'storybook/internal/types'
-
 // Default handlers ensure no request is unhandled by msw
 export const worker: ReturnType<typeof setupWorker> = setupWorker(...handlers)
 
 export const useStorybookMocks = (mocks: Mocks): void => worker.use(...mocksToHandlers(mocks))
 
-export const mswDecorator = (mocks: Mocks): DecoratorFunction<ReactRenderer, any> => {
+export const mswDecorator = (mocks: Mocks): Decorator => {
     return function StoryMock(Story, { parameters }): JSX.Element {
         // merge the default mocks provided in `preview.tsx` with any provided by the story
         // allow the story to override defaults

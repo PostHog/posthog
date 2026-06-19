@@ -33,7 +33,7 @@
         "@vitejs/plugin-react": "^4.7.0",
         "chokidar": "^3.6.0",
         "jest-image-snapshot": "^6.4.0",
-        "storybook": "^10.4.3",
+        "storybook": "catalog:",
         "storybook-addon-pseudo-states": "^10.4.3",
         "storybook-dark-mode": "^5.0.0",
         "typescript": "catalog:",

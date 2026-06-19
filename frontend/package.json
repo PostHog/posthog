@@ -322,7 +322,7 @@
         "msw": "^2.14.6",
         "safe-stable-stringify": "^2.4.3",
         "sass": "^1.26.2",
-        "storybook": "^10.4.3",
+        "storybook": "catalog:",
         "stream-browserify": "^3.0.0",
         "sucrase": "^3.29.0",
         "tailwindcss": "4.3.0",
