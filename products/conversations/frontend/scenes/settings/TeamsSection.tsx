@@ -21,6 +21,12 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { supportSettingsLogic } from './supportSettingsLogic'
 
+// Graph reports shared channels as "shared" or, in some tenants, "unknownFutureValue".
+// Anything that isn't an explicit standard/private channel is polled (shared).
+function isSharedMembershipType(membershipType: string | null | undefined): boolean {
+    return membershipType != null && !['standard', 'private'].includes(membershipType)
+}
+
 export function TeamsSection(): JSX.Element {
     return (
         <SceneSection
@@ -56,9 +62,7 @@ interface TeamsChannelRowProps {
 }
 
 function TeamsChannelRow({ pair, onRemove, isLoading, adminRestrictionReason }: TeamsChannelRowProps): JSX.Element {
-    // Graph reports shared channels as "shared" or, in some tenants, "unknownFutureValue".
-    // Anything that isn't an explicit standard/private channel is polled.
-    const isShared = pair.membership_type != null && !['standard', 'private'].includes(pair.membership_type)
+    const isShared = isSharedMembershipType(pair.membership_type)
     return (
         <div className="flex items-center justify-between gap-2 py-2 px-3 border rounded">
             <div className="flex-1 min-w-0">
@@ -207,9 +211,7 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
                                 { value: null, label: 'Select channel...' },
                                 ...selectedTeamChannels.map(
                                     (c: { id: string; name: string; membership_type?: string | null }) => {
-                                        const isShared =
-                                            c.membership_type != null &&
-                                            !['standard', 'private'].includes(c.membership_type)
+                                        const isShared = isSharedMembershipType(c.membership_type)
                                         return {
                                             value: c.id,
                                             label: isShared ? `#${c.name} (shared)` : `#${c.name}`,

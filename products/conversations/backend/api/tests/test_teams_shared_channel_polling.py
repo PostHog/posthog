@@ -331,6 +331,20 @@ class TestRefreshGraphTokenScopeFallback(BaseTest):
         self.assertEqual(token, "fresh")
         self.assertEqual(mock_post.call_count, 1)
 
+    def test_no_readonly_downgrade_on_transient_error(self, mock_post: MagicMock, mock_settings: MagicMock) -> None:
+        mock_settings.return_value = {"SUPPORT_TEAMS_APP_ID": "app", "SUPPORT_TEAMS_APP_SECRET": "secret"}
+        # Transient failures (429/5xx) must NOT retry read-only — that would downgrade
+        # a recoverable full-scope token. Only 400 (consent denied) falls back.
+        for status_code in (429, 503):
+            mock_post.reset_mock()
+            mock_post.return_value = _resp(status_code=status_code)
+
+            with self.assertRaises(ValueError):
+                refresh_graph_token(self.config)
+
+            self.assertEqual(mock_post.call_count, 1)
+            self.assertEqual(mock_post.call_args_list[0].kwargs["data"]["scope"], GRAPH_REFRESH_SCOPES)
+
 
 class TestSharedChannelGraphSend(BaseTest):
     @parameterized.expand(

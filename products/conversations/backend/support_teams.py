@@ -362,10 +362,12 @@ def refresh_graph_token(config: TeamConversationsTeamsConfig) -> str:
         )
 
     resp = _post_refresh(GRAPH_REFRESH_SCOPES)
-    if resp.status_code != 200:
-        # Likely a tenant that consented before ChannelMessage.Send existed: retry
-        # with the read-only scope set so polling survives (send stays 403 until
-        # they reconnect). Keeps the read feature alive instead of killing it.
+    # Azure AD returns 400 (AADSTS65001 / invalid_scope) when a requested scope was
+    # never consented — e.g. a tenant that connected before ChannelMessage.Send
+    # existed. Retry read-only so polling survives (send stays 403 until reconnect).
+    # Only 400 means scope denial; 429/5xx are transient and must NOT downgrade the
+    # token to read-only, so they fall through to the failure path below.
+    if resp.status_code == 400:
         logger.warning(
             "teams_graph_token_refresh_retry_readonly",
             team_id=config.team_id,
