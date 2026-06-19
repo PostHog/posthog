@@ -7,7 +7,7 @@ import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
-import { createAiConsumer, createAiEventSubpipeline, hogTransformerComponent } from '~/ingestion/pipelines/ai'
+import { HogTransformerComponent, createAiConsumer, createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
@@ -306,7 +306,7 @@ export class IngestionGeneralServer implements NodeServer {
                     builder
                         .add(
                             'hogTransformer',
-                            hogTransformerComponent(() =>
+                            new HogTransformerComponent(() =>
                                 createHogTransformerService(this.config, {
                                     ...hogTransformerDeps,
                                     monitoringOutputs: aiOutputs,

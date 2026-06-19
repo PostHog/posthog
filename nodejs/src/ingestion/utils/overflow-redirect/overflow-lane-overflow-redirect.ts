@@ -1,3 +1,4 @@
+import { Component } from '~/ingestion/common/scopes'
 import { HealthCheckResult } from '~/types'
 
 import { overflowRedirectEventsTotal, overflowRedirectKeysTotal } from './metrics'
@@ -61,5 +62,15 @@ export class OverflowLaneOverflowRedirect implements OverflowRedirectService {
 
     async shutdown(): Promise<void> {
         // No local state to clean up in overflow lane implementation
+    }
+}
+
+/** Scope component for the overflow-lane TTL refresh service. */
+export class OverflowLaneOverflowRedirectComponent implements Component<OverflowRedirectService> {
+    constructor(private readonly config: OverflowLaneOverflowRedirectConfig) {}
+
+    start(): Promise<{ value: OverflowRedirectService; stop: () => Promise<void> }> {
+        const service = new OverflowLaneOverflowRedirect(this.config)
+        return Promise.resolve({ value: service, stop: () => service.shutdown() })
     }
 }

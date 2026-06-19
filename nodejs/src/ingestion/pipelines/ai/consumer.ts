@@ -19,14 +19,13 @@ import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-mana
 import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
 import { Component, Scope, extend } from '~/ingestion/common/scopes'
+import { parseSplitAiEventsConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig, PersonHogConfig } from '~/ingestion/config'
-import { parseSplitAiEventsConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
-import { DisabledOverflowRedirect } from '~/ingestion/utils/overflow-redirect/disabled-overflow-redirect'
-import { MainLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
-import { OverflowLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
-import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
-import { RedisOverflowRepository } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
+import { DisabledOverflowRedirectComponent } from '~/ingestion/utils/overflow-redirect/disabled-overflow-redirect'
+import { MainLaneOverflowRedirectComponent } from '~/ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirectComponent } from '~/ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
+import { RedisOverflowRepositoryComponent } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
 import { RedisPool } from '~/types'
 import { PostgresRouter } from '~/utils/db/postgres'
 import { EventIngestionRestrictionManagerComponent } from '~/utils/event-ingestion-restrictions'
@@ -84,13 +83,13 @@ export type AiSharedScope = Scope<{
  * the server (the concrete `HogTransformerService` lives in cdp), so the AI scope
  * stays within ingestion boundaries while still owning the transformer's lifecycle.
  */
-export function hogTransformerComponent(create: () => HogTransformer): Component<HogTransformer> {
-    return {
-        start: async () => {
-            const hogTransformer = create()
-            await hogTransformer.start()
-            return { value: hogTransformer, stop: () => hogTransformer.stop() }
-        },
+export class HogTransformerComponent implements Component<HogTransformer> {
+    constructor(private readonly create: () => HogTransformer) {}
+
+    async start(): Promise<{ value: HogTransformer; stop: () => Promise<void> }> {
+        const hogTransformer = this.create()
+        await hogTransformer.start()
+        return { value: hogTransformer, stop: () => hogTransformer.stop() }
     }
 }
 
@@ -99,72 +98,23 @@ export function hogTransformerComponent(create: () => HogTransformer): Component
  * the connection is owned by the AI scope and torn down with it. Throws if
  * personhog isn't configured — the AI pipeline reads person/group data through it.
  */
-function personhogClientComponent(config: PersonHogConfig): Component<PersonHogClient> {
-    return {
-        start: () => {
-            const client = createPersonHogClient(config)
-            if (!client) {
-                throw new Error(
-                    'PersonHog client is required for the AI ingestion pipeline — set PERSONHOG_ENABLED=true and PERSONHOG_ADDR'
-                )
-            }
-            return Promise.resolve({
-                value: client,
-                stop: () => {
-                    client.close()
-                    return Promise.resolve()
-                },
-            })
-        },
-    }
-}
+class PersonHogClientComponent implements Component<PersonHogClient> {
+    constructor(private readonly config: PersonHogConfig) {}
 
-/** Builds the main-lane overflow redirect (rate-limiting) for the 'ai' keyspace. */
-function mainLaneOverflowComponent(
-    redisPool: RedisPool,
-    config: AiConsumerConfig,
-    enabled: boolean
-): Component<OverflowRedirectService> {
-    return {
-        start: () => {
-            const service: OverflowRedirectService = enabled
-                ? new MainLaneOverflowRedirect({
-                      redisRepository: new RedisOverflowRepository({
-                          redisPool,
-                          redisTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
-                      }),
-                      localCacheTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-                      bucketCapacity: config.EVENT_OVERFLOW_BUCKET_CAPACITY,
-                      replenishRate: config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                      statefulEnabled: config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
-                      // Dedicated 'ai' keyspace so AI overflow never affects analytics.
-                      overflowType: 'ai',
-                  })
-                : new DisabledOverflowRedirect()
-            return Promise.resolve({ value: service, stop: () => service.shutdown() })
-        },
-    }
-}
-
-/** Builds the overflow-lane TTL refresh service for the 'ai' keyspace. */
-function overflowLaneComponent(
-    redisPool: RedisPool,
-    config: AiConsumerConfig,
-    enabled: boolean
-): Component<OverflowRedirectService> {
-    return {
-        start: () => {
-            const service: OverflowRedirectService = enabled
-                ? new OverflowLaneOverflowRedirect({
-                      redisRepository: new RedisOverflowRepository({
-                          redisPool,
-                          redisTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
-                      }),
-                      overflowType: 'ai',
-                  })
-                : new DisabledOverflowRedirect()
-            return Promise.resolve({ value: service, stop: () => service.shutdown() })
-        },
+    start(): Promise<{ value: PersonHogClient; stop: () => Promise<void> }> {
+        const client = createPersonHogClient(this.config)
+        if (!client) {
+            throw new Error(
+                'PersonHog client is required for the AI ingestion pipeline — set PERSONHOG_ENABLED=true and PERSONHOG_ADDR'
+            )
+        }
+        return Promise.resolve({
+            value: client,
+            stop: () => {
+                client.close()
+                return Promise.resolve()
+            },
+        })
     }
 }
 
@@ -179,7 +129,19 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
     // The query name is supplied per call (e.g. "person-properties").
     const clientLabel = `ai/${config.INGESTION_LANE ?? 'main'}`
 
-    const scope = extend(sharedScope, 'ai', (container, builder) =>
+    // Parent scope: the overflow Redis repository, shared by the main-lane and
+    // overflow-lane redirect services below (set up here, not inline per service).
+    const overflowScope = extend(sharedScope, 'ai-overflow', (container, builder) =>
+        builder.add(
+            'overflowRedisRepository',
+            new RedisOverflowRepositoryComponent(
+                container.redisPool,
+                config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS
+            )
+        )
+    )
+
+    const scope = extend(overflowScope, 'ai', (container, builder) =>
         builder
             .add('promiseScheduler', new PromiseSchedulerComponent())
             .add(
@@ -192,13 +154,31 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                 })
             )
             .add('eventFilterManager', new EventFilterManagerComponent(container.postgres))
-            .add('overflowRedirectService', mainLaneOverflowComponent(container.redisPool, config, overflowEnabled))
+            // Dedicated 'ai' keyspace so AI overflow never affects analytics.
+            .add(
+                'overflowRedirectService',
+                overflowEnabled
+                    ? new MainLaneOverflowRedirectComponent({
+                          redisRepository: container.overflowRedisRepository,
+                          localCacheTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                          bucketCapacity: config.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                          replenishRate: config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                          statefulEnabled: config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
+                          overflowType: 'ai',
+                      })
+                    : new DisabledOverflowRedirectComponent()
+            )
             .add(
                 'overflowLaneTTLRefreshService',
-                overflowLaneComponent(container.redisPool, config, overflowLaneEnabled)
+                overflowLaneEnabled
+                    ? new OverflowLaneOverflowRedirectComponent({
+                          redisRepository: container.overflowRedisRepository,
+                          overflowType: 'ai',
+                      })
+                    : new DisabledOverflowRedirectComponent()
             )
             // Personhog client owned by the AI scope (created from common, torn down with it).
-            .add('personhogClient', personhogClientComponent(config))
+            .add('personhogClient', new PersonHogClientComponent(config))
     )
 
     return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>

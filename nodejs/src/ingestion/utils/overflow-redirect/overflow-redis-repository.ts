@@ -1,6 +1,7 @@
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 
+import { Component } from '~/ingestion/common/scopes'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '~/types'
 import { timeoutGuard } from '~/utils/db/utils'
 import { logger } from '~/utils/logger'
@@ -218,5 +219,25 @@ export class RedisOverflowRepository implements OverflowRedisRepository {
                 }
             }
         }
+    }
+}
+
+/**
+ * Scope component for the overflow Redis repository. Set up in a parent scope so
+ * the main-lane and overflow-lane redirect services can share one repository
+ * instance instead of each constructing its own.
+ */
+export class RedisOverflowRepositoryComponent implements Component<OverflowRedisRepository> {
+    constructor(
+        private readonly redisPool: GenericPool<Redis>,
+        private readonly redisTTLSeconds: number
+    ) {}
+
+    start(): Promise<{ value: OverflowRedisRepository; stop: () => Promise<void> }> {
+        const repository = new RedisOverflowRepository({
+            redisPool: this.redisPool,
+            redisTTLSeconds: this.redisTTLSeconds,
+        })
+        return Promise.resolve({ value: repository, stop: () => Promise.resolve() })
     }
 }
