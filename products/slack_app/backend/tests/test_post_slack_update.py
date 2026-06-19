@@ -116,6 +116,8 @@ class TestPostSlackUpdate(TestCase):
 
         mock_post_progress.assert_called_once()
         assert mock_post_progress.call_args[0][0] == "Cloning repository"
+        # The "View agent logs" button links to the cloud task view, not the desktop deep link.
+        assert mock_post_progress.call_args[0][1] == "http://localhost:8000/project/1/tasks/10?runId=run-1"
 
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "update_reaction")
@@ -383,8 +385,7 @@ class TestPostSlackUpdate(TestCase):
         mock_post_completion,
     ):
         # When the task creator is not a PostHog Code user, every handler call
-        # receives ``task_url=None`` (and the progress handler receives
-        # ``logs_deeplink=None``) so the deep-link / web buttons are skipped.
+        # receives ``task_url=None`` so the task-view buttons are skipped.
         self._access_patcher.stop()
         deny_patcher = patch(
             "products.tasks.backend.temporal.process_task.activities.post_slack_update.has_tasks_access",
