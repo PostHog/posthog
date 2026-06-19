@@ -1980,3 +1980,72 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
         f"Sent Error Tracking weekly digest to {sent_count} members for org {org_id} "
         f"({len(team_digest_data)} teams with exceptions)"
     )
+
+
+def get_integration_display_name(kind: str) -> str:
+    # Only kinds whose correct casing differs from the title-cased fallback need an override.
+    custom_casing = {"github": "GitHub", "gitlab": "GitLab"}
+    return custom_casing.get(kind, kind.replace("-", " ").title())
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_integration_access_request(team_id: int, requesting_user_id: int, kind: str, reason: str) -> None:
+    """Notify project admins that a member is requesting an integration be connected."""
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    requester = User.objects.filter(id=requesting_user_id).first()
+    if team is None or requester is None:
+        return
+
+    log_context = {"team_id": team_id, "kind": kind, "requesting_user_id": requesting_user_id}
+    requester_name = sanitize_display_name(
+        requester.first_name,
+        fallback="A teammate",
+        context={"task": "send_integration_access_request", "field": "requester_first_name", **log_context},
+    )
+    org_name = sanitize_display_name(
+        team.organization.name,
+        fallback="your organization",
+        context={"task": "send_integration_access_request", "field": "organization_name", **log_context},
+    )
+    sanitized_reason = sanitize_message_body(
+        reason,
+        fallback="",
+        context={"task": "send_integration_access_request", "field": "reason", **log_context},
+    )
+    integration_name = get_integration_display_name(kind)
+
+    # Deterministic per requester + integration so re-clicking doesn't spam admins (MessagingRecord dedups).
+    campaign_key = f"integration_access_request_{team_id}_{kind}_{requesting_user_id}"
+    subject = f"{requester_name} requested the {integration_name} integration on PostHog"
+
+    # Org admins/owners always have access to every project, so the org-level filter is the access check.
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization_id=team.organization_id, level__gte=OrganizationMembership.Level.ADMIN)
+        .exclude(user_id=requesting_user_id)
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=subject,
+        template_name="integration_access_requested",
+        template_context={
+            "requester_name": requester_name,
+            "requester_email": requester.email or "",
+            "integration_name": integration_name,
+            "integration_kind": kind,
+            "reason": sanitized_reason,
+            "org_name": org_name,
+            "team_name": team.name,
+            "connect_url": f"{settings.SITE_URL}/project/{team_id}/integrations/{kind}",
+        },
+        reply_to=requester.email or "",
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()

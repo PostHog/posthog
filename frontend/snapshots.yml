@@ -6732,6 +6732,10 @@ snapshots:
         hash: v1.k794b7964.7012e3f23570ed0bdf0af3b947fa8b09bb1a40edd59928bea76c9472eef444a1.yWbx-kU4Sx_plVguU1neQn8eHFiPseBMjmr8tCiy6O0
     scenes-other-integration-landing-page--connected--light:
         hash: v1.k794b7964.ecea4a3cebed2c5fba619695c4ca576cfa0ce3a9a818af498791c1080be2675e.nkq28LhIVvheqMxYLdV5Od1eeCXKI1AFgIKfcbUOAEw
+    scenes-other-integration-landing-page--no-permission--dark:
+        hash: v1.k794b7964.a17a0acea1830a870a6ff984cc5c523497f678d8c8413f3fef8ea2a470eb8d43.yjPhd5PJM817w4ybixhkzCHCR0Gq_Qtp9EyGUehuunM
+    scenes-other-integration-landing-page--no-permission--light:
+        hash: v1.k794b7964.f4e806a53bd611cbfab6c96c8a53d0fc5754cb922328953e32028fcfac971f78.Fhy7_1HTcf09dpHknO0udUiW_B_1kNWLU6JVuOIj4lg
     scenes-other-integration-landing-page--not-connected--dark:
         hash: v1.k794b7964.cbc1efc83f9f31ee7ed22a7da2be3ec19e7e6f6568a5b43ade5f75ee4aaccbc5.u1nKAJkTALr_RPPMm4EA68pFFF4JE03AJBqWleTvbJk
     scenes-other-integration-landing-page--not-connected--light:
