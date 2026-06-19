@@ -581,6 +581,31 @@ def test_repr_redacts_real_postgres_source_config():
     assert "host='fadevpn-11499.example.cloud'" in rendered
 
 
+def test_repr_recurses_into_nested_config_with_secret_field_name():
+    @config.config
+    class KeyFileConfig:
+        project_id: str
+        client_email: str
+        private_key: str
+
+    @config.config
+    class TestConfig(config.Config):
+        # Field name contains "key" but holds a nested config, not a raw secret.
+        key_file: KeyFileConfig
+
+    cfg = TestConfig(
+        key_file=KeyFileConfig(project_id="my-project", client_email="sa@example.com", private_key="-----BEGIN-----")
+    )
+
+    rendered = repr(cfg)
+    # The nested object is not redacted wholesale — its non-secret fields stay visible.
+    assert "project_id='my-project'" in rendered
+    assert "client_email='sa@example.com'" in rendered
+    # The actual secret inside the nested config is still redacted.
+    assert "BEGIN" not in rendered
+    assert "private_key='***'" in rendered
+
+
 def test_validate_dict():
     @config.config
     class TestConfig(config.Config):

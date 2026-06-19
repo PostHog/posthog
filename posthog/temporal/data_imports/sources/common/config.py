@@ -46,7 +46,9 @@ def _redacting_repr(self: typing.Any) -> str:
         if not field.repr:
             continue
         value = getattr(self, field.name)
-        if value is not None and _is_secret_field_name(field.name):
+        # A nested config (e.g. BigQuery's `key_file`) renders via its own redacting repr so
+        # its non-secret fields stay visible; only a raw secret value is masked wholesale.
+        if value is not None and _is_secret_field_name(field.name) and not is_config(value):
             field_reprs.append(f"{field.name}={REDACTED_VALUE_REPR}")
         else:
             field_reprs.append(f"{field.name}={value!r}")
