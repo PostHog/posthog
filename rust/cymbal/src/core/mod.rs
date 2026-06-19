@@ -6,7 +6,6 @@
 pub mod analytics;
 pub mod config;
 pub mod error;
-pub mod frames;
 pub mod ids;
 pub mod metric_consts;
 pub mod resolver;

@@ -11,7 +11,8 @@ pub use core::sanitize::{
     needs_sanitization, recursively_sanitize_properties, sanitize_source_line, sanitize_string,
 };
 pub use core::symbolication::langs;
-pub use core::{error, frames, metric_consts, symbolication};
+pub use core::types::frames;
+pub use core::{error, metric_consts, symbolication};
 
 // Compat re-exports: processing-only modules now live under `modes::processing`.
 // Prefer `crate::modes::processing::*` in new code.

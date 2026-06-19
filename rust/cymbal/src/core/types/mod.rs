@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod exception;
+pub mod frames;
 pub mod stacktrace;
 
 pub use exception::*;

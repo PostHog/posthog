@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::core::frames::RawFrame;
+use crate::core::types::frames::RawFrame;
 use crate::core::types::{stacktrace::Stacktrace, Mechanism};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

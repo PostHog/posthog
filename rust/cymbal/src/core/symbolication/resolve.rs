@@ -1,6 +1,6 @@
 use reqwest::Url;
 
-use crate::core::frames::{Frame, RawFrame};
+use crate::core::types::frames::{Frame, RawFrame};
 use crate::core::metric_consts::{FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME};
 use crate::core::symbolication::symbol_store::Catalog;
 use crate::core::symbolication::langs::apple::RawAppleFrame;
@@ -22,7 +22,7 @@ use crate::error::UnhandledError;
 ///
 /// Implemented by the catalog-backed raw frame types (`RawJSFrame`,
 /// `RawNodeFrame`, `RawHermesFrame`, `RawJavaFrame`, `RawAppleFrame`) and by the
-/// `RawFrame` dispatcher (see `crate::core::frames`). Catalog-free frames
+/// `RawFrame` dispatcher (see `crate::core::types::frames`). Catalog-free frames
 /// (python, ruby, go, …) carry no symbol-resolution behavior — they convert
 /// directly via `From<&RawX> for Frame`.
 ///
