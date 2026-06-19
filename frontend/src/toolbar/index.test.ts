@@ -1,5 +1,12 @@
 import { ToolbarParams } from '~/types'
 
+// Keep the real toolbar posthog-js instance (rendering depends on it) but spy on
+// the exception capture helper so we can assert what does and doesn't get reported.
+jest.mock('~/toolbar/toolbarPosthogJS', () => ({
+    ...jest.requireActual('~/toolbar/toolbarPosthogJS'),
+    captureToolbarException: jest.fn(),
+}))
+
 // Mock window and fetch
 const mockFetch = jest.fn()
 
@@ -117,6 +124,63 @@ describe('Toolbar flag loading', () => {
         await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
 
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
+
+        consoleErrorSpy.mockRestore()
+    })
+
+    it('should not report transient network failures (TypeError) as exceptions', async () => {
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
+        await import('./index')
+        const { captureToolbarException } = await import('~/toolbar/toolbarPosthogJS')
+
+        const mockPostHog = {
+            featureFlags: {
+                overrideFeatureFlags: jest.fn(),
+            },
+        }
+
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            toolbarFlagsKey: 'test-key-123',
+            token: 'test-token',
+        }
+
+        // `fetch` rejects with a TypeError on transient network-level failures.
+        mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+
+        expect(captureToolbarException).not.toHaveBeenCalled()
+        expect(consoleWarnSpy).toHaveBeenCalled()
+
+        consoleWarnSpy.mockRestore()
+    })
+
+    it('should still report unexpected (non-TypeError) errors as exceptions', async () => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+        await import('./index')
+        const { captureToolbarException } = await import('~/toolbar/toolbarPosthogJS')
+
+        const mockPostHog = {
+            featureFlags: {
+                overrideFeatureFlags: jest.fn(),
+            },
+        }
+
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            toolbarFlagsKey: 'test-key-123',
+            token: 'test-token',
+        }
+
+        const error = new SyntaxError('Unexpected token in JSON')
+        mockFetch.mockRejectedValueOnce(error)
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+
+        expect(captureToolbarException).toHaveBeenCalledWith(error, 'preloaded_flags_fetch')
 
         consoleErrorSpy.mockRestore()
     })
