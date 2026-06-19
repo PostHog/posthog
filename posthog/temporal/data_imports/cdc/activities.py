@@ -963,7 +963,11 @@ def cleanup_orphan_slots_activity() -> None:
         except ValueError:
             continue
 
-        cdc_config = adapter.parse_cdc_config(source)
+        try:
+            cdc_config = adapter.parse_cdc_config(source)
+        except Exception:
+            log.exception("failed_to_parse_cdc_config", source_id=str(source.id))
+            continue
 
         # Restore the original filter semantics on decrypted values: skip sources that
         # don't have CDC enabled with both a slot and publication name to clean up.
