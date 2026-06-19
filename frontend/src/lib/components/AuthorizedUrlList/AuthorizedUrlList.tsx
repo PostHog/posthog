@@ -101,6 +101,22 @@ export function AuthorizedUrlList({
                     return null
                 }
 
+                // toolbar and web analytics urls are sent through the backend to be validated and have toolbar
+                // auth information added; other urls are simply opened directly
+                const isLaunchableType =
+                    type === AuthorizedUrlListType.TOOLBAR_URLS || type === AuthorizedUrlListType.WEB_ANALYTICS
+                const launchTarget = isLaunchableType ? launchUrl(keyedURL.url) : `${keyedURL.url}${query ?? ''}`
+                // The whole row mirrors the Launch button, so the card-like row is a real click target instead of
+                // a dead click. Suggestions (handled separately) and wildcard domains can't be launched.
+                const isRowLaunchable = showLaunch && keyedURL.type === 'authorized' && !keyedURL.url.includes('*')
+                const launchFromRow = (): void => {
+                    if (launchInSameTab) {
+                        window.location.href = launchTarget
+                    } else {
+                        window.open(launchTarget, '_blank', 'noopener,noreferrer')
+                    }
+                }
+
                 return editUrlIndex === index ? (
                     <div key={keyedURL.url} className="border rounded p-2 bg-surface-primary">
                         <AuthorizedUrlForm
@@ -114,7 +130,24 @@ export function AuthorizedUrlList({
                 ) : (
                     <div
                         key={keyedURL.url}
-                        className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}
+                        className={clsx(
+                            'border rounded flex items-center p-2 pl-4 bg-surface-primary',
+                            isRowLaunchable ? 'cursor-pointer hover:bg-surface-secondary' : 'cursor-default'
+                        )}
+                        onClick={isRowLaunchable ? launchFromRow : undefined}
+                        onKeyDown={
+                            isRowLaunchable
+                                ? (e) => {
+                                      // Only react to the row itself, not key events bubbling up from the buttons
+                                      if (e.currentTarget === e.target && (e.key === 'Enter' || e.key === ' ')) {
+                                          e.preventDefault()
+                                          launchFromRow()
+                                      }
+                                  }
+                                : undefined
+                        }
+                        role={isRowLaunchable ? 'button' : undefined}
+                        tabIndex={isRowLaunchable ? 0 : undefined}
                     >
                         {keyedURL.type === 'suggestion' && (
                             <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
@@ -126,7 +159,10 @@ export function AuthorizedUrlList({
                         <span title={keyedURL.url} className="flex-1 truncate">
                             {keyedURL.url}
                         </span>
-                        <div className="Actions flex deprecated-space-x-2 shrink-0">
+                        <div
+                            className="Actions flex deprecated-space-x-2 shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                        >
                             {keyedURL.type === 'suggestion' && allowAdd ? (
                                 <LemonButton
                                     onClick={() => addUrl(keyedURL.url)}
@@ -142,19 +178,10 @@ export function AuthorizedUrlList({
                                     {showLaunch && (
                                         <LemonButton
                                             icon={<IconOpenInApp />}
-                                            to={
-                                                // toolbar urls and web analytics urls are sent through the backend to be validated
-                                                // and have toolbar auth information added
-                                                type === AuthorizedUrlListType.TOOLBAR_URLS ||
-                                                type === AuthorizedUrlListType.WEB_ANALYTICS
-                                                    ? launchUrl(keyedURL.url)
-                                                    : // other urls are simply opened directly
-                                                      `${keyedURL.url}${query ?? ''}`
-                                            }
+                                            to={launchTarget}
                                             targetBlank={!launchInSameTab}
                                             tooltip={
-                                                type === AuthorizedUrlListType.TOOLBAR_URLS ||
-                                                type === AuthorizedUrlListType.WEB_ANALYTICS
+                                                isLaunchableType
                                                     ? 'Open the toolbar on this page'
                                                     : 'Open the browser at this page'
                                             }
