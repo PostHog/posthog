@@ -30,6 +30,13 @@ describe('funnelAlertOptions', () => {
         expect(sections.map((s) => s.title)).toEqual(['Step-over-step', 'From entry'])
         // start:1 (== prev:1) stays in step-over-step; the overall is the final From-entry member.
         expect(flatValues(labels)).toEqual(['prev:1', 'prev:2', 'prev:3', 'prev:4', 'start:2', 'start:3', 'overall'])
+        // The overall row is labeled by its span (first → last), with no "overall" prefix.
+        const fromEntry = sections.find((s) => s.title === 'From entry')!
+        expect(fromEntry.options.map((o) => ('label' in o ? o.label : ''))).toEqual([
+            'Home → Cart',
+            'Home → Checkout',
+            'Home → Order',
+        ])
     })
 
     it('uses the real step labels in the option text', () => {

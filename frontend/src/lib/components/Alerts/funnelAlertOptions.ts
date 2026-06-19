@@ -40,11 +40,8 @@ export function funnelConversionOptions(stepLabels: string[]): LemonSelectSectio
     for (let step = 2; step <= n - 2; step++) {
         fromEntry.push({ label: `${first} → ${stepLabels[step]}`, value: `start:${step}` })
     }
-    fromEntry.push({
-        label: `Overall · ${first} → ${last}`,
-        value: OVERALL,
-        tooltip: 'Whole-funnel conversion: entrants who reached the final step.',
-    })
+    // first → last is self-evidently the whole-funnel conversion, so it needs no "overall" label.
+    fromEntry.push({ label: `${first} → ${last}`, value: OVERALL })
 
     return [
         {
