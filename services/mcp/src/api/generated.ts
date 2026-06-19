@@ -19088,6 +19088,33 @@ export namespace Schemas {
       nextOffset?: number;
     }
 
+    /**
+     * A minimal projection of an inbox report linked to an external source record.
+     *
+     * Returned by the reverse lookup that maps a source record (e.g. an error tracking issue)
+     * to the inbox report(s) its signals grouped into. The primary link target is the inbox
+     * report itself; `implementation_pr_url` is a secondary indicator surfaced only when an
+     * agent has opened a fix.
+     */
+    export interface ErrorTrackingLinkedReport {
+      /** The inbox report's UUID. Deep-link to it in the inbox. */
+      readonly id: string;
+      /**
+         * LLM-generated report title (null until the report has been summarized).
+         * @nullable
+         */
+      readonly title: string | null;
+      /** Current report status in the inbox pipeline (e.g. potential, ready, resolved). */
+      readonly status: string;
+      /** When the report was first created. */
+      readonly created_at: string;
+      /**
+         * URL of the pull request from the latest implementation task run, if an agent has opened a fix.
+         * @nullable
+         */
+      readonly implementation_pr_url: string | null;
+    }
+
     export type ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType = typeof ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetCatalogEntryOpenApiWidgetType];
 
 
@@ -61213,6 +61240,17 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    };
+
+    export type SignalsReportsLinkedReportsRetrieveParams = {
+    /**
+     * ID of the external record within the source product (e.g. an error tracking issue UUID).
+     */
+    source_id: string;
+    /**
+     * Source product of the external record (e.g. error_tracking).
+     */
+    source_product: string;
     };
 
     export type SignalsScoutProjectProfileGetParams = {
