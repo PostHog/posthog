@@ -1,8 +1,9 @@
-import { connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
 import { LinkedSignalReport, SignalScoutEmission, SignalScoutEmissionReportLink, SignalScoutRunSummary } from '../types'
 import type { scoutDetailLogicType } from './scoutDetailLogicType'
@@ -17,6 +18,15 @@ export interface ScoutDetailLogicProps {
 // render hundreds of markdown cards. Bound both to the most recent N emitted runs — older
 // findings live on in the inbox reports they produced.
 const MAX_EMITTED_RUNS = 50
+
+// Report linkage is eventually consistent: a finding's signal is grouped into a report asynchronously
+// after the run emits it, so the reverse lookup can return `report: null` right after emission and
+// resolve minutes later. The emissions themselves are stable once a run completes, so the
+// `emittedRunsKey` subscription never refires for them — but the report links need to keep retrying.
+// We re-fetch them on the fleet's existing 60s runs-window poll, but only while a *recent* finding is
+// still unlinked. Past this window the remaining nulls are findings that will never group (deduped,
+// deleted, or below the report threshold), so we stop polling for them.
+const REPORT_LINK_RETRY_WINDOW_MINUTES = 30
 
 /** An emitted finding paired with the run that produced it (for the run-level task link) and the
  * inbox report its signal grouped into, if any (for the "In report" deep-link chip). */
@@ -168,6 +178,23 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
         emittedRunsKey: () => {
             actions.loadEmissions()
             actions.loadEmissionReports()
+        },
+    })),
+
+    listeners(({ actions, values }) => ({
+        // Report grouping resolves asynchronously after emission, so ride the fleet's 60s runs-window
+        // poll to keep refetching the links — but only while a recently-emitted finding is still
+        // unlinked. Computed fresh here (not a memoized selector) so the recency cutoff advances with
+        // wall-clock time and a never-grouping finding stops the poll once it ages out of the window.
+        [scoutFleetLogic.actionTypes.loadRunsWindowSuccess]: () => {
+            const cutoff = dayjs().subtract(REPORT_LINK_RETRY_WINDOW_MINUTES, 'minute')
+            const hasRecentUnlinked = values.emissionRows.some(
+                (row) =>
+                    row.report === null && row.emission.emitted_at && dayjs(row.emission.emitted_at).isAfter(cutoff)
+            )
+            if (hasRecentUnlinked) {
+                actions.loadEmissionReports()
+            }
         },
     })),
 ])

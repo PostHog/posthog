@@ -251,7 +251,6 @@ export interface SignalScoutEmission {
 export interface LinkedSignalReport {
     id: string
     title: string | null
-    status: string
 }
 
 /** One finding a run emitted, paired with the inbox report (if any) its signal grouped into. */
