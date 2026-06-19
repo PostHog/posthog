@@ -27,6 +27,13 @@ logger = structlog.get_logger(__name__)
 COORDINATOR_INTERVAL_MINUTES = 5
 TICKET_LOOKBACK_MINUTES = 6
 
+# Fanout caps so public ticket volume can't directly turn into unbounded sandbox/LLM work.
+# A single opted-in team that gets flooded with externally-created tickets can only spend
+# MAX_TICKETS_PER_TEAM_PER_RUN drafts per tick; the global cap bounds total work across teams.
+# Anything over the cap simply rolls to the next tick (the lookback window keeps it eligible).
+MAX_TICKETS_PER_TEAM_PER_RUN = 10
+MAX_TICKETS_PER_RUN = 50
+
 MASTER_FLAG = "product-support-ai-suggestion"
 ROLLOUT_FLAG = "product-support-ai-suggestion-rollout"
 
@@ -119,12 +126,24 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
                 engaged.add(item_id)
 
     # Rollout is sampled last (after the cheap gates and dedupe) so we don't burn the bucket on
-    # tickets that were never going to run.
-    return [
-        EligibleTicket(team_id=team_id, ticket_id=ticket_id_str)
-        for team_id, ticket_id_str in candidates
-        if ticket_id_str not in engaged and _is_rollout_enabled(ticket_id_str)
-    ]
+    # tickets that were never going to run. Per-team and global caps bound how many child
+    # workflows a single tick can fan out so externally-created ticket volume can't directly
+    # translate into unbounded LLM work; overflow rolls to the next tick (still in lookback).
+    eligible: list[EligibleTicket] = []
+    per_team_counts: dict[int, int] = {}
+    for team_id, ticket_id_str in candidates:
+        if len(eligible) >= MAX_TICKETS_PER_RUN:
+            break
+        if ticket_id_str in engaged:
+            continue
+        if per_team_counts.get(team_id, 0) >= MAX_TICKETS_PER_TEAM_PER_RUN:
+            continue
+        if not _is_rollout_enabled(ticket_id_str):
+            continue
+        per_team_counts[team_id] = per_team_counts.get(team_id, 0) + 1
+        eligible.append(EligibleTicket(team_id=team_id, ticket_id=ticket_id_str))
+
+    return eligible
 
 
 @activity.defn
