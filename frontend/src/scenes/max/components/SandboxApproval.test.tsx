@@ -31,6 +31,11 @@ jest.mock('../MarkdownMessage', () => ({
     MarkdownMessage: ({ content }: { content: string }) => <div data-attr="markdown">{content}</div>,
 }))
 
+jest.mock('lib/components/CodeSnippet', () => ({
+    CodeSnippet: ({ children }: { children: string }) => <pre data-attr="code-snippet">{children}</pre>,
+    Language: { JSON: 'json', Text: 'text' },
+}))
+
 const rawToolCall: ToolInvocation = {
     toolCallId: 'tc-1',
     rawServerName: 'posthog',
@@ -50,7 +55,6 @@ function makeRequest(overrides: Partial<PermissionRequestRecord> = {}): Permissi
         options: [
             { optionId: 'opt-allow', name: 'Approve', kind: 'allow_once' },
             { optionId: 'opt-reject', name: 'Decline', kind: 'reject' },
-            { optionId: 'opt-feedback', name: 'Decline with feedback', kind: 'reject_with_feedback' },
         ],
         rawToolCall,
         ...overrides,
@@ -71,14 +75,34 @@ describe('Sandbox approval input area', () => {
     })
 
     describe('SandboxPermissionInput', () => {
-        it('renders one button per non-feedback option plus the feedback toggle', () => {
+        it('renders the approval prompt with the same two permission options', () => {
             render(<SandboxPermissionInput streamKey="conv-1" request={makeRequest()} />)
 
             expect(screen.getByText('Approval required')).toBeInTheDocument()
+            expect(screen.getByText('posthog - insight-create (MCP)')).toBeInTheDocument()
             expect(screen.getByText('Approve')).toBeInTheDocument()
             expect(screen.getByText('Decline')).toBeInTheDocument()
-            // reject_with_feedback is feedback-only: it's the toggle that opens the text field, not a plain button.
-            expect(screen.getByText('Decline with feedback')).toBeInTheDocument()
+            expect(screen.queryByText("Explain what you'd like instead.")).not.toBeInTheDocument()
+        })
+
+        it('renders the unwrapped PostHog exec payload like PostHog Code', () => {
+            render(
+                <SandboxPermissionInput
+                    streamKey="conv-1"
+                    request={makeRequest({
+                        rawToolCall: {
+                            ...rawToolCall,
+                            input: { command: 'call execute-sql {"query":"select 1"}' },
+                        },
+                    })}
+                />
+            )
+
+            expect(screen.getByText('posthog - execute-sql (MCP)')).toBeInTheDocument()
+            expect(
+                screen.getByText((_content, element) => element?.getAttribute('data-attr') === 'code-snippet')
+                    .textContent
+            ).toEqual('{\n  "query": "select 1"\n}')
         })
 
         it('posts the chosen optionId on click', () => {
@@ -99,18 +123,27 @@ describe('Sandbox approval input area', () => {
             render(<SandboxPermissionInput streamKey="conv-1" request={makeRequest()} />)
 
             // Loading message replaces the option list, so nothing can be clicked.
-            expect(screen.getByText('Sending response...')).toBeInTheDocument()
+            expect(screen.getByText('Sending response…')).toBeInTheDocument()
             expect(screen.queryByText('Approve')).not.toBeInTheDocument()
             expect(screen.queryByText('Decline')).not.toBeInTheDocument()
             expect(respondToPermission).not.toHaveBeenCalled()
         })
 
-        it('sends feedback text through the reject_with_feedback option', () => {
-            render(<SandboxPermissionInput streamKey="conv-1" request={makeRequest()} />)
+        it('sends feedback text through the reject_with_feedback option when it is the decline path', () => {
+            render(
+                <SandboxPermissionInput
+                    streamKey="conv-1"
+                    request={makeRequest({
+                        options: [
+                            { optionId: 'opt-allow', name: 'Approve', kind: 'allow_once' },
+                            { optionId: 'opt-feedback', name: 'Decline with feedback', kind: 'reject_with_feedback' },
+                        ],
+                    })}
+                />
+            )
 
-            // Open the feedback text field via the feedback-only decline toggle.
-            fireEvent.click(screen.getByText('Decline with feedback'))
-            const input = screen.getByPlaceholderText("Explain what you'd like instead...")
+            fireEvent.click(screen.getByText("Explain what you'd like instead."))
+            const input = screen.getByPlaceholderText('Type your answer...')
             fireEvent.change(input, { target: { value: 'Use a funnel instead' } })
             fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
