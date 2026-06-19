@@ -396,11 +396,9 @@ ALL_POSTGRES_SYSTEM_TABLES = [
 class TestPostgresTablePrimaryKey(BaseTest):
     """Validate primary_key auto-detection and access_scope constraints."""
 
-    @parameterized.expand(ALL_POSTGRES_SYSTEM_TABLES)
+    @parameterized.expand(_SCOPED_SYSTEM_TABLES.items())
     def test_tables_with_access_scope_have_single_column_pk(self, table_name, table):
         """Object-level access control requires a single-column PK to filter by."""
-        if table.access_scope is None:
-            return
         assert table.primary_key is not None, (
             f"system.{table_name} has access_scope='{table.access_scope}' "
             f"but no single-column primary key (composite PK). "
