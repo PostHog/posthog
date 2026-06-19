@@ -674,6 +674,7 @@ class ExternalDataSourceType(models.TextChoices):
     NEWRELIC = "NewRelic", "NewRelic"
     CUSTOM = "Custom", "Custom"
     TILE38 = "Tile38", "Tile38"
+    CHATWOOT = "Chatwoot", "Chatwoot"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):
