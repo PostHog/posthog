@@ -19,10 +19,7 @@ from pathlib import Path
 from .isolation import (
     IsolationStatus,
     compute_isolation_status,
-    has_contract_check_script,
     has_legacy_interface_leaks,
-    has_narrowed_turbo_inputs,
-    has_real_facade,
     has_tach_interface,
     is_isolated_product,
     iter_interface_blocks as _iter_interface_blocks,
@@ -607,21 +604,25 @@ class TachCheck(ProductCheck):
 
 
 class IsolationChainCheck(ProductCheck):
-    """Validates the isolation prerequisite chain is consistent.
+    """Validates the isolation prerequisite chain is consistent — and finished.
 
     The chain: real facade → tach interfaces → contract-check script → narrowed turbo.json.
-    Each step requires the previous one. A product that skips a step gets CI
-    benefits it hasn't earned (Django suite skipped on changes).
+    Each step requires the previous one, so a product can't claim a CI benefit it hasn't
+    earned (the Django suite skipped on changes). The final step also can't be left
+    half-wired: once a product is fully sealed and eligible, it must actually turn the skip
+    on by narrowing turbo.json inputs — otherwise the contract-check script is inert
+    (inputs default to all of backend/, so every change still re-runs the Django suite).
     """
 
     label = "isolation chain"
 
     def run(self, ctx: CheckContext) -> CheckResult:
         facade_api = ctx.backend_dir / "facade" / "api.py"
-        real_facade = has_real_facade(ctx.backend_dir)
-        has_tach = has_tach_interface(ctx.name)
-        has_script = has_contract_check_script(ctx.product_dir)
-        has_narrowed = has_narrowed_turbo_inputs(ctx.product_dir)
+        status = compute_isolation_status(ctx.name, ctx.product_dir, ctx.backend_dir, is_isolated=ctx.is_isolated)
+        real_facade = status.has_real_facade
+        has_tach = status.has_tach_interface
+        has_script = status.has_contract_check_script
+        has_narrowed = status.has_narrowed_turbo
 
         result = CheckResult()
 
@@ -656,12 +657,36 @@ class IsolationChainCheck(ProductCheck):
                 "a real facade should convert models to contracts, not just re-export"
             )
 
+        # Earned but not turned on: a fully sealed, eligible product (real facade, tach
+        # interface, no legacy leaks, presentation wave emptied) is required by
+        # PackageJsonScriptsCheck to carry 'backend:contract-check'. Without a turbo.json
+        # narrowing its inputs to facade/presentation, that script inherits the root task's
+        # all-of-backend inputs, so every internal change still re-runs the full Django
+        # suite — the skip is inert. Force the narrowing so READY products land on ON.
+        needs_turn_on = status.eligible_for_isolated_tests and status.externally_sealed and not has_narrowed
+        if needs_turn_on:
+            result.issues.append(
+                "product is fully sealed and eligible for isolated tests and carries "
+                "'backend:contract-check', but turbo.json does not narrow contract-check inputs to "
+                "facade/presentation — the skip is inert (every change still re-runs the full Django "
+                'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
+                '"backend/presentation/**"] to turn the skip on'
+            )
+
         # Note: a product that has the contract-check script *and* deferred
         # presentation-wave ignore_imports entries is hard-blocked by
         # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
 
         if result.issues or result.warnings:
-            result.file = f"products/{ctx.name}/backend/facade/api.py"
+            # The turn-on issue can't co-occur with the facade/turbo mismatch issues above
+            # (it requires a real facade, a tach interface, and no narrowing — each of which
+            # negates one of those), so when it fires it's the sole issue and the annotation
+            # belongs on turbo.json, not facade/api.py.
+            result.file = (
+                f"products/{ctx.name}/turbo.json"
+                if needs_turn_on and len(result.issues) == 1
+                else f"products/{ctx.name}/backend/facade/api.py"
+            )
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
         elif result.warnings:
