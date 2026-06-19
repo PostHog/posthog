@@ -103,6 +103,10 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
     // quiet-scout empty state from flickering to a skeleton every 60s poll.
     const loading = !runsWindowLoadedOnce || emissionsLoading
     const hasRows = emissionRows.length > 0
+    // The unique emission the deep-link resolves to: the newest row whose finding matches.
+    const deepLinkedEmissionId = selectedScoutFindingId
+        ? (emissionRows.find(({ emission }) => emission.finding_id === selectedScoutFindingId)?.emission.id ?? null)
+        : null
 
     return (
         <div className="flex flex-col gap-2">
@@ -130,7 +134,10 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
                             emission={emission}
                             run={run}
                             report={report}
-                            isDeepLinked={selectedScoutFindingId === emission.finding_id}
+                            // `finding_id` repeats across runs (it's a dedup trace id, not unique), so only
+                            // mark the newest matching emission — rows are newest-first — to keep the
+                            // highlight/scroll deterministic for a single shared link.
+                            isDeepLinked={emission.id === deepLinkedEmissionId}
                         />
                     ))}
                     {!runsWindowComplete && (
