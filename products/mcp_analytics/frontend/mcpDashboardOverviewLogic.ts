@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToComponents, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
@@ -598,7 +599,8 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             ): HogQLFilters => ({
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 filterTestAccounts,
-                properties: propertyFilters,
+                // Drop incomplete picker rows and any malformed URL-hydrated entries before they fan out to every tile.
+                properties: propertyFilters.filter(isValidPropertyFilter),
             }),
         ],
         interval: [

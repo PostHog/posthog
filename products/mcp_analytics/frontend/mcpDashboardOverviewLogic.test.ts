@@ -360,7 +360,7 @@ describe('mcpDashboardOverviewLogic', () => {
         }
         // Feature-flag filters arrive as ordinary $feature/<key> event-property filters.
         const FLAG_FILTER: AnyPropertyFilter = {
-            key: '$feature/new-thing',
+            key: '$feature/mcp-new-thing',
             value: ['test'],
             operator: PropertyOperator.Exact,
             type: PropertyFilterType.Event,
