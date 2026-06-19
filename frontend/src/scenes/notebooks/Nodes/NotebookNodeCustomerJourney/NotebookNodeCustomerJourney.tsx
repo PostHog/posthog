@@ -48,14 +48,16 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
 
     useOnMountEffect(() => {
         const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.CustomerJourney)
-        setMenuItems([
-            {
-                label: 'Edit journeys',
-                onClick: () => router.actions.push(urls.customerAnalyticsJourneys()),
-                sideIcon: <IconPencil />,
-            },
-            removeMenuItem,
-        ])
+        const editJourneysMenuItem = {
+            label: 'Edit journeys',
+            onClick: () => router.actions.push(urls.customerAnalyticsJourneys()),
+            sideIcon: <IconPencil />,
+        }
+        if (removeMenuItem) {
+            setMenuItems([editJourneysMenuItem, removeMenuItem])
+            return
+        }
+        setMenuItems([editJourneysMenuItem])
     })
 
     if (journeysLoading || activeInsightLoading) {

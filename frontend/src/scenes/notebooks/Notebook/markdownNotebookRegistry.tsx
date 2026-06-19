@@ -706,10 +706,10 @@ export function getSerializableAttributeInputValue(
 
     if (NUMERIC_MARKDOWN_NODE_ATTRIBUTE_KEYS[notebookNodeType]?.includes(key)) {
         const numericValue = Number(trimmedValue)
-        return Number.isFinite(numericValue) ? numericValue : value
+        return Number.isFinite(numericValue) ? numericValue : trimmedValue
     }
 
-    return value
+    return trimmedValue
 }
 
 export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {

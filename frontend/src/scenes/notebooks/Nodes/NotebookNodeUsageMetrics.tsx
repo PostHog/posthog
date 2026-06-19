@@ -68,19 +68,21 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
             },
         ])
 
-        setMenuItems([
-            {
-                label: 'Add metric',
-                sideIcon: <IconPlusSmall />,
-                onClick: openModal,
-            },
-            {
-                label: 'Refresh',
-                sideIcon: <IconRefresh />,
-                onClick: () => loadData(),
-            },
-            removeMenuItem,
-        ])
+        const addMetricMenuItem = {
+            label: 'Add metric',
+            sideIcon: <IconPlusSmall />,
+            onClick: openModal,
+        }
+        const refreshMenuItem = {
+            label: 'Refresh',
+            sideIcon: <IconRefresh />,
+            onClick: () => loadData(),
+        }
+        if (removeMenuItem) {
+            setMenuItems([addMetricMenuItem, refreshMenuItem, removeMenuItem])
+            return
+        }
+        setMenuItems([addMetricMenuItem, refreshMenuItem])
     })
 
     if (!expanded) {

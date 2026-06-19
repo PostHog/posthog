@@ -26,7 +26,7 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
         return null
     }
 
-    const shouldShowTableOfContents = showTableOfContents && !isMarkdownNotebookContent(content)
+    const shouldShowTableOfContents = showTableOfContents && !isMarkdownNotebook
     const isShowingEffectiveLeftColumn =
         isShowingLeftColumn &&
         (editingNodeLogicsForLeft.length > 0 || showHistory || shouldShowTableOfContents || showKernelInfo)
