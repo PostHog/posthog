@@ -1961,6 +1961,11 @@ class NebiusAISourceConfig(config.Config):
 
 
 @config.config
+class NeonSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class NetSuiteSourceConfig(config.Config):
     pass
 
@@ -3801,6 +3806,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NASA: NasaSourceConfig,
         ExternalDataSourceType.NAVAN: NavanSourceConfig,
         ExternalDataSourceType.NEBIUSAI: NebiusAISourceConfig,
+        ExternalDataSourceType.NEON: NeonSourceConfig,
         ExternalDataSourceType.NETSUITE: NetSuiteSourceConfig,
         ExternalDataSourceType.NEWYORKTIMES: NewYorkTimesSourceConfig,
         ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,

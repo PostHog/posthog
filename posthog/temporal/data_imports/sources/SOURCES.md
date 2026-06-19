@@ -488,6 +488,7 @@ doesn't conflict with concurrent PRs.
 - nasa
 - navan
 - nebius_ai
+- neon
 - netsuite
 - new_york_times
 - news_api

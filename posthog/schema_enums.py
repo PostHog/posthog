@@ -1791,6 +1791,7 @@ class ExternalDataSourceType(StrEnum):
     LIGHTFIELD = "Lightfield"
     APPSTACK = "Appstack"
     RAZORPAY = "Razorpay"
+    NEON = "Neon"
     CUSTOM = "Custom"
 
 
