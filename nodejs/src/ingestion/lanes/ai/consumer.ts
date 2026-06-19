@@ -1,9 +1,17 @@
-import { CommonConfig } from '~/common/config'
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { ProducerName } from '~/common/outputs'
-import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
+import {
+    AiEventOutput,
+    AppMetricsOutput,
+    DlqOutput,
+    EventOutput,
+    IngestionWarningsOutput,
+    OverflowOutput,
+    ProducerName,
+} from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { createPersonHogClient } from '~/common/personhog'
 import { PersonHogClient } from '~/common/personhog/client'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
@@ -12,7 +20,7 @@ import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
 import { Component, Scope, extend } from '~/ingestion/common/scopes'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
-import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
+import { IngestionConsumerConfig, IngestionOutputsConfig, PersonHogConfig } from '~/ingestion/config'
 import { parseSplitAiEventsConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
 import { DisabledOverflowRedirect } from '~/ingestion/utils/overflow-redirect/disabled-overflow-redirect'
 import { MainLaneOverflowRedirect } from '~/ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
@@ -24,12 +32,11 @@ import { PostgresRouter } from '~/utils/db/postgres'
 import { EventIngestionRestrictionManagerComponent } from '~/utils/event-ingestion-restrictions'
 import { TeamManager } from '~/utils/team-manager'
 
-import { createOutputsRegistry } from './outputs/registry'
 import { createAiIngestionPipeline } from './pipeline'
 
 export type AiConsumerConfig = CommonIngestionConsumerConfig &
     IngestionOutputsConfig &
-    Pick<CommonConfig, 'PLUGIN_SERVER_MODE'> &
+    PersonHogConfig &
     Pick<
         IngestionConsumerConfig,
         | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
@@ -49,25 +56,67 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID'
     >
 
-/** Services shared from the server scope (same shape as the heatmaps shared scope). */
+/** Outputs the AI pipeline emits to. The same instance backs the hog transformer's
+ * monitoring (app_metrics + log_entries), wired up server-side. */
+export type AiOutputs = IngestionOutputs<
+    EventOutput | AiEventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | AppMetricsOutput
+>
+
+/**
+ * Services shared from the server scope. Extends the base shared scope with the
+ * hog transformer and outputs, which the server must build because the lane can't
+ * construct the cdp-owned transformer (boundary) and the same outputs instance
+ * backs the transformer's monitoring. The personhog client is owned by the AI
+ * scope (created from common, tagged for this pipeline), not shared in here.
+ */
 export type AiSharedScope = Scope<{
     postgres: PostgresRouter
     redisPool: RedisPool
     teamManager: TeamManager
     cookielessManager: CookielessManager
     producerRegistry: KafkaProducerRegistry<ProducerName>
+    hogTransformer: HogTransformer
+    outputs: AiOutputs
 }>
 
 /**
- * Heavy, server-built services injected per consumer. The hog transformer's
- * concrete implementation needs server-level deps (geoip, pubsub, integration
- * manager), so the server builds it and injects it via the `HogTransformer`
- * interface. The personhog client is the shared gRPC connection; the AI
- * pipeline's read-only person/group repositories are built from it here.
+ * Wraps a hog transformer with start/stop lifecycle. The factory is supplied by
+ * the server (the concrete `HogTransformerService` lives in cdp), so the AI scope
+ * stays within ingestion boundaries while still owning the transformer's lifecycle.
  */
-export interface AiConsumerDeps {
-    hogTransformer: HogTransformer
-    personhogClient: PersonHogClient | null
+export function hogTransformerComponent(create: () => HogTransformer): Component<HogTransformer> {
+    return {
+        start: async () => {
+            const hogTransformer = create()
+            await hogTransformer.start()
+            return { value: hogTransformer, stop: () => hogTransformer.stop() }
+        },
+    }
+}
+
+/**
+ * Creates the personhog gRPC client for the AI lane. Built here (not injected) so
+ * the connection is owned by the AI scope and torn down with it. Throws if
+ * personhog isn't configured — the AI pipeline reads person/group data through it.
+ */
+function personhogClientComponent(config: PersonHogConfig): Component<PersonHogClient> {
+    return {
+        start: () => {
+            const client = createPersonHogClient(config)
+            if (!client) {
+                throw new Error(
+                    'PersonHog client is required for the AI ingestion pipeline — set PERSONHOG_ENABLED=true and PERSONHOG_ADDR'
+                )
+            }
+            return Promise.resolve({
+                value: client,
+                stop: () => {
+                    client.close()
+                    return Promise.resolve()
+                },
+            })
+        },
+    }
 }
 
 /** Builds the main-lane overflow redirect (rate-limiting) for the 'ai' keyspace. */
@@ -119,31 +168,16 @@ function overflowLaneComponent(
     }
 }
 
-/** Wraps a hog transformer (built at the server level) with start/stop lifecycle. */
-function hogTransformerComponent(hogTransformer: HogTransformer): Component<HogTransformer> {
-    return {
-        start: async () => {
-            await hogTransformer.start()
-            return { value: hogTransformer, stop: () => hogTransformer.stop() }
-        },
-    }
-}
-
-export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiSharedScope, deps: AiConsumerDeps) {
-    const personhogClient = deps.personhogClient
-    if (!personhogClient) {
-        throw new Error(
-            'PersonHog client is required for the AI ingestion pipeline — set PERSONHOG_ENABLED=true and PERSONHOG_ADDR'
-        )
-    }
-
+export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiSharedScope) {
     const splitTokens = (value: string): string[] => value.split(',').filter((x) => !!x)
     const overflowEnabled =
         !!config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
         config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== config.INGESTION_CONSUMER_CONSUME_TOPIC
     const overflowLaneEnabled = config.INGESTION_LANE === 'overflow' && config.INGESTION_STATEFUL_OVERFLOW_ENABLED
     const preservePartitionLocality = config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
-    const clientLabel = config.PLUGIN_SERVER_MODE ?? 'ai'
+    // Client name for personhog read metrics: pipeline + lane (e.g. "ai/main").
+    // The query name is supplied per call (e.g. "person-properties").
+    const clientLabel = `ai/${config.INGESTION_LANE ?? 'main'}`
 
     const scope = extend(sharedScope, 'ai', (container, builder) =>
         builder
@@ -158,25 +192,13 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                 })
             )
             .add('eventFilterManager', new EventFilterManagerComponent(container.postgres))
-            .add(
-                'outputs',
-                new IngestionOutputsComponent(() => createOutputsRegistry().build(container.producerRegistry, config))
-            )
-            .add('hogTransformer', hogTransformerComponent(deps.hogTransformer))
             .add('overflowRedirectService', mainLaneOverflowComponent(container.redisPool, config, overflowEnabled))
             .add(
                 'overflowLaneTTLRefreshService',
                 overflowLaneComponent(container.redisPool, config, overflowLaneEnabled)
             )
-            // Read-only person/group access — the AI pipeline reads person/group data
-            // through personhog but never writes it.
-            .add('personRepository', valueComponent(new PersonHogPersonReadRepository(personhogClient, clientLabel)))
-            .add(
-                'groupTypeManager',
-                valueComponent(
-                    new ReadOnlyGroupTypeManager(new PersonHogGroupReadRepository(personhogClient, clientLabel))
-                )
-            )
+            // Personhog client owned by the AI scope (created from common, torn down with it).
+            .add('personhogClient', personhogClientComponent(config))
     )
 
     return new CommonIngestionConsumerScope('ai', config, scope, ({ container }) =>
@@ -188,8 +210,11 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             cookielessManager: container.cookielessManager,
             promiseScheduler: container.promiseScheduler,
             hogTransformer: container.hogTransformer,
-            personRepository: container.personRepository,
-            groupTypeManager: container.groupTypeManager,
+            // Read-only person/group access — read through personhog, never written.
+            personRepository: new PersonHogPersonReadRepository(container.personhogClient, clientLabel),
+            groupTypeManager: new ReadOnlyGroupTypeManager(
+                new PersonHogGroupReadRepository(container.personhogClient, clientLabel)
+            ),
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
                 config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
@@ -203,9 +228,4 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             concurrentBatches: config.INGESTION_WORKER_CONCURRENT_BATCHES,
         })
     )
-}
-
-/** Adds an already-constructed, lifecycle-free value to the scope container. */
-function valueComponent<T extends object>(value: T): Component<T> {
-    return { start: () => Promise.resolve({ value, stop: () => Promise.resolve() }) }
 }

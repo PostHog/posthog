@@ -4,6 +4,7 @@ import {
     DLQ_OUTPUT,
     EVENTS_OUTPUT,
     INGESTION_WARNINGS_OUTPUT,
+    LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
 } from '~/common/outputs'
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
@@ -12,8 +13,10 @@ import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-buil
  * Register the outputs the AI pipeline produces to. Like the analytics AI
  * branch, AI events are double-written to both the events output (main events
  * table) and the dedicated ai_events output. No persons/groups outputs — the
- * AI pipeline reads person/group data but never writes it. Call
- * `.build(registry, config)` to resolve against the shared producer registry.
+ * AI pipeline reads person/group data but never writes it. app_metrics +
+ * log_entries back the hog-function monitoring path (the transformer runs in
+ * this lane). Call `.build(registry, config)` to resolve against the shared
+ * producer registry.
  */
 export function createOutputsRegistry() {
     return new IngestionOutputsBuilder()
@@ -40,5 +43,9 @@ export function createOutputsRegistry() {
         .register(APP_METRICS_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_APP_METRICS_TOPIC',
             producerKey: 'INGESTION_OUTPUT_APP_METRICS_PRODUCER',
+        })
+        .register(LOG_ENTRIES_OUTPUT, {
+            topicKey: 'INGESTION_OUTPUT_LOG_ENTRIES_TOPIC',
+            producerKey: 'INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER',
         })
 }
