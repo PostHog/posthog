@@ -818,6 +818,59 @@ class TestCDCExtractActivity:
         # Slot should advance to the last event's position
         mock_reader.confirm_position.assert_called_once_with("0/300")
 
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_unchanged_sibling_table_logs_no_changes_breadcrumb(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        source = _make_source()
+        users_schema = _make_schema("users", cdc_mode="streaming", source=source)
+        orders_schema = _make_schema("orders", cdc_mode="streaming", source=source)
+        # Only `users` changes this run; `orders` is idle.
+        events = [_make_event(op="I", table="users", position="0/100", columns={"id": 1, "name": "Alice"})]
+
+        _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [users_schema, orders_schema],
+            events,
+        )
+
+        schema_loggers: dict[str, MagicMock] = {}
+
+        def fake_schema_log(schema):
+            return schema_loggers.setdefault(schema.name, MagicMock())
+
+        with patch.object(CDCExtractActivity, "_schema_log", side_effect=fake_schema_log):
+            cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+        def logged_events(name: str) -> list[str]:
+            return [call.args[0] for call in schema_loggers[name].info.call_args_list]
+
+        assert "cdc_extract_no_changes" in logged_events("orders")
+        assert "cdc_extract_no_changes" not in logged_events("users")
+
     @patch("posthog.temporal.data_imports.cdc.activities.unpause_external_data_schedule", create=True)
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
