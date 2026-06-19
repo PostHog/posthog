@@ -7,12 +7,12 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { LogSeverityLevel } from '~/queries/schema/schema-general'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { serviceFilterLogic } from 'products/logs/frontend/components/LogsViewer/Filters/serviceFilterLogic'
 import { SEVERITY_BAR_COLORS } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
 
 import { Facet, FacetOption } from './Facet'
+import { facetCountsLogic } from './facetCountsLogic'
 import { facetRailLogic } from './facetRailLogic'
 
 const DEFAULT_WIDTH_PX = 240
@@ -39,11 +39,11 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
     const { setFacetRailCollapsed } = useActions(logsViewerConfigLogic)
     const { severityLevels, serviceNames, utcDateRange } = useValues(logsViewerFiltersLogic)
-    const { severityTotals } = useValues(logsViewerDataLogic)
+    const { levelCounts, serviceCounts } = useValues(facetCountsLogic({ id }))
     const { collapsedFacets } = useValues(facetRailLogic({ id }))
     const { toggleSeverityLevel, toggleServiceName, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
 
-    const levelOptions = SEVERITY_OPTIONS.map((option) => ({ ...option, count: severityTotals?.[option.value] }))
+    const levelOptions = SEVERITY_OPTIONS.map((option) => ({ ...option, count: levelCounts[option.value] }))
 
     const onToggleClosed = useCallback(
         (shouldBeClosed: boolean) => setFacetRailCollapsed(shouldBeClosed),
@@ -90,6 +90,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                     <ServiceFacet
                         selected={serviceNames ?? []}
                         onToggle={toggleServiceName}
+                        counts={serviceCounts}
                         collapsed={collapsedFacets.includes('service')}
                         onToggleCollapsed={() => toggleFacetCollapsed('service')}
                     />
@@ -103,18 +104,20 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
 function ServiceFacet({
     selected,
     onToggle,
+    counts,
     collapsed,
     onToggleCollapsed,
 }: {
     selected: string[]
     onToggle: (name: string) => void
+    counts: Record<string, number>
     collapsed: boolean
     onToggleCollapsed: () => void
 }): JSX.Element {
-    const { serviceValues, allServiceNamesLoading, search } = useValues(serviceFilterLogic)
+    const { serviceNames, allServiceNamesLoading, search } = useValues(serviceFilterLogic)
     const { setSearch } = useActions(serviceFilterLogic)
 
-    const options: FacetOption[] = serviceValues.map((s) => ({ value: s.name, label: s.name, count: s.count }))
+    const options: FacetOption[] = serviceNames.map((name) => ({ value: name, label: name, count: counts[name] }))
 
     return (
         <Facet
