@@ -1,3 +1,4 @@
+import { Component } from '~/ingestion/common/scopes'
 import { HealthCheckResult, HealthCheckResultOk } from '~/types'
 
 import { OverflowRedirectService } from './overflow-redirect-service'
@@ -18,5 +19,13 @@ export class DisabledOverflowRedirect implements OverflowRedirectService {
 
     shutdown(): Promise<void> {
         return Promise.resolve()
+    }
+}
+
+/** Scope component for the no-op overflow redirect (overflow disabled for the lane). */
+export class DisabledOverflowRedirectComponent implements Component<OverflowRedirectService> {
+    start(): Promise<{ value: OverflowRedirectService; stop: () => Promise<void> }> {
+        const service = new DisabledOverflowRedirect()
+        return Promise.resolve({ value: service, stop: () => service.shutdown() })
     }
 }

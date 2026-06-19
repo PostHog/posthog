@@ -1,3 +1,4 @@
+import { Component } from '~/ingestion/common/scopes'
 import { MemoryRateLimiter } from '~/ingestion/utils/overflow-detector'
 import { HealthCheckResult } from '~/types'
 
@@ -214,5 +215,15 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
     shutdown(): Promise<void> {
         this.localCache.clear()
         return Promise.resolve()
+    }
+}
+
+/** Scope component for the main-lane overflow redirect (rate-limiting). */
+export class MainLaneOverflowRedirectComponent implements Component<OverflowRedirectService> {
+    constructor(private readonly config: MainLaneOverflowRedirectConfig) {}
+
+    start(): Promise<{ value: OverflowRedirectService; stop: () => Promise<void> }> {
+        const service = new MainLaneOverflowRedirect(this.config)
+        return Promise.resolve({ value: service, stop: () => service.shutdown() })
     }
 }

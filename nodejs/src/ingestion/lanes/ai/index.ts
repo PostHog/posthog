@@ -2,4 +2,4 @@ export { normalizeTraceProperties, processAiEvent, type EventWithProperties } fr
 export { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 export { createAiEventSubpipeline, type AiEventSubpipelineConfig } from './pipelines/ai-event-subpipeline'
 export { createAiIngestionPipeline, type AiIngestionPipelineConfig } from './pipeline'
-export { createAiConsumer, hogTransformerComponent, type AiConsumerConfig, type AiSharedScope } from './consumer'
+export { createAiConsumer, HogTransformerComponent, type AiConsumerConfig, type AiSharedScope } from './consumer'
