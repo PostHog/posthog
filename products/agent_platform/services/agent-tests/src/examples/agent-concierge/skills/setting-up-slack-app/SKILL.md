@@ -259,10 +259,12 @@ didn't actually freeze with the slack trigger).
 
 ## Tuning the slack trigger
 
-The slack trigger config has five optional fields beyond
+The slack trigger config has six optional fields beyond
 `channel_id` / `trusted_workspaces`. Defaults are back-compat ("react
-to anything the bot can see", owner-only threads, no DMs); for most new
-agents the user actually wants the opt-in flags.
+to anything the bot can see", owner-only threads, no DMs, external
+channels allowed); for most new agents the user actually wants the
+opt-in flags — and you should turn `block_external_shared_channels` ON
+by default (see "Keeping the bot out of customer channels" below).
 
 | Field                          | Type             | Default | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------------------ | ---------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -271,6 +273,7 @@ agents the user actually wants the opt-in flags.
 | `allow_workspace_participants` | `boolean`        | `false` | Who may advance an open thread. Every Slack session is owned by the user who opened it. Default (`false`): only that user can drive the thread — a reply from anyone else is parked as an elevation request and the bot posts an in-thread "only the starter can continue this" reply. `true`: any user in a `trusted_workspaces` workspace can post into the thread and advance the session (shared/team threads). The real sender is always recorded for audit either way.                                                             |
 | `ack_reaction`                 | `string` (emoji) | unset   | Emoji name (no colons, e.g. `"eyes"` or `"thinking_face"`) the ingress posts as `reactions.add` against the inbound message immediately on accept — before the runner produces a turn. Fire-and-forget; failures (revoked token, slack 5xx, `already_reacted`) are silently swallowed.                                                                                                                                                                                                                                                   |
 | `allow_direct_messages`        | `boolean`        | `false` | When `true`, the bot also handles direct messages (`channel_type: "im"`) and group DMs (`"mpim"`) — "talk to it as an app", not just channel mentions. A DM is inherently directed at the bot, so it bypasses `mention_only`; each DM conversation is one rolling session keyed per-channel (`slack:<channel>`), idle-reset by the platform sweep. The generated manifest subscribes `message.im`/`message.mpim`, adds `im:history`/`mpim:history`, and enables the App Home Messages tab. **New scopes ⇒ the app must be reinstalled.** |
+| `block_external_shared_channels` | `boolean`      | `false` | When `true`, the bot refuses channels shared with an outside org. Before seeding a session for a channel event the ingress calls `conversations.info` and drops the event if the channel is externally shared (`is_ext_shared_channel` / `is_pending_ext_shared`) — i.e. a Slack Connect channel with a customer/partner. Channels shared only between workspaces of the same org are allowed. **Fails closed**: if the share status can't be confirmed (no bot token, missing scope, slack 5xx) the event is dropped. DMs bypass it. The generated manifest adds `channels:read`/`groups:read` for the lookup. **New scopes ⇒ the app must be reinstalled.** Recommend it ON for any agent that isn't deliberately meant to live in customer channels. |
 
 ### How to pick
 
@@ -316,6 +319,28 @@ And — orthogonal again — **can people DM the bot directly**:
 > (the manifest does that automatically). Great for personal-assistant
 > bots; leave it off for bots that should only live in channels.
 
+And — **keeping the bot out of customer channels**. Lead with this for
+any new agent; don't wait to be asked:
+
+> One safety thing I'll set by default: I'll stop the bot from
+> responding in channels shared with people outside your org (Slack
+> Connect / customer / partner channels), so it can't get accidentally
+> @-mentioned in front of a customer. That's
+> `block_external_shared_channels: true`. Internal channels — including
+> ones shared between your own workspaces — still work normally.
+> Heads-up: it adds the `channels:read` scope (so I can check whether a
+> channel is external), which means you'll need to **reinstall the app**
+> once I regenerate the manifest. Want me to leave it on? (Turn it off
+> only if the agent is *meant* to operate in customer channels.)
+
+Default this to `true` when you create the slack trigger. The
+schema-level default is `false` purely so existing agents aren't
+changed under them — for a brand-new agent, set it on explicitly. It
+fails closed (drops the event if it can't confirm a channel is
+internal), so make sure the agent has a `SLACK_BOT_TOKEN` and the app
+is reinstalled with `channels:read`/`groups:read`, otherwise it'll drop
+*all* channel events.
+
 ### Wiring it
 
 The fields land on `spec.triggers[].config` for the slack trigger.
@@ -331,7 +356,8 @@ inline at trigger-creation time):
     "auto_resume_threads": true,
     "allow_workspace_participants": false,
     "ack_reaction": "eyes",
-    "allow_direct_messages": false
+    "allow_direct_messages": false,
+    "block_external_shared_channels": true
   }
 }
 ```

@@ -204,12 +204,13 @@ export const TriggerSchema = z.discriminatedUnion('type', [
              * Keep the agent out of channels shared with external
              * organizations. When true, before enqueuing a session for a
              * channel event the ingress calls `conversations.info` and DROPS
-             * the event when the channel is externally shared — Slack Connect
-             * channels and channels pending an external share
-             * (`is_ext_shared_channel` / `is_pending_ext_shared` / `is_shared`).
-             * Lets an author stop the bot being @-mentioned (or replying) in a
-             * customer/partner channel it was invited to, without having to
-             * curate channel membership by hand.
+             * the event when the channel is externally shared — a Slack Connect
+             * channel or one with a pending external share
+             * (`is_ext_shared_channel` / `is_pending_ext_shared`). Channels
+             * shared only between workspaces of the SAME org (no externals) are
+             * allowed through. Lets an author stop the bot being @-mentioned
+             * (or replying) in a customer/partner channel it was invited to,
+             * without having to curate channel membership by hand.
              *
              * Fails CLOSED: if the channel's share status can't be confirmed
              * (no `SLACK_BOT_TOKEN`, missing `channels:read`/`groups:read`
@@ -219,8 +220,10 @@ export const TriggerSchema = z.discriminatedUnion('type', [
              * the `channels:read` + `groups:read` scopes the check needs.
              *
              * DMs bypass this check (a 1:1/group DM isn't a shared channel).
-             * Default false — no `conversations.info` call, preserving the
-             * historical "respond wherever the bot is a member" behaviour.
+             * Default false at the schema level so existing agents (whose
+             * frozen specs predate the field) are unaffected; the authoring
+             * surface (the concierge) turns it ON for new agents. No
+             * `conversations.info` call when false.
              */
             block_external_shared_channels: z.boolean().default(false),
             /**

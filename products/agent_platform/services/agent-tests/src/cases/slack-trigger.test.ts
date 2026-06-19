@@ -1092,22 +1092,49 @@ describe('slack trigger: real e2e', () => {
             }
         })
 
-        it('treats is_shared (any shared channel) as external and drops it', async () => {
-            const { cc } = await externalCheckCluster({ channels: { CSHARE: { is_shared: true } } })
+        it('drops events from a channel with a pending external share', async () => {
+            const { cc } = await externalCheckCluster({ channels: { CPEND: { is_pending_ext_shared: true } } })
             try {
                 await cc.deployAgent({
-                    slug: 'no-shared',
+                    slug: 'no-pending',
                     spec: slackSpec({ block_external_shared_channels: true }),
-                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-noshared' },
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-nopending' },
                 })
                 const res = await cc.slackPost(
-                    'no-shared',
+                    'no-pending',
                     'events',
-                    slackEvent({ eventType: 'app_mention', channel: 'CSHARE', text: '<@U0BOT> hi' }),
+                    slackEvent({ eventType: 'app_mention', channel: 'CPEND', text: '<@U0BOT> hi' }),
                     SLACK_SECRET
                 )
                 expect(res.body.dropped).toBe('external_shared_channel')
                 expect(res.body.session_id).toBeUndefined()
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('allows an internally-shared (same-org, no externals) channel through', async () => {
+            // is_shared can be true for channels shared between workspaces of
+            // the same org — those have no outside parties, so the gate (which
+            // keys only on the *_ext_* flags) must let them through.
+            const { cc } = await externalCheckCluster({
+                channels: { CORGSHARE: { is_shared: true, is_ext_shared_channel: false } },
+            })
+            try {
+                cc.setScript([fauxText('hi back')])
+                await cc.deployAgent({
+                    slug: 'org-share-ok',
+                    spec: slackSpec({ block_external_shared_channels: true }),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-orgshare' },
+                })
+                const res = await cc.slackPost(
+                    'org-share-ok',
+                    'events',
+                    slackEvent({ eventType: 'app_mention', channel: 'CORGSHARE', text: '<@U0BOT> hi' }),
+                    SLACK_SECRET
+                )
+                expect(res.body.session_id).toBeTruthy()
+                expect(res.body.dropped).toBeUndefined()
             } finally {
                 await cc.teardown()
             }

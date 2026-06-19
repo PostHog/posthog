@@ -441,16 +441,20 @@ interface SlackInteractivityPayload {
 /**
  * Resolve whether a channel is shared with an external organization, for the
  * `block_external_shared_channels` gate. Calls `conversations.info` with the
- * agent's bot token and reads Slack's share flags:
- *   - `is_ext_shared_channel` — a live Slack Connect / externally shared channel.
+ * agent's bot token and reads Slack's external-share flags:
+ *   - `is_ext_shared_channel` — a live Slack Connect channel shared with a
+ *     different org (i.e. it contains externals).
  *   - `is_pending_ext_shared` — an external share invite is outstanding.
- *   - `is_shared` — shared channel (covers the legacy/internal-org-shared case;
- *     we treat any "shared" as external for a "keep me out of shared channels"
- *     gate, which is the conservative reading the flag's author asked for).
+ *
+ * Note we deliberately do NOT treat `is_shared` on its own as external:
+ * `is_shared` is also true for channels shared between workspaces of the SAME
+ * org (Enterprise Grid), which contain no outside parties. The gate is about
+ * keeping the bot out of channels with externals, so it keys only on the
+ * `*_ext_*` flags.
  *
  * Returns:
- *   - `'internal'` — confirmed not shared; safe to proceed.
- *   - `'external'` — confirmed shared/external; block.
+ *   - `'internal'` — confirmed not externally shared; safe to proceed.
+ *   - `'external'` — confirmed externally shared; block.
  *   - `'unknown'`  — couldn't confirm (no token, missing http client, missing
  *      scope, slack.com error, non-JSON body). The caller fails CLOSED on this.
  */
@@ -475,7 +479,7 @@ async function getChannelShareStatus(
         let body: {
             ok?: boolean
             error?: string
-            channel?: { is_shared?: boolean; is_ext_shared_channel?: boolean; is_pending_ext_shared?: boolean }
+            channel?: { is_ext_shared_channel?: boolean; is_pending_ext_shared?: boolean }
         } = {}
         try {
             body = (await res.json()) as typeof body
@@ -490,7 +494,7 @@ async function getChannelShareStatus(
             return 'unknown'
         }
         const ch = body.channel
-        const external = Boolean(ch.is_ext_shared_channel || ch.is_pending_ext_shared || ch.is_shared)
+        const external = Boolean(ch.is_ext_shared_channel || ch.is_pending_ext_shared)
         return external ? 'external' : 'internal'
     } catch (err) {
         log.warn(
