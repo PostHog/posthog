@@ -48,7 +48,7 @@
         "@posthog/mcp-analytics": "npm:@posthog/mcp@0.4.0",
         "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
-        "@blackwell-systems/gcf": "^2.1.2",
+        "@blackwell-systems/gcf": "2.1.2",
         "@toon-format/toon": "^2.1.0",
         "ai": "^6.0.0",
         "esbuild": "^0.25.11",
