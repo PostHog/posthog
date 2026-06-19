@@ -135,7 +135,7 @@ class TestConversationEvents(BaseTest):
         self.ticket.email_from = "customer@example.com"
 
         if capture_fn is capture_message_sent:
-            capture_fn(self.ticket, *extra_args, author=self.user)
+            capture_message_sent(self.ticket, "msg-id", "content", author=self.user)
         else:
             capture_fn(self.ticket, *extra_args)
 
