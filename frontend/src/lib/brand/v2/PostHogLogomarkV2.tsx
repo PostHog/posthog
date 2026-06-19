@@ -1,0 +1,79 @@
+import { useId } from 'react'
+
+export interface PostHogLogomarkV2Props {
+    className?: string
+    'aria-hidden'?: boolean | 'true' | 'false'
+}
+
+/** Redesigned PostHog logomark — gradient icon only. Use for compact placements, app icons, and favicons. */
+export function PostHogLogomarkV2({ className, 'aria-hidden': ariaHidden }: PostHogLogomarkV2Props): JSX.Element {
+    const u = useId().replace(/:/g, '')
+    return (
+        <svg
+            className={className}
+            width="96"
+            height="52"
+            viewBox="0 0 96 52"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden={ariaHidden}
+        >
+            <g clipPath={`url(#${u}clip0_56_1037)`}>
+                <path
+                    d="M95.8022 46.7802C95.8022 44.9986 94.471 43.4973 92.7195 43.2872H92.7295L92.099 43.2071C90.2274 42.9669 88.4959 42.1061 87.1748 40.745L61.7229 14.3723V51.9346H77.5365H90.8479C90.8479 51.9346 90.8479 51.9346 90.8579 51.9346C92.4893 51.9346 93.9206 51.1439 94.8213 49.9329C95.0015 49.6927 95.1516 49.4424 95.2917 49.1722C95.622 48.5116 95.8022 47.761 95.8022 46.9803V46.7902V46.7802ZM72.6823 43.6675C72.6223 43.6675 72.5722 43.6675 72.5122 43.6675C70.7707 43.5774 69.3795 42.1362 69.3795 40.3646C69.3795 39.0535 70.1401 37.9225 71.2511 37.3821C71.6815 37.1719 72.1719 37.0618 72.6823 37.0618C74.5039 37.0618 75.9852 38.5431 75.9852 40.3646C75.9852 42.1862 74.5039 43.6675 72.6823 43.6675Z"
+                    fill="#111111"
+                />
+                <path
+                    d="M61.7129 35.6506V14.3723C61.7129 14.3723 61.7129 14.3723 61.7129 14.3623L49.3723 1.57135C48.4014 0.57049 47.0703 0 45.6691 0C42.9368 0 40.7148 2.22191 40.7148 4.95426V14.1421C40.7148 14.1421 40.7148 14.1421 40.7148 14.1522V34.6398V51.9146H61.7129V35.6907L61.6829 35.6606C61.6829 35.6606 61.7129 35.6606 61.7129 35.6506Z"
+                    fill={`url(#${u}paint0_linear_56_1037)`}
+                />
+                <path
+                    d="M40.7249 34.6498V14.1522L28.3743 1.49128C27.4535 0.540466 26.1824 0.0100098 24.8512 0.0100098C22.1289 0.0100098 19.917 2.22191 19.917 4.94425V34.6398V51.9346H40.7149V34.6598L40.7249 34.6498Z"
+                    fill={`url(#${u}paint1_linear_56_1037)`}
+                />
+                <path
+                    d="M8.41723 1.47126C7.49644 0.530456 6.24537 0 4.93424 0C2.2119 0 0 2.2119 0 4.93424V13.9019V47.1305C0 49.7728 2.14184 51.9246 4.79412 51.9246H19.9271V34.6398V13.2914L8.41723 1.47126Z"
+                    fill={`url(#${u}paint2_linear_56_1037)`}
+                />
+            </g>
+            <defs>
+                <linearGradient
+                    id={`${u}paint0_linear_56_1037`}
+                    x1="40.7249"
+                    y1="25.9623"
+                    x2="61.7129"
+                    y2="25.9623"
+                    gradientUnits="userSpaceOnUse"
+                >
+                    <stop stopColor="#FFB52D" />
+                    <stop offset="1" stopColor="#FE9B02" />
+                </linearGradient>
+                <linearGradient
+                    id={`${u}paint1_linear_56_1037`}
+                    x1="19.917"
+                    y1="25.9623"
+                    x2="40.7249"
+                    y2="25.9623"
+                    gradientUnits="userSpaceOnUse"
+                >
+                    <stop stopColor="#FF651E" />
+                    <stop offset="1" stopColor="#DF3902" />
+                </linearGradient>
+                <linearGradient
+                    id={`${u}paint2_linear_56_1037`}
+                    x1="0"
+                    y1="25.9623"
+                    x2="19.9171"
+                    y2="25.9623"
+                    gradientUnits="userSpaceOnUse"
+                >
+                    <stop stopColor="#3F80FF" />
+                    <stop offset="1" stopColor="#084FE0" />
+                </linearGradient>
+                <clipPath id={`${u}clip0_56_1037`}>
+                    <rect width="95.8469" height="51.9346" fill="white" />
+                </clipPath>
+            </defs>
+        </svg>
+    )
+}
