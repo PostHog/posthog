@@ -497,6 +497,71 @@ class TestExternalDataSchema(APIBaseTest):
             schema.refresh_from_db()
             assert schema.sync_type_config["incremental_field_lookback_seconds"] is None
 
+    def test_update_incremental_field_without_sync_type_persists(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created_at",
+                "incremental_field_type": "timestamp",
+                "incremental_field_last_value": "2026-06-14T15:33:31.802833",
+            },
+        )
+
+        with (
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            # A bare incremental_field edit — no sync_type re-sent — must actually persist, not just
+            # echo the submitted value back in the response.
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"incremental_field": "updated_at"},
+            )
+
+            assert response.status_code == 200, response.json()
+            assert response.json()["incremental_field"] == "updated_at"
+            schema.refresh_from_db()
+            assert schema.sync_type_config["incremental_field"] == "updated_at"
+
+    def test_update_incremental_field_on_non_incremental_schema_errors(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        # Setting incremental_field on a full_refresh schema without switching sync_type can't be
+        # applied — it must fail loudly instead of returning 200 and dropping the change.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"incremental_field": "updated_at"},
+        )
+
+        assert response.status_code == 400, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("incremental_field") is None
+
     def test_incremental_field_lookback_seconds_survives_reset(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

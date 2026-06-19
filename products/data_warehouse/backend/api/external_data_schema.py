@@ -567,20 +567,41 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if "sync_type" in data:
             validated_data["sync_type"] = sync_type
 
-        trigger_refresh = False
-        # Update the validated_data with incremental fields
-        if sync_type in (
+        # The sync type the schema will end up with: the new one if the request changes it, else the
+        # existing one. Incremental-style config (incremental_field, incremental_field_type,
+        # primary_key_columns, lookback) is keyed off this so a PATCH that edits only those fields —
+        # without re-sending sync_type — still persists. Previously the whole block below was gated on
+        # `sync_type` being in the request, so a bare `{"incremental_field": ...}` PATCH was silently
+        # dropped while the 200 response still echoed the submitted value from the in-memory config.
+        resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
+        incremental_style_types = (
             ExternalDataSchema.SyncType.INCREMENTAL,
             ExternalDataSchema.SyncType.APPEND,
             ExternalDataSchema.SyncType.WEBHOOK,
-        ):
+        )
+
+        # A bare incremental-field edit (no sync_type in the request) on a schema whose sync type
+        # can't use one would otherwise be an unpersisted no-op that still returns 200. Reject it so
+        # the caller gets a clear error instead of a response that looks applied but isn't.
+        if "sync_type" not in data and resulting_sync_type not in incremental_style_types:
+            for field in ("incremental_field", "incremental_field_type", "incremental_field_lookback_seconds"):
+                if field in data and data.get(field) is not None:
+                    raise ValidationError(
+                        f"{field} only applies to incremental, append, or webhook sync types. "
+                        f"This schema's sync type is {resulting_sync_type or 'not set'}. "
+                        "Include sync_type in the same request to change the sync type."
+                    )
+
+        trigger_refresh = False
+        # Update the validated_data with incremental fields
+        if resulting_sync_type in incremental_style_types:
             payload = instance.sync_type_config
 
             if "primary_key_columns" in data:
                 new_pk = data.get("primary_key_columns")
                 old_pk = instance.sync_type_config.get("primary_key_columns")
                 if (
-                    sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                    resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
                     and new_pk != old_pk
                     and instance.table is not None
                 ):
@@ -593,7 +614,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             # Detect incremental field changes before mutating payload
             incremental_field_changed = False
             incremental_field = data.get("incremental_field")
-            if sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
+            if resulting_sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
                 if "incremental_field" in data:
                     incremental_field_changed = (
                         payload.get("incremental_field") != incremental_field
@@ -607,7 +628,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             # Lookback only applies to incremental — merge-by-PK makes re-reading the overlap window
             # idempotent. `null` clears it.
-            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and "incremental_field_lookback_seconds" in data:
+            if (
+                resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                and "incremental_field_lookback_seconds" in data
+            ):
                 payload["incremental_field_lookback_seconds"] = data.get("incremental_field_lookback_seconds")
 
             if incremental_field_changed:
@@ -665,7 +689,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # frequency the schema will actually end up with — the new value if one is supplied, else
         # the existing interval — against the sync type it will end up with. This also catches
         # switching a 1-minute CDC schema to a non-CDC type without re-sending the frequency.
-        resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
         resulting_frequency = sync_frequency
         if not resulting_frequency and instance.sync_frequency_interval is not None:
             resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
