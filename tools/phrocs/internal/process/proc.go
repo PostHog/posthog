@@ -718,10 +718,12 @@ func (p *Process) scheduleRestart(cmd *exec.Cmd, attempt int, send func(tea.Msg)
 		p.Name, backoff.Round(time.Second), attempt, maxRestartAttempts), send)
 	time.Sleep(backoff)
 
-	// Bail if the process was stopped or already replaced (e.g. a manual
-	// restart) while we were backing off.
+	// Only restart if the proc is still in the crashed state we observed. Any
+	// other status means something else took over the slot while we backed off
+	// — a manual restart (StatusPending/StatusRunning) or a stop (StatusStopped)
+	// — and restarting now would double-start it.
 	p.mu.Lock()
-	canRestart := p.cmd == cmd && p.status != StatusStopped
+	canRestart := p.cmd == cmd && p.status == StatusCrashed
 	p.mu.Unlock()
 	if !canRestart {
 		return

@@ -908,6 +908,14 @@ func TestRestartBackoffFor(t *testing.T) {
 }
 
 func TestProcess_autorestartAfterCrash(t *testing.T) {
+	// Shrink the backoff so the restart happens in milliseconds, not ~1s.
+	origBase, origMax := restartBackoffBase, restartBackoffMax
+	restartBackoffBase = 2 * time.Millisecond
+	restartBackoffMax = 5 * time.Millisecond
+	t.Cleanup(func() {
+		restartBackoffBase, restartBackoffMax = origBase, origMax
+	})
+
 	dir := t.TempDir()
 	mark := dir + "/runs"
 	// Append a line then crash, so each run leaves a trace and triggers autorestart.
@@ -922,9 +930,9 @@ func TestProcess_autorestartAfterCrash(t *testing.T) {
 		t.Skipf("cannot spawn subprocess: %v", err)
 	}
 
-	// First crash restarts after restartBackoffBase, so a second run shows up
-	// shortly after. Wait past one backoff window for it.
-	deadline := time.After(restartBackoffBase + 4*time.Second)
+	// First crash restarts after the (shrunk) backoff, so a second run shows up
+	// shortly after.
+	deadline := time.After(5 * time.Second)
 	for {
 		data, _ := os.ReadFile(mark)
 		if strings.Count(string(data), "run") >= 2 {
