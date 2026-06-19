@@ -18,6 +18,7 @@ import {
     AlertSimulationResult,
     isAnyRowHogQLConfig,
     isFunnelsAlertConfig,
+    isHogQLAlertConfig,
     isTrendsAlertConfig,
 } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
@@ -39,8 +40,8 @@ export interface AlertDefinitionSectionProps {
     isNonTimeSeriesDisplay: boolean
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
-    /** Number of steps in the funnel, used to populate the step picker for funnel alerts. */
-    funnelStepCount: number
+    /** The funnel's step labels (real event/series names), used to populate the conversion picker. */
+    funnelStepLabels: string[]
     /** The conversion rate(s) a funnel alert would evaluate right now; null until the result loads. */
     funnelPreview: FunnelAlertPreview | null
     /** What a SQL alert would evaluate right now; null until the insight result loads. */
@@ -76,7 +77,7 @@ export function AlertDefinitionSection({
     isNonTimeSeriesDisplay,
     alertSeries,
     formulaNodes,
-    funnelStepCount,
+    funnelStepLabels,
     funnelPreview,
     hogqlPreview,
     hogqlColumns,
@@ -93,16 +94,18 @@ export function AlertDefinitionSection({
     onClearSimulation,
     onClearSimulationOverlay,
 }: AlertDefinitionSectionProps): JSX.Element {
-    // Funnel alerts evaluate a single conversion-rate snapshot, so only absolute conditions apply.
+    // Funnel alerts evaluate a single conversion-rate snapshot (always a 0–100%), so relative
+    // conditions have no prior value to compare against — they're omitted entirely below.
     const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
+    const supportsRelativeConditions = !isFunnelAlert
     const relativeConditionDisabledReason =
         (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
-        (isFunnelAlert && 'Funnel alerts only support absolute value conditions') ||
         (isHogQLAnyRow(alertForm) &&
             "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
     return (
         <>
-            {isBreakdownValid && (
+            {/* Trends-specific copy; funnels have their own breakdown messaging in the preview banner. */}
+            {isBreakdownValid && isTrendsAlertConfig(alertForm.config) && (
                 <LemonBanner type="warning">
                     {alertMode === 'detector'
                         ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
@@ -116,9 +119,14 @@ export function AlertDefinitionSection({
                     isBreakdownValid={isBreakdownValid}
                     alertMode={alertMode}
                 />
-            ) : isFunnelsAlertConfig(alertForm.config) ? (
-                <FunnelsDefinitionFields funnelStepCount={funnelStepCount} funnelPreview={funnelPreview} />
-            ) : (
+            ) : isFunnelAlert ? (
+                <FunnelsDefinitionFields
+                    alertForm={alertForm}
+                    stepLabels={funnelStepLabels}
+                    funnelPreview={funnelPreview}
+                    onSetAlertFormValue={onSetAlertFormValue}
+                />
+            ) : isHogQLAlertConfig(alertForm.config) ? (
                 <HogQLDefinitionFields
                     alertForm={alertForm}
                     hogqlPreview={hogqlPreview}
@@ -127,7 +135,7 @@ export function AlertDefinitionSection({
                     hogqlLabelColumnOptions={hogqlLabelColumnOptions}
                     onSetAlertFormValue={onSetAlertFormValue}
                 />
-            )}
+            ) : null}
 
             {anomalyDetectionEnabled && (
                 <LemonSegmentedButton
@@ -167,37 +175,37 @@ export function AlertDefinitionSection({
                         <LemonBanner type="error">{thresholdBoundsFormError}</LemonBanner>
                     ) : null}
                     <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                        <Group name={['condition']}>
-                            <LemonField name="type">
-                                <LemonSelect
-                                    fullWidth
-                                    className="w-40"
-                                    data-attr="alertForm-condition"
-                                    options={[
-                                        {
-                                            label: 'has value',
-                                            value: AlertConditionType.ABSOLUTE_VALUE,
-                                        },
-                                        {
-                                            label: 'increases by',
-                                            value: AlertConditionType.RELATIVE_INCREASE,
-                                            disabledReason: relativeConditionDisabledReason,
-                                        },
-                                        {
-                                            label: 'decreases by',
-                                            value: AlertConditionType.RELATIVE_DECREASE,
-                                            disabledReason: relativeConditionDisabledReason,
-                                        },
-                                    ]}
-                                />
-                            </LemonField>
-                        </Group>
+                        {supportsRelativeConditions && (
+                            <Group name={['condition']}>
+                                <LemonField name="type">
+                                    <LemonSelect
+                                        fullWidth
+                                        className="w-40"
+                                        data-attr="alertForm-condition"
+                                        options={[
+                                            { label: 'has value', value: AlertConditionType.ABSOLUTE_VALUE },
+                                            {
+                                                label: 'increases by',
+                                                value: AlertConditionType.RELATIVE_INCREASE,
+                                                disabledReason: relativeConditionDisabledReason,
+                                            },
+                                            {
+                                                label: 'decreases by',
+                                                value: AlertConditionType.RELATIVE_DECREASE,
+                                                disabledReason: relativeConditionDisabledReason,
+                                            },
+                                        ]}
+                                    />
+                                </LemonField>
+                            </Group>
+                        )}
                         <div>less than</div>
                         <LemonField name="lower">
                             <LemonInput
                                 type="number"
                                 className="w-30"
                                 data-attr="alertForm-lower-threshold"
+                                suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
                                 value={
                                     alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
                                     alertForm.threshold.configuration.bounds?.lower
@@ -228,6 +236,7 @@ export function AlertDefinitionSection({
                                 type="number"
                                 className="w-30"
                                 data-attr="alertForm-upper-threshold"
+                                suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
                                 value={
                                     alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
                                     alertForm.threshold.configuration.bounds?.upper

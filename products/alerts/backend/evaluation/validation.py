@@ -10,6 +10,7 @@ from posthog.schema import (
     FunnelConversionMetric,
     FunnelsAlertConfig,
     FunnelsQuery,
+    FunnelVizType,
     HogQLAlertConfig,
     HogQLAlertEvaluation,
     InsightThreshold,
@@ -141,8 +142,7 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
 
 
 def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
-    # A funnel STEPS result is a single snapshot, so funnel alerts are absolute-only in v1
-    # (relative change needs a prior window — a deliberate fast-follow).
+    # A funnel STEPS result is a single snapshot (no prior window), so only absolute conditions apply.
     if ctx.query_kind != NodeKind.FUNNELS_QUERY:
         raise ValueError(f"Funnel alert config requires a FunnelsQuery insight, got '{ctx.query_kind}'")
     if ctx.parsed_condition.type != AlertConditionType.ABSOLUTE_VALUE:
@@ -151,18 +151,21 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
         parsed = FunnelsAlertConfig.model_validate(ctx.config)
     except Exception:
         raise ValueError(f"Alert has invalid FunnelsAlertConfig: {ctx.config}")
+    try:
+        funnels_query = FunnelsQuery.model_validate(ctx.query)
+    except Exception as e:
+        raise ValueError(f"Alert's insight has an invalid FunnelsQuery: {e}")
+    # Reject non-steps funnels (time-to-convert, trends) at config time, mirroring the extractor's
+    # eval-time guard — otherwise the alert saves but errors on its first check.
+    viz = funnels_query.funnelsFilter.funnelVizType if funnels_query.funnelsFilter else None
+    if viz not in (None, FunnelVizType.STEPS):
+        raise ValueError(f"Funnel alerts require a steps funnel, but this insight uses '{viz}'")
     step = parsed.funnel_step
     if step is not None:
         if step < 0:
             raise ValueError(f"funnel_step must be >= 0, got {step}")
-        # The funnel's step count is known from the query at config time, so reject an out-of-range
-        # step now rather than letting the alert fail on its first check. The series count is the
-        # result step count for a STEPS funnel (the only kind funnel alerts support) — exclusion
-        # nodes are filtered out before the result, so this matches the extractor's eval-time check.
-        try:
-            funnels_query = FunnelsQuery.model_validate(ctx.query)
-        except Exception as e:
-            raise ValueError(f"Alert's insight has an invalid FunnelsQuery: {e}")
+        # The series count is the result step count for a STEPS funnel (exclusion nodes live in
+        # funnelsFilter, not series), so this matches the extractor's eval-time range check.
         if step >= len(funnels_query.series):
             raise ValueError(f"funnel_step {step} is out of range (funnel has {len(funnels_query.series)} steps)")
     if parsed.metric == FunnelConversionMetric.CONVERSION_FROM_PREVIOUS and step == 0:

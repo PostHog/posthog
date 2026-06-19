@@ -14,6 +14,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate } from 'lib/utils/datetime'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -82,6 +83,9 @@ export function EditAlertModal({
 
     const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
     const isFunnelInsight = funnelSource !== null
+    const funnelStepLabels = (funnelSource?.series ?? []).map(
+        (node, index) => getDisplayNameFromEntityNode(node) ?? `Step ${index + 1}`
+    )
     const insightAlertKind: 'hogql' | 'funnels' | 'trends' = containsHogQLQuery(query)
         ? 'hogql'
         : isFunnelInsight
@@ -270,7 +274,7 @@ export function EditAlertModal({
                                         isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                                         alertSeries={alertSeries}
                                         formulaNodes={formulaNodes}
-                                        funnelStepCount={funnelSource?.series?.length ?? 0}
+                                        funnelStepLabels={funnelStepLabels}
                                         funnelPreview={funnelAlertPreview}
                                         hogqlPreview={hogqlAlertPreview}
                                         hogqlColumns={hogqlResultColumns}

@@ -103,3 +103,18 @@ def test_breakdown_yields_one_series_per_value():
     assert len(result.series) == 2
     assert result.series[0].label == "US" and result.series[0].points[0].value == 40.0
     assert result.series[1].label == "DE" and result.series[1].points[0].value == 25.0
+
+
+def test_compared_funnel_evaluates_current_period_only():
+    # A compare-enabled funnel concatenates current + previous rows (tagged compare_label); the
+    # extractor evaluates the current period only.
+    compared = [
+        {"order": 0, "count": 1000, "compare_label": "current"},
+        {"order": 1, "count": 100, "compare_label": "current"},
+        {"order": 0, "count": 800, "compare_label": "previous"},
+        {"order": 1, "count": 120, "compare_label": "previous"},
+    ]
+    result = _extract(compared)
+    assert result.is_breakdown is False
+    assert len(result.series) == 1
+    assert result.series[0].points[0].value == 10.0  # current period: 100/1000

@@ -662,32 +662,75 @@ describe('alertFormLogic', () => {
         const FROM_START = { type: 'FunnelsAlertConfig', metric: 'conversion_from_start', funnel_step: null } as const
         const steps = (...counts: number[]): Record<string, any>[] =>
             counts.map((count, order) => ({ order, count, breakdown_value: null }))
+        const value = (label: string | null, rate: number, breaching: boolean): Record<string, any> => ({
+            label,
+            rate,
+            breaching,
+        })
 
         it.each([
-            ['not a funnel config', { result: steps(100, 40) }, { type: 'HogQLAlertConfig' }, null],
-            ['no result loaded', null, FROM_START, null],
-            ['empty result', { result: [] }, FROM_START, null],
-            ['breakdown with an empty step list', { result: [[]] }, FROM_START, { status: 'no-data' }],
+            ['not a funnel config', { result: steps(100, 40) }, { type: 'HogQLAlertConfig' }, undefined, null],
+            ['no result loaded', null, FROM_START, undefined, null],
+            ['empty result', { result: [] }, FROM_START, undefined, null],
+            ['breakdown with an empty step list', { result: [[]] }, FROM_START, undefined, { status: 'no-data' }],
             [
-                'from_start at the last step',
+                'from_start at the last step, no bounds',
                 { result: steps(100, 40) },
                 FROM_START,
-                { status: 'ok', rates: [40], isBreakdown: false },
+                undefined,
+                { status: 'ok', values: [value(null, 40, false)], isBreakdown: false, hasBounds: false },
+            ],
+            [
+                'lower bound breached flags the value and sets hasBounds',
+                { result: steps(100, 40) },
+                FROM_START,
+                { lower: 50 },
+                { status: 'ok', values: [value(null, 40, true)], isBreakdown: false, hasBounds: true },
+            ],
+            [
+                'value within bounds is not breaching',
+                { result: steps(100, 40) },
+                FROM_START,
+                { lower: 30 },
+                { status: 'ok', values: [value(null, 40, false)], isBreakdown: false, hasBounds: true },
+            ],
+            [
+                'upper bound breached flags the value',
+                { result: steps(100, 40) },
+                FROM_START,
+                { upper: 30 },
+                { status: 'ok', values: [value(null, 40, true)], isBreakdown: false, hasBounds: true },
+            ],
+            [
+                'within a lower+upper range is not breaching',
+                { result: steps(100, 40) },
+                FROM_START,
+                { lower: 10, upper: 80 },
+                { status: 'ok', values: [value(null, 40, false)], isBreakdown: false, hasBounds: true },
+            ],
+            [
+                'breaching the upper of a lower+upper range flags the value',
+                { result: steps(100, 40) },
+                FROM_START,
+                { lower: 10, upper: 30 },
+                { status: 'ok', values: [value(null, 40, true)], isBreakdown: false, hasBounds: true },
             ],
             [
                 'from_previous divides by the prior step',
                 { result: steps(100, 50, 10) },
                 { type: 'FunnelsAlertConfig', metric: 'conversion_from_previous', funnel_step: 2 },
-                { status: 'ok', rates: [20], isBreakdown: false },
+                undefined,
+                { status: 'ok', values: [value(null, 20, false)], isBreakdown: false, hasBounds: false },
             ],
             [
                 'zero base evaluates to 0%',
                 { result: steps(0, 5) },
                 FROM_START,
-                { status: 'ok', rates: [0], isBreakdown: false },
+                undefined,
+                { status: 'ok', values: [value(null, 0, false)], isBreakdown: false, hasBounds: false },
             ],
             [
-                'breakdown computes a rate per value',
+                'breakdown computes a rate per value and flags only the breaching one',
                 {
                     result: [
                         [
@@ -701,10 +744,44 @@ describe('alertFormLogic', () => {
                     ],
                 },
                 FROM_START,
-                { status: 'ok', rates: [40, 25], isBreakdown: true },
+                { lower: 30 },
+                {
+                    status: 'ok',
+                    values: [value('US', 40, false), value('DE', 25, true)],
+                    isBreakdown: true,
+                    hasBounds: true,
+                },
             ],
-        ])('%s', (_name, insightData, config, expected) => {
-            expect(deriveFunnelAlertPreview(insightData as Record<string, any> | null, config as any)).toEqual(expected)
+            [
+                'compared funnel evaluates the current period only',
+                {
+                    result: [
+                        { order: 0, count: 1000, compare_label: 'current', breakdown_value: null },
+                        { order: 1, count: 100, compare_label: 'current', breakdown_value: null },
+                        { order: 0, count: 800, compare_label: 'previous', breakdown_value: null },
+                        { order: 1, count: 120, compare_label: 'previous', breakdown_value: null },
+                    ],
+                },
+                FROM_START,
+                undefined,
+                { status: 'ok', values: [value(null, 10, false)], isBreakdown: false, hasBounds: false },
+            ],
+            [
+                'compared funnel with only previous-period rows shows no-data, not unloaded',
+                {
+                    result: [
+                        { order: 0, count: 800, compare_label: 'previous', breakdown_value: null },
+                        { order: 1, count: 120, compare_label: 'previous', breakdown_value: null },
+                    ],
+                },
+                FROM_START,
+                undefined,
+                { status: 'no-data' },
+            ],
+        ])('%s', (_name, insightData, config, bounds, expected) => {
+            expect(
+                deriveFunnelAlertPreview(insightData as Record<string, any> | null, config as any, bounds as any)
+            ).toEqual(expected)
         })
     })
 })

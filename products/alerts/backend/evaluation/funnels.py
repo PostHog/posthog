@@ -26,12 +26,9 @@ _FUNNEL_SUBJECT = "The funnel conversion rate"
 
 
 class FunnelsExtractor:
-    """Normalize a funnel insight into a single conversion-rate ``ComparableSeries`` (a percentage).
+    """Normalize a funnel insight into a conversion-rate ``ComparableSeries`` (a percentage) per breakdown.
 
-    A funnel STEPS result is a single snapshot (per breakdown), so there is no time axis: funnel
-    alerts support only ``ABSOLUTE_VALUE`` conditions in v1 (relative change vs a prior window is a
-    fast-follow). The config selects which step and how to measure conversion; the shared comparator
-    then evaluates the resulting percentage against the threshold.
+    A breakdown funnel yields one series per breakdown value and fires if ANY breaches (matching trends).
     """
 
     def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
@@ -60,7 +57,7 @@ class FunnelsExtractor:
             analytics_props={"source": EventSource.ALERT},
         )
 
-        breakdowns = _steps_per_breakdown(calculation_result.result, alert)
+        breakdowns = _steps_per_breakdown(_current_period_only(calculation_result.result), alert)
         series = [
             ComparableSeries(
                 label=_breakdown_label(steps),
@@ -74,7 +71,28 @@ class FunnelsExtractor:
             is_breakdown=len(breakdowns) > 1,
             subject=_FUNNEL_SUBJECT,
             framed=False,
+            unit="%",  # conversion rates are 0–100 percentages; match the configure-time UI
         )
+
+
+def _is_current_period_row(row: Any) -> bool:
+    # Current unless explicitly tagged as another compare period; non-compared rows carry no
+    # compare_label and count as current. Positive check so any future compare label is excluded too.
+    return not isinstance(row, dict) or row.get("compare_label") in (None, "current")
+
+
+def _current_period_only(result: Any) -> Any:
+    """Keep only current-period rows from a compare-enabled funnel result before normalizing.
+
+    With compare-to-previous on, the funnel runner concatenates current + previous rows (each tagged
+    ``compare_label``). Funnel alerts evaluate the current period; without this, ``funnel_step: null``
+    (the default) would resolve to a previous-period last row and mix periods. No-op when compare is off.
+    """
+    if not isinstance(result, list):
+        return result
+    if result and isinstance(result[0], list):
+        return [[row for row in steps if _is_current_period_row(row)] for steps in result]
+    return [row for row in result if _is_current_period_row(row)]
 
 
 def _steps_per_breakdown(result: Any, alert: AlertConfiguration) -> list[list[dict[str, Any]]]:
@@ -114,11 +132,7 @@ def _step_count(steps: list[dict[str, Any]], index: int) -> float:
 
 
 def _conversion_rate(steps: list[dict[str, Any]], config: FunnelsAlertConfig) -> float:
-    """Conversion rate (0–100) at the configured step.
-
-    ``conversion_from_start`` divides by the first step's count (overall conversion to that step);
-    ``conversion_from_previous`` divides by the prior step's count (step-over-step conversion).
-    """
+    """Conversion rate (0–100) for the configured step and metric."""
     step_count = len(steps)
     step_index = config.funnel_step if config.funnel_step is not None else step_count - 1
     if step_index < 0 or step_index >= step_count:

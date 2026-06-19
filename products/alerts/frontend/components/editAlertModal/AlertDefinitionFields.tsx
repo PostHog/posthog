@@ -1,12 +1,17 @@
 import { Group } from 'kea-forms'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import {
+    funnelConfigForOptionKey,
+    funnelConfigToOptionKey,
+    funnelConversionOptions,
+} from 'lib/components/Alerts/funnelAlertOptions'
 import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
-import { isAnyRowHogQLConfig } from 'lib/components/Alerts/types'
+import { isAnyRowHogQLConfig, isFunnelsAlertConfig } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils/strings'
 
@@ -60,8 +65,11 @@ export function TrendsDefinitionFields({
     )
 }
 
-/** A read-out of the conversion rate the funnel alert would evaluate right now, so the threshold
- * can be set against a real value before the first check. */
+// Cap the named breaching breakdown values so a high-cardinality breakdown can't produce a runaway
+// banner string (mirrors the SQL preview's table cap); the rest collapse into "+N more".
+const FUNNEL_BREACH_PREVIEW_CAP = 5
+
+/** Conversion-rate read-out + breach/ok status (mirrors the SQL alert's preview). */
 function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | null }): JSX.Element | null {
     if (preview === null) {
         return (
@@ -73,69 +81,91 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
     if (preview.status === 'no-data') {
         return (
             <LemonBanner type="info" className="w-full">
-                This funnel has no data for the selected steps yet, so the alert can't evaluate a conversion rate until
-                it does.
+                This funnel has no data for the selected steps yet, so the alert can't evaluate a conversion rate. Try
+                adjusting the funnel steps or the date range.
             </LemonBanner>
         )
     }
     const format = (rate: number): string => `${rate.toFixed(1)}%`
+    const breaching = preview.values.filter((value) => value.breaching)
+    const wouldFire = breaching.length > 0
+    // Same at-a-glance breach/ok tag as the SQL alert preview; only meaningful once a threshold is set.
+    const statusTag = preview.hasBounds ? (
+        <LemonTag type={wouldFire ? 'warning' : 'success'} className="mr-2">
+            {wouldFire ? 'breach' : 'ok'}
+        </LemonTag>
+    ) : null
+
     if (preview.isBreakdown) {
-        const min = Math.min(...preview.rates)
-        const max = Math.max(...preview.rates)
+        const rates = preview.values.map((value) => value.rate)
         return (
-            <LemonBanner type="info" className="w-full">
-                Across {preview.rates.length} breakdown values, conversion is currently{' '}
+            <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+                {statusTag}
+                Across {preview.values.length} breakdown values, currently{' '}
                 <strong>
-                    {format(min)}–{format(max)}
-                </strong>{' '}
-                — the alert fires if any value breaches the threshold.
+                    {format(Math.min(...rates))}–{format(Math.max(...rates))}
+                </strong>
+                {/* The tag + banner colour carry the breach/ok state; only add what they can't — which
+                    values breach, or (when no threshold is set yet) a prompt to set one. */}
+                {!preview.hasBounds ? (
+                    <> — fires if any value breaches. Set a threshold to preview.</>
+                ) : wouldFire ? (
+                    <>
+                        {' '}
+                        ·{' '}
+                        {breaching
+                            .slice(0, FUNNEL_BREACH_PREVIEW_CAP)
+                            .map((value) => `${value.label ?? 'conversion'} ${format(value.rate)}`)
+                            .join(', ')}
+                        {breaching.length > FUNNEL_BREACH_PREVIEW_CAP
+                            ? ` +${breaching.length - FUNNEL_BREACH_PREVIEW_CAP} more`
+                            : ''}
+                    </>
+                ) : null}
             </LemonBanner>
         )
     }
+
     return (
-        <LemonBanner type="info" className="w-full">
-            This funnel currently converts at <strong>{format(preview.rates[0])}</strong> — the alert checks this
-            against your threshold.
+        <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+            {statusTag}
+            Currently converting at <strong>{format(preview.values[0].rate)}</strong>
+            {!preview.hasBounds ? <> — set a threshold to preview whether it would fire.</> : null}
         </LemonBanner>
     )
 }
 
-/** Funnels: pick the conversion metric and step. */
+/** Funnels: a single valid-conversion picker over the `{metric, funnel_step}` config — see funnelAlertOptions. */
 export function FunnelsDefinitionFields({
-    funnelStepCount,
+    alertForm,
+    stepLabels,
     funnelPreview,
+    onSetAlertFormValue,
 }: {
-    funnelStepCount: number
+    alertForm: AlertFormType
+    stepLabels: string[]
     funnelPreview: FunnelAlertPreview | null
+    onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }): JSX.Element {
+    const config = isFunnelsAlertConfig(alertForm.config) ? alertForm.config : null
     return (
         <div className="flex flex-wrap gap-3 items-center">
             <div>Alert on</div>
-            <Group name={['config']}>
-                <LemonField name="metric" className="flex-auto">
-                    <LemonSelect
-                        fullWidth
-                        data-attr="alertForm-funnel-metric"
-                        options={[
-                            { label: 'conversion from first step', value: 'conversion_from_start' },
-                            { label: 'conversion from previous step', value: 'conversion_from_previous' },
-                        ]}
-                    />
-                </LemonField>
-                <LemonField name="funnel_step" className="flex-auto">
-                    <LemonSelect
-                        fullWidth
-                        data-attr="alertForm-funnel-step"
-                        options={[
-                            { label: 'overall (last step)', value: null },
-                            ...Array.from({ length: funnelStepCount }, (_, index) => ({
-                                label: `step ${index + 1}`,
-                                value: index,
-                            })),
-                        ]}
-                    />
-                </LemonField>
-            </Group>
+            <LemonSelect
+                fullWidth
+                className="flex-auto"
+                data-attr="alertForm-funnel-conversion"
+                placeholder="Select a conversion"
+                // Wide funnels generate ~2 options per step; cap the menu so it scrolls instead of overflowing.
+                menu={{ className: '!max-h-[400px]' }}
+                value={config ? funnelConfigToOptionKey(config, stepLabels.length) : undefined}
+                onChange={(key) =>
+                    // Each key fully determines the config, so build a fresh one rather than spreading
+                    // the previous config (whose type/metric/funnel_step would all be overwritten anyway).
+                    onSetAlertFormValue('config', { type: 'FunnelsAlertConfig', ...funnelConfigForOptionKey(key) })
+                }
+                options={funnelConversionOptions(stepLabels)}
+            />
             <FunnelAlertPreviewBanner preview={funnelPreview} />
         </div>
     )
