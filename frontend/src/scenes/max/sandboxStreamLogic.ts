@@ -190,6 +190,133 @@ function extractUserMessageText(content: string | unknown[] | undefined): string
     return ''
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
+    if (isNotificationFrame(entry)) {
+        return entry
+    }
+
+    // Older append_log callers wrote `{ notification }` directly, without the stream envelope.
+    if (!isRecord(entry) || !isRecord(entry.notification)) {
+        return null
+    }
+
+    return {
+        type: 'notification',
+        ...(typeof entry.timestamp === 'string' ? { timestamp: entry.timestamp } : {}),
+        notification: entry.notification,
+    } as StoredLogEntry
+}
+
+interface BootstrapReplayState {
+    runId: string
+    isResumeRun: boolean
+    currentRunSeen: boolean
+    currentSessionIds: Set<string>
+    resumePromptRequestsToSkip: number
+    resumePromptChunksToSkip: number
+    renderedHumanMessageCounts: Map<string, number>
+}
+
+function stringParam(params: Record<string, unknown> | undefined, key: string): string | null {
+    const value = params?.[key]
+    return typeof value === 'string' && value ? value : null
+}
+
+function isResumeRun(run: { state?: unknown }): boolean {
+    const state = run.state
+    return isRecord(state) && typeof state.resume_from_run_id === 'string' && state.resume_from_run_id !== ''
+}
+
+function noteCurrentRunBoundary(
+    state: BootstrapReplayState | null,
+    notification: StoredLogEntry['notification']
+): void {
+    if (!state) {
+        return
+    }
+
+    const params = notification.params
+    const sessionId = stringParam(params, 'sessionId')
+    const isCurrentRunMarker =
+        stringParam(params, 'runId') === state.runId ||
+        stringParam(params, 'taskRunId') === state.runId ||
+        sessionId === state.runId
+
+    if (isCurrentRunMarker) {
+        state.currentRunSeen = true
+        if (sessionId && sessionId !== state.runId) {
+            state.currentSessionIds.add(sessionId)
+        }
+    }
+
+    if (state.currentRunSeen && sessionId && notification.method === '_posthog/sdk_session') {
+        state.currentSessionIds.add(sessionId)
+    }
+}
+
+function isCurrentRunNotification(
+    state: BootstrapReplayState | null,
+    notification: StoredLogEntry['notification']
+): boolean {
+    if (!state) {
+        return false
+    }
+
+    const params = notification.params
+    const sessionId = stringParam(params, 'sessionId')
+    if (
+        stringParam(params, 'runId') === state.runId ||
+        stringParam(params, 'taskRunId') === state.runId ||
+        sessionId === state.runId ||
+        (sessionId !== null && state.currentSessionIds.has(sessionId))
+    ) {
+        return true
+    }
+
+    return state.currentRunSeen && sessionId === null
+}
+
+function countPromptBlocks(prompt: unknown): number {
+    return Array.isArray(prompt) ? prompt.length : prompt == null ? 0 : 1
+}
+
+function rememberRenderedHumanMessage(state: BootstrapReplayState | null, text: string): void {
+    if (!state) {
+        return
+    }
+    state.renderedHumanMessageCounts.set(text, (state.renderedHumanMessageCounts.get(text) ?? 0) + 1)
+}
+
+function consumeRenderedHumanMessageEcho(state: BootstrapReplayState | null, text: string): boolean {
+    const count = state?.renderedHumanMessageCounts.get(text) ?? 0
+    if (!state || count <= 0) {
+        return false
+    }
+    if (count === 1) {
+        state.renderedHumanMessageCounts.delete(text)
+    } else {
+        state.renderedHumanMessageCounts.set(text, count - 1)
+    }
+    return true
+}
+
+function shouldSkipBootstrapUserMessageChunk(
+    state: BootstrapReplayState | null,
+    notification: StoredLogEntry['notification'],
+    text: string
+): boolean {
+    if (state?.isResumeRun && isCurrentRunNotification(state, notification) && state.resumePromptChunksToSkip > 0) {
+        state.resumePromptChunksToSkip -= 1
+        return true
+    }
+
+    return consumeRenderedHumanMessageEcho(state, text)
+}
+
 /**
  * Union incoming resource products into the accumulated list by `id`, preserving first-seen order.
  * Pure — mirrors the reference `accumulateSessionResources`. Products without an `id` are skipped.
@@ -998,10 +1125,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
 
-            // Existing run: replay the assembled resume-chain log, then refetch the run to decide on SSE.
+            // Existing run: fetch metadata, replay the assembled resume-chain log, then open SSE if needed.
             let entries: unknown[]
+            let run: { status?: string; state?: unknown }
             try {
-                entries = await api.tasks.runs.getLogEntries(taskId, runId)
+                ;[run, entries] = await Promise.all([
+                    api.tasks.runs.get(taskId, runId),
+                    api.tasks.runs.getLogEntries(taskId, runId),
+                ])
             } catch (error) {
                 actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
                 return
@@ -1010,23 +1141,32 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // Flag history replay so re-derived permission requests restore card state without
             // re-firing telemetry. The forEach dispatches synchronously, so the flag can't leak
             // into live SSE ingestion.
+            const previousReplayState = cache.bootstrapReplayState
+            const bootstrapIsResumeRun = isResumeRun(run)
             cache.bootstrapReplay = true
+            cache.bootstrapReplayState = {
+                runId,
+                isResumeRun: bootstrapIsResumeRun,
+                currentRunSeen: false,
+                currentSessionIds: new Set<string>(),
+                resumePromptRequestsToSkip: bootstrapIsResumeRun ? 1 : 0,
+                resumePromptChunksToSkip: 0,
+                renderedHumanMessageCounts: new Map<string, number>(),
+            } satisfies BootstrapReplayState
             try {
-                entries.filter(isNotificationFrame).forEach((entry) => actions.ingestAcpFrame(entry))
+                entries
+                    .map(normalizeNotificationEntry)
+                    .filter((entry): entry is StoredLogEntry => entry !== null)
+                    .forEach((entry) => actions.ingestAcpFrame(entry))
             } finally {
+                cache.bootstrapReplayState = previousReplayState
                 cache.bootstrapReplay = false
             }
 
-            const result = await fetchRunStatus(taskId, runId)
-            breakpoint()
-            if ('error' in result) {
-                actions.handleStreamError(result.error)
-                return
-            }
-            if (isTerminalRunStatus(result.status)) {
+            if (isTerminalRunStatus(run.status ?? null)) {
                 // Read-only history — surface the terminal status, do not open SSE. Flag the replay
                 // so the listener records the status without re-emitting termination telemetry.
-                actions.handleTerminalStatus({ status: result.status as SandboxRunStatus, replayedFromHistory: true })
+                actions.handleTerminalStatus({ status: run.status as SandboxRunStatus, replayedFromHistory: true })
                 return
             }
             // Non-terminal: open SSE from the latest point, deduping against the replayed history.
@@ -1416,6 +1556,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
             actions.markFrameIngested(hash)
             const method = notification.method
+            const replayState = cache.bootstrapReplayState as BootstrapReplayState | null | undefined
+            noteCurrentRunBoundary(replayState ?? null, notification)
 
             // Custom `_posthog/*` notification namespace emitted by the agent-server.
             if (method === '_posthog/run_started') {
@@ -1504,6 +1646,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     // live one.
                     const unwrapped = unwrapUserMessageContent(text)
                     if (unwrapped) {
+                        rememberRenderedHumanMessage(replayState ?? null, unwrapped)
                         actions.pushHumanMessage(unwrapped)
                     }
                 }
@@ -1561,6 +1704,18 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
 
+            if (method === 'session/prompt') {
+                if (
+                    replayState?.isResumeRun &&
+                    replayState.resumePromptRequestsToSkip > 0 &&
+                    isCurrentRunNotification(replayState, notification)
+                ) {
+                    replayState.resumePromptRequestsToSkip -= 1
+                    replayState.resumePromptChunksToSkip += countPromptBlocks(notification.params?.prompt)
+                }
+                return
+            }
+
             if (!isSessionUpdateNotification(notification)) {
                 return
             }
@@ -1583,7 +1738,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 if (cache.bootstrapReplay === true) {
                     const text = String(update.content?.text ?? update.text ?? '')
                     const unwrapped = unwrapUserMessageContent(text)
-                    if (unwrapped) {
+                    const shouldSkip =
+                        unwrapped && shouldSkipBootstrapUserMessageChunk(replayState ?? null, notification, unwrapped)
+                    if (unwrapped && !shouldSkip) {
                         actions.pushHumanMessage(unwrapped)
                     }
                 }

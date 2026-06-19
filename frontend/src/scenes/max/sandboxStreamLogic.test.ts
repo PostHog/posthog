@@ -36,6 +36,17 @@ function sessionUpdate(update: Record<string, unknown>): StoredLogEntry {
     return notification('session/update', { update })
 }
 
+function sessionPrompt(text: string, sessionId: string = 'session-1'): StoredLogEntry {
+    return notification('session/prompt', {
+        sessionId,
+        prompt: [{ type: 'text', text }],
+    })
+}
+
+function legacyNotification(method: string, params: Record<string, unknown>): Record<string, unknown> {
+    return { notification: { method, params } }
+}
+
 /** Minimal `EventSource` stand-in so the logic can open/drop a connection under test control. */
 class MockEventSource {
     static instances: MockEventSource[] = []
@@ -558,6 +569,112 @@ describe('sandboxStreamLogic', () => {
                 complete: true,
             })
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
+        })
+
+        it('renders a legacy notification-only user message and suppresses resume prompt echoes', async () => {
+            const resumePrompt =
+                'You are resuming a previous conversation. Here is the conversation history. Continue from where you left off.'
+            const frames: unknown[] = [
+                notification('session/update', {
+                    sessionId: 'ancestor-session',
+                    update: {
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: "what's my pageview count" },
+                    },
+                }),
+                notification('_posthog/console', { sessionId: 'run-1', level: 'debug', message: 'Starting resume' }),
+                legacyNotification('_posthog/user_message', {
+                    content: 'break down by a country',
+                    _meta: { attached_context: [] },
+                }),
+                notification('_posthog/sdk_session', {
+                    taskRunId: 'run-1',
+                    sessionId: 'acp-session-1',
+                    adapter: 'claude',
+                }),
+                notification('_posthog/run_started', {
+                    runId: 'run-1',
+                    taskId: 'task-1',
+                    sessionId: 'acp-session-1',
+                }),
+                sessionPrompt(resumePrompt, 'acp-session-1'),
+                notification('session/update', {
+                    sessionId: 'acp-session-1',
+                    update: {
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: resumePrompt },
+                    },
+                }),
+                sessionPrompt('break down by a country', 'acp-session-1'),
+                notification('session/update', {
+                    sessionId: 'acp-session-1',
+                    update: {
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'break down by a country' },
+                    },
+                }),
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Here you go.' } }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                status: 'completed',
+                state: { resume_from_run_id: 'ancestor-run' },
+            } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'human_message').map((item) => item.text)
+            ).toEqual(["what's my pageview count", 'break down by a country'])
+            expect(
+                logic.values.threadItems.some((item) => item.type === 'human_message' && item.text === resumePrompt)
+            ).toBe(false)
+            expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toEqual(
+                'Here you go.'
+            )
+        })
+
+        it('hides a resume prompt with no canonical user message on bootstrap replay', async () => {
+            const resumePrompt =
+                'You are resuming a previous conversation. Here is the conversation history. Continue from where you left off.'
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/console', { sessionId: 'run-1', level: 'debug', message: 'Starting resume' }),
+                notification('_posthog/sdk_session', {
+                    taskRunId: 'run-1',
+                    sessionId: 'acp-session-1',
+                    adapter: 'claude',
+                }),
+                notification('_posthog/run_started', {
+                    runId: 'run-1',
+                    taskId: 'task-1',
+                    sessionId: 'acp-session-1',
+                }),
+                sessionPrompt(resumePrompt, 'acp-session-1'),
+                notification('session/update', {
+                    sessionId: 'acp-session-1',
+                    update: {
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: resumePrompt },
+                    },
+                }),
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Continuing.' } }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                status: 'completed',
+                state: { resume_from_run_id: 'ancestor-run' },
+            } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.some((item) => item.type === 'human_message')).toBe(false)
+            expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toEqual(
+                'Continuing.'
+            )
         })
 
         it('places replayed setup progress below the human turn it belongs to', async () => {
