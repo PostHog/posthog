@@ -1,4 +1,5 @@
 import uuid
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -1124,16 +1125,19 @@ class TestSlotAdvanceTransactionSafety:
     """
 
     @pytest.mark.parametrize(
-        "event_positions,max_events,expected_advances",
+        "event_positions,max_events,crashes,expected_advances",
         [
             # Mid-transaction flush: txn-1 (0/100) ×2 then txn-2 (0/200) ×3, flush after
             # 4 events lands mid txn-2. The micro-flush advances only to txn-1's end LSN;
             # the final flush advances to txn-2's.
-            (["0/100", "0/100", "0/200", "0/200", "0/200"], 4, ["0/100", "0/200"]),
+            (["0/100", "0/100", "0/200", "0/200", "0/200"], 4, False, ["0/100", "0/200"]),
             # Single transaction (one commit LSN): a threshold of 2 forces a mid-transaction
             # micro-flush, but the transaction never completes during the loop, so no
             # micro-advance may happen — only the final flush advances, once.
-            (["0/100", "0/100", "0/100"], 2, ["0/100"]),
+            (["0/100", "0/100", "0/100"], 2, False, ["0/100"]),
+            # Crash mid txn-2 (after the micro-flush at 4 events, before txn-2 finishes):
+            # the slot stays at txn-1's end and must never reach txn-2's LSN.
+            (["0/100", "0/100", "0/200", "0/200"], 4, True, ["0/100"]),
         ],
     )
     @patch("posthog.temporal.data_imports.cdc.activities.ChangeEventBatcher")
@@ -1145,7 +1149,7 @@ class TestSlotAdvanceTransactionSafety:
     @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
     @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
-    def test_micro_flush_advances_only_past_completed_transactions(
+    def test_slot_advances_only_past_completed_transactions(
         self,
         mock_close_conns,
         MockJob,
@@ -1158,6 +1162,7 @@ class TestSlotAdvanceTransactionSafety:
         MockBatcher,
         event_positions,
         max_events,
+        crashes,
         expected_advances,
     ):
         from posthog.temporal.data_imports.cdc.batcher import ChangeEventBatcher as RealBatcher
@@ -1182,70 +1187,22 @@ class TestSlotAdvanceTransactionSafety:
             events,
         )
 
+        if crashes:
+            # The source dies after yielding the listed events but before txn-2 finishes.
+            def _dying_changes():
+                yield from events
+                raise RuntimeError("pod killed mid-transaction")
+
+            mock_reader.read_changes.return_value = _dying_changes()
+
         MockBatcher.return_value = RealBatcher(max_events=max_events)
 
-        cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+        run_ctx = pytest.raises(RuntimeError, match="pod killed mid-transaction") if crashes else nullcontext()
+        with run_ctx:
+            cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
 
         advanced_positions = [c.args[0] for c in mock_reader.confirm_position.call_args_list]
         assert advanced_positions == expected_advances
-
-    @patch("posthog.temporal.data_imports.cdc.activities.ChangeEventBatcher")
-    @patch("posthog.temporal.data_imports.cdc.activities.activity")
-    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
-    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
-    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
-    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
-    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
-    def test_crash_after_micro_flush_never_advances_into_incomplete_transaction(
-        self,
-        mock_close_conns,
-        MockJob,
-        MockSourceModel,
-        mock_get_schemas,
-        mock_get_adapter,
-        MockS3Writer,
-        MockProducer,
-        mock_activity,
-        MockBatcher,
-    ):
-        from posthog.temporal.data_imports.cdc.batcher import ChangeEventBatcher as RealBatcher
-
-        source = _make_source()
-        schema = _make_schema("users", cdc_mode="streaming", source=source)
-
-        # txn-1 (0/100) fully yielded, then txn-2 (0/200) yields 2 events that trip the
-        # micro-flush, then the source dies before txn-2 finishes.
-        def _dying_changes():
-            yield _make_event(op="I", table="users", position="0/100", columns={"id": 1})
-            yield _make_event(op="I", table="users", position="0/100", columns={"id": 2})
-            yield _make_event(op="I", table="users", position="0/200", columns={"id": 3})
-            yield _make_event(op="I", table="users", position="0/200", columns={"id": 4})
-            raise RuntimeError("pod killed mid-transaction")
-
-        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
-            mock_activity,
-            MockProducer,
-            MockS3Writer,
-            mock_get_adapter,
-            mock_get_schemas,
-            MockSourceModel,
-            MockJob,
-            mock_close_conns,
-            source,
-            [schema],
-            [],
-        )
-        mock_reader.read_changes.return_value = _dying_changes()
-
-        MockBatcher.return_value = RealBatcher(max_events=4)
-
-        with pytest.raises(RuntimeError, match="pod killed mid-transaction"):
-            cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
-
-        # Slot advanced to txn-1's end only; it must never reach txn-2's LSN.
-        mock_reader.confirm_position.assert_called_once_with("0/100")
 
 
 class TestSlotInvalidationRecovery:
