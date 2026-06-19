@@ -262,7 +262,7 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
 
-    # Drop the tuple()/tupleElement() wrap argmax_select adds around argMax for provably non-nullable columns; runs last (after lazy-table expansion, property swapping/resolution, and cohort joins) so each inner expr is final (physical column or JSON extract) with trustworthy nullability. ClickHouse-only.
+    # Drop argmax_select's tuple()/tupleElement() wrap for non-nullable columns; runs last so resolved nullability is final. ClickHouse-only.
     if dialect == "clickhouse":
         with context.timings.measure("simplify_argmax_over_non_nullable"):
             node = simplify_argmax_over_non_nullable(node, context)
