@@ -29,6 +29,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
+_LOOKBACK_ERROR = "Conversion lookback window must be"
 
 
 class TestCleanCustomerId:
@@ -58,6 +59,19 @@ class TestGoogleAdsValidateConfig:
     def _manager_id_errors(self, job_inputs: dict) -> list[str]:
         _, errors = self.source.validate_config(job_inputs)
         return [e for e in errors if _MANAGER_ID_ERROR in e]
+
+    def _lookback_errors(self, lookback) -> list[str]:
+        job_inputs = {"customer_id": "1234567890", "conversion_lookback_days": lookback}
+        _, errors = self.source.validate_config(job_inputs)
+        return [e for e in errors if _LOOKBACK_ERROR in e]
+
+    @pytest.mark.parametrize("lookback", [None, "", 0, 1, 30, 90, "30"])
+    def test_accepts_valid_conversion_lookback(self, lookback):
+        assert self._lookback_errors(lookback) == []
+
+    @pytest.mark.parametrize("lookback", [-1, 91, 365, "abc", "12.5"])
+    def test_rejects_out_of_range_conversion_lookback(self, lookback):
+        assert len(self._lookback_errors(lookback)) == 1
 
     @pytest.mark.parametrize(
         "customer_id",
@@ -414,7 +428,7 @@ def _capture_incremental_query(config, db_incremental_field_last_value: dt.date)
             incremental_field="segments.date",
             incremental_field_type=IncrementalFieldType.Date,
         )
-        list(response.items())
+        list(response.items())  # type: ignore[arg-type]
 
     return captured["query"]
 
@@ -424,7 +438,8 @@ class TestConversionLookback:
         "lookback_days, expected_lower_bound",
         [
             (None, "2026-06-01"),  # unset → strict cursor, backwards compatible
-            (0, "2026-06-01"),  # zero / negative are treated as disabled
+            (0, "2026-06-01"),  # zero → disabled
+            (-1, "2026-06-01"),  # negative → disabled (defensive; validation rejects it at setup)
             (1, "2026-05-31"),
             (30, "2026-05-02"),
         ],
@@ -442,8 +457,8 @@ class TestConversionLookback:
         assert "segments.date < '2100-01-01'" in query
 
     def test_legacy_service_account_config_is_unaffected(self):
-        # The legacy service-account config has no `conversion_lookback_days` field; the
-        # `getattr` fallback must leave the strict cursor untouched rather than raising.
+        # The legacy service-account config is not a GoogleAdsSourceConfig; the
+        # isinstance guard must leave the strict cursor untouched.
         config = GoogleAdsServiceAccountSourceConfig(customer_id="1234567890")
 
         query = _capture_incremental_query(config, db_incremental_field_last_value=dt.date(2026, 6, 1))

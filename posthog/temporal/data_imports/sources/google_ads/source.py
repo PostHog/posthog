@@ -173,8 +173,8 @@ class GoogleAdsSource(
                             "Google Ads keeps updating conversions and conversion value for days after the "
                             "original click. On each sync we re-fetch the most recent N days of stats so those "
                             "delayed updates are merged in — set this to match your Google Ads conversion window "
-                            "(e.g. 30 days). **A larger window re-syncs more rows every run and increases sync cost.** "
-                            "Leave blank to disable (only rows for newly seen dates are synced)."
+                            "(e.g. 30 days, max 90). **A larger window re-syncs more rows every run and increases "
+                            "sync cost.** Leave blank to disable (only rows for newly seen dates are synced)."
                         ),
                         secret=False,
                     ),
@@ -234,6 +234,22 @@ class GoogleAdsSource(
                 errors.append(
                     "Please enter a valid Google Ads manager customer ID — the 10-digit number from "
                     "your manager account (dashes optional)."
+                )
+                is_valid = False
+
+        # Cap the lookback at the longest Google Ads conversion window (90-day click-through);
+        # beyond that there's nothing left to recover, only wasted re-syncing. Reject out-of-range
+        # values at setup so a fat-fingered entry surfaces here instead of bloating every sync.
+        raw_lookback = job_inputs.get("conversion_lookback_days")
+        if raw_lookback is not None and raw_lookback != "":
+            try:
+                lookback_days = int(raw_lookback)
+            except (TypeError, ValueError):
+                lookback_days = None
+            if lookback_days is None or not (0 <= lookback_days <= 90):
+                errors.append(
+                    "Conversion lookback window must be a whole number of days between 0 and 90 "
+                    "(the longest Google Ads conversion window)."
                 )
                 is_valid = False
 
