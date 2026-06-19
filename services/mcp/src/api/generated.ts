@@ -546,14 +546,14 @@ export namespace Schemas {
     export interface AchievementStage {
       /** Stage number within the track, 1-5. */
       stage: number;
-      /** Hog-themed stage name, e.g. 'Spike Streak'. */
+      /** Stage name within the track, e.g. 'On a roll'. */
       name: string;
       /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
       threshold: number;
     }
 
     export interface AchievementDefinition {
-      /** Stable track identifier, e.g. 'hog_streak'. */
+      /** Stable track identifier, e.g. 'streak'. */
       key: string;
       /** Human-readable track name. */
       display_name: string;
@@ -2299,6 +2299,16 @@ export namespace Schemas {
       value: number;
     }
 
+    export type LegendPosition = typeof LegendPosition[keyof typeof LegendPosition];
+
+
+    export const LegendPosition = {
+      Top: 'top',
+      Bottom: 'bottom',
+      Left: 'left',
+      Right: 'right',
+    } as const;
+
     export type MetricSummary = typeof MetricSummary[keyof typeof MetricSummary];
 
 
@@ -2393,6 +2403,8 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       hiddenLegendIndexes?: number[] | null;
       hideWeekends?: boolean | null;
+      /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+      legendPosition?: LegendPosition | null;
       /** Metric display: change pill color when the metric decreased. Defaults to red. */
       metricChangeDecreaseColor?: string | null;
       /** Metric display: change pill color when the metric increased. Defaults to green. */
@@ -15525,6 +15537,11 @@ export namespace Schemas {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
+     * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
+     * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
+     * * `NewRelic` - NewRelic
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -16156,6 +16173,11 @@ export namespace Schemas {
       Streamlabs: 'Streamlabs',
       Datorama: 'Datorama',
       Ahrefs: 'Ahrefs',
+      Lightfield: 'Lightfield',
+      Appstack: 'Appstack',
+      Razorpay: 'Razorpay',
+      Neon: 'Neon',
+      NewRelic: 'NewRelic',
       Custom: 'Custom',
     } as const;
 
@@ -16794,6 +16816,11 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
+       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -20414,7 +20441,12 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Mixin for serializers to add user access control fields
+     * Full experiment representation for the detail, create, and update endpoints.
+     *
+     * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+     * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+     * fields, and refreshes stale action names while serializing. The list endpoint uses the
+     * leaner ``ExperimentBasicSerializer`` instead.
      */
     export interface Experiment {
       readonly id: number;
@@ -20499,6 +20531,87 @@ export namespace Schemas {
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
+      /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+      readonly is_legacy: boolean;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+    }
+
+    /**
+     * Lightweight, read-only serializer for the experiment list endpoint.
+     *
+     * The list view (and the MCP list tool) render only the scalar and feature-flag fields
+     * shared via ``ExperimentBaseSerializer`` — never the metric definitions. Omitting
+     * ``metrics``/``metrics_secondary``/``saved_metrics`` lets the list query defer the large
+     * JSON columns and skip the saved-metric prefetch plus per-row fingerprinting; that work
+     * belongs to the detail response served by ``ExperimentSerializer``.
+     *
+     * Because the metric fields, the write-side machinery, and the action-name-refreshing
+     * ``to_representation`` all live on ``ExperimentSerializer`` rather than the shared base,
+     * this serializer needs no overrides: it gets DRF's default ``get_fields`` (no write-only
+     * ``holdout_id`` to configure), default ``to_representation`` (no metrics to normalize), and
+     * a plain ``ListSerializer`` that never touches the deferred columns. See
+     * ``EnterpriseExperimentsViewSet.safely_get_queryset``.
+     */
+    export interface ExperimentBasic {
+      readonly id: number;
+      /**
+         * Name of the experiment.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Description of the experiment hypothesis and expected outcomes.
+         * @maxLength 3000
+         * @nullable
+         */
+      description?: string | null;
+      /** @nullable */
+      start_date?: string | null;
+      /** @nullable */
+      end_date?: string | null;
+      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
+      feature_flag_key: string;
+      readonly feature_flag: MinimalFeatureFlag;
+      readonly holdout: ExperimentHoldout;
+      /** @nullable */
+      readonly exposure_cohort: number | null;
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+      parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
+      /** Whether the experiment is archived. */
+      archived?: boolean;
+      /** @nullable */
+      deleted?: boolean | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** Experiment type: web for frontend UI changes, product for backend/API changes.
+       *
+       * * `web` - web
+       * * `product` - product */
+      type?: ExperimentTypeEnum | null;
+      /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
+       *
+       * * `won` - won
+       * * `lost` - lost
+       * * `inconclusive` - inconclusive
+       * * `stopped_early` - stopped_early
+       * * `invalid` - invalid */
+      conclusion?: ConclusionEnum | null;
+      /**
+         * Comment about the experiment conclusion.
+         * @nullable
+         */
+      conclusion_comment?: string | null;
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      readonly status: ExperimentStatusEnum;
+      /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+      readonly is_legacy: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -20632,6 +20745,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `recalculation` - recalculation
+     * * `timeseries_fallback` - timeseries_fallback
+     */
+    export type ResultSourceEnum = typeof ResultSourceEnum[keyof typeof ResultSourceEnum];
+
+
+    export const ResultSourceEnum = {
+      Recalculation: 'recalculation',
+      TimeseriesFallback: 'timeseries_fallback',
+    } as const;
+
+    /**
      * * `pending` - pending
      * * `completed` - completed
      * * `failed` - failed
@@ -20719,6 +20844,11 @@ export namespace Schemas {
       readonly query_to: string | null;
       /** True if returning an existing job rather than a newly created one */
       readonly is_existing: boolean;
+      /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
+       *
+       * * `recalculation` - recalculation
+       * * `timeseries_fallback` - timeseries_fallback */
+      readonly result_source: ResultSourceEnum;
       /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
       readonly results: readonly MetricRecalculationResult[];
     }
@@ -20864,6 +20994,64 @@ export namespace Schemas {
     }
 
     /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `complete` - Complete
+     * * `failed` - Failed
+     */
+    export type ExportedRecordingStatusEnum = typeof ExportedRecordingStatusEnum[keyof typeof ExportedRecordingStatusEnum];
+
+
+    export const ExportedRecordingStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Complete: 'complete',
+      Failed: 'failed',
+    } as const;
+
+    export interface ExportedRecording {
+      /** Unique identifier for this export job. */
+      readonly id: string;
+      /** The `$session_id` of the recording being exported. */
+      readonly session_id: string;
+      /** Human-provided justification for the export, kept for audit purposes. */
+      readonly reason: string;
+      /** Lifecycle status of the export: pending, running, complete, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `complete` - Complete
+       * * `failed` - Failed */
+      readonly status: ExportedRecordingStatusEnum;
+      /**
+         * Storage location of the exported data once the job completes; null until status is complete.
+         * @nullable
+         */
+      readonly export_location: string | null;
+      /**
+         * Failure detail when status is failed; null otherwise.
+         * @nullable
+         */
+      readonly error_message: string | null;
+      /** When the export was requested. */
+      readonly created_at: string;
+      /** The user who triggered the export. */
+      readonly created_by: UserBasic;
+      /** True when the export is older than 7 days and its downloadable data may have been purged. */
+      readonly is_expired: boolean;
+    }
+
+    export interface ExportedRecordingCreate {
+      /**
+         * The `$session_id` of the recording to export.
+         * @maxLength 200
+         */
+      session_id: string;
+      /** Why this recording is being exported. Recorded for audit purposes. */
+      reason: string;
+    }
+
+    /**
      * @nullable
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
@@ -20984,7 +21172,7 @@ export namespace Schemas {
       readonly incremental: boolean;
       /** @nullable */
       readonly status: string | null;
-      /** Sync strategy: incremental, full_refresh, append, or cdc.
+      /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental
@@ -21008,6 +21196,13 @@ export namespace Schemas {
        * * `objectid` - objectid
        * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
+      /**
+         * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
+         * @minimum 0
+         * @maximum 5184000
+         * @nullable
+         */
+      incremental_field_lookback_seconds?: number | null;
       /** How often to sync.
        *
        * * `never` - never
@@ -21072,7 +21267,7 @@ export namespace Schemas {
       id: string;
       /** Whether the schema should be queryable/synced. */
       should_sync?: boolean;
-      /** Requested sync mode for the schema.
+      /** Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental
@@ -21764,6 +21959,11 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
+       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -21791,6 +21991,8 @@ export namespace Schemas {
        * * `api` - api
        * * `mcp` - mcp */
       created_via?: CreatedViaEnum;
+      /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
     }
 
     /**
@@ -21848,6 +22050,8 @@ export namespace Schemas {
          */
       description?: string | null;
       readonly access_method: AccessMethodEnum;
+      /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -25138,6 +25342,7 @@ export namespace Schemas {
       MouseActivityCount: 'mouse_activity_count',
       ActivityScore: 'activity_score',
       RecordingTtl: 'recording_ttl',
+      SurfacingScore: 'surfacing_score',
     } as const;
 
     export type RecordingOrderDirection = typeof RecordingOrderDirection[keyof typeof RecordingOrderDirection];
@@ -26289,6 +26494,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -26355,6 +26562,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillCreateMetadata;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -26480,6 +26689,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
@@ -29494,6 +29705,15 @@ export namespace Schemas {
       results: EventSchema[];
     }
 
+    export interface PaginatedExperimentBasicList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ExperimentBasic[];
+    }
+
     export interface PaginatedExperimentHoldoutList {
       count: number;
       /** @nullable */
@@ -29501,15 +29721,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ExperimentHoldout[];
-    }
-
-    export interface PaginatedExperimentList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Experiment[];
     }
 
     export interface PaginatedExperimentSavedMetricList {
@@ -29528,6 +29739,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ExportedAsset[];
+    }
+
+    export interface PaginatedExportedRecordingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ExportedRecording[];
     }
 
     export interface PaginatedExternalDataSchemaList {
@@ -35119,7 +35339,12 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * Full experiment representation for the detail, create, and update endpoints.
+     *
+     * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
+     * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
+     * fields, and refreshes stale action names while serializing. The list endpoint uses the
+     * leaner ``ExperimentBasicSerializer`` instead.
      */
     export interface PatchedExperiment {
       readonly id?: number;
@@ -35204,6 +35429,8 @@ export namespace Schemas {
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status?: ExperimentStatusEnum;
+      /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+      readonly is_legacy?: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -35304,7 +35531,7 @@ export namespace Schemas {
       readonly incremental?: boolean;
       /** @nullable */
       readonly status?: string | null;
-      /** Sync strategy: incremental, full_refresh, append, or cdc.
+      /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental
@@ -35328,6 +35555,13 @@ export namespace Schemas {
        * * `objectid` - objectid
        * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
+      /**
+         * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
+         * @minimum 0
+         * @maximum 5184000
+         * @nullable
+         */
+      incremental_field_lookback_seconds?: number | null;
       /** How often to sync.
        *
        * * `never` - never
@@ -35417,6 +35651,8 @@ export namespace Schemas {
          */
       description?: string | null;
       readonly access_method?: AccessMethodEnum;
+      /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -46307,6 +46543,11 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
+       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -46971,6 +47212,11 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
+       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -46987,6 +47233,8 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
+      /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
     }
 
     export interface SourceSetupWebhook {
@@ -53315,6 +53563,10 @@ export namespace Schemas {
 
     export type EnvironmentsLlmSkillsListParams = {
     /**
+     * Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.
+     */
+    category?: string;
+    /**
      * Filter skills by the ID of the user who created them.
      */
     created_by_id?: number;
@@ -59595,6 +59847,10 @@ export namespace Schemas {
 
     export type LlmSkillsListParams = {
     /**
+     * Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.
+     */
+    category?: string;
+    /**
      * Filter skills by the ID of the user who created them.
      */
     created_by_id?: number;
@@ -60778,6 +61034,17 @@ export namespace Schemas {
     };
 
     export type SessionGroupSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SessionRecordingExportsListParams = {
     /**
      * Number of results to return per page.
      */

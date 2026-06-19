@@ -138,6 +138,7 @@ from posthog.schema_enums import (
     Key10 as Key10,
     Kind as Kind,
     Kind1 as Kind1,
+    LegendPosition as LegendPosition,
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
     LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
@@ -2680,6 +2681,14 @@ class SignalsScoutSignalExtra(BaseModel):
             "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the"
             " finding. Each scout maintains and evolves its own vocabulary over time;"
             " the harness normalizes and caps these at emit."
+        ),
+    )
+    task_id: str | None = Field(
+        default=None,
+        description=(
+            "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the"
+            " inbox card to the run in the Tasks UI. Absent on emissions made before"
+            " this linkage was captured."
         ),
     )
     task_run_id: str = Field(
@@ -7769,6 +7778,10 @@ class TrendsFilter(BaseModel):
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     metricChangeDecreaseColor: str | None = Field(
         default=None,
         description=("Metric display: change pill color when the metric decreased. Defaults to red."),

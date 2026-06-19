@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 from freezegun import freeze_time
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import connection as django_connection
 
@@ -24,6 +24,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     TemporaryFileSizeExceedsLimitException,
 )
 from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
+from posthog.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     WINDOW_MAX_QUERY_CANCELED_RETRIES,
     WINDOW_MAX_SERIALIZATION_RETRIES,
@@ -46,6 +47,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     FORCE_UTF8_CLIENT_ENCODING,
     METADATA_STATEMENT_TIMEOUT_MS,
     SSL_REQUIRED_AFTER_DATE,
+    XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
     PostgresDiscoveredSchema,
     PostgresImplementation,
@@ -57,8 +59,10 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     SafeTimestamptzLoader,
     SafeTimetzLoader,
     SSLRequiredError,
+    XminBounds,
     _build_count_query,
     _build_query,
+    _capture_xmin_ceiling,
     _connect_to_postgres,
     _connect_with_dropped_retry,
     _connect_with_options_fallback,
@@ -85,6 +89,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _role_subject_to_rls,
     _safe_close_connection,
     _statement_timeout_as_non_retryable,
+    _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
     get_foreign_keys,
     get_leading_index_columns,
@@ -2720,6 +2725,133 @@ class TestBuildQuery:
         )
         rendered = self._render(query)
         assert "'x''; DROP TABLE y; --'" in rendered
+
+
+class TestBuildXminQuery:
+    def _render(self, composed: sql.Composed) -> str:
+        return composed.as_string()
+
+    def _bounds(self, *, lower=0, upper=5000, num_wraparound=0, wraparound_or_range=False) -> XminBounds:
+        return XminBounds(
+            lower=lower,
+            upper=upper,
+            ceiling_xid8=(num_wraparound << 32) | upper,
+            num_wraparound=num_wraparound,
+            wraparound_or_range=wraparound_or_range,
+        )
+
+    def test_first_run_reads_below_ceiling(self):
+        query = _build_query("public", "users", False, "table", None, None, None, xmin_bounds=self._bounds(lower=0))
+        rendered = self._render(query)
+        assert f'xmin::text::bigint AS "{XMIN_PROJECTED_COLUMN}"' in rendered
+        assert "xmin::text::bigint >= 0 AND xmin::text::bigint < 5000" in rendered
+        assert "OR xmin::text::bigint" not in rendered
+        assert rendered.rstrip().endswith("ORDER BY xmin::text::bigint ASC")
+
+    def test_steady_state_single_range(self):
+        query = _build_query(
+            "public", "users", False, "table", None, None, None, xmin_bounds=self._bounds(lower=100, upper=5000)
+        )
+        rendered = self._render(query)
+        assert "xmin::text::bigint >= 100 AND xmin::text::bigint < 5000" in rendered
+
+    def test_wraparound_or_range(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            xmin_bounds=self._bounds(lower=4000000000, upper=500, num_wraparound=1, wraparound_or_range=True),
+        )
+        rendered = self._render(query)
+        assert "xmin::text::bigint >= 4000000000 OR xmin::text::bigint < 500" in rendered
+
+    def test_projects_ph_xmin_alias(self):
+        query = _build_query("public", "users", False, "table", None, None, None, xmin_bounds=self._bounds())
+        rendered = self._render(query)
+        # `*` is kept so the user's columns come back alongside the synthetic cursor.
+        assert f'SELECT xmin::text::bigint AS "{XMIN_PROJECTED_COLUMN}", *' in rendered
+
+    def test_row_filter_anded_into_predicate(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            xmin_bounds=self._bounds(lower=100, upper=5000),
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert 'AND "age" > 21' in rendered
+        assert rendered.index("xmin::text::bigint < 5000") < rendered.index('"age" > 21')
+
+    def test_sampling_appends_limit(self):
+        query = _build_query(
+            "public", "users", False, "table", None, None, None, add_sampling=True, xmin_bounds=self._bounds()
+        )
+        rendered = self._render(query)
+        assert rendered.rstrip().endswith("LIMIT 1000")
+
+    def test_count_query_uses_bounded_predicate(self):
+        query = _build_count_query("public", "users", False, None, None, None, xmin_bounds=self._bounds(lower=100))
+        rendered = self._render(query)
+        assert "SELECT COUNT(*)" in rendered
+        assert "xmin::text::bigint >= 100 AND xmin::text::bigint < 5000" in rendered
+
+
+class TestCaptureXminCeiling:
+    def _cursor(self, *, server_version: int, ceiling_xid8: int, ceiling_xid: int) -> MagicMock:
+        cursor = MagicMock()
+        cursor.connection.info.server_version = server_version
+        cursor.fetchone.return_value = (ceiling_xid8, ceiling_xid)
+        return cursor
+
+    def test_requires_pg13(self):
+        cursor = self._cursor(server_version=120000, ceiling_xid8=5000, ceiling_xid=5000)
+        with pytest.raises(XminUnsupportedError, match="PostgreSQL 13"):
+            _capture_xmin_ceiling(cursor, None, None, MagicMock())
+
+    def test_first_run_seeds_zero_lower_bound(self):
+        cursor = self._cursor(server_version=150000, ceiling_xid8=5000, ceiling_xid=5000)
+        bounds = _capture_xmin_ceiling(cursor, None, None, MagicMock())
+        assert bounds.lower == 0
+        assert bounds.upper == 5000
+        assert bounds.wraparound_or_range is False
+
+    def test_steady_state_uses_stored_lower_bound(self):
+        cursor = self._cursor(server_version=150000, ceiling_xid8=5000, ceiling_xid=5000)
+        bounds = _capture_xmin_ceiling(cursor, 100, 0, MagicMock())
+        assert bounds.lower == 100
+        assert bounds.wraparound_or_range is False
+
+    def test_single_wrap_sets_or_range(self):
+        # Epoch advanced by exactly 1 since last sync.
+        cursor = self._cursor(server_version=150000, ceiling_xid8=(1 << 32) | 500, ceiling_xid=500)
+        bounds = _capture_xmin_ceiling(cursor, 4000000000, 0, MagicMock())
+        assert bounds.num_wraparound == 1
+        assert bounds.wraparound_or_range is True
+        assert bounds.lower == 4000000000
+
+    def test_multi_wrap_forces_full_reread(self):
+        cursor = self._cursor(server_version=150000, ceiling_xid8=(3 << 32) | 500, ceiling_xid=500)
+        bounds = _capture_xmin_ceiling(cursor, 4000000000, 0, MagicMock())
+        assert bounds.lower == 0
+        assert bounds.wraparound_or_range is False
+
+
+class TestXminCapableTablesFromConn:
+    def test_pg12_is_never_xmin_capable(self):
+        # The PG13 guard short-circuits before any catalog query runs.
+        connection = MagicMock()
+        connection.info.server_version = 120000
+        assert _xmin_capable_tables_from_conn(connection, "public", None) == set()
+        connection.cursor.assert_not_called()
 
 
 class TestBuildPartitionQuery:

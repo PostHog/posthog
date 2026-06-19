@@ -1788,6 +1788,11 @@ class ExternalDataSourceType(StrEnum):
     STREAMLABS = "Streamlabs"
     DATORAMA = "Datorama"
     AHREFS = "Ahrefs"
+    LIGHTFIELD = "Lightfield"
+    APPSTACK = "Appstack"
+    RAZORPAY = "Razorpay"
+    NEON = "Neon"
+    NEW_RELIC = "NewRelic"
     CUSTOM = "Custom"
 
 
@@ -2835,6 +2840,7 @@ class RecordingOrder(StrEnum):
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
     RECORDING_TTL = "recording_ttl"
+    SURFACING_SCORE = "surfacing_score"
 
 
 class RecordingOrderDirection(StrEnum):
@@ -3276,6 +3282,13 @@ class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class UsageMetricDisplay(StrEnum):

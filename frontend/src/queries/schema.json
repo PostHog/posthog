@@ -21289,6 +21289,11 @@
                 "Streamlabs",
                 "Datorama",
                 "Ahrefs",
+                "Lightfield",
+                "Appstack",
+                "Razorpay",
+                "Neon",
+                "NewRelic",
                 "Custom"
             ],
             "type": "string"
@@ -37178,7 +37183,8 @@
                 "keypress_count",
                 "mouse_activity_count",
                 "activity_score",
-                "recording_ttl"
+                "recording_ttl",
+                "surfacing_score"
             ],
             "type": "string"
         },
@@ -40555,6 +40561,10 @@
                     },
                     "type": "array"
                 },
+                "task_id": {
+                    "description": "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the inbox card to the run in the Tasks UI. Absent on emissions made before this linkage was captured.",
+                    "type": "string"
+                },
                 "task_run_id": {
                     "description": "The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not).",
                     "type": "string"
@@ -43599,6 +43609,12 @@
                 "hideWeekends": {
                     "default": false,
                     "type": "boolean"
+                },
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
                 },
                 "metricChangeDecreaseColor": {
                     "description": "Metric display: change pill color when the metric decreased. Defaults to red.",
