@@ -680,6 +680,14 @@ export class Worker {
                         .catch((notifyErr) =>
                             sLog.warn({ err: (notifyErr as Error).message }, 'session.failure_notifier_threw')
                         )
+                } else if (application && !revision) {
+                    // Revision didn't load (deleted, or this catch was entered
+                    // before the revision ever loaded — a revision_missing
+                    // failure is one path in). The notifier resolves its
+                    // outbound secret off the revision, so it can't send without
+                    // one; log at error so the skipped notice is observable
+                    // rather than a silent drop.
+                    sLog.error({ revision_id: session.revision_id }, 'session.failure_notifier_skipped_no_revision')
                 }
             }
         } finally {
