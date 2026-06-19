@@ -378,8 +378,10 @@ function sortRecordings(
     const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
     return recordings.sort((a, b) => {
-        const orderA = a[orderKey]
-        const orderB = b[orderKey]
+        // `surfacing_score` is ordered server-side and isn't carried on the recording object, so any
+        // key not present resolves to undefined here and the pair is treated as incomparable (order preserved).
+        const orderA = (a as Record<string, any>)[orderKey]
+        const orderB = (b as Record<string, any>)[orderKey]
         const incomparable = orderA === undefined || orderB === undefined
         const left_greater = order_direction === 'DESC' ? -1 : 1
         const right_greater = order_direction === 'DESC' ? 1 : -1
