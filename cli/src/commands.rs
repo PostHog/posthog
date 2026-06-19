@@ -79,6 +79,29 @@ fn dry_run_skipped_command(command: &Commands) -> Option<&'static str> {
     }
 }
 
+const API_KEY_ENV_VARS: &[&str] = &[
+    "POSTHOG_API_KEY",
+    "POSTHOG_CLI_API_KEY",
+    "POSTHOG_CLI_TOKEN",
+];
+
+fn api_command_needs_stored_credentials_with_env(
+    args: &[String],
+    has_env: impl Fn(&str) -> bool,
+) -> bool {
+    let Some(command) = args.first().map(String::as_str) else {
+        return false;
+    };
+
+    command == "call"
+        && !args.iter().skip(1).any(|arg| arg == "--dry-run")
+        && !API_KEY_ENV_VARS.iter().any(|name| has_env(name))
+}
+
+fn api_command_needs_stored_credentials(args: &[String]) -> bool {
+    api_command_needs_stored_credentials_with_env(args, |name| std::env::var_os(name).is_some())
+}
+
 #[derive(Subcommand)]
 pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
@@ -318,17 +341,21 @@ impl Cli {
                 }
             },
             Commands::Api { args } => {
-                let api_context = match init_context(
-                    self.host.clone(),
-                    self.skip_ssl_verification,
-                    self.rate_limit,
-                    self.env_file.clone(),
-                ) {
-                    Ok(_) => Some(context()),
-                    Err(error) => {
-                        debug!("API CLI proxy running without invocation context: {error:?}");
-                        None
+                let api_context = if api_command_needs_stored_credentials(&args) {
+                    match init_context(
+                        self.host.clone(),
+                        self.skip_ssl_verification,
+                        self.rate_limit,
+                        self.env_file.clone(),
+                    ) {
+                        Ok(_) => Some(context()),
+                        Err(error) => {
+                            debug!("API CLI proxy running without invocation context: {error:?}");
+                            None
+                        }
                     }
+                } else {
+                    None
                 };
                 api_proxy::run(args, self.host, api_context)?;
             }
@@ -476,6 +503,60 @@ mod tests {
                 "wrong dry-run classification for {argv:?}"
             );
         }
+    }
+
+    #[test]
+    fn api_metadata_commands_do_not_need_stored_credentials() {
+        let cases: &[&[&str]] = &[
+            &[],
+            &["--agent-help"],
+            &["tools"],
+            &["search", "feature-flag"],
+            &["info", "feature-flag-get-all"],
+            &["schema", "query-trends", "series"],
+            &["skill", "list"],
+            &["agents-md", "install"],
+        ];
+
+        for argv in cases {
+            let args = argv.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+            assert!(
+                !api_command_needs_stored_credentials_with_env(&args, |_| false),
+                "metadata command should not load stored credentials: {argv:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn api_call_uses_stored_credentials_only_when_needed() {
+        let call_args = ["call", "--json", "feature-flag-get-all", "{\"limit\":5}"]
+            .iter()
+            .map(|arg| arg.to_string())
+            .collect::<Vec<_>>();
+
+        assert!(api_command_needs_stored_credentials_with_env(
+            &call_args,
+            |_| false
+        ));
+        assert!(!api_command_needs_stored_credentials_with_env(
+            &call_args,
+            |name| name == "POSTHOG_API_KEY"
+        ));
+
+        let dry_run_args = [
+            "call",
+            "--dry-run",
+            "feature-flags-bulk-delete-create",
+            "{\"ids\":[123]}",
+        ]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect::<Vec<_>>();
+
+        assert!(!api_command_needs_stored_credentials_with_env(
+            &dry_run_args,
+            |_| false
+        ));
     }
 
     #[test]
