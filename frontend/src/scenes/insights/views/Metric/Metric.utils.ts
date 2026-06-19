@@ -19,9 +19,11 @@ export const METRIC_DEFAULT_DECREASE_COLOR = '#db3707'
 
 const finiteValues = (data: number[] | undefined): number[] => (data ?? []).filter((v) => Number.isFinite(v))
 
+const mean = (values: number[]): number => values.reduce((sum, v) => sum + v, 0) / values.length
+
 const meanOfFinite = (data: number[] | undefined): number | undefined => {
     const finite = finiteValues(data)
-    return finite.length === 0 ? undefined : finite.reduce((sum, v) => sum + v, 0) / finite.length
+    return finite.length === 0 ? undefined : mean(finite)
 }
 
 // Percentage change from `start` to `end`. Renders ∞ when the start is zero (infinite) or the magnitude
@@ -37,14 +39,12 @@ function changeBetween(start: number | undefined, end: number | undefined): Metr
     return Math.abs(percent) >= MAX_CHANGE_PERCENT ? { value: percent, label: '∞' } : { value: percent }
 }
 
-// Change from the first to the last finite point of a single series.
 export function computeMetricChange(data: number[] | undefined): MetricChange | null | undefined {
     const finite = finiteValues(data)
     return finite.length < 2 ? undefined : changeBetween(finite[0], finite[finite.length - 1])
 }
 
-// Resting headline shown when the user isn't hovering a point. `total` is the series aggregate
-// (`resultSeries.count`); `average`/`latest` are derived from the finite sparkline points.
+// Falls back to the total when the series has no finite points.
 export function computeMetricSummary(summary: MetricSummary, total: number, data: number[] | undefined): number {
     if (summary === 'total') {
         return total
@@ -53,12 +53,31 @@ export function computeMetricSummary(summary: MetricSummary, total: number, data
     if (finite.length === 0) {
         return total
     }
-    return summary === 'latest' ? finite[finite.length - 1] : finite.reduce((sum, v) => sum + v, 0) / finite.length
+    return summary === 'latest' ? finite[finite.length - 1] : mean(finite)
 }
 
 export interface MetricSeriesSummary {
     total: number
     data: number[] | undefined
+}
+
+interface ComparableSeries {
+    count: number
+    data: number[]
+    compare_label?: string | null
+}
+
+// The previous comparison period, when "compare to previous" is on. Matched by `compare_label` rather
+// than position so it stays correct if the results array ever holds more than the current series.
+export function selectPreviousSeriesSummary(
+    compareEnabled: boolean,
+    results: readonly ComparableSeries[] | undefined
+): MetricSeriesSummary | undefined {
+    if (!compareEnabled || !results) {
+        return undefined
+    }
+    const previous = results.find((series) => series.compare_label === 'previous')
+    return previous ? { total: previous.count, data: previous.data } : undefined
 }
 
 // The change pill, matched to the chosen summary:

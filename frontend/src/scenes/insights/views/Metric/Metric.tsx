@@ -23,6 +23,7 @@ import {
     METRIC_SHOW_CHANGE_DEFAULT,
     METRIC_SUMMARY_DEFAULT,
     METRIC_SUMMARY_LABELS,
+    selectPreviousSeriesSummary,
 } from './Metric.utils'
 
 const makeChangeColor = (hex: string): { background: string; foreground: string } => ({
@@ -47,16 +48,16 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
     const headlineValue = computeMetricSummary(summary, resultSeries.count, resultSeries.data)
     const showChange = trendsFilter?.metricShowChange ?? METRIC_SHOW_CHANGE_DEFAULT
 
-    // When "compare to previous" is on, result[1] is the previous period — let total/average compare
-    // against it instead of the within-window first→last movement.
-    const previousSeries =
-        compareFilter?.compare && insightData.result.length > 1
-            ? (insightData.result[1] as TrendResult | undefined)
-            : undefined
+    // When "compare to previous" is on, total/average compare against the previous period (matched by
+    // compare_label) instead of the within-window first→last movement.
+    const previousSeries = selectPreviousSeriesSummary(
+        !!compareFilter?.compare,
+        insightData?.result as TrendResult[] | undefined
+    )
     const change = computeMetricSummaryChange(
         summary,
         { total: resultSeries.count, data: resultSeries.data },
-        previousSeries ? { total: previousSeries.count, data: previousSeries.data } : undefined
+        previousSeries
     )
 
     const isIncrease = (change?.value ?? 0) >= 0

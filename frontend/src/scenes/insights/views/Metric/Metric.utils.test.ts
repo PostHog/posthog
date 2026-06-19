@@ -1,6 +1,13 @@
 import { type MetricChange } from '@posthog/quill-charts'
 
-import { computeMetricChange, computeMetricSummary, computeMetricSummaryChange, MetricSummary } from './Metric.utils'
+import {
+    computeMetricChange,
+    computeMetricSummary,
+    computeMetricSummaryChange,
+    type MetricSeriesSummary,
+    MetricSummary,
+    selectPreviousSeriesSummary,
+} from './Metric.utils'
 
 describe('computeMetricChange', () => {
     const cases: { name: string; data: number[] | undefined; expected: MetricChange | null | undefined }[] = [
@@ -149,5 +156,37 @@ describe('computeMetricSummaryChange', () => {
 
     it.each(cases)('$name', ({ summary, previous, expected }) => {
         expect(computeMetricSummaryChange(summary, current, previous)).toEqual(expected)
+    })
+})
+
+describe('selectPreviousSeriesSummary', () => {
+    const current = { count: 600, data: [100, 200, 300], compare_label: 'current' }
+    const previous = { count: 300, data: [50, 100, 150], compare_label: 'previous' }
+
+    const cases: {
+        name: string
+        enabled: boolean
+        results: { count: number; data: number[]; compare_label?: string }[] | undefined
+        expected: MetricSeriesSummary | undefined
+    }[] = [
+        { name: 'compare disabled → no previous', enabled: false, results: [current, previous], expected: undefined },
+        { name: 'undefined results → no previous', enabled: true, results: undefined, expected: undefined },
+        { name: 'no previous-labelled series → no previous', enabled: true, results: [current], expected: undefined },
+        {
+            name: 'picks the previous-labelled series',
+            enabled: true,
+            results: [current, previous],
+            expected: { total: 300, data: [50, 100, 150] },
+        },
+        {
+            name: 'matches by compare_label, not array position',
+            enabled: true,
+            results: [previous, current],
+            expected: { total: 300, data: [50, 100, 150] },
+        },
+    ]
+
+    it.each(cases)('$name', ({ enabled, results, expected }) => {
+        expect(selectPreviousSeriesSummary(enabled, results)).toEqual(expected)
     })
 })

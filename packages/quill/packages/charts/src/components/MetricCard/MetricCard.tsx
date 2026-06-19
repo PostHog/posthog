@@ -130,18 +130,19 @@ function MetricCardInner({
 
     const liveValue = sparklineData ? (sparklineData[activeIndex] ?? 0) : restingValue
     const usePrevPointHover = hoverChangeFromPreviousPoint && intentIndex >= 0 && sparklineData != null
+    const fallbackChangePercent = computeFallbackChangePercent(
+        sparklineData,
+        usePrevPointHover,
+        intentIndex,
+        liveValue,
+        baselineValue
+    )
 
-    // While hovering with `hoverChangeFromPreviousPoint`, the point-vs-previous-point delta takes over
-    // from the supplied resting `change`.
-    const fallbackChangePercent =
-        usePrevPointHover && sparklineData
-            ? changeFromPreviousPoint(sparklineData, intentIndex)
-            : sparklineData == null || baselineValue == null
-              ? null
-              : ((liveValue - baselineValue) / Math.abs(baselineValue)) * 100
+    // A supplied `change` shows at rest; while hovering with `hoverChangeFromPreviousPoint` it yields to
+    // the point-vs-previous delta — except an explicit `null` (suppress) stays suppressed across hover.
     const delta = resolveDelta({
         showChange,
-        change: usePrevPointHover ? undefined : change,
+        change: usePrevPointHover && change !== null ? undefined : change,
         fallbackChangePercent,
         formatChange,
     })
@@ -220,6 +221,27 @@ function changeFromPreviousPoint(data: number[], index: number): number | null {
         return null
     }
     return ((curr - prev) / Math.abs(prev)) * 100
+}
+
+// The hover-driven change percent: the hovered point vs the previous point when
+// `hoverChangeFromPreviousPoint` is active, otherwise the live value vs the series baseline.
+function computeFallbackChangePercent(
+    sparklineData: number[] | null,
+    usePrevPointHover: boolean,
+    intentIndex: number,
+    liveValue: number,
+    baselineValue: number | undefined
+): number | null {
+    if (sparklineData == null) {
+        return null
+    }
+    if (usePrevPointHover) {
+        return changeFromPreviousPoint(sparklineData, intentIndex)
+    }
+    if (baselineValue == null) {
+        return null
+    }
+    return ((liveValue - baselineValue) / Math.abs(baselineValue)) * 100
 }
 
 interface ChangePillProps {

@@ -282,6 +282,24 @@ describe('MetricCard', () => {
             expect(container.textContent).not.toContain('+12.5% vs. prev period')
         })
 
+        it('with hoverChangeFromPreviousPoint, keeps the pill suppressed across hover when change is null', () => {
+            const { container, chart } = renderHogChart(
+                <MetricCard
+                    title="Revenue"
+                    data={[100, 200, 300, 400]}
+                    labels={LABELS}
+                    theme={THEME}
+                    animationMs={0}
+                    hoverIntentMs={0}
+                    change={null}
+                    hoverChangeFromPreviousPoint
+                />
+            )
+            expect(container.textContent).not.toContain('%')
+            chart.hoverAtIndex(2)
+            expect(container.textContent).not.toContain('%')
+        })
+
         it('with hoverChangeFromPreviousPoint, hides the pill when hovering the first point', () => {
             const { container, chart } = renderHogChart(
                 <MetricCard
