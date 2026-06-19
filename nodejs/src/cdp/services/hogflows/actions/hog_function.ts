@@ -58,14 +58,18 @@ export class HogFunctionHandler implements ActionHandler {
             result.invocation.queue = functionResult.invocation.queue
             result.invocation.queueParameters = functionResult.invocation.queueParameters
             result.invocation.queueMetadata = functionResult.invocation.queueMetadata
-            // When the hog function returned without an explicit `queueScheduledAt`, this
-            // reschedule is just to move the job onto its dedicated queue (e.g. 'email' for
-            // SES rate-limit gating) and the next dequeue will continue executing the same
-            // action. Tag the action state so the executor can suppress the redundant
-            // "Resuming..." / "Workflow will pause until..." pair on the next dequeue —
-            // those would otherwise leak the internal queue routing as a customer-visible
-            // workflow transition.
-            if (!functionResult.invocation.queueScheduledAt) {
+            // Routing-only reschedule signature: the queue changed AND no explicit
+            // `queueScheduledAt` was set. That's the shape produced by `routeEmailToQueue`
+            // and `routeToQueue` in hog-executor.service.ts when moving a job between the
+            // hogflow and email queues — the next dequeue continues the same action on the
+            // new queue. Tag the action state so the executor can suppress the redundant
+            // "Resuming..." / "Workflow will pause until..." pair on the next dequeue.
+            //
+            // The queue-changed check is what keeps async pauses (fetches, SES throttle
+            // retries) out of this branch: both keep `queueScheduledAt` set OR leave the
+            // queue unchanged, so they don't satisfy both halves of the condition.
+            const queueChanged = functionResult.invocation.queue !== invocation.queue
+            if (queueChanged && !functionResult.invocation.queueScheduledAt) {
                 result.invocation.state.currentAction!.routingOnlyReschedule = true
             }
             return {
