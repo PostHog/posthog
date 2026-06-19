@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { use, useEffect, useState } from 'react'
 
 import Header from '@/components/Header'
 import { useAuth } from '@/lib/auth'
@@ -13,12 +13,13 @@ import { formatFileSize, getFileIcon } from '@/lib/utils'
 import { HedgeboxFile } from '@/types'
 
 interface FilePageProps {
-    params: {
+    params: Promise<{
         id: string
-    }
+    }>
 }
 
 export default function FilePage({ params }: FilePageProps): React.JSX.Element | null {
+    const { id } = use(params)
     const { user } = useAuth()
     const [file, setFile] = useState<HedgeboxFile | null>(null)
     const [isLoading, setIsLoading] = useState(true)
@@ -30,7 +31,7 @@ export default function FilePage({ params }: FilePageProps): React.JSX.Element |
 
     useEffect(() => {
         // Simulate finding the file by ID
-        const foundFile = sampleFiles.find((f) => f.id === params.id)
+        const foundFile = sampleFiles.find((f) => f.id === id)
         setFile(foundFile || null)
         setIsLoading(false)
 
@@ -42,7 +43,7 @@ export default function FilePage({ params }: FilePageProps): React.JSX.Element |
                 file_size_b: foundFile.size,
             })
         }
-    }, [params.id])
+    }, [id])
 
     if (!user) {
         return null

@@ -4,7 +4,7 @@ import { Suspense } from 'react'
 import {
     ExpandSelector,
     HighlightedContentWrapper,
-} from 'products/llm_analytics/frontend/ConversationDisplay/HighlightedContentWrapper'
+} from 'products/ai_observability/frontend/ConversationDisplay/HighlightedContentWrapper'
 
 import { JSONViewerInner, JSONViewerSkeleton } from './JSONViewer'
 

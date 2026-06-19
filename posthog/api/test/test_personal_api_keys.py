@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -14,13 +13,13 @@ from posthog.schema import EventsQuery
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
@@ -474,7 +473,6 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {self.value}"})
         assert response.status_code == status.HTTP_200_OK
 
-    @pytest.mark.requires_secrets
     def test_does_not_interfere_with_other_auth_methods(self):
         from django.utils import timezone
 
@@ -600,32 +598,23 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "API key missing required scope 'feature_flag:write'"
 
-    def test_allows_legacy_feature_flag_local_evaluation_with_personal_api_key(self):
-        response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
-
+    def test_allows_action_with_required_scopes(self):
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/my_flags")
         assert response.status_code == status.HTTP_200_OK
-        response_data = response.json()
-        assert "flags" in response_data
-        assert "group_type_mapping" in response_data
-        assert "cohorts" in response_data
 
-    def test_legacy_feature_flag_evaluation_with_no_current_team(self):
+    def test_feature_flag_list_with_no_current_team(self):
+        # LegacyFeatureFlagViewSet resolves the project from the token when the user
+        # has no current_team (param_derived_from_user_current_team), so the list route
+        # must still work in that case.
         original_team = self.user.current_team
-
         try:
             self.user.current_team = None
             self.user.save()
-
-            # Use team token to provide team context when user.current_team is None
-            response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+            response = self._do_request(f"/api/feature_flag/?token={self.team.api_token}")
             assert response.status_code == status.HTTP_200_OK
         finally:
             self.user.current_team = original_team
             self.user.save()
-
-    def test_allows_action_with_required_scopes(self):
-        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
-        assert response.status_code == status.HTTP_200_OK
 
     def test_allows_custom_error_tracking_read_action(self):
         self.key.scopes = ["error_tracking:read"]

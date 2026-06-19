@@ -1,6 +1,7 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { parseJSON } from '../../../../utils/json-parse'
+import { mustAddReasoningCost } from '../../costs/output-costs'
 import { OtelLibraryMiddleware } from './types'
 
 // Vercel AI SDK attributes to strip after processing. Includes both
@@ -18,6 +19,8 @@ const STRIP_KEYS = [
     'ai.usage.promptTokens',
     'ai.usage.completionTokens',
     'ai.usage.tokens',
+    'ai.usage.inputTokenDetails.noCacheTokens',
+    'ai.usage.outputTokenDetails.textTokens',
     'ai.response.id',
     'ai.response.model',
     'ai.response.timestamp',
@@ -45,6 +48,29 @@ const STRIP_KEYS = [
     'gen_ai.response.id',
 ]
 
+// Metadata properties to promote to event properties
+const STRING_AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name']
+const AI_PROMPT_VERSION_KEY = '$ai_prompt_version'
+
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.length > 0
+}
+
+function isPromptVersion(value: unknown): value is string | number {
+    return isNonEmptyString(value) || (typeof value === 'number' && Number.isInteger(value) && value > 0)
+}
+
+function numericValue(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value
+    }
+    if (typeof value === 'string') {
+        const parsed = Number(value)
+        return Number.isFinite(parsed) ? parsed : null
+    }
+    return null
+}
+
 function process(event: PluginEvent, next: () => void): void {
     if (!event.properties) {
         return next()
@@ -53,6 +79,17 @@ function process(event: PluginEvent, next: () => void): void {
 
     // Capture opId before next() since STRIP_KEYS deletes it afterward
     const opId = props['ai.operationId']
+    const hasAiSdkV7CacheUsage =
+        props['gen_ai.usage.cache_read.input_tokens'] !== undefined ||
+        props['gen_ai.usage.cache_creation.input_tokens'] !== undefined ||
+        props['ai.usage.inputTokenDetails.noCacheTokens'] !== undefined
+    const aiSdkV7TextOutputTokens = props['ai.usage.outputTokenDetails.textTokens']
+    const aiSdkV7ReasoningTokens = props['ai.usage.outputTokenDetails.reasoningTokens']
+    const hasAiSdkV7ReasoningDetails = aiSdkV7ReasoningTokens !== undefined
+
+    if (props['$ai_cache_reporting_exclusive'] === undefined && hasAiSdkV7CacheUsage) {
+        props['$ai_cache_reporting_exclusive'] = false
+    }
 
     // Map ai.prompt.messages → gen_ai.input.messages before the standard mapping
     // runs, so mapOtelAttributes() picks it up as $ai_input. Provider-level spans
@@ -151,6 +188,11 @@ function process(event: PluginEvent, next: () => void): void {
         props['functionId'] = functionId
     }
 
+    // The functionId represents the whole trace's purpose, so only override the span name for the top-level event
+    if (isTopLevel && typeof functionId === 'string' && functionId) {
+        props['$ai_span_name'] = functionId
+    }
+
     const posthogDistinctId = props['ai.telemetry.metadata.posthog_distinct_id']
     if (typeof posthogDistinctId === 'string' && posthogDistinctId) {
         if (props['posthog_distinct_id'] === undefined) {
@@ -159,9 +201,16 @@ function process(event: PluginEvent, next: () => void): void {
         event.distinct_id = posthogDistinctId
     }
 
-    const aiSessionId = props['ai.telemetry.metadata.$ai_session_id']
-    if (props['$ai_session_id'] === undefined && typeof aiSessionId === 'string' && aiSessionId) {
-        props['$ai_session_id'] = aiSessionId
+    for (const aiKey of STRING_AI_METADATA_KEYS) {
+        const value = props[`ai.telemetry.metadata.${aiKey}`]
+        if (props[aiKey] === undefined && isNonEmptyString(value)) {
+            props[aiKey] = value
+        }
+    }
+
+    const promptVersion = props[`ai.telemetry.metadata.${AI_PROMPT_VERSION_KEY}`]
+    if (props[AI_PROMPT_VERSION_KEY] === undefined && isPromptVersion(promptVersion)) {
+        props[AI_PROMPT_VERSION_KEY] = promptVersion
     }
 
     // Strip Vercel-specific telemetry metadata and request headers after preserving
@@ -188,6 +237,26 @@ function process(event: PluginEvent, next: () => void): void {
     delete props['gen_ai.response.finish_reasons']
 
     props['$ai_lib'] = 'opentelemetry/vercel-ai'
+    props['$ai_framework'] ??= 'vercel'
+
+    if (props['$ai_reasoning_tokens'] === undefined && aiSdkV7ReasoningTokens !== undefined) {
+        props['$ai_reasoning_tokens'] = aiSdkV7ReasoningTokens
+    }
+
+    const shouldSplitReasoningTokens =
+        typeof props['$ai_model'] === 'string' && mustAddReasoningCost(props['$ai_model'])
+    if (props['$ai_text_output_tokens'] === undefined && shouldSplitReasoningTokens) {
+        const textOutputTokens = numericValue(aiSdkV7TextOutputTokens)
+        if (textOutputTokens !== null) {
+            props['$ai_text_output_tokens'] = textOutputTokens
+        } else if (hasAiSdkV7ReasoningDetails) {
+            const outputTokens = numericValue(props['$ai_output_tokens'])
+            const reasoningTokens = numericValue(props['$ai_reasoning_tokens'])
+            if (outputTokens !== null && reasoningTokens !== null) {
+                props['$ai_text_output_tokens'] = Math.max(0, outputTokens - reasoningTokens)
+            }
+        }
+    }
 
     for (const key of STRIP_KEYS) {
         delete props[key]

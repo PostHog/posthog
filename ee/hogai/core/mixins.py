@@ -14,12 +14,12 @@ from posthog.models import Team
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
+from products.posthog_ai.backend.models.assistant import Conversation, CoreMemory
 
 from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
 from ee.hogai.utils.feature_flags import is_core_memory_disabled
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types.base import AssistantState, BaseStateWithIntermediateSteps, NodePath
-from ee.models import Conversation, CoreMemory
 
 
 class AssistantContextMixin(ABC):

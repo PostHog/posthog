@@ -13,7 +13,6 @@ import temporalio.common
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
 
-from posthog.batch_exports.models import BatchExportBackfill
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -21,6 +20,7 @@ from posthog.temporal.tests.utils.models import (
     afetch_batch_export_backfills,
 )
 
+from products.batch_exports.backend.models.batch_export import BatchExportBackfill
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,
@@ -300,6 +300,7 @@ async def test_backfill_batch_export_workflow(
         raise AssertionError("Backfill completed early with no records")
 
     workflows = await wait_for_workflows(temporal_client, batch_export.id, expected_num_workflows, timeout=50)
+    assert len(workflows) == expected_num_workflows
 
     # Check that the individual workflow IDs and TemporalScheduledStartTime search attributes are set correctly.
     for index, workflow in enumerate(workflows, start=1):
@@ -352,6 +353,7 @@ async def test_backfill_batch_export_workflow_no_end_at(
     )
 
     workflows = await wait_for_workflows(temporal_client, desc.id, expected_count=2)
+    assert len(workflows) == 2
 
     event_backfill_ids = await assert_backfill_details_in_workflow_events(
         temporal_client,

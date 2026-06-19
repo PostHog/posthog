@@ -3,12 +3,17 @@ import uuid
 import pytest
 from posthog.test.base import BaseTest
 
+from django.test import override_settings
+
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Cohort, Person, Team
-from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from posthog.helpers.batch_iterators import FunctionBatchIterator
+from posthog.models import Person, Team
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
@@ -396,6 +401,31 @@ class TestCohort(BaseTest):
         assert cohort.people.count() == 1
         assert str(cohort.people.first().uuid) == str(person.uuid)
 
+    @override_settings(DEBUG=False)
+    def test_insert_re_raises_soft_time_limit_exceeded(self):
+        # A Celery soft-time-limit interruption must propagate so the task's time limit
+        # bounds the run. The broad except must not swallow it (DEBUG=False forces the
+        # production path where everything else is swallowed). The finally still finalizes
+        # cohort state before it propagates, recording the timeout as a failed
+        # calculation — not a successful one.
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+
+        def _raise_timeout(batch_index: int, batch_size: int) -> list[str]:
+            raise SoftTimeLimitExceeded()
+
+        iterator = FunctionBatchIterator(_raise_timeout, batch_size=10, max_items=10)
+
+        with self.assertRaises(SoftTimeLimitExceeded):
+            cohort._insert_users_list_with_batching(iterator, team_id=self.team.id)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        self.assertIsNotNone(cohort.last_error_at)
+        self.assertIsNone(cohort.last_calculation)
+
     @parameterized.expand(
         [
             # operator, filter_value, excluded_ages, included_ages
@@ -451,7 +481,7 @@ class TestCohort(BaseTest):
 
     def test_get_static_cohort_size(self):
         """Test that get_static_cohort_size works with db_constraint=False on the person foreign key."""
-        from posthog.models.cohort.util import get_static_cohort_size
+        from products.cohorts.backend.models.util import get_static_cohort_size
 
         # Create persons
         person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
@@ -489,7 +519,7 @@ class TestCohort(BaseTest):
     def test_calculate_people_ch_clears_realtime_type_when_exceeding_threshold(self):
         from unittest.mock import patch
 
-        from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
+        from products.cohorts.backend.models.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
 
         # Create a realtime cohort
         cohort = Cohort.objects.create(
@@ -500,7 +530,7 @@ class TestCohort(BaseTest):
         )
 
         # Mock recalculate_cohortpeople to return a count exceeding the threshold
-        with patch("posthog.models.cohort.util.recalculate_cohortpeople") as mock_recalc:
+        with patch("products.cohorts.backend.models.util.recalculate_cohortpeople") as mock_recalc:
             mock_recalc.return_value = REALTIME_COHORT_MAX_PERSON_COUNT + 1
 
             cohort.calculate_people_ch(pending_version=1)
@@ -514,7 +544,7 @@ class TestCohort(BaseTest):
     def test_calculate_people_ch_keeps_realtime_type_when_at_threshold(self):
         from unittest.mock import patch
 
-        from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
+        from products.cohorts.backend.models.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
 
         # Create a realtime cohort
         cohort = Cohort.objects.create(
@@ -525,7 +555,7 @@ class TestCohort(BaseTest):
         )
 
         # Mock recalculate_cohortpeople to return exactly the threshold count
-        with patch("posthog.models.cohort.util.recalculate_cohortpeople") as mock_recalc:
+        with patch("products.cohorts.backend.models.util.recalculate_cohortpeople") as mock_recalc:
             mock_recalc.return_value = REALTIME_COHORT_MAX_PERSON_COUNT
 
             cohort.calculate_people_ch(pending_version=1)
@@ -551,7 +581,7 @@ class TestCohort(BaseTest):
             name="version resilience cohort",
         )
 
-        with patch("posthog.models.cohort.util.recalculate_cohortpeople") as mock_recalc:
+        with patch("products.cohorts.backend.models.util.recalculate_cohortpeople") as mock_recalc:
             mock_recalc.return_value = 42
 
             with patch.object(Cohort, method_name, side_effect=Exception(error_message)):

@@ -2,7 +2,7 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import type { Noun } from '~/models/groupsModel'
-import type { ActionFilter, LifecycleToggle } from '~/types'
+import type { ActionFilter } from '~/types'
 
 export type TrendsSeriesMeta = {
     action?: ActionFilter
@@ -13,18 +13,12 @@ export type TrendsSeriesMeta = {
     filter?: SeriesDatum['filter']
 }
 
-/** Canonical lifecycle order: new → resurrecting → returning → dormant.
- *  Used both as a status enumeration and as the stack order for the diverging stack —
- *  dormant ends up at the bottom because its data is negative. Callers that need the
- *  legacy descending order (`trendsDataLogic.ts:197`) can iterate in reverse. */
-export const LIFECYCLE_STATUS_ORDER: readonly LifecycleToggle[] = ['new', 'resurrecting', 'returning', 'dormant']
-
 export const buildTrendsSeriesMeta = (r: IndexedTrendResult): TrendsSeriesMeta => ({
     action: r.action,
     breakdown_value: r.breakdown_value,
     compare_label: r.compare_label,
     days: r.days,
-    order: r.action?.order ?? r.id,
+    order: r.order ?? r.action?.order ?? 0,
     filter: r.filter,
 })
 

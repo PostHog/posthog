@@ -1,4 +1,5 @@
 from datetime import timedelta
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -143,3 +144,68 @@ class TestRevertMaterialization(BaseTest):
 
         mock_delete_schedule.assert_called_once()
         self._assert_state_unchanged()
+
+
+class TestGetColumnsQueryTagging(BaseTest):
+    """get_columns infers types by executing the query via sync_execute, which requires product +
+    feature query tags (enforced as a hard error in DEBUG). Untagged, view creation over any table —
+    including ai_events — fails with UntaggedQueryError. The inference query must be tagged."""
+
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_get_columns_tags_the_inference_query(self, mock_process_query_dict):
+        from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+
+        captured: dict[str, object] = {}
+
+        def _capture(*args, **kwargs):
+            tags = get_query_tags()
+            captured["product"] = tags.product
+            captured["feature"] = tags.feature
+            return SimpleNamespace(types=[("trace_id", "String")])
+
+        mock_process_query_dict.side_effect = _capture
+
+        saved_query = DataWarehouseSavedQuery(
+            team=self.team,
+            name="my_view",
+            query={"query": "SELECT trace_id FROM posthog.ai_events"},
+        )
+        columns = saved_query.get_columns()
+
+        assert captured["product"] == Product.WAREHOUSE
+        assert captured["feature"] == Feature.DATA_MODELING
+        assert columns == {"trace_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}}
+
+
+class TestColumnOrder(BaseTest):
+    """Postgres stores `columns` as jsonb, which reorders keys (length, then bytewise). The
+    stamped positions must restore the view's defined column order after a DB round-trip so
+    `SELECT *` and the schema UI show columns in the order the view defines them."""
+
+    def test_hogql_definition_restores_defined_order_after_db_round_trip(self):
+        # jsonb returns these as id, content, source_product — not the defined order
+        defined_order = ["content", "id", "source_product"]
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="ordered_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            columns={
+                name: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True} for name in defined_order
+            },
+        )
+
+        refreshed = DataWarehouseSavedQuery.objects.get(pk=saved_query.pk)
+
+        assert refreshed.columns is not None
+        assert all(value["position"] is not None for value in refreshed.columns.values())
+        assert list(refreshed.hogql_definition().fields.keys()) == defined_order
+
+    def test_hogql_definition_keeps_legacy_columns_without_positions(self):
+        saved_query = DataWarehouseSavedQuery(
+            team=self.team,
+            name="legacy_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            columns={"id": "String", "content": "String"},
+        )
+
+        assert list(saved_query.hogql_definition().fields.keys()) == ["id", "content"]

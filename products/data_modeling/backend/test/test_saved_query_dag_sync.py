@@ -8,6 +8,7 @@ from posthog.hogql.errors import QueryError
 from products.data_modeling.backend.models import Edge, Node
 from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import ResolutionCycleError
 from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.services.saved_query_dag_sync import (
     HasDependentsError,
@@ -199,7 +200,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         # update a to depend on b (cycle) — should fail
         query_a.query = {"query": "SELECT * FROM view_b", "kind": "HogQLQuery"}
         query_a.save()
-        with self.assertRaises(QueryError):
+        with self.assertRaises(ResolutionCycleError):
             sync_saved_query_to_dag(query_a)
 
         # node for query_a should be cleaned up

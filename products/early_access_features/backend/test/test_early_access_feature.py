@@ -11,10 +11,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
-from posthog.models import FeatureFlag, Person
+from posthog.models import Person
 from posthog.models.team.team_caching import set_team_in_cache
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
@@ -58,7 +59,6 @@ class TestEarlyAccessFeature(APIBaseTest):
     maxDiff = None
 
     def test_can_create_early_access_feature_in_concept_stage(self):
-        """CONCEPT stage allows opt-in but does NOT enable the feature flag (no super_groups)."""
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -78,15 +78,13 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == "concept"
         assert response_data["feature_flag"]["key"] == "hick-bondoogling"
         assert response_data["feature_flag"]["active"]
-        # CONCEPT stage should NOT have super_groups or feature_enrollment
-        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
         assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 0
         assert isinstance(response_data["created_at"], str)
 
     def test_can_create_early_access_feature_in_alpha_stage(self):
-        """ALPHA stage (and later) enables the feature flag for opted-in users."""
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -100,9 +98,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["stage"] == "alpha"
-        # ALPHA stage should have super_groups and feature_enrollment - flag is enabled for opted-in users
-        assert response_data["feature_flag"]["filters"].get("super_groups", None)
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
     @parameterized.expand(
@@ -112,8 +108,7 @@ class TestEarlyAccessFeature(APIBaseTest):
             (EarlyAccessFeature.Stage.GENERAL_AVAILABILITY,),
         ]
     )
-    def test_promote_concept_to_active_stage_adds_super_groups(self, target_stage):
-        """Promoting from CONCEPT to any active stage should add super_groups."""
+    def test_promote_concept_to_active_stage_adds_feature_enrollment(self, target_stage):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -126,7 +121,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         response_data = response.json()
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
 
         feature_id = response_data["id"]
@@ -142,7 +137,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response_data
         assert response_data["stage"] == target_stage
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
     @parameterized.expand(
@@ -156,7 +151,7 @@ class TestEarlyAccessFeature(APIBaseTest):
             ("without_rollout_to_all", False, True, None),
         ]
     )
-    def test_promote_to_ga_rollout_to_all(self, _name, rollout_to_all, expect_super_groups, expected_groups):
+    def test_promote_to_ga_rollout_to_all(self, _name, rollout_to_all, expect_enrollment, expected_groups):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={"name": "Hick bondoogling", "description": "Test feature", "stage": "beta"},
@@ -164,7 +159,6 @@ class TestEarlyAccessFeature(APIBaseTest):
         )
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
         assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
         feature_id = response_data["id"]
@@ -182,16 +176,14 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response_data
         assert response_data["stage"] == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY
-        if expect_super_groups:
-            assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert "super_groups" not in response_data["feature_flag"]["filters"]
+        if expect_enrollment:
             assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
         else:
-            assert not response_data["feature_flag"]["filters"].get("super_groups")
             assert not response_data["feature_flag"]["filters"].get("feature_enrollment")
             assert response_data["feature_flag"]["filters"]["groups"] == expected_groups
 
-    def test_demote_alpha_to_concept_removes_super_groups(self):
-        """Demoting from ALPHA back to CONCEPT should remove super_groups."""
+    def test_demote_alpha_to_concept_removes_feature_enrollment(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -204,7 +196,6 @@ class TestEarlyAccessFeature(APIBaseTest):
         response_data = response.json()
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
         assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
         feature_id = response_data["id"]
@@ -220,8 +211,7 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response_data
         assert response_data["stage"] == EarlyAccessFeature.Stage.CONCEPT
-        # CONCEPT should not have super_groups or feature_enrollment
-        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
 
     def test_archive(self):
@@ -237,7 +227,6 @@ class TestEarlyAccessFeature(APIBaseTest):
         response_data = response.json()
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
         assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
         feature_id = response_data["id"]
@@ -253,10 +242,10 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response_data
         assert response_data["stage"] == EarlyAccessFeature.Stage.ARCHIVED
-        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert not response_data["feature_flag"]["filters"].get("feature_enrollment", None)
 
-    def test_update_doesnt_remove_super_condition(self):
+    def test_update_doesnt_remove_feature_enrollment(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -269,7 +258,6 @@ class TestEarlyAccessFeature(APIBaseTest):
         response_data = response.json()
 
         assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
         assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
         feature_id = response_data["id"]
@@ -286,7 +274,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response_data
         assert response_data["stage"] == EarlyAccessFeature.Stage.BETA
         assert response_data["description"] == "Something else!"
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
 
     def test_we_dont_delete_existing_flag_information_when_creating_early_access_feature(self):
@@ -333,19 +321,6 @@ class TestEarlyAccessFeature(APIBaseTest):
                     }
                 ],
                 "payloads": {"true": '"Hick bondoogling? ????"'},
-                "super_groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "$feature_enrollment/hick-bondoogling",
-                                "operator": "exact",
-                                "type": "person",
-                                "value": ["true"],
-                            }
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ],
                 "aggregation_group_type_index": None,
                 "feature_enrollment": True,
             },
@@ -407,13 +382,13 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == "beta"
         assert response_data["feature_flag"]["key"] == "hick-bondoogling"
         assert response_data["feature_flag"]["active"]
-        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        assert "super_groups" not in response_data["feature_flag"]["filters"]
         assert response_data["feature_flag"]["filters"]["feature_enrollment"] is True
         assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 0
         assert isinstance(response_data["created_at"], str)
 
-    def test_deleting_early_access_feature_removes_super_condition_from_flag(self):
+    def test_deleting_early_access_feature_removes_feature_enrollment_from_flag(self):
         existing_flag = FeatureFlag.objects.create(
             team=self.team,
             filters={
@@ -460,7 +435,6 @@ class TestEarlyAccessFeature(APIBaseTest):
                         "aggregation_group_type_index": None,
                     }
                 ],
-                "super_groups": None,
                 "aggregation_group_type_index": None,
                 "feature_enrollment": None,
             },
@@ -789,7 +763,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert {"custom": "data", "number": 42} in payloads
         assert {} in payloads
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_creation_context_is_set_to_early_access_features(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
@@ -1253,7 +1227,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         )
 
     def test_create_with_early_access_feature_write_only_logs_warning(self):
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self._create_feature()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         events = self._warning_events(mock_logger)
@@ -1268,7 +1242,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
     def test_create_with_feature_flag_write_does_not_log(self):
         self.key.scopes = ["early_access_feature:write", "feature_flag:write"]
         self.key.save()
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self._create_feature()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
@@ -1276,7 +1250,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
     def test_create_with_wildcard_scope_does_not_log(self):
         self.key.scopes = ["*"]
         self.key.save()
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self._create_feature()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
@@ -1288,7 +1262,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["early_access_feature:write"]
         self.key.save()
 
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
                 data={"stage": "beta"},
@@ -1307,7 +1281,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["early_access_feature:write"]
         self.key.save()
 
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
                 data={"description": "updated"},
@@ -1324,7 +1298,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["early_access_feature:write"]
         self.key.save()
 
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.delete(
                 f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
                 headers=self.auth_headers,
@@ -1336,7 +1310,7 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
 
     def test_session_auth_does_not_log(self):
         self.client.force_login(self.user)
-        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/early_access_feature/",
                 data=self.CREATE_PAYLOAD,
@@ -1344,3 +1318,98 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
             )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
+
+
+class TestEarlyAccessFeatureScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest):
+    # Enforcement (raise 403) is gated behind a rollout flag; force it on for this class.
+    CREATE_PAYLOAD = {
+        "name": "Scope enforcement feature",
+        "description": "x",
+        "stage": "concept",
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+        self.auth_headers = {"authorization": f"Bearer {self.value}"}
+        enforce_patcher = patch(
+            "products.feature_flags.backend.api.feature_flag._is_enforce_feature_flag_write_scope_enabled",
+            return_value=True,
+        )
+        enforce_patcher.start()
+        self.addCleanup(enforce_patcher.stop)
+
+    def _create_feature(self, **extra):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={**self.CREATE_PAYLOAD, **extra},
+            format="json",
+            headers=self.auth_headers,
+        )
+
+    def _create_feature_as_admin(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        feature_id = self._create_feature().json()["id"]
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+        return feature_id
+
+    @parameterized.expand(
+        [
+            ("eaf_write_only", ["early_access_feature:write"], status.HTTP_403_FORBIDDEN),
+            ("with_feature_flag_write", ["early_access_feature:write", "feature_flag:write"], status.HTTP_201_CREATED),
+            ("wildcard", ["*"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_scope_matrix(self, _name, scopes, expected_status):
+        self.key.scopes = scopes
+        self.key.save()
+        response = self._create_feature()
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "feature_flag:write" in response.json()["detail"]
+
+    def test_update_stage_change_is_denied(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            data={"stage": "beta"},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_update_without_stage_change_is_allowed(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            data={"description": "updated"},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_create_linking_existing_flag_without_mutation_is_allowed(self):
+        # Linking an existing flag at a non-active stage writes no flag row, so it is not gated.
+        flag = FeatureFlag.objects.create(team=self.team, key="eaf-link-only", created_by=self.user)
+        response = self._create_feature(feature_flag_id=flag.id, stage="concept")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_destroy_is_denied(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_session_auth_is_allowed(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data=self.CREATE_PAYLOAD,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()

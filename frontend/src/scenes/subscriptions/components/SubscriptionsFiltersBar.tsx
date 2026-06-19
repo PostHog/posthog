@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import {
+    TargetTypeEnumApi,
+    type SubscriptionsListTargetType,
+} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
-
-import { TargetTypeEnumApi, type SubscriptionsListTargetType } from '~/generated/core/api.schemas'
 
 import { SubscriptionsTab, subscriptionsSceneLogic } from '../subscriptionsSceneLogic'
 
@@ -12,7 +14,6 @@ const CHANNEL_FILTER_OPTIONS: { label: string; value: SubscriptionsListTargetTyp
     { label: 'All channels', value: null },
     { label: 'Email', value: TargetTypeEnumApi.Email },
     { label: 'Slack', value: TargetTypeEnumApi.Slack },
-    { label: 'Webhook', value: TargetTypeEnumApi.Webhook },
 ]
 
 export function SubscriptionsFiltersBar(): JSX.Element {

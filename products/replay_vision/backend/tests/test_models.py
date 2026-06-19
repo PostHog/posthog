@@ -266,21 +266,3 @@ class TestReplayObservation(BaseTest):
         scanner.save()
         obs.refresh_from_db()
         self.assertEqual(obs.scanner_snapshot["scanner_config"], {"prompt": "original"})
-
-    def test_mark_succeeded_sets_completed_at(self) -> None:
-        scanner = self._create_scanner()
-        obs = self._create_observation(scanner, session_id="mark-ok")
-        self.assertIsNone(obs.completed_at)
-        obs.mark_succeeded()
-        obs.refresh_from_db()
-        self.assertEqual(obs.status, ObservationStatus.SUCCEEDED)
-        self.assertIsNotNone(obs.completed_at)
-
-    def test_mark_failed_sets_completed_at_and_error(self) -> None:
-        scanner = self._create_scanner()
-        obs = self._create_observation(scanner, session_id="mark-fail")
-        obs.mark_failed("provider timeout after retries")
-        obs.refresh_from_db()
-        self.assertEqual(obs.status, ObservationStatus.FAILED)
-        self.assertIsNotNone(obs.completed_at)
-        self.assertEqual(obs.error_reason, "provider timeout after retries")

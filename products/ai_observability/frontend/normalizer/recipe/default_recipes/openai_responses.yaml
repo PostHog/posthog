@@ -1,0 +1,124 @@
+# Example: { type: function_call, call_id: c1, name: search, arguments: '{"q":"x"}' }
+
+id: openai_responses
+
+rules:
+    - on:
+          type: function_call
+          call_id: { is: string }
+          name: { is: string }
+          arguments: { exists: true }
+      emit:
+          role: assistant
+          content: ''
+          toolCall:
+              id: $.call_id
+              name: $.name
+              args: $.arguments
+
+    - on:
+          type: function_call_output
+          call_id: { is: string }
+          output: { exists: true }
+      emit:
+          role: tool_result
+          content:
+              stringify: $.output
+          toolCallId: $.call_id
+
+    - on:
+          type: reasoning
+          summary: { is: array }
+      emit:
+          role: thinking
+          content:
+              join:
+                  from: $.summary
+                  field: text
+                  sep: "\n"
+
+    - on:
+          type: reasoning
+          text: { is: string }
+      emit:
+          role: thinking
+          content: $.text
+
+    - on:
+          type: reasoning
+      emit:
+          role: thinking
+          content: ''
+
+    # Built-in tool calls. Three rules split on the `arguments` shape, which the
+    # SDK varies: string/object passes through; absent means the other top-level
+    # fields are the params (omit the structural keys); any other type is wrapped.
+    - on:
+          type:
+              in:
+                  - web_search_call
+                  - code_interpreter_call
+                  - image_generation_call
+                  - mcp_call
+                  - file_search_call
+                  - computer_call
+          id: { is: string }
+          arguments: { is: [string, object] }
+      emit:
+          role: assistant
+          content: ''
+          toolCall:
+              id: $.id
+              name:
+                  coalesce:
+                      - $.name
+                      - $.type
+              args: $.arguments
+
+    - on:
+          type:
+              in:
+                  - web_search_call
+                  - code_interpreter_call
+                  - image_generation_call
+                  - mcp_call
+                  - file_search_call
+                  - computer_call
+          id: { is: string }
+          arguments: { exists: false }
+      emit:
+          role: assistant
+          content: ''
+          toolCall:
+              id: $.id
+              name:
+                  coalesce:
+                      - $.name
+                      - $.type
+              args:
+                  omit:
+                      from: $
+                      keys: [id, type, status, name, arguments]
+
+    - on:
+          type:
+              in:
+                  - web_search_call
+                  - code_interpreter_call
+                  - image_generation_call
+                  - mcp_call
+                  - file_search_call
+                  - computer_call
+          id: { is: string }
+          arguments: { exists: true }
+      emit:
+          role: assistant
+          content: ''
+          toolCall:
+              id: $.id
+              name:
+                  coalesce:
+                      - $.name
+                      - $.type
+              args:
+                  arguments: $.arguments

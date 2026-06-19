@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -83,7 +85,7 @@ describe('onboardingLogic — flow composition', () => {
                     'invite_teammates:error_tracking',
                 ],
             ],
-            [ProductKey.LLM_ANALYTICS, ['install:llm_analytics', 'invite_teammates:llm_analytics']],
+            [ProductKey.AI_OBSERVABILITY, ['install:llm_analytics', 'invite_teammates:llm_analytics']],
             [ProductKey.WORKFLOWS, ['install:workflows', 'invite_teammates:workflows']],
             [ProductKey.LOGS, ['install:logs', 'invite_teammates:logs']],
             // Data Warehouse has no install step — the link_data step is the entry point.
@@ -194,7 +196,7 @@ describe('onboardingLogic — flow composition', () => {
 
     describe('install-step — no dedup', () => {
         it('AI observability + Workflows produce two install steps (neither has a dedupKey)', () => {
-            logic.actions.setProductKey(ProductKey.LLM_ANALYTICS)
+            logic.actions.setProductKey(ProductKey.AI_OBSERVABILITY)
             logic.actions.setSecondaryProductKeys([ProductKey.WORKFLOWS])
 
             const installs = logic.values.flow.filter((s) => s.stepKey === OnboardingStepKey.INSTALL)
@@ -204,7 +206,7 @@ describe('onboardingLogic — flow composition', () => {
 
         it('PA + LLM + Workflows + Logs yields four install steps (PA dedup, LLM, WF, LOGS dedup)', () => {
             logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
-            logic.actions.setSecondaryProductKeys([ProductKey.LLM_ANALYTICS, ProductKey.WORKFLOWS, ProductKey.LOGS])
+            logic.actions.setSecondaryProductKeys([ProductKey.AI_OBSERVABILITY, ProductKey.WORKFLOWS, ProductKey.LOGS])
 
             const installs = logic.values.flow.filter((s) => s.stepKey === OnboardingStepKey.INSTALL)
             expect(installs.map((s) => s.id)).toEqual([
@@ -227,7 +229,7 @@ describe('onboardingLogic — flow composition', () => {
 
         it('all install steps come before any non-install step', () => {
             logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
-            logic.actions.setSecondaryProductKeys([ProductKey.LLM_ANALYTICS, ProductKey.WORKFLOWS, ProductKey.LOGS])
+            logic.actions.setSecondaryProductKeys([ProductKey.AI_OBSERVABILITY, ProductKey.WORKFLOWS, ProductKey.LOGS])
 
             const lastInstallIdx = logic.values.flow
                 .map((s, i) => (s.stepKey === OnboardingStepKey.INSTALL ? i : -1))
@@ -502,7 +504,7 @@ describe('onboardingLogic — flow composition', () => {
                 ProductKey.EXPERIMENTS,
                 ProductKey.SURVEYS,
                 ProductKey.ERROR_TRACKING,
-                ProductKey.LLM_ANALYTICS,
+                ProductKey.AI_OBSERVABILITY,
             ]
             const stuffed = [...Array(16).fill(ProductKey.LOGS), ...valid].join(',')
             await expectLogic(logic, () => {
@@ -537,8 +539,8 @@ describe('onboardingLogic — flow composition', () => {
     describe('completion redirect URL', () => {
         // Each entry: [primary, expected redirect path-substring].
         // Verifies that each per-product provider's `completeRedirectUrl` is wired up.
-        // Two products (DATA_WAREHOUSE and EXPERIMENTS) intentionally fall through to
-        // urls.default() — same behaviour as the original central switch.
+        // EXPERIMENTS intentionally falls through to urls.default() — same behaviour as
+        // the original central switch.
         const cases: Array<[ProductKey, RegExp]> = [
             [ProductKey.PRODUCT_ANALYTICS, /quickstart|insight/i],
             [ProductKey.WEB_ANALYTICS, /web/i],
@@ -546,9 +548,10 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.FEATURE_FLAGS, /feature_flag/i],
             [ProductKey.SURVEYS, /survey/i],
             [ProductKey.ERROR_TRACKING, /error_tracking/i],
-            [ProductKey.LLM_ANALYTICS, /ai-observability/i],
+            [ProductKey.AI_OBSERVABILITY, /ai-observability/i],
             [ProductKey.WORKFLOWS, /workflow/i],
             [ProductKey.LOGS, /log/i],
+            [ProductKey.DATA_WAREHOUSE, /sources|data-management/i],
         ]
 
         it.each(cases)('%s lands on a product-specific page', (product, pattern) => {
@@ -556,10 +559,8 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.onCompleteOnboardingRedirectUrl).toMatch(pattern)
         })
 
-        it('experiments and data warehouse fall through to urls.default()', () => {
+        it('experiments falls through to urls.default()', () => {
             logic.actions.setProductKey(ProductKey.EXPERIMENTS)
-            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
-            logic.actions.setProductKey(ProductKey.DATA_WAREHOUSE)
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
         })
 
@@ -567,6 +568,32 @@ describe('onboardingLogic — flow composition', () => {
             logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
             logic.actions.setOnCompleteOnboardingRedirectUrl('/custom-target')
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/custom-target')
+        })
+    })
+
+    describe('onboardingFlowVariant', () => {
+        const setVariant = (value: string | boolean | undefined): void => {
+            featureFlagLogic
+                .findMounted()
+                ?.actions.setFeatureFlags(
+                    value === undefined ? [] : [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT],
+                    value === undefined ? {} : { [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: value }
+                )
+        }
+
+        it('falls back to control when the flag is not set', () => {
+            // Default test env sets no feature flags — the missing-flag path must resolve to control.
+            expect(logic.values.onboardingFlowVariant).toBe('control')
+        })
+
+        it('falls back to control when the flag resolves to a boolean (non-string) value', () => {
+            setVariant(true)
+            expect(logic.values.onboardingFlowVariant).toBe('control')
+        })
+
+        it('returns the variant string when the flag is set to a named variant', () => {
+            setVariant('some_future_variant')
+            expect(logic.values.onboardingFlowVariant).toBe('some_future_variant')
         })
     })
 

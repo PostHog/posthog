@@ -15,6 +15,8 @@ from posthog.schema import (
     AssistantMessage,
 )
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.stream.redis_stream import (
     CONVERSATION_STREAM_PREFIX,
     CONVERSATION_STREAM_TIMEOUT,
@@ -28,7 +30,6 @@ from ee.hogai.stream.redis_stream import (
     get_subagent_stream_key,
 )
 from ee.hogai.utils.types.base import AssistantOutput
-from ee.models.assistant import Conversation
 
 
 class TestRedisStream(BaseTest):

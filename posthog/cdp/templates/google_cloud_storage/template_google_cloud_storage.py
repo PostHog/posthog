@@ -81,7 +81,7 @@ class TemplateGoogleCloudStorageMigrator(HogFunctionTemplateMigrator):
         exportEventsToIgnore = [x.strip() for x in obj.config.get("exportEventsToIgnore", "").split(",") if x]
         bucketName = obj.config.get("bucketName", "")
 
-        from posthog.models.plugin import PluginAttachment
+        from products.cdp.backend.models.plugin import PluginAttachment
 
         attachment: PluginAttachment | None = PluginAttachment.objects.filter(
             plugin_config=obj, key="googleCloudKeyJson"

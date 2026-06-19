@@ -8,7 +8,10 @@ impl From<storage::Person> for Person {
             id: person.id,
             uuid: person.uuid.to_string(),
             team_id: person.team_id,
-            properties: person.properties.into_bytes(),
+            properties: person
+                .properties
+                .map(|v| v.into_bytes())
+                .unwrap_or_default(),
             properties_last_updated_at: person
                 .properties_last_updated_at
                 .map(|v| v.into_bytes())

@@ -4,7 +4,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-from .constants import CrawlMode, RefreshStatus, SourceStatus, SourceType
+from .constants import CrawlMode, RefreshInterval, RefreshStatus, SourceStatus, SourceType
 
 
 class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -39,6 +39,10 @@ class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, 
     # Last ETag received; fed back via `If-None-Match` on the next refresh
     # to get cheap 304 responses. Not an index — we only look it up by source.
     last_etag = models.CharField(max_length=255, blank=True, default="")
+    # --- Stage 5: background refresh cadence ---
+    # How often the coordinator re-fetches this source. `manual` = never
+    # auto-refresh. Only meaningful for URL sources; text/file ignore it.
+    refresh_interval = models.CharField(max_length=16, choices=RefreshInterval.choices, default=RefreshInterval.MANUAL)
 
     # --- Stage 2b: multi-page crawl fields ---
     # How to expand `source_url` into N documents. `single` keeps Stage 2a
@@ -67,6 +71,8 @@ class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, 
             models.Index(fields=["team", "-created_at"], name="bk_source_team_created"),
             models.Index(fields=["team", "status"], name="bk_source_team_status"),
             models.Index(fields=["team", "source_type"], name="bk_source_team_type"),
+            # Cross-team due-source scan by the background refresh coordinator.
+            models.Index(fields=["refresh_interval", "last_refresh_at"], name="bk_source_refresh_due"),
         ]
 
     def __str__(self) -> str:

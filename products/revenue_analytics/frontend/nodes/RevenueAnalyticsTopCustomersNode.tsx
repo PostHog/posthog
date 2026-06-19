@@ -1,13 +1,12 @@
 import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { getCurrencySymbol } from 'lib/utils/currency'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -17,9 +16,10 @@ import {
     RevenueAnalyticsTopCustomersQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { GraphDataset, GraphType } from '~/types'
+import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+import { RevenueAnalyticsChart } from './RevenueAnalyticsChart'
 
 let uniqueNode = 0
 export function RevenueAnalyticsTopCustomersNode(props: {
@@ -45,6 +45,41 @@ export function RevenueAnalyticsTopCustomersNode(props: {
     const { baseCurrency } = useValues(teamLogic)
     const { response, responseLoading, queryId } = useValues(logic)
 
+    // `results` is an array of array in order [customer_name, customer_id, revenue, month]
+    const { labels, datasets } = useMemo(() => {
+        const queryResponse = response as RevenueAnalyticsTopCustomersQueryResponse | undefined
+        const results = (queryResponse?.results ?? []) as any[][]
+
+        const resultsGroupedByCustomer: Record<string, Record<string, any>> = {}
+        for (const result of results) {
+            const [, id, , month] = result
+            resultsGroupedByCustomer[id] ||= {}
+            resultsGroupedByCustomer[id][month] = result
+        }
+
+        const labels: string[] = Array.from(new Set(results.map((result) => result[3]))).sort() as string[]
+        const datasets: GraphDataset[] = Object.entries(resultsGroupedByCustomer).map(([_, results], idx) => {
+            const key = Object.keys(results)[0]
+
+            return {
+                id: idx + 1, // Make them start at 1, for good measure
+
+                // Name is in the second column, grab from any result
+                // Fallback to first column if second is undefined, that's the customer_id
+                label: results[key][1] ?? results[key][0],
+
+                // In the same order as the labels get the revenue
+                // assuming it was 0 if not present in the dataset
+                data: labels.map((label) => results[label]?.[2] ?? 0),
+
+                // Color stuff, make it look pretty
+                colorIndex: idx,
+            }
+        })
+
+        return { labels, datasets }
+    }, [response])
+
     if (responseLoading) {
         return (
             <InsightsWrapper>
@@ -53,38 +88,15 @@ export function RevenueAnalyticsTopCustomersNode(props: {
         )
     }
 
-    // `results` is an array of array in order [customer_name, customer_id, revenue, month]
-    const queryResponse = response as RevenueAnalyticsTopCustomersQueryResponse | undefined
-    const results = (queryResponse?.results ?? []) as any[][]
-
-    const resultsGroupedByCustomer: Record<string, Record<string, any>> = {}
-    for (const result of results) {
-        const [, id, , month] = result
-        resultsGroupedByCustomer[id] ||= {}
-        resultsGroupedByCustomer[id][month] = result
-    }
-
-    const labels: string[] = Array.from(new Set(results.map((result) => result[3]))).sort() as string[]
-    const datasets: GraphDataset[] = Object.entries(resultsGroupedByCustomer).map(([_, results], idx) => {
-        const key = Object.keys(results)[0]
-
-        return {
-            id: idx + 1, // Make them start at 1, for good measure
-
-            // Name is in the second column, grab from any result
-            // Fallback to first column if second is undefined, that's the customer_id
-            label: results[key][1] ?? results[key][0],
-
-            // In the same order as the labels get the revenue
-            // assuming it was 0 if not present in the dataset
-            data: labels.map((label) => results[label]?.[2] ?? 0),
-
-            // Color stuff, make it look pretty
-            colorIndex: idx,
-        }
-    })
-
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
+
+    const trendsFilter = {
+        aggregationAxisFormat: 'numeric' as const,
+        decimalPlaces: 2,
+        minDecimalPlaces: 2,
+        aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
+        aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
+    }
 
     // These classes are all pretty weird but they're here because we want to maintain consistency
     // between the trends and top customers views
@@ -93,21 +105,13 @@ export function RevenueAnalyticsTopCustomersNode(props: {
             <div className="TrendsInsight TrendsInsight--ActionsLineGraph">
                 <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
                     <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                        <LineGraph
-                            data-attr="revenue-analytics-top-customers-node-graph"
-                            type={GraphType.Line}
+                        <RevenueAnalyticsChart
+                            dataAttr="revenue-analytics-top-customers-node-graph"
+                            kind="line"
                             datasets={datasets}
                             labels={labels}
                             isInProgress={!dateFilter.dateTo}
-                            trendsFilter={{
-                                aggregationAxisFormat: 'numeric',
-                                decimalPlaces: 2,
-                                minDecimalPlaces: 2,
-                                aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
-                                aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
-                            }}
-                            incompletenessOffsetFromEnd={1}
-                            labelGroupType="none"
+                            trendsFilter={trendsFilter}
                         />
                     </BindLogic>
                 </BindLogic>

@@ -23,9 +23,10 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { colonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -50,6 +51,11 @@ export interface SessionRecordingPreviewProps {
      * @default false
      */
     selectable?: boolean
+    /**
+     * Sort column for duration/error/TTL display. When set, playlist logic is not required
+     * (e.g. dashboard widgets that pass order from widget config).
+     */
+    order?: RecordingsQuery['order']
 }
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
@@ -270,6 +276,7 @@ const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
 }): JSX.Element | null {
     const { loadingBySessionId, summaryBySessionId } = useValues(sessionSummaryProgressLogic)
     const { startSummarization } = useActions(sessionSummaryProgressLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
 
     const isSummarizing = !!loadingBySessionId[recording.id]
     const summaryOutcome = selectOutcome([summaryBySessionId[recording.id]?.session_outcome, recording.summary_outcome])
@@ -298,6 +305,11 @@ const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
             </Tooltip>
         )
     }
+    // AI summaries are PostHog Cloud only — hide the per-row trigger on self-hosted. The upsell
+    // lives on the replay page dock (PlayerSummaryDock) rather than repeating per list row.
+    if (!isCloudOrDev) {
+        return null
+    }
     return (
         <LemonButton
             type="tertiary"
@@ -317,15 +329,15 @@ const RecordingSummaryIcon = memo(function RecordingSummaryIcon({
     )
 })
 
-export const SessionRecordingPreview = memo(
-    function SessionRecordingPreview({
+const SessionRecordingPreviewBase = memo(
+    function SessionRecordingPreviewBase({
         recording,
         isActive,
         selectable = false,
-    }: SessionRecordingPreviewProps): JSX.Element {
+        order,
+    }: SessionRecordingPreviewProps & { order: RecordingsQuery['order'] }): JSX.Element {
         const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
-        const { filters } = useValues(sessionRecordingsPlaylistLogic)
         const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
         const { featureFlags } = useValues(featureFlagLogic)
 
@@ -399,12 +411,12 @@ export const SessionRecordingPreview = memo(
                                 </div>
                             </div>
 
-                            {filters.order === 'console_error_count' ? (
+                            {order === 'console_error_count' ? (
                                 <ErrorCount
                                     iconClassNames={iconClassNames}
                                     errorCount={recording.console_error_count}
                                 />
-                            ) : filters.order === 'recording_ttl' ? (
+                            ) : order === 'recording_ttl' ? (
                                 <RecordingExpiry
                                     iconClassNames={iconClassNames}
                                     recordingTtl={recording.recording_ttl}
@@ -413,7 +425,7 @@ export const SessionRecordingPreview = memo(
                                 <RecordingDuration
                                     recordingDuration={durationToShow(
                                         recording,
-                                        filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+                                        order || DEFAULT_RECORDING_FILTERS_ORDER_BY
                                     )}
                                 />
                             )}
@@ -443,7 +455,28 @@ export const SessionRecordingPreview = memo(
     (prevProps, nextProps) =>
         prevProps.recording.id === nextProps.recording.id &&
         prevProps.isActive === nextProps.isActive &&
-        prevProps.selectable === nextProps.selectable
+        prevProps.selectable === nextProps.selectable &&
+        prevProps.order === nextProps.order
+)
+
+function SessionRecordingPreviewFromPlaylist(props: Omit<SessionRecordingPreviewProps, 'order'>): JSX.Element {
+    const { filters } = useValues(sessionRecordingsPlaylistLogic)
+    const order = filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+    return <SessionRecordingPreviewBase {...props} order={order} />
+}
+
+export const SessionRecordingPreview = memo(
+    function SessionRecordingPreview({ order, ...props }: SessionRecordingPreviewProps): JSX.Element {
+        if (order !== undefined) {
+            return <SessionRecordingPreviewBase {...props} order={order} />
+        }
+        return <SessionRecordingPreviewFromPlaylist {...props} />
+    },
+    (prevProps, nextProps) =>
+        prevProps.recording.id === nextProps.recording.id &&
+        prevProps.isActive === nextProps.isActive &&
+        prevProps.selectable === nextProps.selectable &&
+        prevProps.order === nextProps.order
 )
 
 export function SessionRecordingPreviewSkeleton(): JSX.Element {

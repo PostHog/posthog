@@ -12,7 +12,9 @@ import { urls } from 'scenes/urls'
 
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
-import { ObservationCard } from './ObservationCard'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { quotaUx } from '../utils/quotaProjection'
+import { ObservationDockCard } from './ObservationCard'
 
 const COLLAPSED_HEIGHT = 44
 const DEFAULT_EXPANDED_HEIGHT = 480
@@ -33,6 +35,8 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { scanners, filteredScanners, scannerSearch, scannerPickerOpen, observing } = useValues(logic)
     const { observe, setScannerSearch, setScannerPickerOpen } = useActions(logic)
+    const { quota } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
 
     return (
         <LemonDropdown
@@ -66,6 +70,8 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                                     fullWidth
                                     size="small"
                                     onClick={() => observe(scanner.id)}
+                                    data-attr="vision-scan-pick-scanner"
+                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                                 >
                                     <span className="flex items-center justify-between gap-2 w-full">
                                         <span className="truncate">{scanner.name}</span>
@@ -84,9 +90,11 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                 icon={<IconEye />}
                 sideIcon={<IconChevronDown />}
                 loading={observing}
-                data-attr="vision-observe-recording"
+                disabledReason={quotaDisabledReason}
+                tooltip={quotaTooltip}
+                data-attr="vision-scan-recording"
             >
-                Observe this recording
+                Scan this recording
             </LemonButton>
         </LemonDropdown>
     )
@@ -96,6 +104,12 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, dockOpen } = useValues(logic)
     const { setDockOpen } = useActions(logic)
+    // sessionRecordingPlayerLogic is keyed by playerKey+sessionRecordingId; seek the exact mounted
+    // player by its bound props rather than a propless default instance.
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const seekToTime = (ms: number): void => {
+        sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
+    }
 
     const dockRef = useRef<HTMLDivElement>(null)
     const resizerProps: ResizerLogicProps = {
@@ -136,6 +150,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         onClick={() => setDockOpen(!dockOpen)}
                         tooltip={dockOpen ? 'Collapse' : 'Expand'}
                         aria-label={dockOpen ? 'Collapse observations' : 'Expand observations'}
+                        data-attr="vision-dock-toggle"
                     />
                 )}
             </div>
@@ -147,11 +162,11 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                         </div>
                     ) : observations.length === 0 ? (
                         <div className="text-muted text-sm py-4">
-                            No observations yet. Pick a scanner to observe this recording.
+                            No observations yet. Pick a scanner to run on this recording.
                         </div>
                     ) : (
                         observations.map((observation) => (
-                            <ObservationCard key={observation.id} observation={observation} />
+                            <ObservationDockCard key={observation.id} observation={observation} onSeek={seekToTime} />
                         ))
                     )}
                 </div>

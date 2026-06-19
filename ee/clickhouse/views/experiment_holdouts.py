@@ -8,11 +8,11 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
 from products.experiments.backend.models.experiment import ExperimentHoldout, holdout_filters_for_flag
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 
 
 class ExperimentHoldoutSerializer(serializers.ModelSerializer):
@@ -101,7 +101,7 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-@extend_schema(tags=["experiments"], extensions={"x-swagger-tag": "experiment_holdouts"})
+@extend_schema(extensions={"x-swagger-tag": "experiment_holdouts", "x-product": "experiments"})
 class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     queryset = ExperimentHoldout.objects.prefetch_related("created_by").all()

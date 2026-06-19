@@ -21,6 +21,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import apply_path_cleaning
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.insights.utils.breakdowns import (
@@ -307,6 +308,8 @@ class Breakdown:
 
         is_numeric_breakdown = isinstance(histogram_bin_count, int)
 
+        if breakdown_type == "hogql":
+            tag_contains_user_hogql()
         if breakdown_type == "hogql" or breakdown_type == "event_metadata":
             left = strip_user_aliases(parse_expr(breakdown_value))
         else:
@@ -418,6 +421,8 @@ class Breakdown:
                 expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
 
+        if breakdown_type == "hogql":
+            tag_contains_user_hogql()
         if breakdown_type == "hogql" or breakdown_type == "event_metadata":
             inner = strip_user_aliases(parse_expr(cast(str, value)))
             return ast.Alias(alias=alias, expr=self._get_breakdown_values_transform(inner))

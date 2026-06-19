@@ -37,6 +37,9 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.destinations.constants import (
+    S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
+)
 from products.batch_exports.backend.temporal.destinations.utils import get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
@@ -82,11 +85,6 @@ COMPRESSION_EXTENSIONS = {
     "brotli": "br",
     "zstd": "zst",
     "lz4": "lz4",
-}
-
-SUPPORTED_COMPRESSIONS = {
-    "Parquet": ["zstd", "lz4", "snappy", "gzip", "brotli"],
-    "JSONLines": ["gzip", "brotli"],
 }
 
 LOGGER = get_write_only_logger(__name__)
@@ -210,7 +208,13 @@ def s3_default_fields() -> list[BatchExportField]:
 
 @workflow.defn(name="s3-export", failure_exception_types=[workflow.NondeterminismError])
 class S3BatchExportWorkflow(PostHogWorkflow):
-    """A Temporal Workflow to export ClickHouse data into S3.
+    """A Temporal Workflow to export ClickHouse data into S3 or any S3-compatible bucket.
+
+    This Workflow is shared across every S3-family destination — `AwsS3`, `S3Compatible`,
+    and the legacy `S3` alias. The API surface validates per-destination input dataclasses
+    (`AwsS3BatchExportInputs`, `S3CompatibleBatchExportInputs`); Temporal's data converter
+    serializes them to JSON, and on deserialization fields not present on the narrower
+    input class fall through to their `S3BatchExportInputs` defaults.
 
     This Workflow is intended to be executed both manually and by a Temporal Schedule.
     When ran by a schedule, `data_interval_end` should be set to `None` so that we will fetch the

@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -5,13 +6,29 @@ from django.contrib import admin
 from django.contrib.admin import AdminSite
 from django.test import RequestFactory
 
-from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides
+from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
 from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
-from posthog.admin.admins.user_admin import UserAdmin
+from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
-from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
 from posthog.models import User
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.cdp.backend.admin.plugin_attachment_inline import PluginAttachmentInline
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import Plugin, PluginConfig
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.models.dashboard_tile import Text
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
+from products.product_analytics.backend.models.insight import Insight
+from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
+from products.warehouse_sources.backend.models import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 
 class TestOAuthSidebarRegrouping(BaseTest):
@@ -110,6 +127,14 @@ class TestUserAdmin(BaseTest):
 
         assert self.search_user_ids("missing-distinct-id") == []
 
+    def test_clean_passkeys_enabled_for_2fa_rejects_when_user_has_no_verified_passkey(self) -> None:
+        from django.core.exceptions import ValidationError
+
+        form = UserChangeForm(instance=self.user)
+        form.cleaned_data = {"passkeys_enabled_for_2fa": True}
+        with self.assertRaises(ValidationError):
+            form.clean_passkeys_enabled_for_2fa()
+
 
 class TestPluginAttachmentInline(BaseTest):
     def test_parsed_json_escapes_html_in_values(self):
@@ -161,6 +186,43 @@ class TestEventIngestionRestrictionConfigAdminConfig:
         admin_instance = EventIngestionRestrictionConfigAdmin(EventIngestionRestrictionConfig, AdminSite())
         assert "display_team_id" in admin_instance.list_display
         assert "display_team_id" in admin_instance.readonly_fields
+
+
+class TestProductAdminRegistration:
+    # Regression guard: these models' admin classes live in their product app
+    # (`products/<name>/backend/admin.py` or an `admin/` package), not in the
+    # central `posthog/admin/admins/` registry. They register only because
+    # `autodiscover_modules("admin")` imports each app's `admin` module — and for
+    # the `admin/` package layout, only the package's `__init__`, so that
+    # `__init__` must in turn import every submodule for the `@admin.register`
+    # decorators to fire. Miss either and the model silently vanishes from admin.
+    @pytest.mark.parametrize(
+        "model",
+        [
+            HogFlow,
+            HogFlowTemplate,
+            HogFlowBatchJob,
+            HogFunction,
+            Plugin,
+            PluginConfig,
+            AlertConfiguration,
+            Dashboard,
+            DashboardTemplate,
+            Text,
+            DataWarehouseTable,
+            ExternalDataSchema,
+            Experiment,
+            ExperimentSavedMetric,
+            Insight,
+            ProductTour,
+            Survey,
+        ],
+        ids=lambda m: m.__name__,
+    )
+    def test_moved_product_models_are_registered(self, model):
+        # Tests skip the lazy admin registry, so trigger registration explicitly.
+        register_all_admin()
+        assert admin.site.is_registered(model), f"{model.__name__} is not registered in Django admin"
 
 
 class TestOrganizationMemberInlineConfig(BaseTest):

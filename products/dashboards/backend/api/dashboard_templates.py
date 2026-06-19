@@ -316,7 +316,6 @@ def _assert_user_can_read_source_for_copy(*, user: User, source_team: Team) -> N
         ],
     ),
 )
-@extend_schema(tags=["core"])
 class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "dashboard_template"
     permission_classes = [CustomerDashboardTemplateWritePermission]

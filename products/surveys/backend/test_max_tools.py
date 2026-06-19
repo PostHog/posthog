@@ -11,8 +11,8 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
-from posthog.models import FeatureFlag, Insight
-
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
 
 from .max_tools import CreateSurveyTool, EditSurveyTool, SimpleSurveyQuestion, SurveyAnalysisTool
@@ -85,6 +85,21 @@ class TestSurveyCreatorTool(BaseTest):
         assert "Survey must have at least one question" in content
         assert artifact["error"] == "validation_failed"
         assert "No questions provided" in artifact["error_message"]
+
+    @parameterized.expand([("single_choice",), ("multiple_choice",)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_choice_question_without_choices_validation(self, question_type):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            name="Test Survey",
+            questions=[SimpleSurveyQuestion(type=question_type, question="Pick one")],
+        )
+
+        assert "Survey validation failed" in content
+        assert artifact["error"] == "validation_failed"
+        assert "choices" in artifact["error_message"]
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -620,6 +635,22 @@ class TestEditSurveyTool(BaseTest):
         assert len(updated_survey.questions) == 2
         assert updated_survey.questions[0]["type"] == "rating"
         assert updated_survey.questions[0]["scale"] == 5
+
+    @parameterized.expand([("single_choice",), ("multiple_choice",)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_choice_question_without_choices_validation(self, question_type):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[SimpleSurveyQuestion(type=question_type, question="Pick one")],
+        )
+
+        assert "Survey validation failed" in content
+        assert artifact["error"] == "validation_failed"
+        assert "choices" in artifact["error_message"]
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

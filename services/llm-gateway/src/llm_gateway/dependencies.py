@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Annotated, Any
 
@@ -10,7 +11,12 @@ from fastapi import Depends, HTTPException, Request, status
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import AuthService, get_auth_service
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
-from llm_gateway.products.config import ALLOWED_PRODUCTS, check_product_access, resolve_product_alias
+from llm_gateway.products.config import (
+    ALLOWED_PRODUCTS,
+    check_product_access,
+    get_product_config,
+    resolve_product_alias,
+)
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
@@ -19,7 +25,8 @@ from llm_gateway.request_context import (
     get_request_id,
     set_throttle_context,
 )
-from llm_gateway.services.plan_resolver import resolve_plan_info
+from llm_gateway.services.plan_resolver import PlanInfo, resolve_plan_info
+from llm_gateway.services.quota_resolver import QuotaResourceStatus, resolve_quota_status
 
 logger = structlog.get_logger(__name__)
 
@@ -149,6 +156,31 @@ async def _extract_end_user_id_from_body(request: Request) -> str | None:
     return None
 
 
+async def resolve_plan_and_quota(
+    request: Request,
+    *,
+    user_id: int,
+    team_id: int | None,
+    product: str,
+) -> tuple[PlanInfo, QuotaResourceStatus]:
+    """Fetch plan info and (for billable products) AI credits quota in parallel.
+
+    Both calls are independent Django roundtrips on cache miss, so for billable
+    products we overlap them. For non-billable products the throttle stack
+    short-circuits regardless of quota state, so we skip the resolver entirely
+    rather than paying for the Redis GET (and the HTTP fallback on cache miss).
+    """
+    product_config = get_product_config(product)
+    if product_config and product_config.billable:
+        plan_info, quota_status = await asyncio.gather(
+            resolve_plan_info(request, user_id, product),
+            resolve_quota_status(request, team_id),
+        )
+        return plan_info, quota_status
+    plan_info = await resolve_plan_info(request, user_id, product)
+    return plan_info, QuotaResourceStatus(limited=False)
+
+
 async def enforce_throttles(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(enforce_product_access)],
@@ -163,7 +195,12 @@ async def enforce_throttles(
     else:
         end_user_id = await _extract_end_user_id_from_body(request)
 
-    plan_info = await resolve_plan_info(request, user.user_id, product)
+    plan_info, quota_status = await resolve_plan_and_quota(
+        request,
+        user_id=user.user_id,
+        team_id=user.team_id,
+        product=product,
+    )
 
     context = ThrottleContext(
         user=user,
@@ -173,6 +210,7 @@ async def enforce_throttles(
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
+        ai_credits_exhausted=quota_status.limited,
     )
     request.state.throttle_context = context
     set_throttle_context(runner, context)

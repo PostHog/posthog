@@ -43,10 +43,51 @@ type AllowedExperimentFields = Pick<
     | 'metrics'
     | 'metrics_secondary'
     | 'exposure_criteria'
+    | 'parameters'
+    | 'running_time_calculation'
     | 'primary_metrics_ordered_uuids'
     | 'secondary_metrics_ordered_uuids'
 > & {
     deleted: boolean
+}
+
+const RUNNING_TIME_CALCULATION_KEYS = [
+    'minimum_detectable_effect',
+    'recommended_running_time',
+    'recommended_sample_size',
+    'exposure_estimate_config',
+]
+
+/** Strip the running-time calculator keys, which are mirrored into `parameters` while that field is deprecated. */
+function withoutRunningTimeCalculationKeys(value: unknown): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries((value as Record<string, unknown> | null) ?? {}).filter(
+            ([key]) => !RUNNING_TIME_CALCULATION_KEYS.includes(key)
+        )
+    )
+}
+
+function describeExcludedVariantsChange(before: string[] | undefined, after: string[] | undefined): string | null {
+    const beforeSet = new Set(before ?? [])
+    const afterSet = new Set(after ?? [])
+    const added = [...afterSet].filter((k) => !beforeSet.has(k))
+    const removed = [...beforeSet].filter((k) => !afterSet.has(k))
+
+    if (added.length === 0 && removed.length === 0) {
+        return null
+    }
+    const parts: string[] = []
+    if (added.length === 1) {
+        parts.push(`excluded variant ${added[0]} from analysis`)
+    } else if (added.length > 1) {
+        parts.push(`excluded variants ${added.join(', ')} from analysis`)
+    }
+    if (removed.length === 1) {
+        parts.push(`re-included variant ${removed[0]} in analysis`)
+    } else if (removed.length > 1) {
+        parts.push(`re-included variants ${removed.join(', ')} in analysis`)
+    }
+    return parts.join(' and ')
 }
 
 /**
@@ -205,6 +246,23 @@ export const getExperimentChangeDescription = (
             }
 
             return changes.filter(Boolean) as (string | JSX.Element)[]
+        })
+        .with({ field: 'parameters' }, ({ before, after }) => {
+            const summary = describeExcludedVariantsChange(
+                (before as { excluded_variants?: string[] } | null)?.excluded_variants,
+                (after as { excluded_variants?: string[] } | null)?.excluded_variants
+            )
+            if (summary) {
+                return summary
+            }
+            // A pure calculator-key sync is already described by the running_time_calculation change
+            if (equal(withoutRunningTimeCalculationKeys(before), withoutRunningTimeCalculationKeys(after))) {
+                return null
+            }
+            return 'updated parameters'
+        })
+        .with({ field: 'running_time_calculation' }, () => {
+            return 'updated the running time calculation'
         })
         .otherwise(({ field, action }) => {
             // Fallback for unhandled fields - ensures all activity is visible

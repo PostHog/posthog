@@ -5,7 +5,7 @@ tools — list available tool names
 search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
 info [--json] <tool_name> — show tool name, description, and input schema (summarized if too large). Pass `--json` for raw JSON output.
 schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
-call [--json] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts.)
+call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts. --confirm is required by the CLI for destructive tools.)
 ```
 
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
@@ -109,6 +109,31 @@ WRONG — the real event might be `file_downloaded`, `download_completed`, or no
 - If a tool call fails, the error includes a suggestion and similar tool names. Read the suggestion before retrying.
 - If a tool name doesn't exist, run `tools` again to find the correct name.
 
+### Rendering visualizations
+
+`render-ui` is a separate tool (not an `exec` command) — see its own description for the full enum and worked examples. When your answer centers on an entity or list whose tool is in `render-ui`'s `tool_name` enum, strongly prefer rendering it **in addition to** your written summary (not instead of it), so the user can verify the result instead of trusting a text dump — not only when they explicitly ask to "see" something. Reach for it on: status/health, lists/inventory, results/stats, post-mutation verification, and evidence surfaced mid-investigation. Pass the same `tool_input` you would `call` the tool with; it fetches its own data. Never invent a `tool_name`. (Results from `query-*` tools render through their own app automatically — do not route those through `render-ui`.)
+
+ALWAYS run `exec` first. `render-ui` is the final presentation step, never a discovery step — use `exec` (`search`/`info`/`schema`/`call`) to resolve the entity's real ID and confirm the data, then render. Never render before exec, and never with a guessed `tool_input`.
+
+<example>
+User: How is the "File engagement boost" experiment going?
+Assistant: [exec first: search/info/call to resolve it to id 2 and read its results]
+Assistant: <concise summary of the results>, then renders it so the user can verify.
+[Runs render-ui({ "tool_name": "experiment-get", "tool_input": { "id": 2 } })]
+</example>
+
+<bad-example>
+User: How is the "File engagement boost" experiment going?
+Assistant: [Calls render-ui with a guessed id before running any exec command]
+WRONG — run exec first to resolve the real id and read the results; render-ui is not a discovery tool.
+</bad-example>
+
+<bad-example>
+User: How is the "File engagement boost" experiment going?
+Assistant: [Reads the results via exec, then replies with a long text-only breakdown of every metric and never calls render-ui]
+WRONG — the answer centers on a single experiment, which has a UI app (`experiment-get` is in `render-ui`'s enum). Render it with render-ui so the user can see and verify the results, then add your summary. Strongly prefer render-and-summarize over a text dump alone.
+</bad-example>
+
 ### Basic functionality
 
 You work in the user's project and have access to two groups of data: customer data collected via the SDK, and data created directly in PostHog by the user.
@@ -172,6 +197,7 @@ PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 - dashboard
 - execute-sql
 - feature-flag
+- query
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 
@@ -314,35 +340,35 @@ The user's name is Jane Doe (jane@acme.com).
 
 ### URL patterns
 
-All PostHog app URLs must use relative paths without a domain (no us.posthog.com, eu.posthog.com, app.posthog.com), and omit the `/project/:id/` prefix. Never include `/-/` in URLs.
-Use Markdown with descriptive anchor text, for example "[Cohorts view](/cohorts)".
+PostHog app links must be full URLs (origin + path) — bare paths aren't clickable in MCP clients like Cursor or Claude Desktop. Use Markdown with descriptive anchor text, e.g. `[Cohorts](https://us.posthog.com/project/1/cohorts)`. Never include `/-/`.
 
-Key URL patterns:
+Choose the link source in this order:
 
-- Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`
-- Data management: `/data-management/events`, `/data-management/properties`
-- Billing: `/organization/billing`
+1. If a tool result has a `*url` field (e.g. `_posthogUrl`), surface it verbatim — never rewrite or strip it.
+2. Only when you actually want to link a specific entity (or the user asks for a link) and it has no `_posthogUrl`, call `generate-app-url` and surface the `url` verbatim — don't hand-write slugs or retype IDs into paths, both are easy to get wrong. Don't fetch a link just because a result has an ID.
+3. Only for genuinely static pages not covered by `generate-app-url` (some settings / data-management pages), build the link from the Base URL in the active-environment block (don't double-prefix):
+   - Project-scoped paths → Base URL + `/project/:id`: `/settings/<section-id>` (hyphenated, e.g. `/settings/environment-replay`, `/settings/user-api-keys`), `/data-management/events`, `/data-management/properties`.
+   - Org-/account-level paths → Base URL only (no `/project/:id`): first segment `organization`, `me`, `account`, or `instance` — e.g. billing is `/organization/billing`.
 
 ### Sharing feedback on this MCP server
 
-The `agent-feedback` tool is the primary signal we use to improve tool descriptions, input schemas, response formats, and these instructions for agents like you. We rely on it to find and fix the rough edges you hit in real work.
+The `agent-feedback` tool is the primary signal we use to fix problems with this MCP server — its tool descriptions, input schemas, response formats, and these instructions. Keep every report strictly about the MCP server itself, not about the user's task, their data, or your findings.
 
-**When you finish a task on which you hit friction, please call `agent-feedback` before handing back to the user.** Friction means anything that slowed you down or made you guess — examples below. You are not required to call it, and you should skip it for smooth, routine work where nothing stood out. But if something was awkward, missing, or wrong, a short report is the most useful thing you can do for the next agent.
+**Only call `agent-feedback` when something went wrong or was missing with the MCP — report problems, not praise.** The feedback must be constructive and actionable: each report should point at a concrete defect the PostHog team can fix. Skip it entirely for smooth, routine work — do **not** submit positive or "everything worked fine" reports, as they are noise we cannot act on.
 
-Friction worth reporting (any one is enough):
+Keep it short: give a one-sentence `summary`, then write the detail fields (`friction_points`, `suggested_improvement`, `details`) as clear, concise bullet points, quoting the exact tool name, parameter, or error text. Report only when one of these actually happened:
 
 - A tool description was unclear or ambiguous and you had to guess.
 - An input schema was confusing or surprising.
-- A response format was hard to consume or contained too much / too little data.
+- A response format was hard to consume or had too much / too little data.
 - A tool returned wrong, incomplete, or unexpected results.
 - An error message was unhelpful or didn't explain how to recover.
 - A capability was missing entirely and you had to work around it.
 - These instructions led you down the wrong path.
-- A tool worked particularly well — concrete praise is just as useful as criticism.
 
-When you do submit, be specific: quote tool names, parameter names, and error text where possible. Use `task_completed: false` when you couldn't finish the user's request — that signal is at least as valuable as success. Do not include user PII or sensitive query content in any feedback field.
+Every report must include a concrete `suggested_improvement` — if you can't name a specific change the team should make, don't submit. Use `task_completed: false` when you couldn't finish the user's request — that signal is especially valuable. Do not include user PII or sensitive query content in any field.
 
-Submitting feedback is **not** a way to end your turn or skip work, and it is **not** a substitute for finishing the user's request. It is a side report to the PostHog team about your experience with the tools — call it once at the end of a task when warranted, then keep going and finish the user's task using the other available tools.
+Submitting feedback is **not** a way to end your turn or skip work. It is a side report to the PostHog team about the MCP server — call it once at the end of a task when warranted, then keep going and finish the user's task with the other tools.
 
 ### Examples
 

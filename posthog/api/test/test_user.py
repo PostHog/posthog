@@ -9,11 +9,9 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
-from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
-from django.test import override_settings
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -24,13 +22,14 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.webauthn_credential import WebauthnCredential
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -223,13 +222,24 @@ class TestUserAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unreviewed_no_keys", False, False, False),
-            ("unreviewed_with_keys", False, True, True),
-            ("reviewed_with_keys", True, True, False),
-            ("reviewed_no_keys", True, False, False),
+            ("unreviewed_nothing", False, False, False, False),
+            ("unreviewed_pat_only", False, True, False, True),
+            ("unreviewed_passkey_only", False, False, True, True),
+            ("unreviewed_pat_and_passkey", False, True, True, True),
+            ("reviewed_pat_only", True, True, False, False),
+            ("reviewed_passkey_only", True, False, True, False),
+            ("reviewed_pat_and_passkey", True, True, True, False),
+            ("reviewed_nothing", True, False, False, False),
         ]
     )
-    def test_requires_credential_review(self, _name: str, reviewed: bool, with_key: bool, expected: bool):
+    def test_requires_credential_review(
+        self,
+        _name: str,
+        reviewed: bool,
+        with_key: bool,
+        with_passkey: bool,
+        expected: bool,
+    ):
         self.user.credentials_reviewed_at = timezone.now() if reviewed else None
         self.user.save(update_fields=["credentials_reviewed_at"])
         if with_key:
@@ -239,9 +249,37 @@ class TestUserAPI(APIBaseTest):
                 secure_value=hash_key_value("phx_test_value_1234567890"),
                 scopes=["*"],
             )
+        if with_passkey:
+            WebauthnCredential.objects.create(
+                user=self.user,
+                label="Test passkey",
+                credential_id=b"test-credential-id",
+                public_key=b"test-public-key",
+                algorithm=-7,
+                transports=["internal"],
+                verified=True,
+            )
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is expected
+
+    def test_requires_credential_review_unverified_passkey(self):
+        # Unverified passkeys are the realistic pre-claim attack artifact - a partner
+        # session can register a credential without ever completing verification.
+        self.user.credentials_reviewed_at = None
+        self.user.save(update_fields=["credentials_reviewed_at"])
+        WebauthnCredential.objects.create(
+            user=self.user,
+            label="Unverified passkey",
+            credential_id=b"unverified-credential-id",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            transports=["internal"],
+            verified=False,
+        )
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is True
 
     def test_credentials_review_complete_endpoint(self):
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
@@ -755,6 +793,75 @@ class TestUserAPI(APIBaseTest):
         assert self.user.pending_email is None
         mock_send_email_change_emails.assert_not_called()
 
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.api.user.EmailVerifier.create_token_and_send_email_verification")
+    def test_email_change_allowed_between_two_sso_enforced_domains_of_same_org(
+        self,
+        mock_send_email_verification,
+        mock_is_email_available,
+    ):
+        self.user.email = "alice@example.com"
+        self.user.save()
+        for domain in ("example.com", "example.org"):
+            OrganizationDomain.objects.create(
+                organization=self.organization,
+                domain=domain,
+                verified_at=timezone.now(),
+                sso_enforcement="google-oauth2",
+            )
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: (
+                "google-oauth2" if email.split("@")[-1] in ("example.com", "example.org") else None
+            ),
+        ):
+            with self.is_cloud(True):
+                response = self.client.patch("/api/users/@me/", {"email": "alice@example.org"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.pending_email == "alice@example.org"
+        mock_send_email_verification.assert_called_once()
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_blocked_to_sso_enforced_domain_of_another_org(
+        self,
+        mock_send_email_change_emails,
+        mock_is_email_available,
+    ):
+        self.user.email = "alice@example.com"
+        self.user.save()
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="example.com",
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+        other_org = Organization.objects.create(name="Attacker Org")
+        OrganizationDomain.objects.create(
+            organization=other_org,
+            domain="example.net",
+            verified_at=timezone.now(),
+            sso_enforcement="google-oauth2",
+        )
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: (
+                "google-oauth2" if email.split("@")[-1] in ("example.com", "example.net") else None
+            ),
+        ):
+            with self.is_cloud(True):
+                response = self.client.patch("/api/users/@me/", {"email": "alice@example.net"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "sso_enforced_current_email"
+        self.user.refresh_from_db()
+        assert self.user.email == "alice@example.com"
+        assert self.user.pending_email is None
+
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_verify_email_without_pending_email_keeps_social_auth_connections(self, mock_send_email_change_emails):
         social_auth = UserSocialAuth.objects.create(
@@ -773,6 +880,44 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert UserSocialAuth.objects.filter(id=social_auth.id).exists()
         mock_send_email_change_emails.assert_not_called()
+
+    @patch("posthog.api.user.login")
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_verification_skips_auto_login_for_sso_enforced_domain(self, _, mock_login):
+        self.user.pending_email = "alice@example.com"
+        self.user.save()
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: "google-oauth2" if email == "alice@example.com" else None,
+        ):
+            token = email_verification_token_generator.make_token(self.user)
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["requires_sso"] is True
+        self.user.refresh_from_db()
+        assert self.user.email == "alice@example.com"
+        # No password-backend session is handed out for an SSO-enforced account; they must log in via SSO.
+        mock_login.assert_not_called()
+
+    @patch("posthog.api.user.login")
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_initial_email_verification_skips_auto_login_for_sso_enforced_domain(self, _, mock_login):
+        self.user.email = "alice@example.com"
+        self.user.pending_email = None
+        self.user.save()
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: "google-oauth2" if email == "alice@example.com" else None,
+        ):
+            token = email_verification_token_generator.make_token(self.user)
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["requires_sso"] is True
+        mock_login.assert_not_called()
 
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
@@ -1525,7 +1670,7 @@ class TestUserAPI(APIBaseTest):
         """Test that prepare_toolbar_preloaded_flags creates a cache entry with feature flags"""
         from django.core.cache import cache
 
-        from posthog.models import FeatureFlag
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         patched_token.return_value = "test-cache-key-123"
 
@@ -1697,6 +1842,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
+                "pipeline_notifications_disabled": {},
             },
         )
 
@@ -1716,6 +1862,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
+                "pipeline_notifications_disabled": {},
             },
         )
 
@@ -1892,6 +2039,45 @@ class TestUserAPI(APIBaseTest):
                 f"Patching {patched_key!r} clobbered {unrelated_key!r}"
             )
 
+    def test_pipeline_notifications_rejects_malformed_pipeline_ids(self):
+        for bad_key in [
+            "<script>alert(1)</script>",
+            "random_garbage_key",
+            "hog_function:",
+            "hog_function:not a uuid",
+            "unknown_type:abc",
+            "",
+        ]:
+            response = self.client.patch(
+                "/api/users/@me/",
+                {"notification_settings": {"pipeline_notifications_disabled": {bad_key: True}}},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, f"key {bad_key!r} was accepted")
+            self.assertEqual(response.json()["code"], "invalid_input")
+
+    def test_pipeline_notifications_accepts_valid_pipeline_ids(self):
+        for good_key in [
+            "hog_function:019dcf05-db1d-0000-682a-935c8e1ad2c9",
+            "batch_export:019dcf05-dac4-0000-07d4-cf53026deba6",
+            "plugin_config:42",
+        ]:
+            response = self.client.patch(
+                "/api/users/@me/",
+                {"notification_settings": {"pipeline_notifications_disabled": {good_key: True}}},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, f"key {good_key!r} was rejected")
+
+    def test_pipeline_notifications_caps_total_entries(self):
+        from posthog.api.user import MAX_PIPELINE_NOTIFICATIONS
+
+        too_many = {f"hog_function:fake-{i}": True for i in range(MAX_PIPELINE_NOTIFICATIONS + 1)}
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"notification_settings": {"pipeline_notifications_disabled": too_many}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("more than", response.json()["detail"])
+
     def test_invalid_notification_settings_returns_error(self):
         response = self.client.patch("/api/users/@me/", {"notification_settings": {"invalid_key": True}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -1944,6 +2130,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value
+                "pipeline_notifications_disabled": {},  # Default value
             },
         )
 
@@ -2615,6 +2802,51 @@ class TestUserTwoFactor(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            # name, has_totp, passkey_state, passkeys_enabled_for_2fa, expected_is_2fa_enabled
+            ("no_factor", False, None, False, False),
+            ("totp_only", True, None, False, True),
+            ("passkey_enabled_for_2fa", False, "verified", True, True),
+            ("passkey_present_but_disabled_for_2fa", False, "verified", False, False),
+            ("unverified_passkey_enabled_for_2fa", False, "unverified", True, False),
+        ]
+    )
+    def test_user_me_is_2fa_enabled(
+        self,
+        _name: str,
+        has_totp: bool,
+        passkey_state: str | None,
+        passkeys_enabled_for_2fa: bool,
+        expected_is_2fa_enabled: bool,
+    ):
+        """
+        /api/users/@me/.is_2fa_enabled must reflect passkey-2FA, not only TOTP — otherwise the
+        frontend keeps reopening the enforce-2FA setup modal even after the user has a passkey
+        configured as their second factor.
+        """
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        if has_totp:
+            TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+        if passkey_state is not None:
+            WebauthnCredential.objects.create(
+                user=self.user,
+                credential_id=b"cred",
+                label="Test Passkey",
+                public_key=b"pk",
+                algorithm=-7,
+                counter=0,
+                transports=["internal"],
+                verified=(passkey_state == "verified"),
+            )
+        self.user.passkeys_enabled_for_2fa = passkeys_enabled_for_2fa
+        self.user.save(update_fields=["passkeys_enabled_for_2fa"])
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["is_2fa_enabled"], expected_is_2fa_enabled)
+
     @patch("posthog.api.user.default_device")
     def test_two_factor_backup_codes_generation(self, mock_default_device):
         # Mock TOTP device to simulate 2FA being enabled
@@ -2663,12 +2895,6 @@ class TestUserTwoFactor(APIBaseTest):
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_team_scoped_oauth_token_with_user_read_can_access_me_endpoint(self):
         oauth_app = OAuthApplication.objects.create(
             name="Test OAuth App",

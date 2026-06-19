@@ -11,12 +11,13 @@ from __future__ import annotations
 import re
 import json
 import shlex
+import tomllib
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .paths import TACH_TOML, get_tach_block
+from .paths import REPO_ROOT, TACH_TOML, get_tach_block
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -62,13 +63,41 @@ def _iter_module_blocks(tach_content: str) -> Iterator[tuple[str, list[str]]]:
 
 
 def _pattern_targets_public_surface(pattern: str) -> bool:
-    """True if a tach expose pattern targets backend.facade or backend.presentation.
+    """True if a tach expose pattern targets a product's public surface.
+
+    Public surface is backend.facade, backend.presentation, or backend.routes —
+    the last being the product-local route registration entry point that core
+    imports to assemble the API router. It is a public composition hook, not an
+    internal leak, so it does not mark a product as un-isolatable.
 
     Strips backslashes first so it works on both the on-disk TOML form (`\\.`,
     two literal backslashes) and Python-string fixtures (single backslash).
     """
     normalized = pattern.replace("\\", "")
-    return normalized.startswith("backend.facade") or normalized.startswith("backend.presentation")
+    return (
+        normalized.startswith("backend.facade")
+        or normalized.startswith("backend.presentation")
+        or normalized.startswith("backend.routes")
+    )
+
+
+def count_presentation_allowlist_entries(name: str, pyproject_text: str | None = None) -> int:
+    """Count deferred presentation-wave entries for a product in import-linter's ignore_imports.
+
+    Each pair allows the product's own presentation to bypass its facade — work owed to a
+    presentation-wave PR (see the isolating-product-facade-contracts skill).
+    """
+    if pyproject_text is None:
+        pyproject = REPO_ROOT / "pyproject.toml"
+        if not pyproject.exists():
+            return 0
+        pyproject_text = pyproject.read_text()
+    try:
+        contracts = tomllib.loads(pyproject_text)["tool"]["importlinter"]["contracts"]
+    except (tomllib.TOMLDecodeError, KeyError):
+        return 0
+    prefix = f"products.{name}.backend.presentation"
+    return sum(1 for contract in contracts for entry in contract.get("ignore_imports", []) if entry.startswith(prefix))
 
 
 def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
@@ -98,11 +127,30 @@ def is_isolated_product(backend_dir: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _targets_facade_or_presentation(pattern: str) -> bool:
+    """True if a pattern targets backend.facade or backend.presentation specifically.
+
+    Narrower than `_pattern_targets_public_surface`, which also accepts
+    backend.routes. A routes-only block is a registration hook, not a canonical
+    facade surface, so it must not be treated as one (it would otherwise demand
+    facade/contracts.py isolation scaffolding the product may not have).
+    """
+    normalized = pattern.replace("\\", "")
+    return normalized.startswith("backend.facade") or normalized.startswith("backend.presentation")
+
+
 def _is_canonical_facade_expose(expose_patterns: list[str]) -> bool:
-    """Canonical = every expose pattern targets backend.facade or backend.presentation."""
+    """Canonical = a public-surface block that actually exposes facade/presentation.
+
+    Every pattern must be public surface (facade/presentation/routes) and at
+    least one must be facade/presentation — so a routes-only registration block
+    does not get treated as a canonical facade alternation entry.
+    """
     if not expose_patterns:
         return False
-    return all(_pattern_targets_public_surface(p) for p in expose_patterns)
+    if not all(_pattern_targets_public_surface(p) for p in expose_patterns):
+        return False
+    return any(_targets_facade_or_presentation(p) for p in expose_patterns)
 
 
 def _names_from_pattern(pattern: str) -> set[str]:
@@ -403,7 +451,13 @@ class PackageJsonScriptsCheck(ProductCheck):
 
         facade_api = ctx.backend_dir / "facade" / "api.py"
         has_real_facade = facade_api.exists() and has_any_function_defs(facade_api)
-        needs_contract_check = ctx.is_isolated and not has_leaks and has_real_facade
+        # While a product has deferred presentation-wave ignore_imports entries, its
+        # views still bypass the facade and reach internals directly. The skip only
+        # re-runs the full suite on facade/presentation changes, so an internals
+        # change flowing to HTTP through such a view would be hidden. The skip is the
+        # reward for finishing — it can't be enabled until the wave empties them.
+        deferred = count_presentation_allowlist_entries(ctx.name)
+        needs_contract_check = ctx.is_isolated and not has_leaks and has_real_facade and deferred == 0
         required = ["backend:test"] + (["backend:contract-check"] if needs_contract_check else [])
         for script in required:
             if script not in scripts:
@@ -414,10 +468,17 @@ class PackageJsonScriptsCheck(ProductCheck):
                 )
 
         # --- absence check: must NOT have contract-check when not safe for isolation ---
-        must_not_have_contract_check = not ctx.is_isolated or has_leaks or not has_real_facade
+        must_not_have_contract_check = not ctx.is_isolated or has_leaks or not has_real_facade or deferred > 0
         if must_not_have_contract_check and "backend:contract-check" in scripts:
             if has_leaks:
                 reason = "has legacy interface leaks (core imports internals directly)"
+            elif deferred > 0:
+                plural = "entry" if deferred == 1 else "entries"
+                reason = (
+                    f"has {deferred} deferred presentation-wave ignore_imports {plural} — its presentation "
+                    "still bypasses the facade, so finish the presentation wave (empty the ignore_imports TODO "
+                    "section) before opting into the skip"
+                )
             else:
                 reason = "non-isolated product must not have 'backend:contract-check' script"
             result.lines.append("✗ must not have 'backend:contract-check'")
@@ -475,6 +536,16 @@ class MisplacedFilesCheck(ProductCheck):
     # `templates` is allowed because Django's app_directories loader requires
     # the folder to live at <app>/templates/, and templates aren't Python
     # imports so import-linter contracts don't apply.
+    # `admin` is allowed because Django's autodiscover_modules("admin") requires
+    # the admin module at <app>.admin — and that module can be a flat `admin.py`
+    # or an `admin/` package (both resolve to the same import). The file form is
+    # already accepted, so the package form has to be too.
+    # `hogql_queries` is the established home for HogQL query runners across
+    # products (web_analytics, revenue_analytics, product_analytics), so it is
+    # allowed in isolated products too rather than forcing query code into logic/.
+    # `temporal` is the established home for Temporal workflow + activity code
+    # across products (batch_exports, data_warehouse, tasks, experiments, and
+    # others), so it is allowed in isolated products on the same grounds.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -485,7 +556,10 @@ class MisplacedFilesCheck(ProductCheck):
         "management",
         "models",
         "logic",
+        "hogql_queries",
+        "temporal",
         "templates",
+        "admin",
         "__pycache__",
     }
 
@@ -702,6 +776,10 @@ class IsolationChainCheck(ProductCheck):
                 "a real facade should convert models to contracts, not just re-export"
             )
 
+        # Note: a product that has the contract-check script *and* deferred
+        # presentation-wave ignore_imports entries is hard-blocked by
+        # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
+
         if result.issues or result.warnings:
             result.file = f"products/{ctx.name}/backend/facade/api.py"
         if result.issues:
@@ -757,7 +835,18 @@ class ProductYamlCheck(ProductCheck):
 
 
 class ProductYamlOwnersCheck(ProductCheck):
-    """Validates product.yaml owner slugs against GitHub org teams."""
+    """Validates product.yaml owner slugs against GitHub team slugs in the PostHog org.
+
+    Not part of the default CHECKS list — pays a GitHub API call per run, so it's
+    only invoked via the dedicated ``product:lint:owners`` subcommand. CI gates
+    that subcommand on a ``products/*/product.yaml`` paths filter, so the API
+    call only fires when an ownership change is actually proposed.
+
+    Validates "team exists in the org", not "team has access to this repo" — the
+    repo-collaborator endpoint needs a permission the assign-reviewers GH App
+    lacks. The "exists but lacks repo access" gap is covered by the script's
+    422 fallback (drops bad teams, keeps valid ones).
+    """
 
     label = "product.yaml owners"
 
@@ -779,10 +868,6 @@ class ProductYamlOwnersCheck(ProductCheck):
 
         gh_teams, fetch_err = get_team_slugs()
         if gh_teams is None:
-            import os
-
-            if os.environ.get("GITHUB_ACTIONS") == "true":
-                return CheckResult(lines=[f"⚠ {fetch_err}, skipping in CI"])
             return CheckResult(
                 lines=[f"✗ {fetch_err}"],
                 issues=[fetch_err],
@@ -792,9 +877,22 @@ class ProductYamlOwnersCheck(ProductCheck):
         result = CheckResult(file=f"products/{ctx.name}/product.yaml")
 
         for owner in owners:
-            if isinstance(owner, str) and owner not in gh_teams:
+            if not isinstance(owner, str):
+                continue
+            # `@username` entries are individual reviewers, not teams — validating
+            # them needs a different endpoint, and the assign-reviewers script
+            # already routes them separately. Skip here.
+            if owner.startswith("@"):
+                continue
+            if owner == "team-CHANGEME":
                 result.issues.append(
-                    f"owner '{owner}' is not a GitHub team in PostHog org — check https://github.com/orgs/PostHog/teams"
+                    "owner is still the 'team-CHANGEME' scaffold placeholder — pick a real owning team"
+                )
+                continue
+            if owner not in gh_teams:
+                result.issues.append(
+                    f"owner '{owner}' is not a GitHub team in the PostHog org. "
+                    f"See https://github.com/orgs/PostHog/teams"
                 )
 
         if result.issues:
@@ -804,13 +902,108 @@ class ProductYamlOwnersCheck(ProductCheck):
         return result
 
 
+class OrphanedTestFilesCheck(ProductCheck):
+    """Flag pytest test files that no CI runner will pick up.
+
+    Walks the product directory for `test_*.py` / `*_test.py` and checks each
+    is reachable from either:
+      - the pytest paths listed in `backend:test`, or
+      - a known external runner via `_EXTERNAL_RUNNER_PREFIXES` (e.g. `dags/`
+        directories are picked up by ci-dagster.yml, regardless of the
+        product's package.json).
+
+    Without this check, moving a test file to (say) `products/foo/scripts/test/`
+    or forgetting to add it to `backend:test` silently strands the tests —
+    they collect cleanly when run by hand but never run in CI.
+    """
+
+    label = "test file coverage"
+
+    # Directories whose test files are run by workflows other than the product
+    # matrix. Keep in sync with the workflows under `.github/workflows/` that
+    # invoke pytest against product paths.
+    _EXTERNAL_RUNNER_PREFIXES = (
+        "dags/",  # ci-dagster.yml: pytest posthog/dags products/**/dags
+    )
+    # Per-product exemptions — paths that another workflow targets directly
+    # (e.g. ci-backend.yml's Temporal segment) rather than `backend:test`.
+    _PRODUCT_SPECIFIC_EXEMPTIONS = {
+        # ci-backend.yml "Run Temporal tests" step pytest paths:
+        "batch_exports": ("backend/tests/temporal/",),
+        "tasks": ("backend/temporal/",),
+    }
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        # Find every test file under the product.
+        test_files = sorted(
+            p.relative_to(ctx.product_dir).as_posix()
+            for pattern in ("test_*.py", "*_test.py")
+            for p in ctx.product_dir.rglob(pattern)
+            if "__pycache__" not in p.parts
+        )
+        if not test_files:
+            return CheckResult(skip=True)
+
+        # Extract the pytest paths from backend:test, if present.
+        package_json = ctx.product_dir / "package.json"
+        scripts = {}
+        if package_json.exists():
+            try:
+                scripts = json.loads(package_json.read_text()).get("scripts", {})
+            except json.JSONDecodeError:
+                pass  # PackageJsonScriptsCheck reports the invalid JSON
+        test_script = scripts.get("backend:test", "")
+        base_script = test_script.split("||")[0].strip() if test_script else ""
+        if base_script.startswith("pytest"):
+            pytest_paths = _parse_pytest_paths(base_script)
+        else:
+            pytest_paths = []
+
+        def _covered_by(rel: str, path: str) -> bool:
+            # pytest path can be a file ("backend/test_max_tools.py") or a
+            # directory ("backend/" or "scripts/test"). Treat as a prefix
+            # match against the trailing slash to avoid "backend/" eating
+            # "backend_tools/foo.py".
+            if rel == path:
+                return True
+            return rel.startswith(path.rstrip("/") + "/")
+
+        result = CheckResult()
+        per_product = self._PRODUCT_SPECIFIC_EXEMPTIONS.get(ctx.name, ())
+        orphans = []
+        for rel in test_files:
+            if any(_covered_by(rel, p) for p in self._EXTERNAL_RUNNER_PREFIXES):
+                continue
+            if any(_covered_by(rel, p) for p in per_product):
+                continue
+            if any(_covered_by(rel, p) for p in pytest_paths):
+                continue
+            orphans.append(rel)
+
+        if orphans:
+            result.lines.append(
+                f"✗ {len(orphans)} test file(s) not reachable from backend:test or any known external runner"
+            )
+            for o in orphans:
+                result.lines.append(f"  → {o}")
+            result.issues.extend(
+                f"Test file {o} is not covered by backend:test pytest paths or a known "
+                "external runner (e.g. ci-dagster.yml for dags/). It will never run in CI"
+                for o in orphans
+            )
+            result.file = f"products/{ctx.name}/package.json"
+        else:
+            result.lines.append("✓ ok")
+        return result
+
+
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
-    ProductYamlOwnersCheck(),
     RequiredRootFilesCheck(),
     PackageJsonScriptsCheck(),
     MisplacedFilesCheck(),
     FileFolderConflictsCheck(),
     TachCheck(),
     IsolationChainCheck(),
+    OrphanedTestFilesCheck(),
 ]

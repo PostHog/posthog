@@ -45,6 +45,8 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  # Resolve the node-versions manifest on the app token, not the shared per-repo GITHUB_TOKEN bucket
+                  token: ${{ steps.app-token.outputs.token || github.token }}
 
             # Script runs from master branch (protected), but can diff against PR branch
             - name: Run reviewer assignment script
@@ -54,5 +56,6 @@ jobs:
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
                   node .github/scripts/assign-reviewers.js

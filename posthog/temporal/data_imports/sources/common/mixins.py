@@ -1,7 +1,8 @@
 import socket
 from collections.abc import Callable, Generator
 from contextlib import _GeneratorContextManager, contextmanager
-from typing import Any
+
+import structlog
 
 from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
@@ -9,6 +10,11 @@ from posthog.utils import get_instance_region
 
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.util import _is_safe_public_ip
+
+logger = structlog.get_logger(__name__)
+
+_INTERNAL_IP_ERROR = "Hosts with internal IP addresses are not allowed"
+_DNS_FAILURE_ERROR = "Host could not be resolved"
 
 
 def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
@@ -24,45 +30,73 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
     team whitelist: team_id 2 in US, team_id 1 in EU are allowed
     to use internal IPs.
     """
+
+    def _log(decision: str, stage: str, reason: str | None, resolved_ips: list[str] | None = None) -> None:
+        if decision == "block":
+            log_fn = logger.warning  # SSRF attempt — always logged
+        elif stage in ("not_cloud", "e2e"):
+            log_fn = logger.debug  # never fires on cloud / spammy on self-hosted
+        else:
+            log_fn = logger.info
+
+        log_fn(
+            "data_imports.host_check",
+            host=host,
+            team_id=team_id,
+            decision=decision,
+            stage=stage,
+            reason=reason,
+            resolved_ips=resolved_ips,
+        )
+
     if not is_cloud():
+        _log("allow", "not_cloud", None)
         return True, None
 
     region = get_instance_region()
     if region == "E2E":
+        _log("allow", "e2e", None)
         return True, None
 
     if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):
+        _log("allow", "team_allowlist", None)
         return True, None
 
     normalized = host.lower().strip().rstrip(".")
 
     # PostHog-managed DuckLake hosts resolve to internal IPs but are safe.
     if normalized.endswith(".postwh.com"):
+        _log("allow", "postwh_managed", None)
         return True, None
 
     if normalized in {"localhost"}:
-        return False, "Hosts with internal IP addresses are not allowed"
+        _log("block", "localhost", _INTERNAL_IP_ERROR)
+        return False, _INTERNAL_IP_ERROR
 
     try:
         if not _is_safe_public_ip(host):
-            return False, "Hosts with internal IP addresses are not allowed"
+            _log("block", "literal_ip", _INTERNAL_IP_ERROR)
+            return False, _INTERNAL_IP_ERROR
     except ValueError:
         pass
 
     try:
         addrinfo = socket.getaddrinfo(normalized, None, proto=socket.IPPROTO_TCP)
-        for _family, _type, _proto, _canonname, sockaddr in addrinfo:
-            resolved_ip = sockaddr[0]
-            if not _is_safe_public_ip(str(resolved_ip)):
-                return False, "Hosts with internal IP addresses are not allowed"
+        resolved_ips = [str(sockaddr[0]) for *_meta, sockaddr in addrinfo]
+        for resolved_ip in resolved_ips:
+            if not _is_safe_public_ip(resolved_ip):
+                _log("block", "resolved_ip", _INTERNAL_IP_ERROR, resolved_ips)
+                return False, _INTERNAL_IP_ERROR
     except socket.gaierror:
-        return False, "Host could not be resolved"
+        _log("block", "dns_failure", _DNS_FAILURE_ERROR)
+        return False, _DNS_FAILURE_ERROR
 
+    _log("allow", "resolved_ip", None, resolved_ips)
     return True, None
 
 
 @contextmanager
-def open_ssh_tunnel(config) -> Generator[tuple[str, int], Any, None]:
+def open_ssh_tunnel(config) -> Generator[tuple[str, int]]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
     if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
         ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)

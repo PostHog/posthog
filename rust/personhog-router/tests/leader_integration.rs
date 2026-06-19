@@ -60,6 +60,7 @@ async fn strong_read_routes_to_leader() {
             person_id: 42,
             read_options: Some(ReadOptions {
                 consistency: ConsistencyLevel::Strong.into(),
+                ..Default::default()
             }),
         })
         .await
@@ -134,6 +135,7 @@ async fn write_then_strong_read_roundtrip() {
             person_id: 42,
             read_options: Some(ReadOptions {
                 consistency: ConsistencyLevel::Strong.into(),
+                ..Default::default()
             }),
         })
         .await
@@ -188,6 +190,7 @@ async fn strong_read_fails_when_no_leader_configured() {
             person_id: 42,
             read_options: Some(ReadOptions {
                 consistency: ConsistencyLevel::Strong.into(),
+                ..Default::default()
             }),
         })
         .await;
@@ -232,6 +235,7 @@ async fn non_person_data_always_routes_to_replica() {
             }],
             read_options: Some(ReadOptions {
                 consistency: ConsistencyLevel::Strong.into(),
+                ..Default::default()
             }),
         })
         .await
@@ -263,6 +267,7 @@ async fn leader_person_not_found_returns_not_found() {
             person_id: 999,
             read_options: Some(ReadOptions {
                 consistency: ConsistencyLevel::Strong.into(),
+                ..Default::default()
             }),
         })
         .await;

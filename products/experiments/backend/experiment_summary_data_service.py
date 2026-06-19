@@ -1,14 +1,13 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Union
+from typing import Any, TypeIs, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
 import posthoganalytics
 from posthoganalytics import capture_exception
-from typing_extensions import TypeIs
 
 from posthog.schema import (
     CacheMissResponse,
@@ -33,13 +32,13 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.constants import EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 

@@ -22,6 +22,12 @@ class Command(BaseCommand):
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True, help="Team ID to cluster intents for.")
         parser.add_argument(
+            "--lookback-days",
+            type=int,
+            default=None,
+            help="Window for both the session and ClickHouse queries. Default uses the task default (7 days).",
+        )
+        parser.add_argument(
             "--raw",
             action="store_true",
             help="Print the raw JSON snapshot instead of the human-readable summary.",
@@ -29,6 +35,7 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         team_id: int = options["team_id"]
+        lookback_days: int | None = options["lookback_days"]
         raw: bool = options["raw"]
 
         try:
@@ -37,8 +44,9 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(f"Team {team_id} does not exist."))
             return
 
-        self.stdout.write(f"Running intent clustering for team {team_id}...")
-        compute_intent_clusters.apply(args=[team_id, None]).get()
+        window_label = f"{lookback_days} day(s)" if lookback_days is not None else "default window"
+        self.stdout.write(f"Running intent clustering for team {team_id} ({window_label})...")
+        compute_intent_clusters.apply(args=[team_id, None, lookback_days]).get()
 
         with team_scope(team_id):
             snapshot = MCPIntentClusterSnapshot.objects.filter(team_id=team_id).first()

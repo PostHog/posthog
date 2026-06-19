@@ -24,10 +24,10 @@
 //! Parser API is identical across the two backends so no rewrites are
 //! needed here.
 
-use super::{identifier_text, unquote_single_string, Parser};
+use super::{identifier_text, kw_valid_as_identifier, unquote_single_string, Parser};
 use crate::emit::Emitter;
 use crate::error::ParseError;
-use crate::lex::TokenKind;
+use crate::lex::{Lexer, Token, TokenKind};
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// True when peek/peek_next look like the start of a HogQLX tag —
@@ -41,6 +41,22 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         matches!(
             self.peek_next(),
             TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
+        )
+    }
+
+    /// Like `peek_starts_hogqlx_tag`, but one token further ahead: is the
+    /// token at `peek_next` (peek1) a `<` that begins a tag? Used by prefix
+    /// operators (`not <tag>`) and operator disambiguation (`1 % <tag>`) where
+    /// the `<` sits one token past the cursor and a probe lexer must resolve
+    /// the token after it.
+    pub(crate) fn peek_next_starts_hogqlx_tag(&self) -> bool {
+        if self.peek_next() != TokenKind::Lt {
+            return false;
+        }
+        let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+        matches!(
+            probe.next_token().map(|t| t.kind),
+            Ok(TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_))
         )
     }
 
@@ -63,9 +79,44 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// recoverable.
     pub(crate) fn parse_hogqlx_tag_element(&mut self) -> Result<E::Value, ParseError> {
         self.hogqlx_text_lookahead_depth += 1;
+        // cpp pushes HOGQLX_TAG_OPEN at `<`; those tag modes have no
+        // HASH_COMMENT rule, so a `#` between attributes must reject
+        // (TAG_UNEXPECTED) instead of being skipped as a comment. The
+        // flag covers the whole element — attributes, children, closing
+        // tag — and the `{ … }` arms flip it back off, matching
+        // TAG_LBRACE's pushMode(DEFAULT_MODE).
+        let was_in_tag = self.lexer.in_hogqlx_tag();
+        self.lexer.set_in_hogqlx_tag(true);
         let result = self.parse_hogqlx_tag_element_inner();
+        self.lexer.set_in_hogqlx_tag(was_in_tag);
+        if result.is_ok() && !was_in_tag {
+            // The peek window past the element was pre-loaded under tag
+            // mode; re-lex it so a `#` comment after the tag is skipped
+            // again.
+            self.reseek_peek_window(self.last_consumed_end);
+        }
         self.hogqlx_text_lookahead_depth -= 1;
         result
+    }
+
+    /// Re-lex `peek0` / `peek1` from `pos` after a tag-mode flip changed
+    /// how the upcoming bytes tokenise. A lex failure parks a synthetic
+    /// `Eof` in the failing slot — the same recovery `bump()` applies
+    /// inside tag bodies — so raw text bytes (`&`, `!`, …) right after
+    /// the boundary stay recoverable for the byte-walking text consumer.
+    fn reseek_peek_window(&mut self, pos: usize) {
+        let in_tag = self.lexer.in_hogqlx_tag();
+        self.lexer = Lexer::with_pos(self.src, pos);
+        self.lexer.set_in_hogqlx_tag(in_tag);
+        self.peek0 = self.next_token_or_synthetic_eof();
+        self.peek1 = self.next_token_or_synthetic_eof();
+    }
+
+    fn next_token_or_synthetic_eof(&mut self) -> Token {
+        match self.lexer.next_token() {
+            Ok(t) => t,
+            Err(_) => Token::eof(self.lexer.pos()),
+        }
     }
 
     fn parse_hogqlx_tag_element_inner(&mut self) -> Result<E::Value, ParseError> {
@@ -129,24 +180,41 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     ///   - `name = { expr }` → HogQLXAttribute(name, expr)
     ///   - `name`            → HogQLXAttribute(name, Constant(true))
     fn parse_hogqlx_attribute(&mut self) -> Result<E::Value, ParseError> {
+        // cpp positions the HogQLXAttribute from the name start to the value end
+        // (or the name end for a bare attribute), and the string value Constant
+        // over the string token. The bare-attribute `Constant(true)` stays
+        // position-less (cpp leaves it null too).
+        let name_start = self.peek0.start;
         let name = self.parse_hogqlx_identifier("attribute name")?;
+        let name_end = self.last_consumed_end;
         // No `=` → bare attribute, value is Constant(true).
         if self.peek() != TokenKind::EqDouble {
-            return Ok(self
+            let attr = self
                 .emit
-                .hogqlx_attribute(&name, self.emit.constant(self.emit.bool(true))));
+                .hogqlx_attribute(&name, self.emit.constant(self.emit.bool(true)));
+            return Ok(self.wrap_pos_to(attr, name_start, name_end));
         }
         self.bump()?; // `=`
         let value = match self.peek() {
             TokenKind::String => {
                 let t = self.bump()?;
-                self.emit
-                    .constant(self.emit.string(&unquote_single_string(self.text(t))))
+                let c = self
+                    .emit
+                    .constant(self.emit.string(&unquote_single_string(self.text(t))));
+                self.wrap_pos_to(c, t.start, t.end)
             }
             TokenKind::LBrace => {
                 self.bump()?;
+                // cpp's TAG_LBRACE pushes DEFAULT_MODE — `#` comments
+                // apply again inside the braced value. Re-lex the peek
+                // window on both edges; it was pre-loaded under the
+                // other mode.
+                self.lexer.set_in_hogqlx_tag(false);
+                self.reseek_peek_window(self.last_consumed_end);
                 let expr = self.parse_expr_bp(0)?;
                 self.expect(TokenKind::RBrace, "}")?;
+                self.lexer.set_in_hogqlx_tag(true);
+                self.reseek_peek_window(self.last_consumed_end);
                 expr
             }
             _ => {
@@ -156,7 +224,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 )));
             }
         };
-        Ok(self.emit.hogqlx_attribute(&name, value))
+        let value_end = self.last_consumed_end;
+        let attr = self.emit.hogqlx_attribute(&name, value);
+        Ok(self.wrap_pos_to(attr, name_start, value_end))
     }
 
     /// Read tag-body children until the closing `</`. Children are:
@@ -171,6 +241,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     fn parse_hogqlx_children(&mut self) -> Result<Vec<E::Value>, ParseError> {
         let mut children: Vec<E::Value> = Vec::new();
         loop {
+            // `consume_hogqlx_text` scans from `last_consumed_end`, so that is
+            // the text run's start; its byte length gives the end. cpp positions
+            // each kept text Constant over its raw byte span.
+            let text_start = self.last_consumed_end;
             let text = self.consume_hogqlx_text()?;
             // cpp's `VISIT(HogqlxTagElementNested)` drops child text
             // runs that contain a newline AND are entirely whitespace —
@@ -181,7 +255,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 && text.bytes().all(|b| b.is_ascii_whitespace())
                 && text.bytes().any(|b| b == b'\n' || b == b'\r');
             if !text.is_empty() && !drop_for_newline_ws {
-                children.push(self.emit.constant(self.emit.string(&text)));
+                let text_end = text_start + text.len();
+                let c = self.emit.constant(self.emit.string(&text));
+                children.push(self.wrap_pos_to(c, text_start, text_end));
             }
             match self.peek() {
                 TokenKind::LtSlash => return Ok(children),
@@ -200,8 +276,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 TokenKind::LBrace => {
                     self.bump()?;
+                    // TAG_LBRACE → DEFAULT_MODE, same as the
+                    // attribute-value arm. No re-lex after the `}` —
+                    // the loop's `consume_hogqlx_text` byte-walks from
+                    // `last_consumed_end` and re-seeks the window
+                    // itself.
+                    self.lexer.set_in_hogqlx_tag(false);
+                    self.reseek_peek_window(self.last_consumed_end);
                     let expr = self.parse_expr_bp(0)?;
                     self.expect(TokenKind::RBrace, "}")?;
+                    self.lexer.set_in_hogqlx_tag(true);
                     children.push(expr);
                 }
                 TokenKind::Eof => {
@@ -263,8 +347,17 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// by an ident-like token with no intervening whitespace.
     fn parse_hogqlx_identifier(&mut self, what: &str) -> Result<String, ParseError> {
         let head = self.bump()?;
+        // A tag/attr name is an `identifier` (grammar `hogqlxTagElement` /
+        // `hogqlxTagAttribute`), so a keyword head is only valid when it is a
+        // grammar-`keyword`-rule member. The Hog-statement keywords (fn/let/…),
+        // set-op keywords (intersect/except) and literal keywords (null/inf/nan)
+        // are omitted from that rule, so cpp rejects `<fn/>` / `<a let/>` with
+        // "no viable alternative"; gate them out here to match.
         let mut name = match head.kind {
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+            TokenKind::Ident | TokenKind::QuotedIdent => {
+                identifier_text(self.text(head), head.kind)
+            }
+            TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                 identifier_text(self.text(head), head.kind)
             }
             _ => {

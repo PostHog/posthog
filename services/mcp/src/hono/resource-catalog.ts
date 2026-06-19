@@ -9,36 +9,58 @@ import type {
     TextResourceContents,
 } from '@modelcontextprotocol/sdk/types.js'
 
-import {
-    fetchContextMillResources,
-    filterValidEntries,
-    loadManifestFromArchive,
-    clearResourceCache,
-} from '@/resources/internals'
 import { getPromptsFromManifest } from '@/resources'
-import { UI_APPS } from '@/resources/ui-apps.generated'
 import { buildAppStubHtml } from '@/resources/ui-apps'
-import type { ContextMillResource } from '@/resources/manifest-types'
+import { UI_APPS } from '@/resources/ui-apps.generated'
 import type { Env } from '@/tools/types'
+
+import {
+    ContextMillResourceCache,
+    type ContextMillCacheResult,
+    type SlimManifestEntry,
+} from './cache/ContextMillResourceCache'
+import type { RedisLike } from './cache/RedisCache'
+import {
+    contextMillManifestEntries,
+    contextMillRevalidationDurationSeconds,
+    contextMillRevalidationsTotal,
+} from './metrics'
+
+export type ContextMillRevalidationSource = 'warmup' | 'initialize'
 
 export class ResourceCatalog {
     private readonly env: Env
+    private readonly contextMillCache: ContextMillResourceCache
 
     private resources: Resource[] = []
-    private resourcesByUri = new Map<string, TextResourceContents>()
     private prompts: Prompt[] = []
     private promptsByName = new Map<string, GetPromptResult>()
     private uiAppResources: Resource[] = []
     private uiAppReadEntries = new Map<string, TextResourceContents>()
     private allResources: Resource[] = []
-    private contextMillData: readonly ContextMillResource[] = []
+    private contextMillEntriesByUri = new Map<string, SlimManifestEntry>()
 
-    constructor(env: Env) {
+    constructor(env: Env, redis: RedisLike) {
         this.env = env
+        const localUrl = this.contextMillLocalUrl()
+        this.contextMillCache = new ContextMillResourceCache(redis, localUrl ? { localUrl } : {})
     }
 
-    get contextMillEntries(): readonly ContextMillResource[] {
-        return this.contextMillData
+    get contextMillEntries(): readonly SlimManifestEntry[] {
+        return Array.from(this.contextMillEntriesByUri.values())
+    }
+
+    async revalidateContextMillResources(source: ContextMillRevalidationSource): Promise<void> {
+        const stop = contextMillRevalidationDurationSeconds.startTimer({ source })
+        try {
+            const result = await this.refreshContextMill()
+            contextMillRevalidationsTotal.inc({ source, status: 'success', result })
+            stop({ source, status: 'success' })
+        } catch (error) {
+            contextMillRevalidationsTotal.inc({ source, status: 'error', result: 'error' })
+            stop({ source, status: 'error' })
+            console.error('[ResourceCatalog] Failed to revalidate context-mill resources:', error)
+        }
     }
 
     async warmup(): Promise<void> {
@@ -50,19 +72,40 @@ export class ResourceCatalog {
         return { resources: this.allResources }
     }
 
-    readResource(params: Record<string, unknown> | undefined): ReadResourceResult {
+    async readResource(params: Record<string, unknown> | undefined): Promise<ReadResourceResult> {
         const uri = (params?.uri as string) ?? ''
-        const entry = this.resourcesByUri.get(uri) ?? this.uiAppReadEntries.get(uri)
-        if (!entry) {
+        const uiEntry = this.uiAppReadEntries.get(uri)
+        if (uiEntry) {
+            return {
+                contents: [
+                    {
+                        uri: uiEntry.uri,
+                        mimeType: uiEntry.mimeType,
+                        text: uiEntry.text,
+                        ...(uiEntry._meta ? { _meta: uiEntry._meta } : {}),
+                    },
+                ],
+            }
+        }
+
+        const slimEntry = this.contextMillEntriesByUri.get(uri)
+        if (!slimEntry) {
+            return { contents: [] }
+        }
+        const body = await this.contextMillCache.readBody(uri)
+        if (!body) {
+            // Body has aged out (resource removed upstream + TTL elapsed) or
+            // was evicted. Ack the removal and let the slim manifest catch up
+            // on the next natural refresh; the client's context window has
+            // already cached what it needs from the prior resources/list.
             return { contents: [] }
         }
         return {
             contents: [
                 {
-                    uri: entry.uri,
-                    mimeType: entry.mimeType,
-                    text: entry.text,
-                    ...(entry._meta ? { _meta: entry._meta } : {}),
+                    uri: slimEntry.uri,
+                    mimeType: body.mimeType,
+                    text: body.text,
                 },
             ],
         }
@@ -81,29 +124,34 @@ export class ResourceCatalog {
         return { messages: entry.messages }
     }
 
-    private async warmupResources(): Promise<void> {
-        try {
-            const archive = await fetchContextMillResources()
-            const manifest = loadManifestFromArchive(archive)
-            this.contextMillData = filterValidEntries(manifest.resources, archive)
-            clearResourceCache()
+    private async refreshContextMill(): Promise<ContextMillCacheResult> {
+        const { manifest: slim, result } = await this.contextMillCache.loadOrRefresh()
 
-            for (const entry of this.contextMillEntries) {
-                this.resources.push({
-                    name: entry.name,
-                    uri: entry.uri,
-                    mimeType: entry.resource.mimeType,
-                    description: entry.resource.description,
-                })
-                this.resourcesByUri.set(entry.uri, {
-                    uri: entry.uri,
-                    mimeType: entry.resource.mimeType,
-                    text: entry.resource.text,
-                })
-            }
-        } catch (error) {
-            console.error('[ResourceCatalog] Failed to pre-load context-mill resources:', error)
+        const nextEntriesByUri = new Map<string, SlimManifestEntry>()
+        const nextResources: Resource[] = []
+        for (const entry of slim.entries) {
+            nextEntriesByUri.set(entry.uri, entry)
+            nextResources.push({
+                name: entry.name,
+                uri: entry.uri,
+                mimeType: entry.mimeType,
+                description: entry.description,
+            })
         }
+        this.contextMillEntriesByUri = nextEntriesByUri
+        this.resources = nextResources
+        this.allResources = [...this.resources, ...this.uiAppResources]
+        contextMillManifestEntries.set(slim.entries.length)
+        return result
+    }
+
+    private contextMillLocalUrl(): string | undefined {
+        const localUrlRaw = (this.env as Record<string, string | undefined>)?.POSTHOG_MCP_LOCAL_SKILLS_URL
+        return localUrlRaw && localUrlRaw.trim() !== '' ? localUrlRaw : undefined
+    }
+
+    private async warmupResources(): Promise<void> {
+        await this.revalidateContextMillResources('warmup')
 
         try {
             const manifestPrompts = await getPromptsFromManifest()

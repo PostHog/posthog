@@ -1,3 +1,4 @@
+from posthog.hogql.database.lazy_join_tags import PERSONS
 from posthog.hogql.database.models import (
     FieldOrTable,
     IntegerDatabaseField,
@@ -7,7 +8,6 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
-from posthog.hogql.database.schema.persons import join_with_persons_table
 
 COHORT_PEOPLE_FIELDS: dict[str, FieldOrTable] = {
     "person_id": StringDatabaseField(name="person_id", nullable=False),
@@ -16,7 +16,7 @@ COHORT_PEOPLE_FIELDS: dict[str, FieldOrTable] = {
     "person": LazyJoin(
         from_field=["person_id"],
         join_table="persons",
-        join_function=join_with_persons_table,
+        resolver=PERSONS,
     ),
 }
 
@@ -24,7 +24,7 @@ COHORT_PEOPLE_FIELDS: dict[str, FieldOrTable] = {
 def select_from_cohort_people_table(requested_fields: dict[str, list[str | int]], project_id: int):
     from posthog.hogql import ast
 
-    from posthog.models import Cohort
+    from products.cohorts.backend.models.cohort import Cohort
 
     cohort_tuples = list(
         Cohort.objects.filter(is_static=False, team__project_id=project_id, deleted=False)

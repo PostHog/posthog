@@ -21,8 +21,10 @@ import type {
     HogFunctionsMetricsTotalsRetrieveParams,
     PaginatedHogFunctionMinimalListApi,
     PaginatedHogFunctionTemplateListApi,
+    PaginatedPluginLogEntryListApi,
     PatchedHogFunctionApi,
     PatchedHogFunctionRearrangeApi,
+    PluginConfigsLogsListParams,
     PublicHogFunctionTemplatesListParams,
 } from './api.schemas'
 
@@ -48,7 +50,7 @@ export const getHogFunctionTemplatesListUrl = (projectId: string, params?: HogFu
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -90,7 +92,7 @@ export const getHogFunctionsListUrl = (projectId: string, params?: HogFunctionsL
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -239,7 +241,7 @@ export const getHogFunctionsLogsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -271,7 +273,7 @@ export const getHogFunctionsMetricsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -303,7 +305,7 @@ export const getHogFunctionsMetricsTotalsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -368,12 +370,44 @@ export const hogFunctionsRearrangePartialUpdate = async (
     })
 }
 
+export const getPluginConfigsLogsListUrl = (
+    projectId: string,
+    pluginConfigId: number,
+    params?: PluginConfigsLogsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/`
+}
+
+export const pluginConfigsLogsList = async (
+    projectId: string,
+    pluginConfigId: number,
+    params?: PluginConfigsLogsListParams,
+    options?: RequestInit
+): Promise<PaginatedPluginLogEntryListApi> => {
+    return apiMutator<PaginatedPluginLogEntryListApi>(getPluginConfigsLogsListUrl(projectId, pluginConfigId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getPublicHogFunctionTemplatesListUrl = (params?: PublicHogFunctionTemplatesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

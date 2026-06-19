@@ -68,6 +68,7 @@ class TestUsageEndpoint:
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 1,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
         mock_db_pool.acquire = AsyncMock(return_value=conn)
@@ -357,6 +358,40 @@ class TestUsageEndpoint:
         )
         assert response.status_code == 200
         assert response.json()["user_id"] == 42
+
+    def test_ai_credits_reported_unlimited_for_non_billable_product(
+        self, authenticated_usage_client: TestClient
+    ) -> None:
+        # posthog_code is not billable; ai_credits should be unlimited and not contribute
+        # to is_rate_limited even if the resolver thinks the team is over.
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        app = authenticated_usage_client.app
+        app.state.quota_resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+
+        response = authenticated_usage_client.get(
+            "/v1/usage/posthog_code",
+            headers={"Authorization": "Bearer phx_test"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ai_credits"] == {"exhausted": False}
+        assert data["is_rate_limited"] is False
+
+    def test_ai_credits_reflects_resolver_for_billable_product(self, authenticated_usage_client: TestClient) -> None:
+        from llm_gateway.services.quota_resolver import QuotaResourceStatus
+
+        app = authenticated_usage_client.app
+        app.state.quota_resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+
+        response = authenticated_usage_client.get(
+            "/v1/usage/slack_app",
+            headers={"Authorization": "Bearer phx_test"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ai_credits"] == {"exhausted": True}
+        assert data["is_rate_limited"] is True
 
     def test_invalidate_plan_cache_calls_resolver(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app

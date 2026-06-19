@@ -1,6 +1,7 @@
 import { IconChevronDown, IconEllipsis, IconLineGraph } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItem, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { TileId, TileVisualizationOption } from './common'
@@ -42,11 +43,11 @@ function TitleDropdown({ tileId, dropdown }: { tileId: TileId; dropdown: Dropdow
         <LemonMenu items={items} placement="bottom-start">
             <button
                 type="button"
-                className="inline-flex items-center gap-1 m-0 p-0 bg-transparent border-0 cursor-pointer text-base font-semibold text-current hover:text-accent underline decoration-dotted decoration-from-font underline-offset-4"
+                className="inline-flex items-center gap-1 m-0 p-0 bg-transparent border-0 cursor-pointer text-base font-semibold text-current hover:text-accent underline decoration-dotted decoration-from-font underline-offset-4 min-w-0 max-w-full"
                 data-attr={`web-analytics-title-dropdown-${tileId}`}
             >
-                <span>{currentLabel}</span>
-                <IconChevronDown className="text-lg" />
+                <span className="truncate">{currentLabel}</span>
+                <IconChevronDown className="text-lg shrink-0" />
             </button>
         </LemonMenu>
     )
@@ -63,11 +64,13 @@ export function WebTileHeader({
     openInsight,
     overflowMenuItems,
 }: WebTileHeaderProps): JSX.Element {
+    const { isWindowLessThan } = useWindowSize()
+    const isCompactHeader = isWindowLessThan('lg')
     const isGraph = visualizationToggle?.value === 'graph'
     const titleNode =
         titleDropdown || title || docs ? (
-            <h2 className="flex-1 m-0 flex flex-row items-center gap-1.5 text-base font-semibold">
-                {titlePrefix && <span>{titlePrefix}</span>}
+            <h2 className="flex-1 min-w-0 m-0 flex flex-row items-center gap-1.5 text-base font-semibold">
+                {titlePrefix && <span className="shrink-0">{titlePrefix}</span>}
                 {titleDropdown ? (
                     <TitleDropdown tileId={tileId} dropdown={titleDropdown} />
                 ) : (
@@ -80,12 +83,12 @@ export function WebTileHeader({
         )
 
     return (
-        <div className="flex flex-row items-center self-stretch gap-2 min-h-10 px-3 py-2">
+        <div className="flex flex-row items-center self-stretch gap-1 sm:gap-2 min-h-10 px-3 py-2">
             {titleNode}
 
             {intervalSelector && (
                 <span className="flex items-center gap-1">
-                    <span className="text-secondary text-xs">Interval</span>
+                    <span className="text-secondary text-xs hidden lg:inline">Interval</span>
                     {intervalSelector.node}
                 </span>
             )}
@@ -111,7 +114,7 @@ export function WebTileHeader({
                     onClick={openInsight.onClick}
                     data-attr={`web-analytics-open-insight-${tileId}`}
                 >
-                    Open as insight
+                    {isCompactHeader ? undefined : 'Open as insight'}
                 </LemonButton>
             )}
 

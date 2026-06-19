@@ -27,6 +27,22 @@ impl Destination {
     pub fn is_analytics_pipeline(&self) -> bool {
         matches!(self, Self::AnalyticsMain | Self::AnalyticsHistorical)
     }
+
+    /// Stable, low-cardinality metric tag. `Custom(_)` collapses to "custom"
+    /// so admin-configured topic names never become label values.
+    pub fn as_tag(&self) -> &'static str {
+        match self {
+            Self::AnalyticsMain => "analytics_main",
+            Self::AnalyticsHistorical => "analytics_historical",
+            Self::Overflow => "overflow",
+            Self::Dlq => "dlq",
+            Self::Custom(_) => "custom",
+            Self::Drop => "drop",
+            Self::ExceptionErrorTracking => "exception_error_tracking",
+            Self::HeatmapMain => "heatmap_main",
+            Self::ClientIngestionWarning => "client_ingestion_warning",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -48,6 +64,47 @@ mod destination_tests {
         assert!(!Destination::Dlq.is_analytics_pipeline());
         assert!(!Destination::Drop.is_analytics_pipeline());
         assert!(!Destination::Custom("foo".into()).is_analytics_pipeline());
+    }
+
+    /// Exhaustive: every variant's tag is non-empty, stable, and unique.
+    /// Custom(_) collapses to "custom" regardless of the topic name, so two
+    /// different Custom values share the same tag (cardinality defense).
+    #[test]
+    fn as_tag_exhaustive_stable_and_unique() {
+        // One representative per variant. If a new variant is added, the
+        // as_tag() match becomes non-exhaustive and this file fails to
+        // compile, forcing an update here too.
+        let expected: &[(Destination, &str)] = &[
+            (Destination::AnalyticsMain, "analytics_main"),
+            (Destination::AnalyticsHistorical, "analytics_historical"),
+            (Destination::Overflow, "overflow"),
+            (Destination::Dlq, "dlq"),
+            (Destination::Custom("topic_a".into()), "custom"),
+            (Destination::Drop, "drop"),
+            (
+                Destination::ExceptionErrorTracking,
+                "exception_error_tracking",
+            ),
+            (Destination::HeatmapMain, "heatmap_main"),
+            (
+                Destination::ClientIngestionWarning,
+                "client_ingestion_warning",
+            ),
+        ];
+
+        let mut seen = std::collections::HashSet::new();
+        for (dest, tag) in expected {
+            assert_eq!(dest.as_tag(), *tag, "tag changed for {dest:?}");
+            assert!(!tag.is_empty(), "tag for {dest:?} must be non-empty");
+            assert!(seen.insert(*tag), "tag {tag} is not unique across variants");
+        }
+
+        // Two different Custom values collapse to the same "custom" tag.
+        assert_eq!(Destination::Custom("topic_b".into()).as_tag(), "custom");
+        assert_eq!(
+            Destination::Custom("topic_a".into()).as_tag(),
+            Destination::Custom("topic_b".into()).as_tag()
+        );
     }
 }
 

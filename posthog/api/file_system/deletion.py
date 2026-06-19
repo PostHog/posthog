@@ -9,8 +9,9 @@ from django.apps import apps
 from django.core.exceptions import ObjectDoesNotExist
 
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
-from posthog.models.hog_functions.hog_function import HogFunctionType
 from posthog.models.signals import mute_selected_signals
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunctionType
 
 logger = logging.getLogger(__name__)
 

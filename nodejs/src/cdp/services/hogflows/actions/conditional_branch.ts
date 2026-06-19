@@ -4,7 +4,7 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
-import { findContinueAction, findNextAction } from '../hogflow-utils'
+import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
@@ -17,6 +17,19 @@ export class ConditionalBranchHandler implements ActionHandler {
     }: ActionHandlerOptions<
         Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
     >): Promise<ActionHandlerResult> {
+        // The subscription matcher sets eventMatched when an incoming event matched this
+        // step's wait condition. Honor it as a forced match and advance immediately,
+        // rather than re-evaluating the stored condition against the original event.
+        if (action.type === 'wait_until_condition' && invocation.state?.currentAction?.eventMatched === true) {
+            invocation.state.currentAction.eventMatched = false
+            invocation.state.currentAction.eventMatchedEvent = undefined
+            invocation.state.currentAction.eventMatchedEventUuid = undefined
+            return {
+                nextAction: findNextAction(invocation.hogFlow, action.id, 0),
+                result: { eventMatched: true },
+            }
+        }
+
         const conditionResult = await checkConditions(
             invocation,
             action.type === 'conditional_branch'
@@ -25,7 +38,10 @@ export class ConditionalBranchHandler implements ActionHandler {
                       ...action,
                       type: 'conditional_branch',
                       config: {
-                          conditions: [action.config.condition],
+                          // An empty condition compiles to always-true bytecode, which would match on
+                          // entry and fire the wait immediately. Only honor a condition with a real
+                          // compiled filter; otherwise the wait relies on its events / the timeout.
+                          conditions: isEvaluableCondition(action.config.condition) ? [action.config.condition] : [],
                           delay_duration: action.config.max_wait_duration,
                       },
                   }

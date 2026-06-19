@@ -28,13 +28,15 @@ jobs:
                   fetch-depth: 0
                   filter: blob:none
 
-            - name: Check if rust/hogql/parser/ has changed
+            - name: Check if rust/hogql/parser/ or the workflow has changed
               id: changed-files
               uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
               with:
                   files_yaml: |
                       parser:
                       - rust/hogql/parser/**
+                      workflow:
+                      - .github/workflows/build-hogql-parser-rs.yml
 
             - name: Check if version was bumped
               shell: bash
@@ -42,6 +44,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   PARSER_CHANGED: ${{ steps.changed-files.outputs.parser_any_changed }}
+                  WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow_any_changed }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
@@ -50,23 +53,30 @@ jobs:
                   local=$(grep -m1 '^version = ' rust/hogql/parser/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
                   echo "local-version=$local" >> $GITHUB_OUTPUT
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
-                    # PyPI returns 404 until the first publish — treat as "needs release".
-                    published=$(curl -fSsl https://pypi.org/pypi/hogql-parser-rs/json 2>/dev/null | jq -r '.info.version' || echo '')
-                    if [[ "$published" != "$local" ]]; then
-                      parser_release_needed='true'
-                    else
-                      message_body="It looks like the code of \`hogql-parser-rs\` changed in this PR, but its version stayed the same at $local. 👀"
-                      message_body+=$'\n'"Bump the version in \`rust/hogql/parser/Cargo.toml\` AND \`rust/hogql/parser/pyproject.toml\` (the two must match) before merging."
-                      if [[ "$IS_FORK" == 'true' ]]; then
-                        message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
-                      fi
-                      existing=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("hogql-parser-rs.*version stayed the same.*👀")) | .id' | tail -1)
-                      if [[ -n "$existing" ]]; then
-                        gh api "repos/${{ github.repository }}/issues/comments/$existing" -X PATCH -f body="$message_body"
+                      # 200 = version already on PyPI, 404 = needs release.
+                      http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser-rs/$local/json")
+                      if [[ "$http_code" == '404' ]]; then
+                          parser_release_needed='true'
+                      elif [[ "$http_code" == '200' ]]; then
+                          message_body="It looks like the code of \`hogql-parser-rs\` changed in this PR, but its version stayed the same at $local. 👀"
+                          message_body+=$'\n'"Bump the version in \`rust/hogql/parser/Cargo.toml\` AND \`rust/hogql/parser/pyproject.toml\` (the two must match) before merging."
+                          if [[ "$IS_FORK" == 'true' ]]; then
+                              message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
+                          fi
+                          existing=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("hogql-parser-rs.*version stayed the same.*👀")) | .id' | tail -1)
+                          if [[ -n "$existing" ]]; then
+                              gh api "repos/${{ github.repository }}/issues/comments/$existing" -X PATCH -f body="$message_body"
+                          else
+                              gh pr comment "$PR_NUMBER" --body "$message_body"
+                          fi
                       else
-                        gh pr comment "$PR_NUMBER" --body "$message_body"
+                          echo "::warning::Unexpected HTTP $http_code from PyPI for hogql-parser-rs $local; assuming not yet published."
+                          parser_release_needed='true'
                       fi
-                    fi
+                  fi
+                  # Exercise the release pipeline on workflow-only edits; skip-existing makes publish a no-op.
+                  if [[ "$WORKFLOW_CHANGED" == 'true' ]]; then
+                      parser_release_needed='true'
                   fi
                   echo "parser-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
 
@@ -176,6 +186,7 @@ jobs:
               with:
                   # Attaches the attestations generated above to the PyPI release.
                   attestations: true
+                  skip-existing: true
 
             - name: Get app token
               id: app-token
@@ -192,13 +203,13 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
 
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
-                  version: '0.10.2'
+                  version: '0.11.14'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -223,27 +234,38 @@ jobs:
                       sleep 0.5
                   done
 
-            - uses: EndBug/add-and-commit@290ea2c423ad77ca9c62ae0f5b224379612c0321 # v10.0.0
-              id: commit-pin
+            - name: Check for pin changes
+              id: check-pin
+              shell: bash
+              run: |
+                  if git diff --quiet pyproject.toml uv.lock; then
+                    echo "changed=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "changed=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Commit pin
+              if: steps.check-pin.outputs.changed == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  add: |
-                      pyproject.toml
-                      uv.lock
-                  message: 'Use new hogql-parser-rs version'
-                  default_author: github_actions
-                  github_token: ${{ steps.app-token.outputs.token }}
+                  commit_message: 'Use new hogql-parser-rs version'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: 'pyproject.toml uv.lock'
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
             - name: Verify pin is consistent with the published version
               shell: bash
               env:
-                  PUSHED: ${{ steps.commit-pin.outputs.pushed }}
+                  CHANGED: ${{ steps.check-pin.outputs.changed }}
                   VERSION: ${{ needs.check-version.outputs.local-version }}
               run: |
                   # The commit step is a no-op when pyproject.toml + uv.lock were already
                   # pre-bumped on the branch to the version we just published — fine.
                   # Verify the pin is consistent with the published version (i.e. the
                   # branch is in a deployable state) before declaring success.
-                  if [[ "$PUSHED" != "true" ]]; then
+                  if [[ "$CHANGED" != "true" ]]; then
                     pinned=$(grep -m1 'hogql-parser-rs==' pyproject.toml | sed -E 's/.*hogql-parser-rs==([^"]*).*/\1/')
                     if [[ "$pinned" != "$VERSION" ]]; then
                       echo "::error::hogql-parser-rs published to PyPI as $VERSION but pyproject.toml pin says $pinned."

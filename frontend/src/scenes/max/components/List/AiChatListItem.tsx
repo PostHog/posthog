@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconMessage, IconOpenSidebar, IconShare } from '@posthog/icons'
+import { IconMessage, IconOpenSidebar, IconShare, IconTrash } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { ConversationStatus } from '~/types'
 
+import { openDeleteConversationDialog } from '../../conversationDialogs'
 import { maxGlobalLogic } from '../../maxGlobalLogic'
 import { formatConversationDate } from '../../utils'
 
@@ -48,7 +49,7 @@ function Content({
 }
 
 function Actions({ conversationId }: { conversationId: string }): JSX.Element {
-    const { openSidePanelMax } = useActions(maxGlobalLogic)
+    const { openSidePanelMax, deleteConversation } = useActions(maxGlobalLogic)
 
     return (
         <LinkListItem.Actions>
@@ -77,6 +78,16 @@ function Actions({ conversationId }: { conversationId: string }): JSX.Element {
                     >
                         <IconOpenSidebar className="size-4 text-tertiary" />
                         Open in context panel
+                    </ButtonPrimitive>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                    <ButtonPrimitive
+                        menuItem
+                        onClick={() => openDeleteConversationDialog(() => deleteConversation(conversationId))}
+                    >
+                        <IconTrash className="size-4 text-danger" />
+                        <span className="text-danger">Delete chat</span>
                     </ButtonPrimitive>
                 </DropdownMenuItem>
             </DropdownMenuGroup>

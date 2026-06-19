@@ -22,6 +22,10 @@ import { RawPostgresGroupRepository } from './raw-postgres-group-repository.inte
 
 const MAX_GROUP_TYPES_PER_TEAM = 5
 
+function queryTag(base: string, callerTag?: string): string {
+    return callerTag ? `${base}:${callerTag}` : base
+}
+
 export class PostgresGroupRepository
     implements GroupRepository, RawPostgresGroupRepository, GroupRepositoryTransaction
 {
@@ -31,7 +35,7 @@ export class PostgresGroupRepository
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
-        options: { forUpdate?: boolean; useReadReplica?: boolean } = {},
+        options: { forUpdate?: boolean; useReadReplica?: boolean; callerTag?: string } = {},
         tx?: TransactionClient
     ): Promise<Group | undefined> {
         if (options.forUpdate && options.useReadReplica) {
@@ -48,7 +52,7 @@ export class PostgresGroupRepository
             tx ?? (options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE),
             queryString,
             [teamId, groupTypeIndex, groupKey],
-            'fetchGroup'
+            queryTag('fetchGroup', options.callerTag)
         )
 
         if (selectResult.rows.length > 0) {
@@ -61,6 +65,7 @@ export class PostgresGroupRepository
         teamIds: TeamId[],
         groupTypeIndexes: GroupTypeIndex[],
         groupKeys: string[],
+        callerTag?: string,
         tx?: TransactionClient
     ): Promise<
         {
@@ -92,7 +97,7 @@ export class PostgresGroupRepository
               AND g.group_type_index = t.group_type_index
               AND g.group_key = t.group_key`,
             [teamIds, groupTypeIndexes, groupKeys],
-            'fetchGroupsByKeys'
+            queryTag('fetchGroupsByKeys', callerTag)
         )
 
         return rows.map((row) => {
@@ -235,6 +240,7 @@ export class PostgresGroupRepository
 
     async fetchGroupTypesByProjectIds(
         projectIds: ProjectId[],
+        callerTag?: string,
         tx?: TransactionClient
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         if (projectIds.length === 0) {
@@ -245,7 +251,7 @@ export class PostgresGroupRepository
             tx ?? PostgresUse.PERSONS_READ,
             `SELECT project_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
             [projectIds],
-            'fetchGroupTypesByProjectIds'
+            queryTag('fetchGroupTypesByProjectIds', callerTag)
         )
 
         const response: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
@@ -279,6 +285,7 @@ export class PostgresGroupRepository
 
     async fetchGroupTypesByTeamIds(
         teamIds: TeamId[],
+        callerTag?: string,
         tx?: TransactionClient
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         if (teamIds.length === 0) {
@@ -289,7 +296,7 @@ export class PostgresGroupRepository
             tx ?? PostgresUse.PERSONS_READ,
             `SELECT team_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE team_id = ANY($1)`,
             [teamIds],
-            'fetchGroupTypesByTeamIds'
+            queryTag('fetchGroupTypesByTeamIds', callerTag)
         )
 
         const response: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
@@ -324,12 +331,15 @@ export class PostgresGroupRepository
         projectId: ProjectId,
         groupType: string,
         index: number,
+        createdAt: DateTime,
         tx?: TransactionClient
     ): Promise<[GroupTypeIndex | null, boolean]> {
         if (index < 0 || index >= MAX_GROUP_TYPES_PER_TEAM) {
             return [null, false]
         }
 
+        // created_at is stamped from the triggering event's timestamp so historical imports don't get a
+        // wall-clock date that postdates their events — HogQL masks $group_N for events older than this.
         const insertGroupTypeResult = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
             `
@@ -343,12 +353,12 @@ export class PostgresGroupRepository
             UNION
             SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
             `,
-            [teamId, projectId, groupType, index, new Date()],
+            [teamId, projectId, groupType, index, createdAt.toISO()],
             'insertGroupType'
         )
 
         if (insertGroupTypeResult.rows.length == 0) {
-            return await this.insertGroupType(teamId, projectId, groupType, index + 1, tx)
+            return await this.insertGroupType(teamId, projectId, groupType, index + 1, createdAt, tx)
         }
 
         const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]

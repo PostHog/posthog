@@ -12,6 +12,8 @@ use crate::{
 };
 
 const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
+const FINISH_UPLOAD_ERROR_MESSAGE: &str =
+    "Failed to finalize symbol upload; maps were not attached";
 
 #[derive(Error, Debug)]
 pub enum UploadError {
@@ -219,7 +221,7 @@ fn finish_upload(content_hashes: HashMap<String, String>) -> Result<(), UploadEr
             |req| req.json(&request),
         )
     })
-    .map_err(|e| UploadError::Other(anyhow::anyhow!(e).context("Failed to finish upload")))?;
+    .map_err(|e| UploadError::Other(anyhow::anyhow!(e).context(FINISH_UPLOAD_ERROR_MESSAGE)))?;
 
     Ok(())
 }
@@ -347,17 +349,128 @@ where
 {
     let mut attempt = 0;
     let mut last_error: Option<E> = None;
-    for delay in iterable {
+    let mut delays = iterable.peekable();
+    while let Some(delay) = delays.next() {
         match func(attempt) {
             Ok(res) => return Ok(res),
             Err(e) => {
                 last_error = Some(e);
                 attempt += 1;
                 warn!("Operation failed: {last_error:?}");
-                warn!("Retrying in {delay:?}, attempt {attempt}");
-                sleep(delay);
+                if delays.peek().is_some() {
+                    warn!("Retrying in {delay:?}, attempt {attempt}");
+                    sleep(delay);
+                }
             }
         }
     }
     Err(last_error.expect("retry called with empty iterator - max_attempts must be > 0"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        fmt::Debug,
+        sync::{Arc, Mutex},
+    };
+    use tracing::{field::Visit, Event, Subscriber};
+    use tracing_subscriber::{layer::Context, prelude::*, registry::Registry, Layer};
+
+    #[derive(Default)]
+    struct MessageVisitor {
+        message: Option<String>,
+    }
+
+    impl Visit for MessageVisitor {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn Debug) {
+            if field.name() == "message" {
+                self.message = Some(format!("{value:?}"));
+            }
+        }
+
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            if field.name() == "message" {
+                self.message = Some(value.to_string());
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct RecordingLayer {
+        messages: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl<S: Subscriber> Layer<S> for RecordingLayer {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let mut visitor = MessageVisitor::default();
+            event.record(&mut visitor);
+            if let Some(message) = visitor.message {
+                self.messages.lock().unwrap().push(message);
+            }
+        }
+    }
+
+    fn capture_tracing_messages<F: FnOnce()>(f: F) -> Vec<String> {
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = Registry::default().with(RecordingLayer {
+            messages: messages.clone(),
+        });
+
+        tracing::subscriber::with_default(subscriber, f);
+
+        let captured = messages.lock().unwrap().clone();
+        captured
+    }
+
+    #[test]
+    fn retry_does_not_log_retry_after_final_attempt() {
+        let messages = capture_tracing_messages(|| {
+            let result: Result<(), &str> = retry(
+                vec![Duration::ZERO, Duration::ZERO, Duration::ZERO].into_iter(),
+                |_| Err("still broken"),
+            );
+
+            assert_eq!(result.unwrap_err(), "still broken");
+        });
+
+        let retry_logs = messages
+            .iter()
+            .filter(|message| message.contains("Retrying in"))
+            .count();
+
+        assert_eq!(retry_logs, 2);
+    }
+
+    #[test]
+    fn finish_upload_failure_message_names_unattached_maps() {
+        crate::invocation_context::INVOCATION_CONTEXT.get_or_init(|| {
+            let config = crate::invocation_context::InvocationConfig {
+                api_key: "phx_test".to_string(),
+                host: "not a valid url".to_string(),
+                env_id: "1".to_string(),
+                skip_ssl: false,
+                rate_limit: 1000,
+            };
+            let client = crate::api::client::PHClient::from_config(config.clone()).unwrap();
+            crate::invocation_context::InvocationContext::new(config, client)
+        });
+
+        let err = finish_upload(HashMap::from([(
+            "symbol-set-id".to_string(),
+            "content-hash".to_string(),
+        )]))
+        .unwrap_err();
+        let UploadError::Other(err) = err else {
+            panic!("expected UploadError::Other");
+        };
+
+        let chain = err.chain().map(ToString::to_string).collect::<Vec<_>>();
+        assert!(
+            chain.iter().any(
+                |message| message == "Failed to finalize symbol upload; maps were not attached"
+            ),
+            "finish_upload error chain should explain that maps were not attached, got {chain:?}"
+        );
+    }
 }

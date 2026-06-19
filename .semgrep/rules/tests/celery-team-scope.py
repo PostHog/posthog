@@ -1,8 +1,7 @@
 # Test cases for celery-team-scope semgrep rule
 
 from celery import shared_task
-
-from posthog.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from posthog.models.scoping import with_team_scope
 
 

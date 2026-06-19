@@ -1,1 +1,1 @@
-0001_migrate_models
+0002_migrate_product_analytics_models

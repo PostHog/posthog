@@ -9,6 +9,7 @@ from products.tasks.backend.stream.redis_stream import (
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
     TaskRunStreamSequenceGap,
+    _stream_id_sort_key,
 )
 
 
@@ -104,5 +105,64 @@ async def test_mark_complete_is_idempotent() -> None:
         await redis_stream.mark_complete()
 
         assert await _read_stream_events(redis_stream) == [{"type": "STREAM_STATUS", "status": "complete"}]
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.parametrize(
+    "left,right,expected_less",
+    [
+        ("5-0", "10-0", True),
+        ("10-0", "5-0", False),
+        ("10-0", "10-1", True),
+        ("10-1", "10-0", False),
+        ("10-5", "10-5", False),
+        ("not-an-id", "10-0", True),
+    ],
+)
+def test_stream_id_sort_key_orders_ids(left: str, right: str, expected_less: bool) -> None:
+    assert (_stream_id_sort_key(left) < _stream_id_sort_key(right)) is expected_less
+
+
+@pytest.mark.asyncio
+async def test_get_length_and_first_stream_id() -> None:
+    redis_stream = _new_stream()
+    try:
+        assert await redis_stream.get_length() == 0
+        assert await redis_stream.get_first_stream_id() is None
+
+        first_id = await redis_stream.write_event({"type": "a"})
+        await redis_stream.write_event({"type": "b"})
+
+        assert await redis_stream.get_length() == 2
+        assert await redis_stream.get_first_stream_id() == first_id
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_resume_point_trimmed_only_when_cursor_predates_surviving_entries() -> None:
+    redis_stream = _new_stream()
+    try:
+        first_id = await redis_stream.write_event({"type": "a"})
+        second_id = await redis_stream.write_event({"type": "b"})
+
+        # Special-case cursors and a still-present cursor are never gaps.
+        assert await redis_stream.resume_point_trimmed("0") is False
+        assert await redis_stream.resume_point_trimmed("") is False
+        assert await redis_stream.resume_point_trimmed(first_id) is False
+        assert await redis_stream.resume_point_trimmed(second_id) is False
+
+        # A cursor older than the oldest surviving entry means events were trimmed.
+        assert await redis_stream.resume_point_trimmed("1-0") is True
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_resume_point_trimmed_false_when_stream_empty() -> None:
+    redis_stream = _new_stream()
+    try:
+        assert await redis_stream.resume_point_trimmed("123-0") is False
     finally:
         await redis_stream.delete_stream()

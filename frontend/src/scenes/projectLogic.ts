@@ -1,11 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { identifierToHuman } from 'lib/utils/strings'
 
 import { ProjectType } from '~/types'
 
@@ -20,6 +22,10 @@ export const projectLogic = kea<projectLogicType>([
         deleteProject: (project: ProjectType) => ({ project }),
         deleteProjectSuccess: true,
         deleteProjectFailure: true,
+        guardPendingDeletion: (pathname: string, isPendingDeletion: boolean | null | undefined) => ({
+            pathname,
+            isPendingDeletion,
+        }),
         moveProject: (project: ProjectType, organizationId: string) => ({ project, organizationId }),
     }),
     connect(() => ({
@@ -87,12 +93,10 @@ export const projectLogic = kea<projectLogicType>([
                     return patchedProject
                 },
                 createProject: async ({ name }: { name: string }) => {
-                    try {
-                        return await api.create('api/projects/', { name })
-                    } catch {
-                        lemonToast.error('Failed to create project')
-                        return values.currentProject
-                    }
+                    // Let failures (e.g. a 403 for non-admins) propagate: kea-loaders surfaces the API
+                    // error toast and clears the loading state, and createProjectSuccess never fires — so we
+                    // don't switch into a project that wasn't created or leave the modal stuck open.
+                    return await api.create('api/projects/', { name })
                 },
             },
         ],
@@ -122,10 +126,25 @@ export const projectLogic = kea<projectLogicType>([
                     : null,
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 ApiConfig.setCurrentProjectId(currentProject.id)
+            }
+            // Lock the project out once deletion has been initiated (covers full page loads / reloads)
+            actions.guardPendingDeletion(router.values.location.pathname, currentProject?.is_pending_deletion)
+        },
+        locationChanged: ({ pathname }) => {
+            actions.guardPendingDeletion(pathname, values.currentProject?.is_pending_deletion)
+        },
+        guardPendingDeletion: ({ pathname, isPendingDeletion }) => {
+            // projectBased scenes are served under a /project/:id prefix, so match the lockout path by suffix.
+            const onLockoutScreen = pathname.endsWith(urls.projectPendingDeletion())
+            if (isPendingDeletion && !onLockoutScreen) {
+                router.actions.replace(urls.projectPendingDeletion())
+            } else if (!isPendingDeletion && onLockoutScreen) {
+                // Reached the lockout screen for a project that isn't being deleted (e.g. switched projects) — send home
+                router.actions.replace(urls.projectHomepage())
             }
         },
         deleteProject: async ({ project }) => {
@@ -139,9 +158,9 @@ export const projectLogic = kea<projectLogicType>([
             }
         },
         deleteProjectSuccess: () => {
-            lemonToast.success('Project deletion started. You will receive an email when complete.')
-            // Can't stay on current page since project is being deleted
-            window.location.href = '/'
+            lemonToast.success('Project deletion has been initiated')
+            // Full reload so the bootstrap context carries is_pending_deletion and lands on the lockout screen
+            window.location.href = urls.projectPendingDeletion()
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {

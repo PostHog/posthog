@@ -39,7 +39,7 @@ class TestEventFilterConfigAPI(APIBaseTest):
         self.assertFalse(EventFilterConfig.objects.filter(team=self.team).exists())
 
     def test_list_returns_existing_config(self):
-        tree = _cond()
+        tree = _or(_cond())
         EventFilterConfig.objects.create(team=self.team, mode=EventFilterMode.LIVE, filter_tree=tree)
 
         response = self.client.get(self._url())
@@ -89,7 +89,7 @@ class TestEventFilterConfigAPI(APIBaseTest):
 
     def test_create_upserts_filter_tree(self):
         seed = self._seed_config()
-        new_tree = _cond("distinct_id", "exact", "user-1")
+        new_tree = _or(_cond("distinct_id", "exact", "user-1"))
         new_test_cases = [
             {"distinct_id": "user-1", "expected_result": "drop"},
             {"distinct_id": "someone-else", "expected_result": "ingest"},
@@ -149,11 +149,12 @@ class TestEventFilterConfigAPI(APIBaseTest):
         self.assertEqual(EventFilterConfig.objects.filter(team=self.team).count(), 1)
 
     def test_create_prunes_filter_tree_on_save(self):
-        tree = _and(_cond())
+        # Empty/single-child nested groups are pruned, but the root stays a group.
+        tree = _or(_and(_cond()), {"type": "and", "children": []})
         response = self.client.post(self._url(), data={"filter_tree": tree}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["filter_tree"], _cond())
+        self.assertEqual(response.json()["filter_tree"], _or(_cond()))
 
     def test_create_timestamps_are_read_only(self):
         response = self.client.post(

@@ -34,9 +34,10 @@ import { Spinner, lemonToast } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { isNotNil } from 'lib/utils/guards'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
+import { onboardingVariantChrome, resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -376,11 +377,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     return 'minimal'
                 }
                 if (sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated) {
-                    if (
-                        activeSceneId === Scene.Onboarding &&
-                        featureFlags[FEATURE_FLAGS.ONBOARDING_NAVBAR] === 'hide'
-                    ) {
-                        return 'none'
+                    if (activeSceneId === Scene.Onboarding) {
+                        // A flow variant can opt to own the whole viewport (no navbar); the
+                        // existing ONBOARDING_NAVBAR='hide' flag stays as a separate override.
+                        const variantHidesNavbar =
+                            onboardingVariantChrome(resolveOnboardingFlowVariant(featureFlags)) === 'none'
+                        if (variantHidesNavbar || featureFlags[FEATURE_FLAGS.ONBOARDING_NAVBAR] === 'hide') {
+                            return 'none'
+                        }
                     }
                     return 'minimal'
                 }
@@ -604,10 +608,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               }
                             : null,
                         {
-                            identifier: 'LLMAnalytics',
+                            identifier: 'AIObservability',
                             label: 'AI observability',
                             icon: <IconLlmAnalytics />,
-                            to: urls.llmAnalyticsDashboard(),
+                            to: urls.aiObservabilityDashboard(),
                             tooltipDocLink: 'https://posthog.com/docs/ai-observability/dashboard',
                         },
                         featureFlags[FEATURE_FLAGS.MCP_ANALYTICS]

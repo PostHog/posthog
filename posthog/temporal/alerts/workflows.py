@@ -37,6 +37,14 @@ with temporalio.workflow.unsafe.imports_passed_through():
 
     from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflowInputs
 
+# Each activity's retry budget must exhaust inside the child workflow's execution
+# timeout: a server-side workflow timeout skips workflow code entirely, so the SLO
+# completion would never be emitted and the alert's next_check_at would never advance.
+# Compound worst cases (e.g. a slow prepare pushing evaluate past the envelope) can
+# still hit the server-side timeout; the cap guarantees no single activity does.
+CHECK_ALERT_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
+ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT = dt.timedelta(minutes=12)
+
 
 @temporalio.workflow.defn(name="schedule-due-alert-checks")
 class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
@@ -88,7 +96,7 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                 ),
                 id=f"check-alert-{alert.alert_id}",
                 parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=dt.timedelta(minutes=15),
+                execution_timeout=CHECK_ALERT_EXECUTION_TIMEOUT,
             )
             tasks.append(task)
 
@@ -137,6 +145,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 prepare_alert,
                 PrepareAlertActivityInputs(alert_id=inputs.alert_id),
                 start_to_close_timeout=dt.timedelta(minutes=2),
+                schedule_to_close_timeout=ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
                 retry_policy=ALERT_PREPARE_RETRY_POLICY,
             )
 
@@ -149,6 +158,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 evaluate_alert,
                 EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                schedule_to_close_timeout=ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=ALERT_EVALUATE_RETRY_POLICY,
             )
@@ -167,6 +177,7 @@ class CheckAlertWorkflow(PostHogWorkflow):
                         breaches=evaluation.breaches,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=5),
+                    schedule_to_close_timeout=ALERT_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
                     retry_policy=ALERT_NOTIFY_RETRY_POLICY,
                 )
 

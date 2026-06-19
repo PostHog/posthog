@@ -4,7 +4,6 @@ from django.db.models import Count, Q, QuerySet
 
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.models import Organization
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -14,6 +13,7 @@ from posthog.sync import database_sync_to_async
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 

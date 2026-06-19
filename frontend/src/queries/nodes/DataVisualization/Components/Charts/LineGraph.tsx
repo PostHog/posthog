@@ -1,8 +1,6 @@
 // TODO: Move the below scss to somewhere more common
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
-import 'chartjs-adapter-dayjs-3'
-
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
@@ -12,7 +10,8 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonTable, lemonToast } from '@posthog/lemon-ui'
+import { LemonTable } from '@posthog/lemon-ui'
+import { createXAxisTickCallback } from '@posthog/quill-charts'
 
 import {
     ActiveElement,
@@ -31,10 +30,12 @@ import {
 import { resolveVariableColor } from 'lib/charts/utils/color'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { createXAxisTickCallback } from 'lib/hog-charts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
-import { hexToRGBA, uuid } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { hexToRGBA } from 'lib/utils/colors'
+import { uuid } from 'lib/utils/dom'
 import { unpinTooltip, useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -44,6 +45,15 @@ import { ChartDisplayType, GraphType } from '~/types'
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { lineGraphLogic } from './lineGraphLogic'
+import { SqlLineGraph } from './SqlLineGraph'
+import {
+    AREA_FILL_OPACITY,
+    canRenderSqlLineGraph,
+    capYSeriesData,
+    exceedsMaxSeries,
+    isAreaSeries,
+    warnTooManySeries,
+} from './sqlLineGraphAdapter'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
@@ -61,10 +71,6 @@ const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings 
     }
 
     return GraphType.Line
-}
-
-const isAreaSeries = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): boolean => {
-    return chartType === ChartDisplayType.ActionsAreaGraph || settings?.display?.displayType === 'area'
 }
 
 const axisLabelFont = {
@@ -135,8 +141,7 @@ export type LineGraphProps = {
     className?: string
 }
 
-// LineGraph displays a graph using either x and y data or series breakdown data
-export const LineGraph = ({
+const LegacyLineGraph = ({
     xData,
     yData,
     presetChartHeight,
@@ -168,21 +173,13 @@ export const LineGraph = ({
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
     const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
 
-    const MAX_SERIES = 200
-    const ySeriesData = useMemo(() => {
-        if (!yData) {
-            return null
+    useEffect(() => {
+        if (exceedsMaxSeries(yData, dashboardId)) {
+            warnTooManySeries(yData!.length)
         }
-        if (yData.length > MAX_SERIES) {
-            if (!dashboardId) {
-                lemonToast.warning(
-                    `This breakdown has too many series (${yData.length}). Only showing top ${MAX_SERIES} series in the chart. All series are still available in the table below.`
-                )
-            }
-            return yData.slice(0, MAX_SERIES)
-        }
-        return yData
     }, [yData, dashboardId])
+
+    const ySeriesData = useMemo(() => capYSeriesData(yData), [yData])
 
     const datasets = useMemo(() => {
         if (!ySeriesData) {
@@ -192,7 +189,7 @@ export const LineGraph = ({
         return ySeriesData.map(({ data: seriesData, settings, ...rest }, index) => {
             const seriesColor = settings?.display?.color ?? getSeriesColor(index)
             const hasAreaFill = isAreaSeries(visualizationType, settings)
-            let backgroundColor = hasAreaFill ? hexToRGBA(seriesColor, 0.5) : seriesColor
+            let backgroundColor = hasAreaFill ? hexToRGBA(seriesColor, AREA_FILL_OPACITY) : seriesColor
 
             // Dim non-hovered bars in stacked bar charts when shift is pressed
             if (isHighlightBarMode && hoveredDatasetIndex !== null && index !== hoveredDatasetIndex) {
@@ -729,4 +726,15 @@ export const LineGraph = ({
             <canvas ref={canvasRef} />
         </div>
     )
+}
+
+export const LineGraph = (props: LineGraphProps): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]
+
+    if (newChartsEnabled && canRenderSqlLineGraph(props)) {
+        return <SqlLineGraph {...props} />
+    }
+
+    return <LegacyLineGraph {...props} />
 }

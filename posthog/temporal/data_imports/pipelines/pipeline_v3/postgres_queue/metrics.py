@@ -47,3 +47,9 @@ RECOVERY_SWEEPS_TOTAL = Counter(
     "Total recovery sweeps executed",
     labelnames=["outcome"],
 )
+
+RUNS_RECONCILED_TOTAL = Counter(
+    "warehouse_pg_consumer_runs_reconciled_total",
+    "Runs whose ExternalDataJob was left non-terminal despite a failed queue batch and "
+    "was reconciled to Failed by the reconcile sweep",
+)

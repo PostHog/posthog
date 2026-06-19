@@ -13,7 +13,7 @@ const PROD_INTEREST_TO_PRODUCT: Record<WebsiteBrowsingHistoryProdInterest, Produ
     'error-tracking': ProductKey.ERROR_TRACKING,
     surveys: ProductKey.SURVEYS,
     'data-warehouse': ProductKey.DATA_WAREHOUSE,
-    'llm-analytics': ProductKey.LLM_ANALYTICS,
+    'llm-analytics': ProductKey.AI_OBSERVABILITY,
     workflows: ProductKey.WORKFLOWS,
     'revenue-analytics': null,
     logs: ProductKey.LOGS,

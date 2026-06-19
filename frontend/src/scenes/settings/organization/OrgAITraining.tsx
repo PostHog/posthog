@@ -8,6 +8,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { AI_TRAINING_URL } from './aiTrainingConstants'
+import { ORG_ADMIN_REQUIRED_TOOLTIP } from './organizationSettingsConstants'
 
 function AITrainingDescription({ isHipaa, isLocked }: { isHipaa: boolean; isLocked: boolean }): JSX.Element {
     if (isHipaa) {
@@ -50,7 +51,9 @@ export function OrganizationAITrainingOptOut(): JSX.Element {
         ? 'HIPAA organizations are always opted out of AI training. Please contact us if this needs to change.'
         : isLocked
           ? 'Please contact us to change this setting.'
-          : restrictionReason || undefined
+          : restrictionReason
+            ? ORG_ADMIN_REQUIRED_TOOLTIP
+            : undefined
 
     const checked = !isHipaa && !!currentOrganization?.is_ai_training_opted_in
 

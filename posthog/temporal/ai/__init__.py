@@ -5,29 +5,14 @@ from posthog.temporal.ai.chat_agent import (
     process_chat_agent_activity,
     process_conversation_activity,
 )
-from posthog.temporal.ai.posthog_code_slack_interactivity import (
+from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
+from posthog.temporal.ai.slack_app import SLACK_APP_ACTIVITIES
+from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
     PostHogCodeSlackTerminateTaskWorkflow,
     process_posthog_code_terminate_task_activity,
 )
-from posthog.temporal.ai.posthog_code_slack_mention import (
-    PostHogCodeSlackMentionWorkflow,
-    block_posthog_code_task_if_no_personal_github_activity,
-    cascade_posthog_code_repository_activity,
-    classify_posthog_code_task_needs_repo_activity,
-    collect_posthog_code_thread_messages_activity,
-    create_posthog_code_routing_rule_activity,
-    create_posthog_code_task_for_repo_activity,
-    discover_posthog_code_repository_via_agent_activity,
-    forward_posthog_code_followup_activity,
-    handle_posthog_code_rules_command_activity,
-    post_posthog_code_internal_error_activity,
-    post_posthog_code_no_repos_activity,
-    post_posthog_code_picker_timeout_activity,
-    post_posthog_code_repo_picker_activity,
-    resolve_posthog_code_slack_user_activity,
-    select_posthog_code_repository_activity,
-)
-from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
+from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
+from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
 from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflow,
     SlackConversationRunnerWorkflowInputs,
@@ -47,6 +32,21 @@ from .sync_vectors import (
     get_approximate_actions_count,
 )
 
+# PostHog Code Slack workflows live on TASKS_TASK_QUEUE alongside ProcessTaskWorkflow,
+# the worker they hand off to once a repo is picked. The subset is kept exported so
+# start_temporal_worker can register it on that queue without pulling in unrelated AI
+# workflows.
+POSTHOG_CODE_SLACK_WORKFLOWS = [
+    PostHogCodeSlackMentionWorkflow,
+    PostHogCodeSlackMentionCommandWorkflow,
+    PostHogCodeSlackTerminateTaskWorkflow,
+]
+
+POSTHOG_CODE_SLACK_ACTIVITIES = [
+    *SLACK_APP_ACTIVITIES,
+    process_posthog_code_terminate_task_activity,
+]
+
 AI_WORKFLOWS = [
     SyncVectorsWorkflow,
     AssistantConversationRunnerWorkflow,
@@ -54,8 +54,6 @@ AI_WORKFLOWS = [
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
-    PostHogCodeSlackMentionWorkflow,
-    PostHogCodeSlackTerminateTaskWorkflow,
     AnomalyInvestigationWorkflow,
 ]
 
@@ -68,22 +66,6 @@ AI_ACTIVITIES = [
     process_research_agent_activity,
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
-    resolve_posthog_code_slack_user_activity,
-    handle_posthog_code_rules_command_activity,
-    collect_posthog_code_thread_messages_activity,
-    create_posthog_code_routing_rule_activity,
-    cascade_posthog_code_repository_activity,
-    discover_posthog_code_repository_via_agent_activity,
-    select_posthog_code_repository_activity,
-    classify_posthog_code_task_needs_repo_activity,
-    post_posthog_code_no_repos_activity,
-    post_posthog_code_repo_picker_activity,
-    block_posthog_code_task_if_no_personal_github_activity,
-    create_posthog_code_task_for_repo_activity,
-    forward_posthog_code_followup_activity,
-    post_posthog_code_picker_timeout_activity,
-    post_posthog_code_internal_error_activity,
-    process_posthog_code_terminate_task_activity,
     investigate_anomaly_activity,
 ]
 

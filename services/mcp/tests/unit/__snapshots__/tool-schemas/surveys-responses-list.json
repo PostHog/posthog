@@ -1,0 +1,54 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "exclude_archived": {
+            "default": false,
+            "description": "When true, exclude responses that have been archived via the archive_response endpoint.",
+            "type": "boolean"
+        },
+        "id": {
+            "description": "A UUID string identifying this survey.",
+            "type": "string"
+        },
+        "limit": {
+            "default": 100,
+            "description": "Maximum number of rows to return (1-500). Defaults to 100.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Number of rows to skip for pagination. Combine with `limit` and the `has_more` field to paginate.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "question_id": {
+            "description": "If set, only return rows where this question has a non-empty answer, and only include that question's answer in each row. Required when using score_lte or score_gte.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "score_gte": {
+            "description": "Filter to rows where the rating answer for `question_id` is >= this value. Common use: NPS promoters with score_gte=9. Requires question_id.",
+            "type": "number"
+        },
+        "score_lte": {
+            "description": "Filter to rows where the rating answer for `question_id` is <= this value. Common use: NPS detractors with score_lte=6. Requires question_id.",
+            "type": "number"
+        },
+        "since": {
+            "description": "Only return responses submitted on or after this ISO 8601 timestamp.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "until": {
+            "description": "Only return responses submitted on or before this ISO 8601 timestamp.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

@@ -21,8 +21,6 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     outputFormat?: 'optimized' | 'json'
     /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new#q=...`. */
     urlPrefix?: string
-    /** When set, the tool is only available in this MCP version (1 = v1 only, 2 = v2 only). */
-    mcpVersion?: number
 }
 
 function buildInsightUrl(
@@ -42,7 +40,6 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
     return () => ({
         name: config.name,
         schema: config.schema,
-        ...(config.mcpVersion !== undefined ? { mcpVersion: config.mcpVersion } : {}),
         handler: async (context: Context, rawParams: z.infer<T>) => {
             const projectId = await context.stateManager.getProjectId()
             const params = config.schema.parse(rawParams)
@@ -65,6 +62,12 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
                         break
                     case 'TrendsQuery':
                         data = await queryClient.trendsActors({ query })
+                        break
+                    case 'PathsQuery':
+                        data = await queryClient.pathsActors({ query })
+                        break
+                    case 'RetentionQuery':
+                        data = await queryClient.retentionActors({ query })
                         break
                     default:
                         throw new Error(`Unsupported source kind for actors query: ${sourceKind}`)

@@ -1,3 +1,4 @@
+import gc
 import os
 
 # Django Imports
@@ -33,11 +34,13 @@ def _ensure_post_fork_init():
     if _post_fork_initialized:
         return
 
+    from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
     from posthog.continuous_profiling import start_continuous_profiling
     from posthog.otel_instrumentation import initialize_otel
 
     start_continuous_profiling()
     initialize_otel()
+    prewarm_query_cache_cluster_in_background()
     _post_fork_initialized = True
 
 
@@ -98,4 +101,20 @@ def task_run_event_ingest_wrapper(func):
     return inner
 
 
-application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))
+# Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
+# pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
+# collections skip them — which also maximizes copy-on-write sharing when a prototype
+# process forks workers. See docs/internal/django-startup-time.md.
+gc.disable()
+try:
+    application = lifetime_wrapper(self_capture_wrapper(task_run_event_ingest_wrapper(get_asgi_application())))
+
+    # Resolve the URLconf now, at module load — the lazy API router otherwise builds on
+    # each worker's first live request (probes short-circuit in middleware and never warm
+    # it). See the matching block in wsgi.py for the full reasoning.
+    from django.urls import get_resolver
+
+    _ = get_resolver().url_patterns  # property access triggers the build
+finally:
+    gc.freeze()
+    gc.enable()

@@ -4,10 +4,6 @@ export function getDisplayType(query: TrendsQuery | undefined): ChartDisplayType
     return query?.trendsFilter?.display || 'ActionsLineGraph'
 }
 
-export function isBarChart(displayType: ChartDisplayType): boolean {
-    return displayType === 'ActionsBar' || displayType === 'ActionsBarValue'
-}
-
 export function formatNumber(value: number): string {
     if (value >= 1_000_000) {
         return `${(value / 1_000_000).toFixed(1)}M`
@@ -20,6 +16,22 @@ export function formatNumber(value: number): string {
 
 export function formatPercent(value: number): string {
     return `${(value * 100).toFixed(1)}%`
+}
+
+/** Format a duration given in milliseconds as the two most-significant units (e.g. `1d 3h`, `34m 43s`). */
+export function formatDuration(ms: number): string {
+    if (!isFinite(ms) || ms <= 0) {
+        return '0s'
+    }
+    const totalSeconds = Math.round(ms / 1000)
+    const units: Array<[number, string]> = [
+        [Math.floor(totalSeconds / 86400), 'd'],
+        [Math.floor((totalSeconds % 86400) / 3600), 'h'],
+        [Math.floor((totalSeconds % 3600) / 60), 'm'],
+        [totalSeconds % 60, 's'],
+    ]
+    const parts = units.filter(([value]) => value > 0).map(([value, unit]) => `${value}${unit}`)
+    return parts.slice(0, 2).join(' ') || '0s'
 }
 
 // Only format strings that look like ISO dates — `new Date(...)` is permissive enough that
@@ -35,6 +47,17 @@ export function formatDate(dateStr: string): string {
         return dateStr
     }
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+export function formatTooltipDate(dateStr: string): string {
+    if (!ISO_DATE_PREFIX.test(dateStr)) {
+        return dateStr
+    }
+    const date = new Date(dateStr)
+    if (Number.isNaN(date.getTime())) {
+        return dateStr
+    }
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export function getSeriesLabel(item: { label?: string; action?: { name?: string } }, index: number): string {

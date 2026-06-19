@@ -14,6 +14,9 @@ import type { CrawlModeEnumApi, KnowledgeSourceApi } from './generated/api.schem
 export type { KnowledgeSourceApi as KnowledgeSourceDTOApi }
 
 // TODO: replace with generated types once the backend exposes URL source serializers
+export type RefreshIntervalValue = 'manual' | '1h' | '6h' | '24h' | '7d'
+export type RefreshIntervalOption = { value: RefreshIntervalValue; label: string }
+
 export interface CreateUrlSourcePayload {
     name: string
     url: string
@@ -23,6 +26,7 @@ export interface CreateUrlSourcePayload {
     exclude_globs?: string[]
     max_pages?: number
     max_depth?: number
+    refresh_interval?: RefreshIntervalValue
 }
 
 export interface UpdateSourcePayload {
@@ -34,6 +38,7 @@ export interface UpdateSourcePayload {
     exclude_globs?: string[]
     max_pages?: number
     max_depth?: number
+    refresh_interval?: RefreshIntervalValue
 }
 
 export async function listSources(): Promise<KnowledgeSourceApi[]> {

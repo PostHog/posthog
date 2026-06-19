@@ -3,7 +3,7 @@ import '../../styles/tailwind.css'
 
 import { createRoot } from 'react-dom/client'
 
-import { type LLMCostsData, LLMCostsView } from 'products/llm_analytics/mcp/apps'
+import { type LLMCostsData, LLMCostsView } from 'products/ai_observability/mcp/apps'
 
 import { AppWrapper } from '../../components/AppWrapper'
 

@@ -31,6 +31,10 @@
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck
 
+- image: cymbal-resolution
+  dockerfile: ./rust/Dockerfile
+  project: 8dq0xkk0ck
+
 - image: embedding-worker
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck
@@ -46,6 +50,12 @@
   features: warm-flags-cache
   # Adds redis-cli + awscli for operator use (see bin/rust-jumphost).
   target: runtime-jumphost
+
+- image: flags-cache-builder
+  bin: flags-cache-builder
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+  features: flags-cache-builder
 
 - image: flags-consumer
   dockerfile: ./rust/Dockerfile

@@ -22,7 +22,6 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
@@ -34,6 +33,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.types import InsightActorsQueryNode
 
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
 

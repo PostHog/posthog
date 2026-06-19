@@ -163,11 +163,20 @@ class PostgresProducer:
         )
 
         self._batches_sent += 1
-        self._logger.debug(
-            "batch_inserted_to_postgres_queue",
-            batch_index=batch_result.batch_index,
-            is_final_batch=is_final_batch,
-        )
+        if is_final_batch:
+            self._logger.info(
+                "batch_inserted_to_postgres_queue",
+                batch_index=batch_result.batch_index,
+                is_final_batch=True,
+                total_batches=total_batches,
+                total_rows=total_rows,
+            )
+        else:
+            self._logger.debug(
+                "batch_inserted_to_postgres_queue",
+                batch_index=batch_result.batch_index,
+                is_final_batch=False,
+            )
 
     def flush(self, timeout: Optional[float] = None) -> int:
         """No-op — inserts are durable on commit. Returns count of batches sent since last flush."""

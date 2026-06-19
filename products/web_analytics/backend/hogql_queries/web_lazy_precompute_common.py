@@ -8,9 +8,13 @@ session-pad / UTC-day helpers. Keeping a single source of truth avoids
 the two paths drifting apart.
 """
 
+import json
+import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
+
+from django.conf import settings
 
 import structlog
 import posthoganalytics
@@ -25,13 +29,44 @@ from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
 
-# Hourly UTC bucketing TTL schedule. Today gets 15 min so dashboards stay
-# fresh; older buckets get longer TTLs so we don't keep recomputing them.
+# Fields stripped from the query payload before hashing.
+# These don't influence which precompute job_id a query would map to —
+# `useWebAnalyticsPrecompute` is just the opt-in toggle, `modifiers` is
+# HogQL execution hints applied after the fact, and the rest are
+# metadata / pagination knobs applied at read time.
+_FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
+    {
+        "useWebAnalyticsPrecompute",
+        "modifiers",
+        "version",
+        "tags",
+        "response",
+        "limit",
+        "offset",
+        "limitBy",
+    }
+)
+
+# Hourly UTC bucketing TTL schedule. Two jobs in one:
+#
+# 1. Freshness — today gets 2h (recomputing it more often buys nothing: the ~6h
+#    HogQL result cache already fronts these queries, so a cache hit never reads
+#    the precompute). Older windows get progressively longer TTLs.
+# 2. Job sizing — `split_ranges_by_ttl` merges *consecutive days with the same
+#    TTL* into one job. Distinct per-week TTLs therefore force weekly job
+#    boundaries, so a 31-day warm splits into ≤7-day jobs instead of one ~24-day
+#    block. That keeps each per-day INSERT's events↔sessions scan bounded — the
+#    24-day merge is what drove the multi-hundred-million-row scans that OOM the
+#    insert on very high-traffic teams.
 LAZY_TTL_SECONDS: dict[str, int] = {
-    "0d": 15 * 60,
-    "1d": 60 * 60,
-    "7d": 24 * 60 * 60,
-    "default": 7 * 24 * 60 * 60,
+    "0d": 2 * 60 * 60,  # today
+    "1d": 60 * 60,  # yesterday
+    "7d": 24 * 60 * 60,  # days 2–7   → one ~6d job
+    "14d": 2 * 24 * 60 * 60,  # days 8–14  → one 7d job
+    "21d": 4 * 24 * 60 * 60,  # days 15–21 → one 7d job
+    "28d": 7 * 24 * 60 * 60,  # days 22–28 → one 7d job
+    "35d": 10 * 24 * 60 * 60,  # days 29–35 → one 7d job (covers the tail of a 31d warm)
+    "default": 14 * 24 * 60 * 60,  # days 36+
 }
 
 # MVP user-filter allowlist: only an EventPropertyFilter on `$host` with
@@ -66,6 +101,12 @@ class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
 
 
 class PerQueryOptInNotSet(LazyPrecomputeIneligible):
+    pass
+
+
+class PerQueryOptedOut(LazyPrecomputeIneligible):
+    """Unrestricted team where the user explicitly turned precompute off."""
+
     pass
 
 
@@ -139,6 +180,37 @@ def is_org_feature_flag_enabled(team: Team) -> bool:
     )
 
 
+def is_precompute_unrestricted_for_team(team: Team) -> bool:
+    """Whether a team may precompute *any* web analytics query.
+
+    Unrestricted teams bypass the single-`$host`-exact filter-shape gate (any
+    property filter becomes a distinct cache key) and treat the per-query toggle
+    as opt-out rather than opt-in. Driven by the dedicated
+    `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` env-var setting.
+    """
+    return team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS
+
+
+def is_precompute_enabled_for_team(team: Team) -> bool:
+    """Whether a team should take the lazy precompute path.
+
+    Short-circuits on the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env-var
+    setting before evaluating the org rollout flag. The list is the shared
+    source of truth with the eager warmer, and — unlike the flag — does not rely
+    on local flag-definition evaluation, which isn't reliably available outside
+    the Django app (e.g. the Dagster warmer, where `only_evaluate_locally`
+    returned falsy and silently dropped the warmer onto the raw path).
+
+    Unrestricted teams are implicitly enrolled — membership in the unrestricted
+    list is enough, so a team need not appear in both settings.
+    """
+    if team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS:
+        return True
+    if is_precompute_unrestricted_for_team(team):
+        return True
+    return is_org_feature_flag_enabled(team)
+
+
 def check_common_eligibility(
     *,
     team: Team,
@@ -159,10 +231,17 @@ def check_common_eligibility(
     (org flag off, etc.) without touching `QueryDateRange.date_from()` —
     which can trigger a ClickHouse min-timestamp lookup for `-all` ranges.
     """
-    if not is_org_feature_flag_enabled(team):
+    if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()
 
-    if use_web_analytics_precompute is not True:
+    unrestricted = is_precompute_unrestricted_for_team(team)
+
+    # Unrestricted teams default to opt-out: only an explicit `False` rejects.
+    # Restricted teams keep the opt-in default (`None`/`False` both reject).
+    if unrestricted:
+        if use_web_analytics_precompute is False:
+            raise PerQueryOptedOut()
+    elif use_web_analytics_precompute is not True:
         raise PerQueryOptInNotSet()
 
     if not is_integer_timezone(team.timezone):
@@ -177,17 +256,22 @@ def check_common_eligibility(
     if modifiers and getattr(modifiers, "sessionsV2JoinMode", None) == SessionsV2JoinMode.UUID:
         raise SessionsV2UuidMode()
 
-    if len(properties) > 1:
-        raise TooManyFilters()
-    for prop in properties:
-        if not isinstance(prop, EventPropertyFilter):
-            raise NonEventPropertyFilter()
-        if prop.key not in SUPPORTED_USER_FILTER_KEYS:
-            raise UnsupportedFilterKey(prop.key)
-        if prop.operator != PropertyOperator.EXACT:
-            raise UnsupportedFilterOperator(prop.operator)
-        if not isinstance(prop.value, str) or not prop.value:
-            raise NonStringOrEmptyFilterValue()
+    # Unrestricted teams accept any filter shape — `host_filter_expr` translates
+    # arbitrary filters via `property_to_expr`, and each distinct filter set
+    # becomes a distinct cache key. Filters the INSERT can't express fail the
+    # job and fall back to the live query automatically.
+    if not unrestricted:
+        if len(properties) > 1:
+            raise TooManyFilters()
+        for prop in properties:
+            if not isinstance(prop, EventPropertyFilter):
+                raise NonEventPropertyFilter()
+            if prop.key not in SUPPORTED_USER_FILTER_KEYS:
+                raise UnsupportedFilterKey(prop.key)
+            if prop.operator != PropertyOperator.EXACT:
+                raise UnsupportedFilterOperator(prop.operator)
+            if not isinstance(prop.value, str) or not prop.value:
+                raise NonStringOrEmptyFilterValue()
 
     date_from, date_to = resolve_date_range()
     if date_from is None or date_to is None:
@@ -212,14 +296,43 @@ def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[La
         logger.info(f"{log_prefix}_eligible", team_id=team_id)
 
 
-def host_filter_expr(properties: list) -> ast.Expr:
-    """Translate the (gated-down-to-≤1) user filter list to an AST expression.
+def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:
+    """Stable hash over the user-facing inputs that would fragment a precompute cache key.
+
+    Emitted on the `web_analytics_query` and `lazy_computation.executed` structured
+    log lines so the two can be joined and queries-per-distinct-cache-key (`q/key`)
+    can be measured over multi-day windows — including for queries that didn't
+    go through the lazy precompute path (different eligibility gating, different
+    runner) but would have shared a job_id if they had.
+
+    Same hashing mechanic as `compute_query_hash` in lazy_computation_executor
+    (SHA-256 over canonical JSON). It is **not** numerically identical to the
+    precompute job's `query_hash` — that one hashes the post-build INSERT AST —
+    but it fragments along the same logical dimensions: query kind, property
+    filters (with values), date range, breakdown, conversion goal, sampling,
+    interval, compare filter, test-accounts toggle, and team timezone.
+    """
+    dumped = query.model_dump(mode="json", exclude_none=True, by_alias=False)
+    for key in _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS:
+        dumped.pop(key, None)
+    payload = {"query": dumped, "timezone": team_timezone}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def host_filter_expr(properties: list, *, team: Team) -> ast.Expr:
+    """Translate the user filter list to an AST expression.
 
     The returned AST is what `ensure_precomputed` hashes into the cache key —
     different filter values therefore become different precomputed jobs.
+
+    Unrestricted teams may pass arbitrary filters, so their list is translated
+    via the general `property_to_expr`. Restricted teams keep the hand-built
+    single-`$host` `equals` so their existing cache keys don't churn.
     """
     if not properties:
         return ast.Constant(value=True)
+    if is_precompute_unrestricted_for_team(team):
+        return property_to_expr(properties, team=team)
     host_filter = properties[0]
     assert isinstance(host_filter, EventPropertyFilter)
     return ast.Call(

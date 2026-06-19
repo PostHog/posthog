@@ -27,7 +27,9 @@ logger = structlog.get_logger(__name__)
     max_retries=2,
 )
 @with_team_scope()
-def compute_intent_clusters(self: Any, team_id: int, user_id: int | None = None) -> None:
+def compute_intent_clusters(
+    self: Any, team_id: int, user_id: int | None = None, lookback_days: int | None = None
+) -> None:
     """Recompute the intent cluster snapshot for a team.
 
     Flow:
@@ -35,6 +37,9 @@ def compute_intent_clusters(self: Any, team_id: int, user_id: int | None = None)
       2. Fetch the intent corpus, embed it, cluster it, build the snapshot.
       3. Persist the snapshot atomically and mark ``idle``.
       4. On failure, mark ``error`` with the message; rely on Celery retry.
+
+    ``lookback_days`` overrides the default window used by both the Postgres
+    session query and the joined ClickHouse query. ``None`` keeps the default.
     """
     # Imports inside the task so Celery autoimport doesn't pull heavy deps
     # (numpy/sklearn/httpx) at worker startup.
@@ -64,8 +69,12 @@ def compute_intent_clusters(self: Any, team_id: int, user_id: int | None = None)
         },
     )
 
+    corpus_kwargs: dict[str, int] = {}
+    if lookback_days is not None:
+        corpus_kwargs["lookback_days"] = lookback_days
+
     try:
-        records, intent_by_session = intent_clustering.fetch_intent_corpus(team)
+        records, intent_by_session = intent_clustering.fetch_intent_corpus(team, **corpus_kwargs)
         if not records:
             _save_empty_snapshot(snapshot)
             logger.info("mcp_analytics.intent_clusters.no_intents_found", team_id=team_id)
@@ -82,7 +91,9 @@ def compute_intent_clusters(self: Any, team_id: int, user_id: int | None = None)
 
         # Fetch ordered tool-call sequences for every session and aggregate
         # them per cluster so the UI can render a Sankey of agent journeys.
-        session_journeys = intent_clustering.fetch_session_journeys(team, list(intent_by_session.keys()))
+        session_journeys = intent_clustering.fetch_session_journeys(
+            team, list(intent_by_session.keys()), **corpus_kwargs
+        )
         intent_to_sessions: dict[str, list[str]] = {}
         for sid, intent_text in intent_by_session.items():
             intent_to_sessions.setdefault(intent_text, []).append(sid)

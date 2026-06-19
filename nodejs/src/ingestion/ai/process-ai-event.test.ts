@@ -244,6 +244,104 @@ describe('processAiEvent()', () => {
         })
     })
 
+    describe('OTel ingestion', () => {
+        it('extracts Pydantic AI tool calls from output message parts', () => {
+            event.properties = {
+                $ai_ingestion_source: 'otel',
+                'logfire.json_schema': '{}',
+                'gen_ai.response.model': 'testing_model',
+                'gen_ai.provider.name': 'openai',
+                'gen_ai.usage.input_tokens': 100,
+                'gen_ai.usage.output_tokens': 50,
+                'gen_ai.output.messages': JSON.stringify([
+                    {
+                        role: 'assistant',
+                        parts: [
+                            { type: 'text', content: 'Let me check.' },
+                            {
+                                type: 'tool_call',
+                                id: 'call_weather',
+                                name: 'get_weather',
+                                arguments: '{"city":"NYC"}',
+                            },
+                            {
+                                type: 'tool_call',
+                                id: 'call_docs',
+                                name: 'search_docs',
+                                arguments: '{"query":"weather"}',
+                            },
+                        ],
+                    },
+                ]),
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_output_choices).toEqual([
+                {
+                    role: 'assistant',
+                    parts: [
+                        { type: 'text', content: 'Let me check.' },
+                        {
+                            type: 'tool_call',
+                            id: 'call_weather',
+                            name: 'get_weather',
+                            arguments: '{"city":"NYC"}',
+                        },
+                        {
+                            type: 'tool_call',
+                            id: 'call_docs',
+                            name: 'search_docs',
+                            arguments: '{"query":"weather"}',
+                        },
+                    ],
+                },
+            ])
+            expect(result.properties!.$ai_tools_called).toBe('get_weather,search_docs')
+            expect(result.properties!.$ai_tool_call_count).toBe(2)
+        })
+
+        it('uses total output tokens for non-Gemini AI SDK v7 reasoning models', () => {
+            event.properties = {
+                $ai_ingestion_source: 'otel',
+                'ai.operationId': 'ai.streamText.doStream',
+                'gen_ai.provider.name': 'openai',
+                'gen_ai.response.model': 'o1-mini',
+                'gen_ai.usage.input_tokens': 0,
+                'gen_ai.usage.output_tokens': 250,
+                'ai.usage.outputTokenDetails.textTokens': 50,
+                'ai.usage.outputTokenDetails.reasoningTokens': 200,
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_reasoning_tokens).toBe(200)
+            expect(result.properties!.$ai_text_output_tokens).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0011, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0011, 6)
+        })
+
+        it('splits Gemini AI SDK v7 text and reasoning tokens before cost calculation', () => {
+            event.properties = {
+                $ai_ingestion_source: 'otel',
+                'ai.operationId': 'ai.streamText.doStream',
+                'gen_ai.provider.name': 'google',
+                'gen_ai.response.model': 'gemini-2.5-flash',
+                'gen_ai.usage.input_tokens': 0,
+                'gen_ai.usage.output_tokens': 250,
+                'ai.usage.outputTokenDetails.textTokens': 50,
+                'ai.usage.outputTokenDetails.reasoningTokens': 200,
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_text_output_tokens).toBe(50)
+            expect(result.properties!.$ai_reasoning_tokens).toBe(200)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.000625, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.000625, 6)
+        })
+    })
+
     describe('model matching', () => {
         it('matches exact model names', () => {
             const result = processAiEvent(event)
@@ -1174,7 +1272,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
         })
 
-        it('handles the seperate price for lage prompts', () => {
+        it('handles the separate price for lage prompts', () => {
             const event1 = {
                 ...event,
                 properties: {

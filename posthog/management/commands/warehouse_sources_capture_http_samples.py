@@ -37,10 +37,8 @@ from posthog.temporal.data_imports.sources.common.http.sampling import (
     CAPTURE_CONFIG_REDIS_KEY,
     CAPTURE_COUNTER_KEY_PREFIX,
     MAX_CONFIG_TTL_SECONDS,
-    WILDCARD,
-    CaptureConfig,
-    CaptureRule,
 )
+from posthog.temporal.data_imports.sources.common.sample_scrub import WILDCARD, CaptureConfig, CaptureRule
 
 _TTL_RE = re.compile(r"^(\d+)([smhd])$")
 

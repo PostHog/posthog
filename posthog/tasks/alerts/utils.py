@@ -6,6 +6,7 @@ from django.utils import timezone
 import pytz
 import structlog
 from dateutil.relativedelta import MO, relativedelta
+from pydantic import ValidationError as PydanticValidationError
 
 from posthog.schema import (
     AlertCalculationInterval,
@@ -23,7 +24,6 @@ from posthog.schema import (
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
-from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 from posthog.utils import get_from_dict_or_attr
 
@@ -59,12 +59,52 @@ def is_non_time_series_trend(query: TrendsQuery) -> bool:
     return display in NON_TIME_SERIES_DISPLAY_TYPES
 
 
+THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
+
+
+def insight_threshold_has_bounds(threshold_config: dict | None) -> bool:
+    if threshold_config is None:
+        return False
+    try:
+        threshold = InsightThreshold.model_validate(threshold_config)
+    except PydanticValidationError:
+        return False
+    bounds = threshold.bounds
+    if bounds is None:
+        return False
+    return bounds.lower is not None or bounds.upper is not None
+
+
+def validate_threshold_bounds_required(threshold_config: dict | None) -> None:
+    if not insight_threshold_has_bounds(threshold_config):
+        raise ValueError(THRESHOLD_BOUNDS_REQUIRED_MESSAGE)
+
+
+def _validate_condition_threshold_compatibility(
+    parsed_condition: AlertCondition, threshold_config: dict | None
+) -> InsightThreshold | None:
+    """Parse the threshold and enforce condition/threshold compatibility shared by all insight kinds."""
+    if threshold_config is None:
+        return None
+    try:
+        threshold = InsightThreshold.model_validate(threshold_config)
+    except Exception:
+        raise ValueError(f"Alert has invalid threshold configuration: {threshold_config}")
+    if parsed_condition.type == AlertConditionType.ABSOLUTE_VALUE and threshold.type != InsightThresholdType.ABSOLUTE:
+        raise ValueError(
+            "Absolute value alerts require an absolute threshold, but a percentage threshold was configured"
+        )
+    return threshold
+
+
 def validate_alert_config(
     query: dict,
     condition: dict | None,
     config: dict | None,
     threshold_config: dict | None = None,
     calculation_interval: str | None = None,
+    detector_config: dict | None = None,
+    require_threshold_bounds: bool = True,
 ) -> None:
     """Validate alert configuration dicts. Raises ValueError on failure."""
     if not calculation_interval or not isinstance(calculation_interval, str):
@@ -79,17 +119,19 @@ def validate_alert_config(
     except Exception:
         raise ValueError(f"Alert has invalid condition: {condition}")
 
-    if not config or not isinstance(config, dict) or config.get("type") != "TrendsAlertConfig":
-        raise ValueError(f"Unsupported alert config type: {config}")
-    try:
-        parsed_config = TrendsAlertConfig.model_validate(config)
-    except Exception:
-        raise ValueError(f"Alert has invalid TrendsAlertConfig: {config}")
+    config_type = config.get("type") if isinstance(config, dict) else None
 
     kind = get_from_dict_or_attr(query, "kind")
     if kind in WRAPPER_NODE_KINDS:
         query = get_from_dict_or_attr(query, "source")
         kind = get_from_dict_or_attr(query, "kind")
+
+    if config_type != "TrendsAlertConfig":
+        raise ValueError(f"Unsupported alert config type: {config}")
+    try:
+        parsed_config = TrendsAlertConfig.model_validate(config)
+    except Exception:
+        raise ValueError(f"Alert has invalid TrendsAlertConfig: {config}")
 
     if kind != NodeKind.TRENDS_QUERY:
         raise ValueError(f"Alert's insight query kind '{kind}' is not supported (only TrendsQuery)")
@@ -112,28 +154,23 @@ def validate_alert_config(
     if parsed_config.series_index >= result_count:
         raise ValueError(f"series_index {parsed_config.series_index} is out of range (query has {result_count} series)")
 
-    if threshold_config is not None:
-        try:
-            threshold = InsightThreshold.model_validate(threshold_config)
-        except Exception:
-            raise ValueError(f"Alert has invalid threshold configuration: {threshold_config}")
-
-        if (
-            parsed_condition.type == AlertConditionType.ABSOLUTE_VALUE
-            and threshold.type != InsightThresholdType.ABSOLUTE
-        ):
-            raise ValueError(
-                "Absolute value alerts require an absolute threshold, but a percentage threshold was configured"
-            )
-
-        if parsed_config.check_ongoing_interval and parsed_condition.type in (
+    threshold = _validate_condition_threshold_compatibility(parsed_condition, threshold_config)
+    if (
+        threshold is not None
+        and parsed_config.check_ongoing_interval
+        and parsed_condition.type
+        in (
             AlertConditionType.ABSOLUTE_VALUE,
             AlertConditionType.RELATIVE_INCREASE,
-        ):
-            if not threshold.bounds or threshold.bounds.upper is None:
-                raise ValueError(
-                    f"check_ongoing_interval is only supported for alert condition {parsed_condition.type} when upper threshold is specified"
-                )
+        )
+    ):
+        if not threshold.bounds or threshold.bounds.upper is None:
+            raise ValueError(
+                f"check_ongoing_interval is only supported for alert condition {parsed_condition.type} when upper threshold is specified"
+            )
+
+    if require_threshold_bounds and detector_config is None:
+        validate_threshold_bounds_required(threshold_config)
 
 
 def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> int:
@@ -408,36 +445,6 @@ def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, ta
     alert_check.save(update_fields=["targets_notified"])
     alert.last_notified_at = datetime.now(UTC)
     alert.save(update_fields=["last_notified_at"])
-
-
-def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
-    """Dispatch an alert to the correct insight-kind-specific evaluator.
-
-    If ``detector_config`` is set, uses the detector abstraction; otherwise
-    falls back to threshold-based checking.
-    """
-    # Lazy import breaks the cycle: trends.py and detector.py import from utils.py.
-    from posthog.tasks.alerts.detector import check_trends_alert_with_detector
-    from posthog.tasks.alerts.trends import check_trends_alert
-
-    insight = alert.insight
-
-    with upgrade_query(insight):
-        query = insight.query
-        kind = get_from_dict_or_attr(query, "kind")
-
-        if kind in WRAPPER_NODE_KINDS:
-            query = get_from_dict_or_attr(query, "source")
-            kind = get_from_dict_or_attr(query, "kind")
-
-        match kind:
-            case "TrendsQuery":
-                query = TrendsQuery.model_validate(query)
-                if alert.detector_config:
-                    return check_trends_alert_with_detector(alert, insight, query, alert.detector_config)
-                return check_trends_alert(alert, insight, query)
-            case _:
-                raise NotImplementedError(f"AlertCheckError: Alerts for {kind} are not supported yet")
 
 
 def add_alert_check(

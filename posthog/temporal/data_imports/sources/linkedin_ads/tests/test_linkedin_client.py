@@ -1,4 +1,5 @@
 import json
+import datetime as dt
 
 import pytest
 from unittest import mock
@@ -8,6 +9,7 @@ from structlog.testing import capture_logs
 
 from posthog.temporal.data_imports.sources.linkedin_ads.client import (
     LinkedinAdsClient,
+    LinkedinAdsDailyRateLimitError,
     LinkedinAdsPivot,
     LinkedinAdsRetryableError,
 )
@@ -165,8 +167,9 @@ class TestLinkedinAdsClient:
         assert mock_client_instance.finder.call_count == 1
 
     @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
-    def test_get_analytics_chunks_long_date_range_weekly(self, mock_restli_client):
-        """Date ranges > 7 days slice into consecutive weekly chunks (no overlap, no gaps)."""
+    def test_get_analytics_uncapped_range_fits_in_single_wide_window(self, mock_restli_client):
+        """When responses never cap, even a long range is fetched in a single wide window —
+        a small account no longer pays one call per week."""
         mock_response = mock.MagicMock()
         mock_response.status_code = 200
         mock_response.elements = [{"impressions": 100}]
@@ -175,33 +178,75 @@ class TestLinkedinAdsClient:
         mock_client_instance.finder.return_value = mock_response
 
         client = LinkedinAdsClient(self.access_token)
-        # 22-day range → ceil(22/7) = 4 weekly chunks: Jan 1–7, 8–14, 15–21, 22–22.
+        # 200-day range, well under the 365-day initial window → one call.
         pages = list(
             client.get_analytics(
                 account_id=self.account_id,
                 pivot=LinkedinAdsPivot.CREATIVE,
                 date_start="2024-01-01",
-                date_end="2024-01-22",
+                date_end="2024-07-19",
             )
         )
 
-        assert len(pages) == 4
-        assert mock_client_instance.finder.call_count == 4
-
-        expected_ranges = [
-            {"start": {"year": 2024, "month": 1, "day": 1}, "end": {"year": 2024, "month": 1, "day": 7}},
-            {"start": {"year": 2024, "month": 1, "day": 8}, "end": {"year": 2024, "month": 1, "day": 14}},
-            {"start": {"year": 2024, "month": 1, "day": 15}, "end": {"year": 2024, "month": 1, "day": 21}},
-            {"start": {"year": 2024, "month": 1, "day": 22}, "end": {"year": 2024, "month": 1, "day": 22}},
-        ]
-        actual_ranges = [
-            call_args[1]["query_params"]["dateRange"] for call_args in mock_client_instance.finder.call_args_list
-        ]
-        assert actual_ranges == expected_ranges
+        assert len(pages) == 1
+        assert mock_client_instance.finder.call_count == 1
+        assert mock_client_instance.finder.call_args[1]["query_params"]["dateRange"] == {
+            "start": {"year": 2024, "month": 1, "day": 1},
+            "end": {"year": 2024, "month": 7, "day": 19},
+        }
 
     @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
-    def test_get_analytics_logs_warning_when_chunk_hits_response_cap(self, mock_restli_client):
-        """A capped chunk yields its partial data and logs a warning."""
+    def test_get_analytics_shrinks_window_on_capped_response(self, mock_restli_client):
+        """A capped window is discarded and re-fetched at a halved size from the same start;
+        the truncated data is never yielded."""
+        from posthog.temporal.data_imports.sources.linkedin_ads.client import (
+            ANALYTICS_INITIAL_CHUNK_DAYS,
+            ANALYTICS_RESPONSE_CAP,
+        )
+
+        calls = 0
+
+        def respond(*args, **kwargs):
+            # Only the very first (widest) window caps; every narrower window thereafter fits.
+            nonlocal calls
+            response = mock.MagicMock()
+            response.status_code = 200
+            if calls == 0:
+                response.elements = [{"impressions": i} for i in range(ANALYTICS_RESPONSE_CAP)]
+            else:
+                response.elements = [{"impressions": 1}]
+            calls += 1
+            return response
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = respond
+
+        client = LinkedinAdsClient(self.access_token)
+        pages = list(
+            client.get_analytics(
+                account_id=self.account_id,
+                pivot=LinkedinAdsPivot.CAMPAIGN,
+                date_start="2024-01-01",
+                date_end="2025-12-31",
+            )
+        )
+
+        # The truncated window is never yielded — every yielded page is the fitting (len-1) response.
+        assert all(page[0] == [{"impressions": 1}] for page in pages)
+        first_window, second_window = (
+            call[1]["query_params"]["dateRange"] for call in mock_client_instance.finder.call_args_list[:2]
+        )
+        # The re-fetch after a cap keeps the same start and halves the span.
+        assert first_window["start"] == second_window["start"] == {"year": 2024, "month": 1, "day": 1}
+        first_end = dt.date(**{k: first_window["end"][k] for k in ("year", "month", "day")})
+        second_end = dt.date(**{k: second_window["end"][k] for k in ("year", "month", "day")})
+        assert (first_end - dt.date(2024, 1, 1)).days + 1 == ANALYTICS_INITIAL_CHUNK_DAYS
+        assert (second_end - dt.date(2024, 1, 1)).days + 1 == ANALYTICS_INITIAL_CHUNK_DAYS // 2
+
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_get_analytics_warns_only_when_single_day_still_caps(self, mock_restli_client):
+        """A single-day window that still caps can't be split further, so it yields its partial
+        data and logs a warning (the only path that surfaces capped data)."""
         from posthog.temporal.data_imports.sources.linkedin_ads.client import ANALYTICS_RESPONSE_CAP
 
         capped_response = mock.MagicMock()
@@ -212,6 +257,7 @@ class TestLinkedinAdsClient:
         mock_client_instance.finder.return_value = capped_response
 
         client = LinkedinAdsClient(self.access_token)
+        # Single-day range → can't shrink below one day.
         # Use structlog's own capture_logs — caplog flattens the event_dict on the
         # way through stdlib so substring matches against `record.message` miss.
         with capture_logs() as logs:
@@ -220,7 +266,7 @@ class TestLinkedinAdsClient:
                     account_id=self.account_id,
                     pivot=LinkedinAdsPivot.CREATIVE,
                     date_start="2024-01-01",
-                    date_end="2024-01-05",
+                    date_end="2024-01-01",
                 )
             )
 
@@ -351,8 +397,104 @@ class TestLinkedinAdsClient:
 
         assert mock_client_instance.finder.call_count == 1
 
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_daily_throttle_429_fails_fast_without_retry(self, mock_restli_client, _mock_sleep):
+        """A DAY-window 429 won't reset until midnight UTC, so it raises immediately rather than
+        burning the remaining daily call budget on retries."""
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 429
+        mock_response.response.text = (
+            "Resource level throttle APPLICATION_AND_MEMBER DAY limit for calls to this resource is reached."
+        )
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.return_value = mock_response
+
+        client = LinkedinAdsClient(self.access_token)
+
+        with pytest.raises(LinkedinAdsDailyRateLimitError, match="daily rate limit reached"):
+            client.get_accounts()
+
+        assert mock_client_instance.finder.call_count == 1
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_short_window_429_is_retried(self, mock_restli_client, _mock_sleep):
+        """A non-DAY (short-window) 429 stays retryable and eventually succeeds."""
+        throttled = mock.MagicMock()
+        throttled.status_code = 429
+        throttled.response.text = "Resource level throttle APPLICATION_AND_MEMBER MINUTE limit reached."
+        throttled.response.headers = {}
+
+        success = mock.MagicMock()
+        success.status_code = 200
+        success.elements = [{"id": "ok"}]
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = [throttled, success]
+
+        client = LinkedinAdsClient(self.access_token)
+        result = client.get_accounts()
+
+        assert result == [{"id": "ok"}]
+        assert mock_client_instance.finder.call_count == 2
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_retry_after_header_is_honoured_and_capped(self, mock_restli_client, mock_tenacity_sleep):
+        """A Retry-After header drives the wait (capped at MAX_RETRY_AFTER_SECONDS) instead of the
+        default exponential backoff."""
+        from posthog.temporal.data_imports.sources.linkedin_ads.client import MAX_RETRY_AFTER_SECONDS
+
+        throttled = mock.MagicMock()
+        throttled.status_code = 429
+        throttled.response.text = "Resource level throttle MINUTE limit reached."
+        throttled.response.headers = {"Retry-After": "9999"}
+
+        success = mock.MagicMock()
+        success.status_code = 200
+        success.elements = [{"id": "ok"}]
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = [throttled, success]
+
+        client = LinkedinAdsClient(self.access_token)
+        result = client.get_accounts()
+
+        assert result == [{"id": "ok"}]
+        # tenacity sleeps for the wait our strategy returns — the oversized Retry-After is clamped.
+        mock_tenacity_sleep.assert_called_once_with(MAX_RETRY_AFTER_SECONDS)
+
+    @pytest.mark.parametrize("bad_retry_after", ["-1", "-30", "not-a-number"])
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_invalid_retry_after_falls_back_to_backoff(self, mock_restli_client, mock_sleep, bad_retry_after):
+        """A negative or non-numeric Retry-After is ignored (never produces a negative sleep that
+        would crash tenacity) — we fall back to exponential backoff, which sleeps a positive time."""
+        throttled = mock.MagicMock()
+        throttled.status_code = 429
+        throttled.response.text = "Resource level throttle MINUTE limit reached."
+        throttled.response.headers = {"Retry-After": bad_retry_after}
+
+        success = mock.MagicMock()
+        success.status_code = 200
+        success.elements = [{"id": "ok"}]
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = [throttled, success]
+
+        client = LinkedinAdsClient(self.access_token)
+        result = client.get_accounts()
+
+        assert result == [{"id": "ok"}]
+        # Whatever wait we chose, it must be non-negative (tenacity would raise otherwise).
+        assert mock_sleep.call_count == 1
+        assert mock_sleep.call_args[0][0] >= 0
+
     def test_retryable_error_is_exported(self):
         assert issubclass(LinkedinAdsRetryableError, Exception)
+        assert issubclass(LinkedinAdsDailyRateLimitError, Exception)
 
 
 def _status_response(status_code: int, text: str) -> mock.MagicMock:

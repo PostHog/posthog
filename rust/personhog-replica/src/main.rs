@@ -6,6 +6,7 @@ use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
+use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
 use tonic::codec::CompressionEncoding;
@@ -92,11 +93,28 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 "Created bulk database pools"
             );
 
+            assert!(
+                config.bulk_chunk_size >= 1,
+                "BULK_CHUNK_SIZE must be at least 1"
+            );
+            assert!(
+                config.bulk_max_concurrent_chunks >= 1,
+                "BULK_MAX_CONCURRENT_CHUNKS must be at least 1"
+            );
+            assert!(
+                config.bulk_max_concurrent_chunks <= config.bulk_max_pg_connections as usize,
+                "BULK_MAX_CONCURRENT_CHUNKS ({}) must not exceed BULK_MAX_PG_CONNECTIONS ({})",
+                config.bulk_max_concurrent_chunks,
+                config.bulk_max_pg_connections
+            );
+
             Arc::new(PostgresStorage::new(
                 primary_pool,
                 replica_pool,
                 bulk_primary_pool,
                 bulk_replica_pool,
+                config.bulk_chunk_size,
+                config.bulk_max_concurrent_chunks,
             ))
         }
         other => {
@@ -290,7 +308,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
     let max_concurrent_requests = config.max_concurrent_requests;
+    let max_response_size = if config.gzip_max_response_size > 0 {
+        Some(config.gzip_max_response_size)
+    } else {
+        None
+    };
+    let gzip_config = AsyncGzipConfig::new(
+        config.gzip_response_compression,
+        config.gzip_compression_level,
+        config.gzip_min_payload_size,
+    )
+    .with_max_response_size(max_response_size, config.gzip_max_response_size_enforce);
 
+    if gzip_config.enabled {
+        tracing::info!(
+            level = gzip_config.compression_level,
+            min_payload_size = gzip_config.min_payload_size,
+            "Async gzip response compression enabled"
+        );
+    }
+    if let Some(limit) = gzip_config.max_response_size {
+        tracing::info!(
+            limit_bytes = limit,
+            enforce = gzip_config.max_response_size_enforce,
+            "Response size limit active"
+        );
+    }
     if max_concurrent_requests > 0 {
         tracing::info!(
             limit = max_concurrent_requests,
@@ -316,6 +359,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             server = server.max_connection_age(age);
         }
         if let Err(e) = server
+            .layer(AsyncGzipLayer::new(gzip_config))
             .layer(GrpcMetricsLayer::default().with_processing_time_header())
             .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
             .add_service(

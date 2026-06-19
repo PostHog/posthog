@@ -1,14 +1,13 @@
-import { finder } from '@medv/finder'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
-import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/actionUtils'
-import { cssEscape } from 'lib/utils/cssEscape'
+import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/utils/actions'
 
 import { patch } from '~/toolbar/patch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
+import { finder } from '~/toolbar/vendor/finder'
 import { ActionStepType } from '~/types'
 
 import { ActionStepPropertyKey } from './actions/ActionStep'
@@ -70,12 +69,26 @@ export function cleanToolbarAuthHash(): void {
         return
     }
 
-    const cleanHash = hash
-        .replace(/__posthog_toolbar=[^&]*/g, '')
+    // When the toolbar param was the first hash-query on a SPA route
+    // (e.g. `#/login?__posthog_toolbar=X&foo=bar`), removing it leaves
+    // `#/login&foo=bar` where the `&` should be `?`. Detect that case so we
+    // can restore the `?` after stripping. Only fires when the original hash
+    // contained `?__posthog_toolbar=` literally — fragments that join the
+    // toolbar param with `&` (e.g. `#/dashboard&tab=1&__posthog_toolbar=X`)
+    // are left untouched because that `&` was the customer's separator.
+    const toolbarWasFirstHashQuery = hash.includes('?__posthog_toolbar=')
+
+    let cleanHash = hash
+        .replace(/[?&]?__posthog_toolbar=[^&]*/g, '')
         .replace(/&&+/g, '&')
-        .replace(/&$/, '')
+        .replace(/[?&]$/, '')
         .replace(/^#&/, '#')
         .replace(/^#$/, '')
+
+    if (toolbarWasFirstHashQuery) {
+        cleanHash = cleanHash.replace(/(^#\/[^?]*)&/, '$1?')
+    }
+
     history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
 }
 
@@ -132,7 +145,7 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
             continue
         }
 
-        const escapedSelector = `[${cssEscape(name)}="${cssEscape(value)}"]`
+        const escapedSelector = `[${CSS.escape(name)}="${CSS.escape(value)}"]`
         const unescapedSelector = `[${name}="${value}"]`
 
         if (querySelectorAllDeep(escapedSelector).length == 1) {
@@ -153,6 +166,14 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
                 // that aren't in the PostHog preferred list - they were returned early above
                 return name.startsWith('data-')
             },
+            // the combination guard tripped and cut the candidate search short -
+            // the selector may degrade to a brittle positional path - record host
+            // and depth so we can see how often and where pathological DOMs hit this
+            onCombinationsCapped: ({ levels }) =>
+                toolbarLogger.warn('element_selector', 'finder hit maxCombinations cap, candidate search truncated', {
+                    host: window.location.host,
+                    levels,
+                }),
         })
         return slashDotDataAttrUnescape(foundSelector)
     } catch (error) {
@@ -393,7 +414,7 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
     }
 
     if (step.href && (step.href_selected || typeof step.href_selected === 'undefined')) {
-        selector += `[href="${cssEscape(step.href)}"]`
+        selector += `[href="${CSS.escape(step.href)}"]`
     }
 
     const hasText = step.text && step.text.trim() && (step.text_selected || typeof step.text_selected === 'undefined')

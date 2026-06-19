@@ -36,8 +36,20 @@ pub(crate) async fn get_response<T: for<'de> Deserialize<'de>>(
     request_factory: impl Fn() -> Request<Body>,
     s3_client: Arc<MockS3Client>,
 ) -> (StatusCode, T) {
+    get_response_with_config(db, storage_bucket, request_factory, s3_client, |_| {}).await
+}
+
+#[allow(dead_code)]
+pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
+    db: PgPool,
+    storage_bucket: String,
+    request_factory: impl Fn() -> Request<Body>,
+    s3_client: Arc<MockS3Client>,
+    configure: impl FnOnce(&mut Config),
+) -> (StatusCode, T) {
     let mut config = Config::init_with_defaults().unwrap();
     config.object_storage_bucket = storage_bucket.clone();
+    configure(&mut config);
 
     let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
 

@@ -15,6 +15,7 @@ import { APP_METRICS_OUTPUT, AppMetricsOutput } from '../ingestion/common/output
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { parseJSON } from '../utils/json-parse'
+import { getDefaultTracesIngestionConsumerConfig } from './config'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
 import {
     DEFAULT_LOGS_RETENTION_DAYS,
@@ -22,10 +23,12 @@ import {
     type LogsIngestionConsumerDeps,
     logMessageDlqCounter,
     logMessageDroppedCounter,
+    logsBillingBytesCreditedCounter,
     logsBytesAllowedCounter,
     logsBytesDroppedCounter,
     logsBytesReceivedCounter,
     logsRecordsAllowedCounter,
+    logsRecordsBytesExceedPayloadCounter,
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
 } from './logs-ingestion-consumer'
@@ -33,6 +36,7 @@ import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outpu
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { BASE_REDIS_KEY } from './services/logs-rate-limiter.service'
+import { TracesIngestionConsumer } from './traces-ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
@@ -107,6 +111,67 @@ const createKafkaMessage = async (logData: any, headers: Record<string, string> 
 
 const createKafkaMessages = async (logData: any[], headers: Record<string, string> = {}): Promise<Message[]> => {
     return Promise.all(logData.map((data) => createKafkaMessage(data, headers)))
+}
+
+// Single Kafka message carrying several log records, so a drop rule can remove some rows while
+// others survive (partial drop) — the path that re-encodes and re-forwards to the output topic.
+const createMultiRecordKafkaMessage = async (
+    logDataList: any[],
+    headers: Record<string, string> = {}
+): Promise<Message> => {
+    const avro = require('avsc')
+    const logRecordType = avro.Type.forSchema({
+        type: 'record',
+        name: 'LogRecord',
+        fields: [
+            { name: 'uuid', type: ['null', 'string'] },
+            { name: 'trace_id', type: ['null', 'bytes'] },
+            { name: 'span_id', type: ['null', 'bytes'] },
+            { name: 'trace_flags', type: ['null', 'int'] },
+            { name: 'timestamp', type: ['null', 'long'] },
+            { name: 'observed_timestamp', type: ['null', 'long'] },
+            { name: 'body', type: ['null', 'string'] },
+            { name: 'severity_text', type: ['null', 'string'] },
+            { name: 'severity_number', type: ['null', 'int'] },
+            { name: 'service_name', type: ['null', 'string'] },
+            { name: 'resource_attributes', type: ['null', { type: 'map', values: 'string' }] },
+            { name: 'instrumentation_scope', type: ['null', 'string'] },
+            { name: 'event_name', type: ['null', 'string'] },
+            { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+        ],
+    })
+
+    const records: LogRecord[] = logDataList.map((logData, i) => ({
+        uuid: `test-uuid-${offsetIncrementer}-${i}`,
+        trace_id: null,
+        span_id: null,
+        trace_flags: null,
+        timestamp: DateTime.now().toMillis() * 1000,
+        observed_timestamp: DateTime.now().toMillis() * 1000,
+        body: JSON.stringify(logData),
+        severity_text: logData.level || 'info',
+        severity_number: 9,
+        service_name: logData.service || 'test-service',
+        resource_attributes: null,
+        instrumentation_scope: null,
+        event_name: null,
+        attributes: null,
+    }))
+
+    const value = await encodeLogRecords(logRecordType, 'zstandard', records)
+
+    return {
+        key: null,
+        value,
+        size: value.length,
+        topic: 'test',
+        offset: offsetIncrementer++,
+        timestamp: DateTime.now().toMillis(),
+        partition: 1,
+        headers: Object.entries(headers).map(([key, value]) => ({
+            [key]: Buffer.from(value),
+        })),
+    }
 }
 
 describe('LogsIngestionConsumer', () => {
@@ -966,6 +1031,49 @@ describe('LogsIngestionConsumer', () => {
             expect(team2BytesReceived?.value.count).toBe(200)
             expect(team2BytesIngested?.value.count).toBe(200)
         })
+
+        it('should emit bytes_ingested_records from the bytes_uncompressed_records header', async () => {
+            const messages = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '1024',
+                bytes_uncompressed_records: '900',
+                record_count: '5',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const appMetricsMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+            const bytesIngested = appMetricsMessages.find((m) => m.value.metric_name === 'bytes_ingested')
+            const bytesIngestedRecords = appMetricsMessages.find(
+                (m) => m.value.metric_name === 'bytes_ingested_records'
+            )
+            expect(bytesIngested?.value.count).toBe(1024)
+            expect(bytesIngestedRecords?.value.count).toBe(900)
+        })
+
+        it('should flag and still emit when bytes_uncompressed_records exceeds bytes_uncompressed', async () => {
+            const exceedCounterSpy = jest.spyOn(logsRecordsBytesExceedPayloadCounter, 'inc')
+            const messages = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '1024',
+                bytes_uncompressed_records: '1500',
+                record_count: '5',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(exceedCounterSpy).toHaveBeenCalledWith({ team_id: team.id.toString() })
+
+            // The comparison metric is emitted as-is, even above the payload size —
+            // it exists precisely to surface this case.
+            const appMetricsMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+            const bytesIngested = appMetricsMessages.find((m) => m.value.metric_name === 'bytes_ingested')
+            const bytesIngestedRecords = appMetricsMessages.find(
+                (m) => m.value.metric_name === 'bytes_ingested_records'
+            )
+            expect(bytesIngested?.value.count).toBe(1024)
+            expect(bytesIngestedRecords?.value.count).toBe(1500)
+        })
     })
 
     describe('trackOutgoingTrafficAndBuildUsageStats', () => {
@@ -989,6 +1097,29 @@ describe('LogsIngestionConsumer', () => {
             expect(stats!.bytesDropped).toBe(0)
             expect(stats!.recordsDropped).toBe(0)
             expect(stats!.piiReplacements).toBe(0)
+        })
+
+        it('should sum bytesAllowedRecords and treat a missing header as zero', async () => {
+            const messages = [
+                ...(await createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '100',
+                    bytes_uncompressed_records: '80',
+                    record_count: '1',
+                })),
+                ...(await createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                })),
+            ]
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            const usageStats = consumer['trackOutgoingTrafficAndBuildUsageStats'](parsed, [])
+
+            const stats = usageStats.get(team.id)
+            expect(stats!.bytesAllowed).toBe(300)
+            expect(stats!.bytesAllowedRecords).toBe(80)
         })
 
         it('should aggregate stats for multiple messages from same team', async () => {
@@ -1042,6 +1173,9 @@ describe('LogsIngestionConsumer', () => {
             hub.LOGS_LIMITER_BUCKET_SIZE_KB = 1 // 1024 bytes
             hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 0.001
             hub.LOGS_LIMITER_TTL_SECONDS = 3600
+
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub)
 
             const messages = [
                 ...(await createKafkaMessages([createLogMessage()], {
@@ -1128,9 +1262,11 @@ describe('LogsIngestionConsumer', () => {
                         recordsReceived: 10,
                         bytesAllowed: 800,
                         recordsAllowed: 8,
+                        bytesAllowedRecords: 700,
                         bytesDropped: 200,
                         recordsDropped: 2,
                         piiReplacements: 0,
+                        retentionDays: 30,
                     },
                 ],
             ])
@@ -1139,16 +1275,57 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            expect(messages).toHaveLength(6)
+            expect(messages).toHaveLength(8)
 
             const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
             expect(metricNames).toContain('bytes_received')
             expect(metricNames).toContain('records_received')
             expect(metricNames).toContain('bytes_ingested')
+            expect(metricNames).toContain('bytes_ingested_records')
             expect(metricNames).toContain('records_ingested')
             expect(metricNames).toContain('bytes_dropped')
             expect(metricNames).toContain('records_dropped')
+            expect(metricNames).toContain('bytes_ingested_retention_30d')
         })
+
+        it.each([
+            { retentionDays: 14, absent: ['bytes_ingested_retention_30d', 'bytes_ingested_retention_90d'] },
+            { retentionDays: 30, absent: ['bytes_ingested_retention_14d', 'bytes_ingested_retention_90d'] },
+            { retentionDays: 90, absent: ['bytes_ingested_retention_14d', 'bytes_ingested_retention_30d'] },
+        ])(
+            'should emit only bytes_ingested_retention_${retentionDays}d for the matching tier',
+            async ({ retentionDays, absent }) => {
+                const usageStats = new Map([
+                    [
+                        team.id,
+                        {
+                            bytesReceived: 500,
+                            recordsReceived: 5,
+                            bytesAllowed: 500,
+                            recordsAllowed: 5,
+                            bytesAllowedRecords: 0,
+                            bytesDropped: 0,
+                            recordsDropped: 0,
+                            piiReplacements: 0,
+                            retentionDays,
+                        },
+                    ],
+                ])
+
+                await consumer['emitUsageMetrics'](usageStats)
+
+                const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                const retentionMetric = messages
+                    .map((m) => parseMetricValue(m.value))
+                    .find((m) => m?.metric_name === `bytes_ingested_retention_${retentionDays}d`)
+
+                expect(retentionMetric?.count).toBe(500)
+                const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
+                for (const name of absent) {
+                    expect(metricNames).not.toContain(name)
+                }
+            }
+        )
 
         it('should skip zero-count metrics', async () => {
             const usageStats = new Map([
@@ -1159,9 +1336,11 @@ describe('LogsIngestionConsumer', () => {
                         recordsReceived: 10,
                         bytesAllowed: 1000,
                         recordsAllowed: 10,
+                        bytesAllowedRecords: 0,
                         bytesDropped: 0,
                         recordsDropped: 0,
                         piiReplacements: 0,
+                        retentionDays: 14,
                     },
                 ],
             ])
@@ -1170,11 +1349,12 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // Should only have 4 metrics (no dropped)
-            expect(messages).toHaveLength(4)
+            // 4 non-zero base metrics (no dropped) + 1 retention tier row
+            expect(messages).toHaveLength(5)
             const metricNames = messages.map((m) => parseMetricValue(m.value)?.metric_name)
             expect(metricNames).not.toContain('bytes_dropped')
             expect(metricNames).not.toContain('records_dropped')
+            expect(metricNames).toContain('bytes_ingested_retention_14d')
         })
 
         it('should handle empty usageStats', async () => {
@@ -1196,9 +1376,11 @@ describe('LogsIngestionConsumer', () => {
                         recordsReceived: 1,
                         bytesAllowed: 100,
                         recordsAllowed: 1,
+                        bytesAllowedRecords: 0,
                         bytesDropped: 0,
                         recordsDropped: 0,
                         piiReplacements: 0,
+                        retentionDays: 30,
                     },
                 ],
                 [
@@ -1208,9 +1390,11 @@ describe('LogsIngestionConsumer', () => {
                         recordsReceived: 2,
                         bytesAllowed: 200,
                         recordsAllowed: 2,
+                        bytesAllowedRecords: 0,
                         bytesDropped: 0,
                         recordsDropped: 0,
                         piiReplacements: 0,
+                        retentionDays: 90,
                     },
                 ],
             ])
@@ -1219,13 +1403,13 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // 4 metrics per team (no dropped) = 8 total
-            expect(messages).toHaveLength(8)
+            // 4 base metrics + 1 retention tier per team (no dropped) = 10 total
+            expect(messages).toHaveLength(10)
 
             const team1Messages = messages.filter((m) => parseMetricValue(m.value)?.team_id === team.id)
             const team2Messages = messages.filter((m) => parseMetricValue(m.value)?.team_id === team2.id)
-            expect(team1Messages).toHaveLength(4)
-            expect(team2Messages).toHaveLength(4)
+            expect(team1Messages).toHaveLength(5)
+            expect(team2Messages).toHaveLength(5)
         })
     })
 
@@ -1451,9 +1635,11 @@ describe('LogsIngestionConsumer', () => {
         })
 
         describe('sampling usage to app_metrics2', () => {
+            let mockSamplingCache: Pick<SamplingRulesCache, 'getCompiledRuleSet'>
+
             beforeEach(async () => {
                 await consumer.stop()
-                const mockSamplingCache: Pick<SamplingRulesCache, 'getCompiledRuleSet'> = {
+                mockSamplingCache = {
                     getCompiledRuleSet: (teamId: number) =>
                         Promise.resolve(
                             teamId === team.id
@@ -1503,6 +1689,102 @@ describe('LogsIngestionConsumer', () => {
                 })
                 expect(byRule).toBeDefined()
                 expect(parseMetricValue(byRule!.value).count).toBe(1)
+            })
+
+            const sendDroppedAndKeptMessages = async () => {
+                // Two single-record messages: the info one is fully dropped by the rule
+                // (credit = its whole 400-byte header), the error one is kept (600 bytes).
+                const messages = [
+                    ...(await createKafkaMessages([createLogMessage({ level: 'info' })], {
+                        token: team.api_token,
+                        bytes_uncompressed: '400',
+                        record_count: '1',
+                    })),
+                    ...(await createKafkaMessages([createLogMessage({ level: 'error' })], {
+                        token: team.api_token,
+                        bytes_uncompressed: '600',
+                        record_count: '1',
+                    })),
+                ]
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            }
+
+            const teamBytesIngested = (): number | undefined => {
+                const m = getProducedKafkaMessages()
+                    .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                    .find((m) => {
+                        const value = parseMetricValue(m.value)
+                        return value.metric_name === 'bytes_ingested' && value.team_id === team.id
+                    })
+                return m ? parseMetricValue(m.value).count : undefined
+            }
+
+            it('shadow mode (default): computes the drop credit but bills the full gross bytes', async () => {
+                const creditSpy = jest.spyOn(logsBillingBytesCreditedCounter, 'inc')
+
+                await sendDroppedAndKeptMessages()
+
+                // The would-be credit is computed and observable...
+                expect(creditSpy).toHaveBeenCalledWith({ team_id: team.id.toString() }, 400)
+                // ...but billed usage is untouched: full gross of both messages.
+                expect(teamBytesIngested()).toBe(1000)
+            })
+
+            it('credits dropped rows off bytes_ingested when LOGS_BILLING_PRORATE_ENABLED', async () => {
+                await consumer.stop()
+                consumer = await createLogsIngestionConsumer(
+                    hub,
+                    { LOGS_BILLING_PRORATE_ENABLED: true },
+                    { samplingRulesCache: mockSamplingCache as SamplingRulesCache }
+                )
+                await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
+
+                await sendDroppedAndKeptMessages()
+
+                // The fully-dropped message's 400-byte header is credited; only the kept one bills.
+                expect(teamBytesIngested()).toBe(600)
+            })
+
+            const outputHeaders = (): Record<string, string> | undefined =>
+                getProducedKafkaMessages().find((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)?.headers as
+                    | Record<string, string>
+                    | undefined
+
+            // One message, two equal-content records: the info row is dropped, the error row survives.
+            // Shadow mode forwards the original gross headers; enabled mode scales both by the same
+            // dropped content fraction (~0.5), so the 500/1000 ratio is preserved.
+            it.each([
+                { label: 'shadow mode (default) forwards the original gross size headers', enabled: false },
+                { label: 'enabled mode pro-rates the forwarded size headers by the dropped fraction', enabled: true },
+            ])('$label', async ({ enabled }) => {
+                if (enabled) {
+                    await consumer.stop()
+                    consumer = await createLogsIngestionConsumer(
+                        hub,
+                        { LOGS_BILLING_PRORATE_ENABLED: true },
+                        { samplingRulesCache: mockSamplingCache as SamplingRulesCache }
+                    )
+                    await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
+                }
+
+                const message = await createMultiRecordKafkaMessage(
+                    [createLogMessage({ level: 'info' }), createLogMessage({ level: 'error' })],
+                    { token: team.api_token, bytes_uncompressed: '1000', bytes_compressed: '500', record_count: '2' }
+                )
+                await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+                const uncompressed = parseInt(outputHeaders()!.bytes_uncompressed, 10)
+                const compressed = parseInt(outputHeaders()!.bytes_compressed, 10)
+                if (!enabled) {
+                    expect(uncompressed).toBe(1000)
+                    expect(compressed).toBe(500)
+                    return
+                }
+                expect(uncompressed).toBeGreaterThan(0)
+                expect(uncompressed).toBeLessThan(1000)
+                expect(compressed).toBeGreaterThan(0)
+                expect(compressed).toBeLessThan(500)
+                expect(compressed / uncompressed).toBeCloseTo(0.5, 5)
             })
         })
     })
@@ -1560,6 +1842,92 @@ describe('LogsIngestionConsumer', () => {
 
             console.log(`[thread-relief] longestDelay = ${longestDelay}ms`)
             expect(longestDelay).toBeLessThan(120)
+        })
+    })
+
+    describe('TracesIngestionConsumer billing identity', () => {
+        const createTracesIngestionConsumer = (configOverrides: Record<string, any> = {}): TracesIngestionConsumer => {
+            const tracesConsumer = new TracesIngestionConsumer(
+                // Blank the traces Redis host so it reuses the hub's pool (like the logs-consumer tests),
+                // avoiding a second eager pool that would keep handles open after the suite.
+                { ...hub, ...getDefaultTracesIngestionConsumerConfig(), TRACES_REDIS_HOST: '', ...configOverrides },
+                {
+                    ...hub,
+                    outputs: new IngestionOutputs<AppMetricsOutput | LogsOutput | LogsDlqOutput>({
+                        [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
+                            APP_METRICS_OUTPUT,
+                            KAFKA_APP_METRICS_2,
+                            mockProducer,
+                            'test'
+                        ),
+                        [LOGS_OUTPUT]: new SingleIngestionOutput(
+                            LOGS_OUTPUT,
+                            KAFKA_LOGS_CLICKHOUSE,
+                            mockProducer,
+                            'test'
+                        ),
+                        [LOGS_DLQ_OUTPUT]: new SingleIngestionOutput(
+                            LOGS_DLQ_OUTPUT,
+                            KAFKA_LOGS_INGESTION_DLQ,
+                            mockProducer,
+                            'test'
+                        ),
+                    }),
+                }
+            )
+            tracesConsumer['kafkaConsumer'] = {
+                connect: jest.fn(),
+                disconnect: jest.fn(),
+                isHealthy: jest.fn().mockReturnValue({ status: 'healthy' }),
+            } as any
+            return tracesConsumer
+        }
+
+        it('meters usage as traces, not logs', async () => {
+            const tracesConsumer = createTracesIngestionConsumer()
+            tracesConsumer['queueUsageMetric'](team.id, 'bytes_ingested', 500)
+            await tracesConsumer['appMetricsAggregator'].flush()
+
+            const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
+            expect(messages).toHaveLength(1)
+            const value = Buffer.isBuffer(messages[0].value)
+                ? parseJSON(messages[0].value.toString())
+                : parseJSON(messages[0].value as string)
+            expect(value?.app_source).toBe('traces')
+        })
+
+        it('quota-limits against traces_mb_ingested, not logs_mb_ingested', async () => {
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(false)
+            const tracesConsumer = createTracesIngestionConsumer()
+
+            const messages = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '1024',
+                record_count: '5',
+            })
+            const parsed = await tracesConsumer['_parseKafkaBatch'](messages)
+            await tracesConsumer['filterQuotaLimitedMessages'](parsed)
+
+            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledWith(team.api_token, 'traces_mb_ingested')
+        })
+
+        it('rate-limits against its own Redis key namespace, not the logs one', () => {
+            const tracesConsumer = createTracesIngestionConsumer()
+            const prefix = tracesConsumer['rateLimiter']['rateLimiter'].getKeyPrefix()
+
+            expect(prefix).toBe('@posthog-test/traces-rate-limiter/tokens')
+            expect(prefix).not.toContain('logs-rate-limiter')
+        })
+
+        it('applies TRACES_LIMITER_* tuning rather than the logs limiter config', () => {
+            const tracesConsumer = createTracesIngestionConsumer({
+                TRACES_LIMITER_BUCKET_SIZE_KB: 42,
+                TRACES_LIMITER_REFILL_RATE_KB_PER_SECOND: 7,
+            })
+            const limiterConfig = tracesConsumer['rateLimiter']['config']
+
+            expect(limiterConfig.LOGS_LIMITER_BUCKET_SIZE_KB).toBe(42)
+            expect(limiterConfig.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND).toBe(7)
         })
     })
 })

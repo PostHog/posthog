@@ -8,7 +8,7 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SaveToCohortModalContent } from 'lib/components/SaveToCohortModalContent/SaveToCohortModalContent'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '~/queries/nodes/DataTable/clipboardUtils'
@@ -86,7 +86,14 @@ export async function startDownload(
         }
 
         if (columns.includes('person')) {
-            columns = columns.map((c: string) => (c === 'person' ? 'person.distinct_ids.0' : c))
+            // Expand the `person` column to `person.id` (canonical UUID, always populated),
+            // `person.distinct_ids.0` (may be blank when the person can't be hydrated), and
+            // `person.is_unresolved` (true for merged/deleted persons whose Postgres row is
+            // missing). The id keeps every row identifiable; is_unresolved must be listed
+            // explicitly so the backend's user_columns filter doesn't drop it.
+            columns = columns.flatMap((c: string) =>
+                c === 'person' ? ['person.id', 'person.distinct_ids.0', 'person.is_unresolved'] : [c]
+            )
         }
 
         columns = columns.filter((n: string) => !columnDisallowList.includes(n))

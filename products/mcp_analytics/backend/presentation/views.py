@@ -7,7 +7,6 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -15,7 +14,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
-from posthog.permissions import SingleTenancyOrAdmin
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
@@ -26,6 +25,7 @@ from .serializers import (
     MCPFeedbackCreateSerializer,
     MCPIntentClusterSnapshotSerializer,
     MCPMissingCapabilityCreateSerializer,
+    MCPSessionIntentSerializer,
     MCPSessionSerializer,
     MCPToolCallSerializer,
 )
@@ -62,12 +62,14 @@ class MCPSessionPagination(LimitOffsetPagination):
         }
 
 
-@extend_schema(tags=["mcp_analytics"])
 class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPAnalyticsSubmissionSerializer
-    # Keep these endpoints staff-only until the MCP tools and auth model are ready for customer traffic.
-    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
-    scope_object = "INTERNAL"
+    # Alpha product: gated behind the mcp-analytics feature flag at the API layer (matching
+    # the UI flag) rather than hidden behind a staff-only lock. create -> write, list -> read
+    # map to the default scope actions.
+    scope_object = "mcp_analytics"
+    posthog_feature_flag = "mcp-analytics"
+    permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPAnalyticsPagination
     user_action_name: str = ""
 
@@ -137,11 +139,16 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
         return self._list_response(request, enums.SubmissionKind.FEEDBACK)
 
 
-@extend_schema(tags=["mcp_analytics"])
 class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPSessionSerializer
-    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
-    scope_object = "INTERNAL"
+    scope_object = "mcp_analytics"
+    # tool_calls is a detail GET (read); generate_intent is a POST that computes + persists the
+    # intent summary, so it maps to the write scope. The default read/write action lists don't
+    # cover custom @action names, so APIScopePermission would otherwise reject token access.
+    scope_object_read_actions = ["list", "retrieve", "tool_calls"]
+    scope_object_write_actions = ["generate_intent"]
+    posthog_feature_flag = "mcp-analytics"
+    permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPSessionPagination
 
     def dangerously_get_queryset(self) -> QuerySet:
@@ -200,12 +207,41 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # The field exists because the viewset's paginator shapes the response schema.
         return Response({"results": serializer.data, "has_next": False})
 
+    @extend_schema(
+        operation_id="mcp_analytics_sessions_generate_intent",
+        description=(
+            "Generate (or return the cached) LLM summary of the agent's goal for a session, derived from its "
+            "recorded $mcp_intents. The first call summarises and persists the result; subsequent calls return "
+            "the stored summary."
+        ),
+        request=None,
+        responses={200: MCPSessionIntentSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="generate_intent")
+    def generate_intent(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        session_id = str(pk or "")
+        if not session_id:
+            return Response({"detail": "session_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            intent = api.generate_session_intent(self.team, session_id=session_id)
+        except contracts.IntentGenerationUnavailable:
+            return Response(
+                {"detail": "Intent generation is unavailable (LLM not configured)."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        serializer = MCPSessionIntentSerializer({"session_id": session_id, "intent": intent})
+        return Response(serializer.data)
 
-@extend_schema(tags=["mcp_analytics"])
+
 class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPIntentClusterSnapshotSerializer
-    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
-    scope_object = "INTERNAL"
+    scope_object = "mcp_analytics"
+    # recompute is a POST that kicks off the async clustering task (a state change), so it maps to
+    # the write scope; the snapshot read stays on the read scope.
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["recompute"]
+    posthog_feature_flag = "mcp-analytics"
+    permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = None
 
     def dangerously_get_queryset(self) -> QuerySet:

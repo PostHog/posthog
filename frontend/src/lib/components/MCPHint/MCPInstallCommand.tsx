@@ -8,7 +8,16 @@ import { MCP_INSTALL_COMMAND } from './constants'
 
 type Size = 'sm' | 'md'
 
-export function MCPInstallCommand({ size = 'sm', className }: { size?: Size; className?: string }): JSX.Element | null {
+export function MCPInstallCommand({
+    size = 'sm',
+    className,
+    silentCopy = false,
+}: {
+    size?: Size
+    className?: string
+    /** Skip the "Copied … to clipboard" toast (used when the parent is itself a toast). */
+    silentCopy?: boolean
+}): JSX.Element | null {
     const { isCloudOrDev } = useValues(preflightLogic)
 
     if (!isCloudOrDev) {
@@ -22,6 +31,7 @@ export function MCPInstallCommand({ size = 'sm', className }: { size?: Size; cla
             ariaLabel="Copy MCP install command"
             size={size}
             decoration="rainbow"
+            silentCopy={silentCopy}
             className={cn('bg-surface-secondary border border-primary !m-0 hover:border-accent', className)}
         />
     )

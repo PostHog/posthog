@@ -4,7 +4,7 @@ pub struct Group {
     pub team_id: i64,
     pub group_type_index: i32,
     pub group_key: String,
-    pub group_properties: String,
+    pub group_properties: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub properties_last_updated_at: Option<String>,
     pub properties_last_operation: Option<String>,

@@ -3,7 +3,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from posthog.models import Insight
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -15,6 +14,7 @@ from products.notebooks.backend.util import (
     create_heading_with_text,
     create_paragraph_with_text,
 )
+from products.product_analytics.backend.models.insight import Insight
 
 VERDICT_LABEL = {
     "true_positive": "True positive",

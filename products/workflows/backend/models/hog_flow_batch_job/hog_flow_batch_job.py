@@ -29,7 +29,7 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
         FAILED = "failed"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.DO_NOTHING)
-    hog_flow = models.ForeignKey("posthog.HogFlow", on_delete=models.DO_NOTHING)
+    hog_flow = models.ForeignKey("workflows.HogFlow", on_delete=models.DO_NOTHING)
     variables = models.JSONField(default=dict)
     filters = models.JSONField(default=dict)
     status = models.CharField(max_length=20, choices=State, default=State.QUEUED)

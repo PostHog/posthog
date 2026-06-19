@@ -9,8 +9,6 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
-from posthog.schema import ProductKey
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
@@ -20,6 +18,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.schema_enums import ProductKey
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +70,59 @@ def _clickhouse_type_to_serialized_type(ch_type: str) -> str:
         return "json"
     logger.warning("Unhandled ClickHouse type: %s", ch_type)
     return "unknown"
+
+
+def can_materialize_query(query: dict | None) -> tuple[bool, str]:
+    """Check whether an endpoint query can be materialized.
+
+    Returns: (can_materialize: bool, reason: str)
+    """
+    query_kind = query.get("kind") if query else None
+
+    MATERIALIZABLE_QUERY_TYPES = {
+        "HogQLQuery",
+        "TrendsQuery",
+        "LifecycleQuery",
+        "RetentionQuery",
+    }
+
+    if query_kind not in MATERIALIZABLE_QUERY_TYPES:
+        supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
+        return (
+            False,
+            f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
+        )
+
+    assert query is not None
+
+    # Block compare mode — materialization can't reconstruct doubled series
+    compare_filter = query.get("compareFilter") or {}
+    if compare_filter.get("compare"):
+        return False, "Compare mode is not supported for materialized endpoints."
+
+    # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
+    # inject_series_index tags as separate series, causing a mismatch at read time.
+    breakdown_filter = query.get("breakdownFilter") or {}
+    if breakdown_filter.get("breakdown_type") == "cohort":
+        return False, "Cohort breakdowns are not supported for materialized endpoints."
+    for breakdown in breakdown_filter.get("breakdowns") or []:
+        if isinstance(breakdown, dict) and breakdown.get("type") == "cohort":
+            return False, "Cohort breakdowns are not supported for materialized endpoints."
+
+    if query.get("variables"):
+        from products.endpoints.backend.materialization_transforms import analyze_variables_for_materialization
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+
+        if not can_materialize:
+            return False, f"Variables not supported: {reason}"
+
+    if query_kind == "HogQLQuery":
+        hogql_query = query.get("query")
+        if not hogql_query or not isinstance(hogql_query, str):
+            return False, "Query is empty or invalid."
+
+    return True, ""
 
 
 def validate_endpoint_name(value: str) -> None:
@@ -142,6 +194,11 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         blank=True,
         help_text="Per-column bucket function overrides for range variable materialization. E.g. {'timestamp': 'toStartOfHour'}",
     )
+    last_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this version was last executed via the run API. Updated with 30-minute granularity.",
+    )
 
     class Meta:
         db_table = "endpoints_endpointversion"
@@ -180,6 +237,17 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
                 capture_exception(exc)
         return self.columns
 
+    @property
+    def materialized_view_name(self) -> str:
+        """Name of the saved query backing this version: {endpoint_name}_v{version}."""
+        return f"{self.endpoint.name}_v{self.version}"
+
+    def enable_materialization(self, saved_query, bucket_overrides: dict[str, str] | None = None) -> None:
+        """Counterpart of disable_materialization: link the backing saved query to this version."""
+        self.saved_query = saved_query
+        self.bucket_overrides = bucket_overrides
+        self.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
+
     def disable_materialization(self) -> None:
         """Disable materialization: revert and soft-delete the saved query, clear version fields."""
         if not self.saved_query:
@@ -204,50 +272,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
 
         Returns: (can_materialize: bool, reason: str)
         """
-        query_kind = self.query.get("kind") if self.query else None
-
-        MATERIALIZABLE_QUERY_TYPES = {
-            "HogQLQuery",
-            "TrendsQuery",
-            "LifecycleQuery",
-            "RetentionQuery",
-        }
-
-        if query_kind not in MATERIALIZABLE_QUERY_TYPES:
-            supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
-            return (
-                False,
-                f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
-            )
-
-        # Block compare mode — materialization can't reconstruct doubled series
-        compare_filter = self.query.get("compareFilter") or {}
-        if compare_filter.get("compare"):
-            return False, "Compare mode is not supported for materialized endpoints."
-
-        # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
-        # inject_series_index tags as separate series, causing a mismatch at read time.
-        breakdown_filter = self.query.get("breakdownFilter") or {}
-        if breakdown_filter.get("breakdown_type") == "cohort":
-            return False, "Cohort breakdowns are not supported for materialized endpoints."
-        for breakdown in breakdown_filter.get("breakdowns") or []:
-            if isinstance(breakdown, dict) and breakdown.get("type") == "cohort":
-                return False, "Cohort breakdowns are not supported for materialized endpoints."
-
-        if self.query.get("variables"):
-            from products.endpoints.backend.materialization import analyze_variables_for_materialization
-
-            can_materialize, reason, _ = analyze_variables_for_materialization(self.query)
-
-            if not can_materialize:
-                return False, f"Variables not supported: {reason}"
-
-        if query_kind == "HogQLQuery":
-            hogql_query = self.query.get("query")
-            if not hogql_query or not isinstance(hogql_query, str):
-                return False, "Query is empty or invalid."
-
-        return True, ""
+        return can_materialize_query(self.query)
 
     @staticmethod
     def extract_columns(query: dict, team_id: int) -> list[dict]:
@@ -288,7 +313,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     """Model for storing endpoints that can be accessed via API endpoints.
 
     Endpoints allow creating reusable query endpoints like:
-    /api/environments/{team_id}/endpoints/{endpoint_name}/run
+    /api/projects/{team_id}/endpoints/{endpoint_name}/run
 
     Query, description, data_freshness_seconds, and materialization settings are stored
     in EndpointVersion, allowing per-version configuration.
@@ -318,7 +343,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     last_executed_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="When this endpoint was last executed via the run API. Updated with hour granularity.",
+        help_text="When this endpoint was last executed via the run API. Updated with 30-minute granularity.",
     )
 
     class Meta:
@@ -338,7 +363,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     @property
     def endpoint_path(self) -> str:
         """Return the API endpoint path for this endpoint."""
-        return f"/api/environments/{self.team.id}/endpoints/{self.name}/run"
+        return f"/api/projects/{self.team.id}/endpoints/{self.name}/run"
 
     def has_query_changed(self, new_query: dict[str, Any]) -> bool:
         """Deep comparison to check if query has actually changed.

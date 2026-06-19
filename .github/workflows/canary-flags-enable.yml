@@ -12,7 +12,7 @@ name: Enable Feature Flags PR Canary
 # Requirements:
 # - PR must be approved (no outstanding change requests)
 # - PR author must be a PostHog org member
-# - For /pr-canary and workflow_dispatch: actor must be in team-feature-flags or team-flags-platform
+# - For /pr-canary and workflow_dispatch: actor must be in team-feature-flags
 
 concurrency:
     group: canary-flags-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
@@ -121,7 +121,7 @@ jobs:
                                   '| `weight` | `1`–`10` or `auto` | `auto` |',
                                   '| `env` | `dev`, `prod-us`, `prod-eu` | `dev` |',
                                   '',
-                                  '**Requirements:** PR must be approved. You must be in `team-feature-flags` or `team-flags-platform`.',
+                                  '**Requirements:** PR must be approved. You must be in `team-feature-flags`.',
                                   '',
                                   'The canary auto-disables after 48h or when the PR is closed/merged.',
                               ].join('\n')
@@ -132,7 +132,7 @@ jobs:
 
                       // Check team membership
                       const actor = process.env.ACTOR;
-                      const allowedTeams = ['team-feature-flags', 'team-flags-platform'];
+                      const allowedTeams = ['team-feature-flags'];
                       let isMember = false;
 
                       for (const team of allowedTeams) {
@@ -163,7 +163,7 @@ jobs:
                               owner: context.repo.owner,
                               repo: context.repo.repo,
                               issue_number: prNumber,
-                              body: `@${actor} you must be a member of \`team-feature-flags\` or \`team-flags-platform\` to use \`/pr-canary\`.`
+                              body: `@${actor} you must be a member of \`team-feature-flags\` to use \`/pr-canary\`.`
                           });
                           core.setFailed('Not a member of an authorized team');
                           return;
@@ -531,7 +531,7 @@ jobs:
                       }
 
                       // Label added manually — verify the user is on an allowed team
-                      const allowedTeams = ['team-feature-flags', 'team-flags-platform'];
+                      const allowedTeams = ['team-feature-flags'];
                       for (const team of allowedTeams) {
                           try {
                               await github.rest.teams.getMembershipForUserInOrg({
@@ -551,7 +551,7 @@ jobs:
 
                       core.setFailed(
                           `canary-flags label was added by ${labeler} who is not a member of ` +
-                          `team-feature-flags or team-flags-platform. ` +
+                          `team-feature-flags. ` +
                           `Use /pr-canary to enable canary deployments.`
                       );
 
@@ -597,7 +597,7 @@ jobs:
                   github-token: ${{ steps.app-token.outputs.token }}
                   script: |
                       const actor = process.env.ACTOR;
-                      const allowedTeams = ['team-feature-flags', 'team-flags-platform'];
+                      const allowedTeams = ['team-feature-flags'];
 
                       for (const team of allowedTeams) {
                           try {
@@ -621,8 +621,8 @@ jobs:
                           }
                       }
                       core.setFailed(
-                          `${actor} is not a member of team-feature-flags or team-flags-platform. ` +
-                          `Only members of these teams can trigger canary deployments.`
+                          `${actor} is not a member of team-feature-flags. ` +
+                          `Only members of this team can trigger canary deployments.`
                       );
 
             - name: Validate canary inputs

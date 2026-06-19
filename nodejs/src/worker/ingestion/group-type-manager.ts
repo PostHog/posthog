@@ -1,4 +1,6 @@
-import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../../types'
+import { DateTime } from 'luxon'
+
+import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectId, Team, TeamId } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { captureTeamEvent } from '../../utils/posthog'
@@ -7,8 +9,6 @@ import { GroupRepository } from './groups/repositories/group-repository.interfac
 
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
-
-export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 
 export class GroupTypeManager {
     private loader: LazyLoader<GroupTypeToColumnIndex>
@@ -26,7 +26,10 @@ export class GroupTypeManager {
                 const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
                 try {
                     const projectIdNumbers = projectIds.map((id) => parseInt(id) as ProjectId)
-                    const groupTypesByProject = await this.groupRepository.fetchGroupTypesByProjectIds(projectIdNumbers)
+                    const groupTypesByProject = await this.groupRepository.fetchGroupTypesByProjectIds(
+                        projectIdNumbers,
+                        'ingestion/group-type-resolution'
+                    )
 
                     for (const [projectIdStr, groupTypes] of Object.entries(groupTypesByProject)) {
                         const groupTypeMapping: GroupTypeToColumnIndex = {}
@@ -55,7 +58,8 @@ export class GroupTypeManager {
     public async fetchGroupTypeIndex(
         teamId: TeamId,
         projectId: ProjectId,
-        groupType: string
+        groupType: string,
+        eventTimestamp: DateTime
     ): Promise<GroupTypeIndex | null> {
         const groupTypes = await this.fetchGroupTypes(projectId)
         if (groupType in groupTypes) {
@@ -72,11 +76,14 @@ export class GroupTypeManager {
             nextAvailableIndex++
         }
 
+        // Use the triggering event's timestamp as the mapping's created_at, so historical imports
+        // register the group type as of the event rather than wall-clock now (which would mask them).
         const [groupTypeIndex, isInsert] = await this.groupRepository.insertGroupType(
             teamId,
             projectId,
             groupType,
-            nextAvailableIndex
+            nextAvailableIndex,
+            eventTimestamp
         )
         if (groupTypeIndex !== null) {
             this.loader.markForRefresh(projectId.toString())

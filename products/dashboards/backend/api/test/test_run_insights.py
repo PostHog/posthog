@@ -7,13 +7,13 @@ from rest_framework import status
 from posthog.schema import DateRange, EventsNode, InsightVizNode, TrendsFilter, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import Insight
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 def _trends_query_dict(event: str = "$pageview") -> dict:

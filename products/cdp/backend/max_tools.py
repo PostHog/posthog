@@ -20,6 +20,7 @@ from posthog.hogql.ai import (
     INPUT_SCHEMA_TYPES_MESSAGE,
     PERSON_TAXONOMY_MESSAGE,
     TRANSFORMATION_LIMITATIONS_MESSAGE,
+    TRANSFORMATION_STRUCTURE_MESSAGE,
 )
 from posthog.hogql.parser import parse_program
 
@@ -59,6 +60,8 @@ class CreateHogTransformationFunctionTool(MaxTool):
     context_prompt_template: str = (
         HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
         + "\n\n"
+        + TRANSFORMATION_STRUCTURE_MESSAGE
+        + "\n\n"
         + TRANSFORMATION_LIMITATIONS_MESSAGE
         + "\n\n"
         + DESTINATION_LIMITATIONS_MESSAGE
@@ -69,6 +72,9 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
         system_content = (
             IDENTITY_MESSAGE_HOG
+            + "\n\n<transformation_structure>\n"
+            + TRANSFORMATION_STRUCTURE_MESSAGE
+            + "\n</transformation_structure>\n\n"
             + "\n\n<example_hog_code>\n"
             + HOG_EXAMPLE_MESSAGE
             + "\n</example_hog_code>\n\n"

@@ -41,20 +41,20 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { inStorybookTestRunner } from 'lib/utils/dom'
+import { pluralize } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { copyToClipboard } from '~/lib/utils/copyToClipboard'
-import { stripMarkdown } from '~/lib/utils/stripMarkdown'
+import { stripMarkdown } from '~/lib/utils/markdown'
 import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
-    AssistantToolCall,
     AssistantToolCallMessage,
     TaskExecutionStatus as ExecutionStatus,
     FailureMessage,
@@ -70,12 +70,13 @@ import { PendingApproval, Region } from '~/types'
 import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
 
 import { FeedbackDisplay } from './components/FeedbackDisplay'
+import { MaxWebAnalyticsNudge } from './components/MaxWebAnalyticsNudge'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { maxMessageRatingsLogic } from './logics/maxMessageRatingsLogic'
 import { MarkdownMessage } from './MarkdownMessage'
-import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
+import { EnhancedToolCall, ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -93,6 +94,7 @@ import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAns
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { TicketPrompt } from './TicketPrompt'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
+import { ToolCallWidgetDef, getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import { TraceIdProvider, useTraceId } from './TraceIdContext'
 import { useFeedback } from './useFeedback'
 import {
@@ -372,14 +374,6 @@ function MessageContainer({
             {children}
         </div>
     )
-}
-
-export interface EnhancedToolCall extends AssistantToolCall {
-    status: ExecutionStatus
-    isLastPlanningMessage?: boolean
-    updates?: string[]
-    /** The tool call result message, if available */
-    result?: AssistantToolCallMessage
 }
 
 interface MessageProps {
@@ -707,6 +701,13 @@ function Message({
                     }
                     return null // We currently skip other types of messages
                 })()}
+                {isFinal &&
+                    isLastInGroup &&
+                    message.status === 'completed' &&
+                    message.id &&
+                    !message.id.startsWith('temp-') && (
+                        <MaxWebAnalyticsNudge message={message} messageId={message.id} />
+                    )}
                 {isLastInGroup && message.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
@@ -1266,7 +1267,8 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                 <div className="flex flex-col gap-1.5">
                     {regularToolCalls.map((toolCall) => {
                         const definition = getToolDefinitionFromToolCall(toolCall)
-                        const [description, widget] = getToolCallDescriptionAndWidget(toolCall, registeredToolMap)
+                        const [description, widgetDef] = getToolCallDescriptionAndWidgetDef(toolCall, registeredToolMap)
+                        const widget = renderToolCallWidget(widgetDef, toolCall.id)
                         return (
                             <AssistantActionComponent
                                 key={toolCall.id}
@@ -1599,7 +1601,7 @@ function SuccessActions({
                 )}
                 {(user?.is_staff || isDev) && traceId && (
                     <LemonButton
-                        to={`${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.llmAnalyticsTrace(traceId)}`}
+                        to={`${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.aiObservabilityTrace(traceId)}`}
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"
@@ -1649,38 +1651,13 @@ function SuccessActions({
     )
 }
 
-export const getToolCallDescriptionAndWidget = (
-    toolCall: EnhancedToolCall,
-    registeredToolMap: Record<string, ToolRegistration>
-): [string, JSX.Element | null] => {
-    const commentary = toolCall.args.commentary as string
-    const definition = getToolDefinitionFromToolCall(toolCall)
-    let description = `${toolCall.status === ExecutionStatus.InProgress ? 'Executing' : 'Executed'} ${toolCall.name}`
-    let widget: JSX.Element | null = null
-    if (definition) {
-        if (definition.displayFormatter) {
-            const displayFormatterResult = definition.displayFormatter(toolCall, {
-                registeredToolMap,
-            })
-            if (typeof displayFormatterResult === 'string') {
-                description = displayFormatterResult
-            } else {
-                description = displayFormatterResult[0]
-                switch (displayFormatterResult[1]?.widget) {
-                    case 'recordings':
-                        widget = <RecordingsWidget toolCallId={toolCall.id} filters={displayFormatterResult[1].args} />
-                        break
-                    case 'session_summarization':
-                        widget = <SessionSummarizationProgress updates={displayFormatterResult[1].args.updates} />
-                        break
-                    default:
-                        break
-                }
-            }
-        }
-        if (commentary) {
-            description = commentary
-        }
+function renderToolCallWidget(widgetDef: ToolCallWidgetDef | null, toolCallId: string): JSX.Element | null {
+    switch (widgetDef?.widget) {
+        case 'recordings':
+            return <RecordingsWidget toolCallId={toolCallId} filters={widgetDef.args} />
+        case 'session_summarization':
+            return <SessionSummarizationProgress updates={widgetDef.args.updates} />
+        default:
+            return null
     }
-    return [description, widget]
 }

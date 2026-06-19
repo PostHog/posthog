@@ -4,6 +4,7 @@ from posthog.schema import (
     CachedWebStatsTableQueryResponse,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebExternalClicksTableQuery,
     WebExternalClicksTableQueryResponse,
     WebStatsTableQueryResponse,
@@ -38,6 +39,8 @@ class WebExternalClicksTableQueryRunner(WebAnalyticsQueryRunner[WebExternalClick
             )
         else:
             url_expr = ast.Field(chain=["properties", "$external_click_url"])
+
+        url_expr = self._apply_path_cleaning(url_expr)
 
         with self.timings.measure("external_clicks_query"):
             query = parse_select(
@@ -146,5 +149,6 @@ GROUP BY "context.columns.url"
             types=response.types,
             hogql=response.hogql,
             modifiers=self.modifiers,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
             **self.paginator.response_params(),
         )

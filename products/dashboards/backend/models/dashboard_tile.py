@@ -60,7 +60,7 @@ class DashboardTile(models.Model):
     # Relations
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey(
-        "posthog.Insight",
+        "product_analytics.Insight",
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
@@ -76,6 +76,13 @@ class DashboardTile(models.Model):
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
+    )
+    widget = models.ForeignKey(
+        "dashboards.DashboardWidget",
+        on_delete=models.PROTECT,
+        related_name="dashboard_tiles",
+        null=True,
+        db_index=False,
     )
     # Denormalized from `dashboard.team_id` so this table can be exposed via HogQL,
     # whose printer injects `WHERE team_id = <ctx.team_id>` against every PostgresTable.
@@ -121,8 +128,13 @@ class DashboardTile(models.Model):
                 name="unique_dashboard_button_tile",
                 condition=Q(("button_tile__isnull", False)),
             ),
+            UniqueConstraint(
+                fields=["dashboard", "widget"],
+                name="unique_dashboard_widget",
+                condition=Q(("widget__isnull", False)),
+            ),
             models.CheckConstraint(
-                condition=build_unique_relationship_check(("insight", "text", "button_tile")),
+                condition=build_unique_relationship_check(("insight", "text", "button_tile", "widget")),
                 name="dash_tile_exactly_one_related_object",
             ),
         ]
@@ -148,7 +160,7 @@ class DashboardTile(models.Model):
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
             if has_no_filters_hash and self.insight.filters != {}:
-                from posthog.models.insight import generate_insight_filters_hash
+                from products.product_analytics.backend.models.insight import generate_insight_filters_hash
 
                 self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
 
@@ -167,9 +179,11 @@ class DashboardTile(models.Model):
     def clean(self):
         super().clean()
 
-        related_fields = sum(map(bool, [getattr(self, o_field) for o_field in ("insight", "text", "button_tile")]))
+        related_fields = sum(
+            map(bool, [getattr(self, o_field) for o_field in ("insight", "text", "button_tile", "widget")])
+        )
         if related_fields != 1:
-            raise ValidationError("Can only set exactly one of insight, text, or button_tile for this tile")
+            raise ValidationError("Can only set exactly one of insight, text, button_tile, or widget for this tile")
 
         if self.insight is None and (
             self.filters_hash is not None
@@ -197,6 +211,10 @@ class DashboardTile(models.Model):
             qs = DashboardTile.objects_including_soft_deleted.filter(
                 dashboard_id=to_dashboard_id, button_tile=self.button_tile
             ).exclude(pk=self.pk)
+        elif self.widget is not None:
+            qs = DashboardTile.objects_including_soft_deleted.filter(
+                dashboard_id=to_dashboard_id, widget=self.widget
+            ).exclude(pk=self.pk)
         else:
             return
         for stale in qs:
@@ -222,8 +240,10 @@ class DashboardTile(models.Model):
             existing = DashboardTile.objects_including_soft_deleted.filter(
                 dashboard=dashboard, button_tile=self.button_tile
             ).first()
+        elif self.widget is not None:
+            raise ValidationError("Widget tiles must be deep-cloned when copying between dashboards.")
         else:
-            raise ValidationError("Cannot copy tile without insight, text, or button_tile.")
+            raise ValidationError("Cannot copy tile without insight, text, button_tile, or widget.")
 
         if existing:
             if existing.deleted is not True:
@@ -271,11 +291,14 @@ class DashboardTile(models.Model):
                 "insight",
                 "text",
                 "button_tile",
+                "widget",
                 "insight__created_by",
                 "insight__last_modified_by",
                 "insight__team",
+                "widget__created_by",
+                "widget__last_modified_by",
             )
-            .prefetch_related("text__dashboard_tiles", "button_tile__dashboard_tiles")
+            .prefetch_related("text__dashboard_tiles", "button_tile__dashboard_tiles", "widget__dashboard_tiles")
             .exclude(dashboard__deleted=True, deleted=True)
             .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
             .order_by("insight__order")
