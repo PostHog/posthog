@@ -51,3 +51,18 @@ BILLING_USAGE_REPORTS_S3_BUCKET = os.getenv("BILLING_USAGE_REPORTS_S3_BUCKET") o
 # expire non-`ready` bundles after a grace period (handled by infra). Falls
 # back to the general bucket in dev / self-hosted.
 AGENT_BUNDLES_S3_BUCKET = os.getenv("AGENT_BUNDLES_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+
+# Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
+# per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs
+# them back with `s3(...)`, so only the ClickHouse cluster needs bucket access — the Dagster
+# process and the web process never touch boto3. Retention is owned by the bucket lifecycle
+# policy (there is no MergeTree TTL on S3); infra must expire the prefix (≥ the eval horizon so
+# a run's inputs survive until evaluation). Prod bucket names are infra-provided via env and
+# never committed; local/dev/test reuse the object-storage service (SeaweedFS).
+IDENTITY_MATCHING_S3_BUCKET = os.getenv("IDENTITY_MATCHING_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+IDENTITY_MATCHING_S3_PREFIX = os.getenv("IDENTITY_MATCHING_S3_PREFIX", "identity_matching")
+IDENTITY_MATCHING_S3_REGION = os.getenv("IDENTITY_MATCHING_S3_REGION") or OBJECT_STORAGE_REGION
+# Endpoint is set for S3-compatible object storage (local/dev/test); empty on prod, where the
+# cluster reaches the bucket over AWS S3 via its attached IAM role (so no endpoint and no keys
+# — the credential question is owned by infra, mirroring events_backfill_to_duckling).
+IDENTITY_MATCHING_S3_ENDPOINT = os.getenv("IDENTITY_MATCHING_S3_ENDPOINT", OBJECT_STORAGE_ENDPOINT) or None

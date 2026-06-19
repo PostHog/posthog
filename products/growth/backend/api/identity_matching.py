@@ -1,8 +1,12 @@
-"""Read-only API over the identity matching link tables.
+"""Read-only API over the identity matching links.
 
-The tables are written by the `identity_matching_job` Dagster job
-(products/growth/dags/identity_matching.py) and only exist once that job has run, so every
-query first checks table existence and degrades to an empty result set.
+Each run of the `identity_matching_job` Dagster job (products/growth/dags/identity_matching.py)
+writes its links and candidate pairs as Parquet to a per-run S3 prefix
+(`<prefix>/team_<team_id>/<job_id>/...`); nothing is persisted on the ClickHouse cluster. Every
+query reads those objects back through the `s3(...)` table function and degrades to an empty
+result set when the team has no objects yet (a glob matching no files returns zero rows under
+`s3_throw_on_zero_files_match=0`). Cross-team isolation is enforced by the `team_<team_id>` path
+segment: a job_id belonging to another team resolves to a prefix this team never wrote.
 """
 
 from typing import Any
@@ -18,12 +22,22 @@ from posthog.clickhouse.client import sync_execute
 from posthog.permissions import IsStaffUser
 
 from products.growth.backend.constants import (
-    IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE,
-    IDENTITY_MATCHING_LINKS_TABLE,
+    IDENTITY_MATCHING_CANDIDATE_PAIRS_DATASET,
+    IDENTITY_MATCHING_CANDIDATE_PAIRS_STRUCTURE,
+    IDENTITY_MATCHING_LINKS_DATASET,
+    IDENTITY_MATCHING_LINKS_STRUCTURE,
     IDENTITY_MATCHING_TIERS,
+    identity_matching_dataset_read_args,
 )
 
 MAX_RUNS_LISTED = 50
+
+# Let a glob matching no objects return zero rows (the "no run yet" path) instead of erroring.
+_S3_READ_SETTINGS = {"s3_throw_on_zero_files_match": "0"}
+
+# All-runs glob for one team: `<prefix>/team_<team_id>/*/links/*.parquet`. links is the smallest
+# dataset, so enumerating every run of a team this way is cheap.
+_ALL_RUNS = "*"
 
 
 class IdentityMatchingLinkSerializer(serializers.Serializer):
@@ -118,22 +132,34 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # Staff-only while identity matching is under development.
     permission_classes = [IsStaffUser]
 
-    def _links_table_exists(self) -> bool:
-        [[exists]] = sync_execute(f"EXISTS TABLE {IDENTITY_MATCHING_LINKS_TABLE}")
-        return bool(exists)
+    def _links_read_args(self, job_id: str) -> str:
+        """`s3(...)` args for one run's links objects (`job_id` is a validated UUID string)."""
+        return identity_matching_dataset_read_args(
+            self.team.pk, job_id, IDENTITY_MATCHING_LINKS_DATASET, IDENTITY_MATCHING_LINKS_STRUCTURE
+        )
+
+    def _candidate_pairs_read_args(self, job_id: str) -> str:
+        return identity_matching_dataset_read_args(
+            self.team.pk, job_id, IDENTITY_MATCHING_CANDIDATE_PAIRS_DATASET, IDENTITY_MATCHING_CANDIDATE_PAIRS_STRUCTURE
+        )
+
+    def _all_runs_links_read_args(self) -> str:
+        """`s3(...)` args globbing every run's links objects for this team."""
+        return identity_matching_dataset_read_args(
+            self.team.pk, _ALL_RUNS, IDENTITY_MATCHING_LINKS_DATASET, IDENTITY_MATCHING_LINKS_STRUCTURE
+        )
 
     def _latest_job_id(self) -> str | None:
-        rows = sync_execute(
-            f"""
-            SELECT job_id
-            FROM {IDENTITY_MATCHING_LINKS_TABLE}
-            WHERE team_id = %(team_id)s
-            ORDER BY computed_at DESC
-            LIMIT 1
-            """,
-            {"team_id": self.team.pk},
+        # argMax over an empty glob returns one row with the column's default (''); treat as no run.
+        [[job_id]] = (
+            sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — s3 args from team_id (int) and constant structure; values parameterized
+                f"SELECT argMax(job_id, computed_at) FROM s3({self._all_runs_links_read_args()}) WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
+            )
         )
-        return str(rows[0][0]) if rows else None
+        return str(job_id) if job_id else None
 
     @extend_schema(
         summary="List identity matching links",
@@ -148,17 +174,14 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         filters.is_valid(raise_exception=True)
         params = filters.validated_data
 
-        if not self._links_table_exists():
-            return Response({"results": [], "count": 0})
-
         job_id = str(params["job_id"]) if params.get("job_id") else self._latest_job_id()
         if job_id is None:
             return Response({"results": [], "count": 0})
 
-        conditions = ["lk.team_id = %(team_id)s", "lk.job_id = %(job_id)s"]
+        # job_id scopes the run via the S3 path; team_id stays as a defensive predicate.
+        conditions = ["lk.team_id = %(team_id)s"]
         query_params: dict[str, Any] = {
             "team_id": self.team.pk,
-            "job_id": job_id,
             "limit": params["limit"],
             "offset": params["offset"],
         }
@@ -178,14 +201,18 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
             query_params["search"] = params["search"]
         where = " AND ".join(conditions)
+        links_s3 = self._links_read_args(job_id)
+        candidate_pairs_s3 = self._candidate_pairs_read_args(job_id)
 
-        [[count]] = (  # nosemgrep: clickhouse-fstring-param-audit
-            sync_execute(
-                f"SELECT count() FROM {IDENTITY_MATCHING_LINKS_TABLE} AS lk WHERE {where}",
+        [[count]] = (
+            sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — s3 args from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
+                f"SELECT count() FROM s3({links_s3}) AS lk WHERE {where}",
                 query_params,
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
             )
         )
-        rows = sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — constant table names, WHERE built from string literals, values parameterized
+        rows = sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — s3 args from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
             f"""
             SELECT
                 lk.job_id,
@@ -209,17 +236,17 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 p.avg_path_jaccard,
                 p.orphan_paid_touch,
                 p.anchor_paid_touch
-            FROM {IDENTITY_MATCHING_LINKS_TABLE} AS lk
-            LEFT JOIN {IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE} AS p
-                ON lk.job_id = p.job_id
-                AND lk.team_id = p.team_id
-                AND lk.orphan_distinct_id = p.orphan_distinct_id
+            FROM s3({links_s3}) AS lk
+            LEFT JOIN s3({candidate_pairs_s3}) AS p
+                ON lk.orphan_distinct_id = p.orphan_distinct_id
                 AND lk.anchor_person_key = p.anchor_person_key
             WHERE {where}
             ORDER BY lk.score DESC, lk.orphan_distinct_id, lk.model_version
             LIMIT %(limit)s OFFSET %(offset)s
             """,
             query_params,
+            settings=_S3_READ_SETTINGS,
+            team_id=self.team.pk,
         )
         field_names = [
             "job_id",
@@ -256,18 +283,17 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["GET"])
     def runs(self, request: Request, **kwargs: Any) -> Response:
-        if not self._links_table_exists():
-            return Response({"results": []})
-
-        rows = sync_execute(
+        rows = sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — s3 args from team_id (int) and constant structure; values parameterized
             f"""
             SELECT job_id, max(computed_at) AS computed_at, model_version, count() AS link_count
-            FROM {IDENTITY_MATCHING_LINKS_TABLE}
+            FROM s3({self._all_runs_links_read_args()})
             WHERE team_id = %(team_id)s
             GROUP BY job_id, model_version
             ORDER BY computed_at DESC
             """,
             {"team_id": self.team.pk},
+            settings=_S3_READ_SETTINGS,
+            team_id=self.team.pk,
         )
         runs: dict[str, dict[str, Any]] = {}
         for job_id, computed_at, model_version, link_count in rows:
