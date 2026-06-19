@@ -13,7 +13,7 @@ next nightly run catches a real gap you missed. So **when in doubt, leave it out
 ## Scope
 
 Only added lines (`+` in the unified diff) are considered — we suggest instrumentation for
-*new* code, not pre-existing code the PR happened to touch.
+_new_ code, not pre-existing code the PR happened to touch.
 
 Files that are never analyzed:
 
