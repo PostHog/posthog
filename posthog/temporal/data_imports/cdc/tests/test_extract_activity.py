@@ -1494,12 +1494,13 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_get_adapter.return_value = mock_adapter
         return source, mock_adapter
 
+    @patch("posthog.temporal.data_imports.cdc.activities.HeartbeaterSync")
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
     def test_retention_cap_lowers_critical_threshold(
-        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity
+        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
     ):
         # Configured critical is 10240 MB, but the engine caps retention at 1000 MB:
         # at 900 MB of lag (>= 80% of the cap) the sweeper must already act.
@@ -1511,12 +1512,13 @@ class TestCleanupOrphanSlotsRetentionCap:
         assert source.status is MockSourceModel.Status.ERROR
         source.save.assert_called()
 
+    @patch("posthog.temporal.data_imports.cdc.activities.HeartbeaterSync")
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
     def test_unlimited_retention_keeps_configured_threshold(
-        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity
+        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
     ):
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=None)
 
