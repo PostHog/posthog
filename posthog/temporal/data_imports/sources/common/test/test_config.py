@@ -498,9 +498,13 @@ def test_from_dict_with_non_mapping_raises_clear_error(bad_input):
         "access_token",
         "refresh_token",
         "private_key",
+        "client_certificate",
+        "client_private_key",
+        "server_client_root_ca",
         "connection_string",
         "manifest_json",
-        "authorization",
+        "authorization_header",
+        "signing_secret",
     ],
 )
 def test_repr_redacts_secret_fields(field_name):

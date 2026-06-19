@@ -11,12 +11,6 @@ META_KEY = "_SOURCE_CONFIG_META"
 
 _T = typing.TypeVar("_T")
 
-# Config objects hold connection credentials (passwords, tokens, private keys, connection
-# strings). The auto-generated dataclass `__repr__` prints every field verbatim, and that
-# repr leaks into logs and — because `capture_exception_code_variables` is enabled — into
-# error-tracking stack-frame locals. Any field whose (lowercased) name contains one of these
-# substrings has its value replaced with `***` in the repr. Matched by substring so secret
-# fields on future sources are redacted by default rather than requiring an allowlist update.
 _SECRET_FIELD_NAME_SUBSTRINGS: tuple[str, ...] = (
     "password",
     "passphrase",
@@ -25,6 +19,7 @@ _SECRET_FIELD_NAME_SUBSTRINGS: tuple[str, ...] = (
     "key",
     "credential",
     "certificate",
+    "root_ca",
     "connection_string",
     "authorization",
     "manifest_json",
