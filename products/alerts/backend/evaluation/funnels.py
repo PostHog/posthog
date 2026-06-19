@@ -78,6 +78,7 @@ class FunnelsExtractor:
             is_breakdown=len(breakdowns) > 1,
             subject=_FUNNEL_SUBJECT,
             framed=False,
+            unit="%",  # conversion rates are 0–100 percentages; match the configure-time UI
         )
 
 
@@ -118,11 +119,7 @@ def _step_count(steps: list[dict[str, Any]], index: int) -> float:
 
 
 def _conversion_rate(steps: list[dict[str, Any]], config: FunnelsAlertConfig) -> float:
-    """Conversion rate (0–100) at the configured step.
-
-    ``conversion_from_start`` divides by the first step's count (overall conversion to that step);
-    ``conversion_from_previous`` divides by the prior step's count (step-over-step conversion).
-    """
+    """Conversion rate (0–100) for the configured step and metric."""
     step_count = len(steps)
     step_index = config.funnel_step if config.funnel_step is not None else step_count - 1
     if step_index < 0 or step_index >= step_count:

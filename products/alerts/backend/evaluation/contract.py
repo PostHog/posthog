@@ -35,6 +35,7 @@ class ExtractionResult:
     interval_type: IntervalType | None = None  # breach-message interval framing (time-series trends only)
     subject: str = "The insight value"  # breach-message subject
     framed: bool = True  # include the "(label) for current/previous interval" framing
+    unit: str = ""  # appended to breach-message values (e.g. "%" for funnel conversion rates)
     # Detector-path-only: True means the query returned zero rows, so the metric is genuinely 0. An
     # empty ``series`` with this False instead means rows existed but none were long enough to score —
     # the detector reports that as an uncomputed value (None). Threshold extractors never set this
