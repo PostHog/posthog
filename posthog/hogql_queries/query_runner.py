@@ -80,7 +80,6 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_team_in_env
-from posthog.hogql.variables import apply_variable_overrides
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
@@ -2102,7 +2101,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if not self.query.variables:
             return
 
-        apply_variable_overrides(self.query.variables, variable_overrides)
+        for variable in variable_overrides:
+            if self.query.variables.get(variable.variableId):
+                self.query.variables[variable.variableId] = variable
 
     def apply_pagination_cursor(self, cursor: str) -> None:
         """Apply an opaque cursor for paginating through results. Override in subclasses."""

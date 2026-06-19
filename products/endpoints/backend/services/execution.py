@@ -38,7 +38,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-from posthog.hogql.variables import apply_variable_overrides
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import _process_query_request
@@ -857,7 +856,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
             hogql_query = HogQLQuery(query=query["query"], variables=query.get("variables"))
             if plan.variables_override and hogql_query.variables:
-                apply_variable_overrides(hogql_query.variables, plan.variables_override)
+                for override in plan.variables_override:
+                    if hogql_query.variables.get(override.variableId):
+                        hogql_query.variables[override.variableId] = override
 
             result = execute_ducklake_query(
                 self.team.pk,

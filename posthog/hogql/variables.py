@@ -18,12 +18,6 @@ def replace_variables(node: T, variables: list[HogQLVariable], team: Team) -> T:
     return ReplaceVariables(variables, team).visit(node)
 
 
-def apply_variable_overrides(variables: dict[str, HogQLVariable], overrides: list[HogQLVariable]) -> None:
-    for override in overrides:
-        if variables.get(override.variableId):
-            variables[override.variableId] = override
-
-
 class ReplaceVariables(CloningVisitor):
     insight_variables: list[InsightVariable]
 
