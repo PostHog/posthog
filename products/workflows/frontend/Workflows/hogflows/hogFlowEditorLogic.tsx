@@ -796,7 +796,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         } else if (!updatedVariables?.some((v) => v.key === prefix)) {
                             updatedVariables = [
                                 ...(updatedVariables || []),
-                                { key: prefix, label: prefix, type: 'string' as const, default: '' },
+                                {
+                                    key: prefix,
+                                    label: outputVar.label ?? prefix,
+                                    type: 'string' as const,
+                                    default: '',
+                                },
                             ]
                         }
                     }
