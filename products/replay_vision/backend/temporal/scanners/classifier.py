@@ -34,7 +34,7 @@ class ClassifierOutput(BaseScannerOutput, frozen=True):
 
 class ClassifierScanner(BaseScanner, frozen=True):
     scanner_type: Literal[ScannerType.CLASSIFIER] = ScannerType.CLASSIFIER
-    prompt_template: ClassVar[str] = "classifier.jinja"
+    core_step_template: ClassVar[str] = "classifier_step.jinja"
     citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
     output_cls: ClassVar[type[BaseScannerOutput]] = ClassifierOutput
     tags: list[str] = Field(min_length=1, description="Fixed vocabulary the model picks from.")

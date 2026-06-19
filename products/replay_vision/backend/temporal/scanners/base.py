@@ -1,13 +1,12 @@
 """Base class for all Replay Vision scanner types."""
 
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field
 
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
-
-if TYPE_CHECKING:
-    from products.replay_vision.backend.temporal.types import EventTable
 
 
 # Sited here rather than `temporal/types.py`: `types.py` imports from this module, so siting Segment in types.py would close the cycle.
@@ -18,7 +17,7 @@ class TextSegment(BaseModel, frozen=True):
 
 class ChipSegment(BaseModel, frozen=True):
     kind: Literal["chip"] = "chip"
-    uuid: str
+    # Recording-relative position (ms) the player seeks to; from a `(t <sec>)` citation.
     timestamp_ms: int = Field(ge=0)
 
 
@@ -32,21 +31,29 @@ MIN_SIGNAL_CONFIDENCE = 0.4
 class SignalFinding(BaseModel, frozen=True):
     """Optional side-mission finding: a bug, crash, or design flaw the recording itself reveals. See the side-mission prompt block."""
 
-    visual_evidence: str = Field(
+    problem_type: Literal["bug", "crash", "design_flaw", "ux_friction"] = Field(
+        description="The kind of issue: `bug`, `crash`, `design_flaw`, or `ux_friction`."
+    )
+    start_time: int = Field(
+        ge=0,
         description=(
-            "What you saw in the recording that reveals this issue. Describe the visual detail the events do not "
-            "capture. Examples: a spinner overlapping a button so it looks clickable; an error toast that flashed "
-            "off-screen before it could be read; a layout shift that moved the target out from under the cursor; a "
-            "control that looks disabled but isn't; content rendered overlapping or truncated; visible hesitation or "
-            "repeated mis-aiming. If you can't point to something visual, and the events alone already show the "
-            "issue, return `signal: null` instead."
-        )
+            "When the issue starts in the recording, in seconds — copy the whole-number `REC_T` value shown in the "
+            "video footer at that moment (`REC_T` is seconds since the recording started)."
+        ),
+    )
+    end_time: int = Field(
+        ge=0, description="When the issue ends in the recording, in seconds — the `REC_T` value from the footer."
+    )
+    url: str = Field(
+        description="The page the issue happened on — copy the `URL:` value shown in the video footer at that moment."
     )
     description: str = Field(
         description=(
-            "Actionable prose a reader with no session context can act on. Say what happened, where in the product, "
-            "and the user impact. When they're visible on screen, quote the exact labels, button text, and URL paths "
-            "so a downstream agent can grep for them. Use plain prose. Do not use `(event_uuid …)` citation markers."
+            "Actionable prose a reader with no session context can act on. Lead with what you saw on screen that "
+            "reveals the issue — the visual detail the events don't capture (e.g. a spinner overlapping a button, an "
+            "error toast that flashed off-screen, a layout shift, visible hesitation). Then say what happened, where "
+            "in the product, and the user impact. Quote exact on-screen labels and button text when visible. Use "
+            "plain prose. Do not use `(t …)` citation markers — this is a signal field, not a cited summary."
         )
     )
     confidence: float = Field(
@@ -56,22 +63,33 @@ class SignalFinding(BaseModel, frozen=True):
     )
 
 
-def _with_signal_field(base: type[BaseModel]) -> type[BaseModel]:
-    """Extend an LLM response model with the optional side-mission `signal` field."""
-    return create_model(
-        f"{base.__name__}WithSignal",
-        __base__=base,
-        signal=(
-            SignalFinding | None,
-            Field(
-                default=None,
-                description=(
-                    "Set only when watching the session revealed a bug, crash, or design flaw per the side "
-                    "mission. Otherwise null. Most sessions warrant null."
-                ),
-            ),
+class SignalsResponse(BaseModel, frozen=True):
+    """The signals side-mission turn's structured output — one entry per video-only issue, usually empty."""
+
+    signals: list[SignalFinding] = Field(
+        default_factory=list,
+        description=(
+            "Findings from the side mission — one entry per distinct bug, crash, or design flaw the recording "
+            "reveals. Usually empty: most sessions show nothing video-only. List each issue separately."
         ),
     )
+
+
+@dataclass(frozen=True)
+class MissionStep:
+    """One structured turn in a scanner's conversation: an instruction, the schema the model must answer with,
+    and how its result feeds the final output.
+
+    `required` steps abort the scan when they can't be satisfied; non-required steps (facets, signals) are
+    best-effort and simply contribute nothing on failure. `validate` runs an extra semantic check on the parsed
+    response and, when it returns an error string, triggers the same re-prompt path as a schema failure.
+    """
+
+    name: str
+    instruction: str
+    response_model: type[BaseModel]
+    required: bool = True
+    validate: Callable[[BaseModel], str | None] | None = field(default=None)
 
 
 class BaseScannerOutput(BaseModel, frozen=True):
@@ -89,61 +107,89 @@ class BaseScannerOutput(BaseModel, frozen=True):
 
 
 class BaseScanner(BaseModel, frozen=True):
-    """Common shape for every concrete scanner; subclasses bind `scanner_type`, `prompt_template`, and `llm_response_schema`."""
+    """Common shape for every concrete scanner; subclasses bind `scanner_type`, `core_step_template`, and `llm_response_schema`.
+
+    A scan is a multi-turn conversation over the cached video: a shared `preamble` (sent/cached once) followed by
+    the ordered `mission_steps` — one structured turn each. Most scanners have a single `core` step; the summarizer
+    splits into `summary` then `facets`; the signals side mission, when enabled, is always the final turn.
+    """
 
     prompt: str
     emits_signals: bool = False
 
-    # Per-scanner-type Jinja2 template under `prompts/`. Subclasses set this.
-    prompt_template: ClassVar[str] = ""
-    # Names of free-text fields on the LLM response that may contain `(event_uuid <uuid>)` citations.
+    # Shared opening turn (footer, events tool, calibration, session metadata), rendered once and cached with the video.
+    preamble_template: ClassVar[str] = "preamble.jinja"
+    # Per-scanner-type instruction for the `core` step. Subclasses set this (the summarizer overrides `core_steps`).
+    core_step_template: ClassVar[str] = ""
+    # Names of free-text output fields that may contain `(t <sec>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()
     # Persisted output class — subclasses override to stamp their `scanner_type` discriminator.
     output_cls: ClassVar[type["BaseScannerOutput"] | None] = None
 
     @property
     def llm_response_schema(self) -> type[BaseModel]:
-        """Pydantic class the LLM emits, passed to Gemini's `response_json_schema`."""
+        """Pydantic class the `core` step emits, passed to Gemini's `response_json_schema`."""
         raise NotImplementedError
-
-    def llm_response_model(self) -> type[BaseModel]:
-        """The model the LLM must emit: `llm_response_schema`, gaining the side-mission `signal` field when `emits_signals`."""
-        return _with_signal_field(self.llm_response_schema) if self.emits_signals else self.llm_response_schema
 
     def prompt_context(self) -> dict[str, Any]:
         """Scanner-type-specific template variables. Subclasses override to inject their per-instance config."""
         return {}
 
-    def finalize(self, llm_response: BaseModel) -> BaseScannerOutput:
+    def preamble(self, *, team_name: str, session_metadata: dict[str, Any] | None = None) -> str:
+        """The conversation's shared opening: framing, footer, events tool, calibration, and session metadata."""
+        return render_prompt(
+            self.preamble_template,
+            team_name=team_name,
+            session_metadata=session_metadata or {},
+        )
+
+    def core_steps(self) -> list[MissionStep]:
+        """The task turn(s) that produce this scanner's primary output. Default: one `core` step."""
+        if not self.core_step_template:
+            raise NotImplementedError(f"{type(self).__name__} must set `core_step_template`")
+        instruction = render_prompt(self.core_step_template, user_prompt=self.prompt, **self.prompt_context())
+        return [
+            MissionStep(
+                name="core",
+                instruction=instruction,
+                response_model=self.llm_response_schema,
+                validate=self._validate_core,
+            )
+        ]
+
+    def mission_steps(self) -> list[MissionStep]:
+        """The full ordered turn list: the core task, then the signals side mission when enabled."""
+        steps = self.core_steps()
+        if self.emits_signals:
+            steps.append(self._signals_step())
+        return steps
+
+    def _signals_step(self) -> MissionStep:
+        instruction = render_prompt("signals_step.jinja", min_signal_confidence=MIN_SIGNAL_CONFIDENCE)
+        # Best-effort: a side-mission failure must not sink the whole scan.
+        return MissionStep(name="signals", instruction=instruction, response_model=SignalsResponse, required=False)
+
+    def _validate_core(self, parsed: BaseModel) -> str | None:
+        """Run the scanner's semantic checks against a finalized version of the core response."""
+        return self.validate_semantics(self.finalize(parsed))
+
+    def assemble(self, step_outputs: dict[str, BaseModel]) -> tuple["BaseScannerOutput", list[SignalFinding]]:
+        """Merge the per-turn outputs into the final persisted output and the side-mission findings."""
+        finalized = self.finalize(step_outputs["core"])
+        return finalized, extract_signals(step_outputs)
+
+    def finalize(self, llm_response: BaseModel) -> "BaseScannerOutput":
         """Stamp `output_cls` (with its `scanner_type` discriminator) onto the validated LLM response."""
         if self.output_cls is None:
             raise NotImplementedError(f"{type(self).__name__} must set `output_cls`")
         return self.output_cls(**llm_response.model_dump())
 
-    def validate_semantics(self, output: BaseScannerOutput) -> str | None:
+    def validate_semantics(self, output: "BaseScannerOutput") -> str | None:
         """Scanner-specific checks beyond Pydantic schema validation; return `None` when valid, otherwise an error string suitable to feed back into a re-prompt."""
         return None
 
-    def build_prompt(
-        self,
-        *,
-        team_name: str,
-        events: "EventTable",
-        url_mapping: dict[str, str] | None = None,
-        window_mapping: dict[str, str] | None = None,
-        session_metadata: dict[str, Any] | None = None,
-    ) -> str:
-        if not self.prompt_template:
-            raise NotImplementedError(f"{type(self).__name__} must set `prompt_template`")
-        return render_prompt(
-            self.prompt_template,
-            team_name=team_name,
-            user_prompt=self.prompt,
-            events=events,
-            url_mapping=url_mapping or {},
-            window_mapping=window_mapping or {},
-            session_metadata=session_metadata or {},
-            emits_signals=self.emits_signals,
-            min_signal_confidence=MIN_SIGNAL_CONFIDENCE,
-            **self.prompt_context(),
-        )
+
+def extract_signals(step_outputs: dict[str, BaseModel]) -> list[SignalFinding]:
+    """Pull the side-mission findings out of the (optional) signals turn."""
+    signals_step = step_outputs.get("signals")
+    return list(getattr(signals_step, "signals", []))

@@ -2305,7 +2305,24 @@ class ReplayVisionScannerFindingSignalExtra(BaseModel):
         ...,
         description=("The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`."),
     )
+    distinct_id: str | None = None
+    end_time: float = Field(
+        ...,
+        description=("When the issue ends in the recording, in seconds (the footer's REC_T value)."),
+    )
+    exported_asset_id: float = Field(..., description="The rasterized MP4 asset the scanner analysed.")
     observation_id: str
+    problem_type: str = Field(
+        ...,
+        description=(
+            "Issue category: 'bug' / 'crash' / 'design_flaw' / 'ux_friction'. Kept open"
+            " so new categories don't fail validation."
+        ),
+    )
+    recording_active_seconds: float | None = None
+    recording_duration: float | None = None
+    recording_end_time: str | None = Field(default=None, description="ISO 8601 recording end.")
+    recording_start_time: str | None = Field(default=None, description="ISO 8601 recording start (the REC_T=0 anchor).")
     scanner_id: str
     scanner_name: str
     scanner_type: str = Field(
@@ -2317,13 +2334,13 @@ class ReplayVisionScannerFindingSignalExtra(BaseModel):
         ),
     )
     session_id: str
-    visual_evidence: str = Field(
+    start_time: float = Field(
         ...,
         description=(
-            "What the recording visually showed that the analytics events don't capture"
-            " — the basis for a Vision finding."
+            "When the issue starts in the recording, in seconds from recording start (the footer's REC_T value)."
         ),
     )
+    url: str = Field(..., description="The page the issue happened on (the footer's URL value).")
 
 
 class ResolvedDateRangeResponse(BaseModel):

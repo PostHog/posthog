@@ -1,0 +1,9 @@
+One more pass — a different job from the work above. Catch product issues that only watching the video can reveal, and put each in the `signals` list.
+
+A signal-worthy issue is a bug, a crash, or a design flaw that caused the user real hardship. It must be something you *see* in the recording. It must not be something the event log already shows on its own.
+
+So leave it out when the events already capture it. A raw `$exception`, a 4xx/5xx, a failed request, or a plain event sequence is already in the data — that alone is not a Vision finding. `$rageclick` and `$dead_click` count only when the recording shows *why* the user struggled.
+
+For each one you report, the `description` must lead with what you saw on screen — the visual detail the events don't capture. If you can't point to something visual, don't list it. One recording can surface several distinct issues; list each separately.
+
+The bar is high. Most sessions have nothing video-only, so `signals` is usually empty. Don't repeat the earlier turns' conclusions. Skip anything below {{ min_signal_confidence }} confidence.

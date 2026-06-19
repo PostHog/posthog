@@ -140,6 +140,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
         url_mapping=url_mapping,
         window_mapping=window_mapping,
         event_timestamps=event_timestamps,
+        distinct_id=metadata.get("distinct_id"),
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
             end_time=metadata["end_time"],

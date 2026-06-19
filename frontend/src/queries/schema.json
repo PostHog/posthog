@@ -37434,7 +37434,36 @@
                     "description": "The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`.",
                     "type": "number"
                 },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "end_time": {
+                    "description": "When the issue ends in the recording, in seconds (the footer's REC_T value).",
+                    "type": "number"
+                },
+                "exported_asset_id": {
+                    "description": "The rasterized MP4 asset the scanner analysed.",
+                    "type": "number"
+                },
                 "observation_id": {
+                    "type": "string"
+                },
+                "problem_type": {
+                    "description": "Issue category: 'bug' / 'crash' / 'design_flaw' / 'ux_friction'. Kept open so new categories don't fail validation.",
+                    "type": "string"
+                },
+                "recording_active_seconds": {
+                    "type": "number"
+                },
+                "recording_duration": {
+                    "type": "number"
+                },
+                "recording_end_time": {
+                    "description": "ISO 8601 recording end.",
+                    "type": "string"
+                },
+                "recording_start_time": {
+                    "description": "ISO 8601 recording start (the REC_T=0 anchor).",
                     "type": "string"
                 },
                 "scanner_id": {
@@ -37450,8 +37479,12 @@
                 "session_id": {
                     "type": "string"
                 },
-                "visual_evidence": {
-                    "description": "What the recording visually showed that the analytics events don't capture — the basis for a Vision finding.",
+                "start_time": {
+                    "description": "When the issue starts in the recording, in seconds from recording start (the footer's REC_T value).",
+                    "type": "number"
+                },
+                "url": {
+                    "description": "The page the issue happened on (the footer's URL value).",
                     "type": "string"
                 }
             },
@@ -37462,7 +37495,11 @@
                 "observation_id",
                 "session_id",
                 "confidence",
-                "visual_evidence"
+                "problem_type",
+                "start_time",
+                "end_time",
+                "url",
+                "exported_asset_id"
             ],
             "type": "object"
         },

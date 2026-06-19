@@ -33,7 +33,7 @@ class MonitorOutput(MonitorLlmResponse, frozen=True):
 
 class MonitorScanner(BaseScanner, frozen=True):
     scanner_type: Literal[ScannerType.MONITOR] = ScannerType.MONITOR
-    prompt_template: ClassVar[str] = "monitor.jinja"
+    core_step_template: ClassVar[str] = "monitor_step.jinja"
     citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
     output_cls: ClassVar[type[BaseScannerOutput]] = MonitorOutput
     allow_inconclusive: bool = False
