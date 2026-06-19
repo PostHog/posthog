@@ -242,6 +242,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
                 showCrosshair: true,
                 tooltip: TOOLTIP_CONFIG,
+                legend: legendConfig,
             }),
         [
             indexedResults,
@@ -263,12 +264,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             showTrendLines,
             showValuesOnSeries,
             valueLabelFormatter,
+            legendConfig,
         ]
-    )
-
-    const configWithLegend = useMemo(
-        () => (legendConfig ? { ...config, legend: legendConfig } : config),
-        [config, legendConfig]
     )
 
     if (!hasData) {
@@ -283,7 +280,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             series={series}
             labels={labels}
             theme={theme}
-            config={configWithLegend}
+            config={config}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
             className="LineGraph"
