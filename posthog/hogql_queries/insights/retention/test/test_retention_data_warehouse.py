@@ -353,6 +353,71 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         # whole series degrades to the empty bucket rather than raising.
         self.assertEqual({c.get("breakdown_value") for c in result}, {""})
 
+    def test_retention_first_ever_dwh_start_events_return_event_breakdown_degrades_to_empty_bucket(self):
+        # Cross-table first-ever retention: data warehouse start entity, events return entity,
+        # breakdown on an events-table property. The first-ever breakdown value must come from
+        # the actor's first START event, but the start event lives in the DWH table and carries
+        # no $browser. The return arm therefore must NOT fall back to the return event's $browser
+        # (which would happen because start_entity_expr_no_props collapses to a truthy constant
+        # for a DWH start); every actor degrades to the empty bucket instead.
+        person_ids = self._create_people()
+        signups_table_name = self._create_data_warehouse_table(
+            filename="warehouse_first_ever_breakdown_signups.csv",
+            table_name="warehouse_first_ever_breakdown_signups",
+            header=["id", "person_id", "signed_up_at"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-01 09:00:00"],
+                [2, person_ids["user-2"], "2025-01-01 10:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "signed_up_at": "DateTime64(3, 'UTC')",
+            },
+        )
+
+        for distinct_id, browser in [("user-1", "Chrome"), ("user-2", "Firefox")]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp="2025-01-02T12:00:00Z",
+                properties={"$browser": browser},
+            )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "retentionType": "retention_first_ever_occurrence",
+                    "targetEntity": {
+                        "id": signups_table_name,
+                        "name": signups_table_name,
+                        "type": "data_warehouse",
+                        "table_name": signups_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "signed_up_at",
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "$browser", "type": "event"}]},
+            }
+        )
+
+        # The breakdown value isn't available on the DWH start side, so both actors land in the
+        # empty bucket — never bucketed by the return event's $browser (Chrome / Firefox).
+        self.assertEqual({c.get("breakdown_value") for c in result}, {""})
+
+        # Sanity: both users cohort day 0 and return day 1 — they still retain in the empty bucket.
+        empty_bucket = [c for c in result if c.get("breakdown_value") == ""]
+        self.assertEqual(
+            pluck(empty_bucket, "values", "count"),
+            pad([[2, 2, 0, 0], [0, 0, 0], [0, 0], [0], [0]]),
+        )
+
     @parameterized.expand([("person",), ("group",)])
     def test_retention_data_warehouse_actor_query_maps_back_to_actors(self, actor_type: str) -> None:
         actor_ids = self._create_people() if actor_type == "person" else self._create_groups()

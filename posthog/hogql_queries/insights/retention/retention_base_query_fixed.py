@@ -105,7 +105,11 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         return breakdown_type in ("event", "event_metadata", None)
 
     def _dwh_breakdown_value_arm_expr(
-        self, entity: RetentionEntity, breakdown_extract: ast.Expr, timestamp_field: ast.Expr
+        self,
+        entity: RetentionEntity,
+        breakdown_extract: ast.Expr,
+        timestamp_field: ast.Expr,
+        query_kind: Literal["start", "return"],
     ) -> ast.Expr:
         # An events-table-rooted extract can't be resolved against a data-warehouse-table
         # arm; fall back to the empty bucket so the query still prints. The events arm (if
@@ -114,6 +118,19 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return ast.Constant(value="")
 
         if self.is_first_ever_occurrence:
+            # First-ever buckets each actor by the breakdown value on their earliest START
+            # event, resolved here via argMinIf(..., start_entity_expr_no_props). The events
+            # return arm can only do that when it shares the events source with the start
+            # entity. When the start entity is a DWH table, start_entity_expr_no_props
+            # collapses to a truthy constant, so on the events return arm argMinIf would
+            # instead read the actor's earliest RETURN event's value. Degrade to the empty
+            # bucket — the start (DWH) arm already emits "", so the outer max() yields "".
+            if (
+                query_kind == "return"
+                and self.start_event.type == EntityType.DATA_WAREHOUSE
+                and self._breakdown_extract_targets_events_table()
+            ):
+                return ast.Constant(value="")
             # Bucket each actor by the breakdown value on their earliest start event.
             return parse_expr(
                 "argMinIf({breakdown}, {timestamp}, {entity})",
@@ -387,7 +404,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             select_fields.append(
                 ast.Alias(
                     alias="breakdown_value",
-                    expr=self._dwh_breakdown_value_arm_expr(entity, breakdown_extract, timestamp_field),
+                    expr=self._dwh_breakdown_value_arm_expr(entity, breakdown_extract, timestamp_field, query_kind),
                 )
             )
             # Recurring / first-time-matching mirrors the legacy per-value cohort
