@@ -41,16 +41,18 @@ const _breakdownLabel = (steps: FunnelStep[]): string | null => {
     return Array.isArray(breakdown) ? breakdown.join(', ') : String(breakdown)
 }
 
-const _isPreviousPeriodRow = (row: any): boolean =>
-    row != null && typeof row === 'object' && row.compare_label === 'previous'
+// Current unless explicitly tagged as another compare period; non-compared rows have no label.
+// Positive check so any future compare label is excluded too.
+const _isCurrentPeriodRow = (row: any): boolean =>
+    row == null || typeof row !== 'object' || row.compare_label == null || row.compare_label === 'current'
 
-/** Strip previous-period rows from a compare-enabled funnel result (mirror of the backend's
+/** Keep only current-period rows from a compare-enabled funnel result (mirror of the backend's
  * `_current_period_only`); no-op when compare is off. */
 function _currentPeriodOnly(result: any[]): any[] {
     if (Array.isArray(result[0])) {
-        return result.map((steps) => (Array.isArray(steps) ? steps.filter((row) => !_isPreviousPeriodRow(row)) : steps))
+        return result.map((steps) => (Array.isArray(steps) ? steps.filter((row) => _isCurrentPeriodRow(row)) : steps))
     }
-    return result.filter((row) => !_isPreviousPeriodRow(row))
+    return result.filter((row) => _isCurrentPeriodRow(row))
 }
 
 export function deriveFunnelAlertPreview(
