@@ -1,8 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { IconGraph } from '@posthog/icons'
+
 import { MarkdownNotebook, parseMarkdownNotebook } from 'lib/components/MarkdownNotebook'
-import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
+import type {
+    InsertCommand,
+    MarkdownNotebookAskAIRequest,
+    MarkdownNotebookInsertMenuApi,
+} from 'lib/components/MarkdownNotebook'
 import {
     insertNotebookAIFollowUpPromptAfterResponse,
     replaceNotebookAIResponseMarkdown,
@@ -24,6 +30,7 @@ import {
     getInlineNotebookAIPanelId,
     getNotebookAIChatUIContext,
 } from './markdownNotebookRuntime'
+import { MarkdownNotebookSavedInsightPicker } from './MarkdownNotebookSavedInsightPicker'
 import { getMarkdownNotebookMarkdown, notebookArtifactContentToMarkdown } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 import {
@@ -321,6 +328,48 @@ export function MarkdownNotebookV2(): JSX.Element {
         [applyNotebookArtifactMarkdown, getInlineAIRequest, updateMarkdownEditorValue]
     )
 
+    const [savedInsightPickerTargetNodeId, setSavedInsightPickerTargetNodeId] = useState<string | null>(null)
+    // Insert API + target node captured when "Saved insight" is picked, so the modal's async selection
+    // can insert into the right node once an insight is chosen.
+    const savedInsightInsertRef = useRef<{ api: MarkdownNotebookInsertMenuApi; targetNodeId: string } | null>(null)
+
+    const buildSavedInsightInsertCommands = useCallback(
+        (api: MarkdownNotebookInsertMenuApi): InsertCommand[] => [
+            {
+                key: 'query-saved-insight',
+                label: 'Saved insight',
+                category: 'Insight',
+                icon: <IconGraph />,
+                run: (targetNodeId) => {
+                    savedInsightInsertRef.current = { api, targetNodeId }
+                    setSavedInsightPickerTargetNodeId(targetNodeId)
+                },
+            },
+        ],
+        []
+    )
+
+    const closeSavedInsightPicker = useCallback((): void => {
+        savedInsightInsertRef.current = null
+        setSavedInsightPickerTargetNodeId(null)
+    }, [])
+
+    const handleSavedInsightPicked = useCallback((shortId: string, title: string): void => {
+        const pending = savedInsightInsertRef.current
+        if (pending) {
+            pending.api.insertComponent(pending.targetNodeId, 'Query', {
+                query: { kind: 'SavedInsightNode', shortId },
+                // The insight is already configured via the picker, so render results-only — hiding the
+                // settings panel (the "Edit the insight" / "Detach from insight" controls) by default.
+                hideFilters: true,
+                // Label the node with the insight's name so the toolbar shows it instead of the short id.
+                ...(title ? { title } : {}),
+            })
+        }
+        savedInsightInsertRef.current = null
+        setSavedInsightPickerTargetNodeId(null)
+    }, [])
+
     const runtimeContext = useMemo<MarkdownNotebookRuntimeContextValue>(
         () => ({
             notebookShortId: notebook?.short_id ?? null,
@@ -426,6 +475,7 @@ export function MarkdownNotebookV2(): JSX.Element {
                 remoteVersion={notebook?.version}
                 mode={isEditable ? 'edit' : 'view'}
                 registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                extraInsertCommands={isEditable ? buildSavedInsightInsertCommands : undefined}
                 onChange={isEditable ? handleMarkdownEditorChange : undefined}
                 onConflict={reportMarkdownMergeConflicts}
                 remoteCarets={remoteCarets}
@@ -450,6 +500,13 @@ export function MarkdownNotebookV2(): JSX.Element {
                     onAssistantMessage={handleInlineAIAssistantMessage}
                 />
             ))}
+            {isEditable && (
+                <MarkdownNotebookSavedInsightPicker
+                    isOpen={savedInsightPickerTargetNodeId !== null}
+                    onClose={closeSavedInsightPicker}
+                    onSelect={handleSavedInsightPicked}
+                />
+            )}
         </MarkdownNotebookRuntimeContext.Provider>
     )
 }

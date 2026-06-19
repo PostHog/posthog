@@ -476,6 +476,7 @@ export interface AssistantTrendsFilter {
      * `ActionsAreaGraph` - time-series area chart.
      * `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics.
      * `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series.
+     * `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown.
      * `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data.
      * `ActionsPie` - total value pie chart; good for visualizing proportions.
      * `ActionsTable` - total value table; good when using breakdown to list users or other entities.
@@ -559,6 +560,60 @@ export interface AssistantTrendsFilter {
      * @default false
      */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
+
+    /**
+     * Only applies when `display` is `Metric`. Show the change pill next to the big number. What it
+     * compares follows `metricSummary`: `total`/`average` compare against the previous period when
+     * "compare to previous" is on (otherwise first→last of the series), and `latest` is always
+     * first→last of the series.
+     * @default true
+     */
+    metricShowChange?: boolean
+
+    /**
+     * Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when
+     * the metric went UP. Defaults to green (`#388600`). For a "lower is better" metric (latency,
+     * error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad.
+     */
+    metricChangeIncreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when
+     * the metric went DOWN. Defaults to red (`#db3707`). For a "lower is better" metric (latency,
+     * error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good.
+     */
+    metricChangeDecreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Color the sparkline under the big number by whether
+     * the metric increased or decreased over the period (using the increase/decrease line colors).
+     * @default false
+     */
+    metricColorByDirection?: boolean
+
+    /**
+     * Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for
+     * the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a
+     * "lower is better" metric.
+     */
+    metricLineIncreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for
+     * the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a
+     * "lower is better" metric.
+     */
+    metricLineDecreaseColor?: string
+
+    /**
+     * Only applies when `display` is `Metric`. Which summary the resting big number shows: `total`
+     * (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the
+     * sparkline always shows the hovered point's value regardless of this setting. Also drives the
+     * change pill: `total`/`average` compare against the previous period when "compare to previous"
+     * is on; `latest` compares first→last of the series.
+     * @default total
+     */
+    metricSummary?: 'total' | 'average' | 'latest'
 }
 
 export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {

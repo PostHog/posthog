@@ -1,3 +1,5 @@
+import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
+
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { getPostHogClient } from '@/lib/posthog'
 import {
@@ -55,7 +57,7 @@ function buildBaseProperties(
 
 export async function trackInitEvent(state: ResolvedState): Promise<void> {
     try {
-        const analyticsContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
         const initDurationMs = requestContext.requestStartTime
             ? Date.now() - requestContext.requestStartTime
@@ -109,15 +111,23 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     }
 }
 
+export interface ToolCallIntentMeta {
+    /** The agent's stated intent (the injected `context` arg) → `$mcp_intent`. */
+    intent?: string
+    /** Where it came from → `$mcp_intent_source`. */
+    intentSource?: MCPAnalyticsIntentSource
+}
+
 export async function trackToolCall(
     toolName: string,
     durationMs: number,
     isError: boolean,
     state: ResolvedState,
-    extraProperties?: Record<string, unknown>
+    extraProperties?: Record<string, unknown>,
+    intentMeta?: ToolCallIntentMeta
 ): Promise<void> {
     try {
-        const analyticsContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
         const sessionUuid = requestContext.sessionId
             ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
@@ -136,8 +146,11 @@ export async function trackToolCall(
 
         // Emits `$mcp_tool_call` (+ `$mcp_is_error`). The SDK maps `toolName` →
         // `$mcp_tool_name`, `durationMs` → `$mcp_duration_ms`, `isError` →
-        // `$mcp_is_error`, and `sessionId` → `$session_id`. `$exception` fan-out
-        // is disabled on the client, so an errored call stays a single event.
+        // `$mcp_is_error`, `intent` → `$mcp_intent`, and `sessionId` →
+        // `$session_id`. `$exception` fan-out is disabled on the client, so an
+        // errored call stays a single event. The intent pipeline reads
+        // `$mcp_intent` off this canonical event, so it only needs to land here
+        // (not on the legacy dual-emit below).
         getPostHogClient().captureToolCall({
             toolName,
             durationMs,
@@ -145,6 +158,8 @@ export async function trackToolCall(
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            ...(intentMeta?.intent ? { intent: intentMeta.intent } : {}),
+            ...(intentMeta?.intentSource ? { intentSource: intentMeta.intentSource } : {}),
             properties: {
                 ...properties,
                 tool_name: toolName,
@@ -170,6 +185,34 @@ export async function trackToolCall(
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
                 ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 ...extraProperties,
+            },
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
+
+export async function trackToolsList(toolNames: string[], state: ResolvedState): Promise<void> {
+    try {
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const requestContext = state.requestContext
+        const sessionUuid = requestContext.sessionId
+            ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
+            : undefined
+
+        const { properties, groups } = buildBaseProperties(state, analyticsContext)
+
+        // Emits `$mcp_tools_list`. The SDK maps `toolNames` → `$mcp_listed_tool_names`,
+        // which powers "advertised but never called" analysis. No legacy dual-emit:
+        // `mcp_tools_list` has had no consumers since the cutover.
+        getPostHogClient().captureToolsList({
+            toolNames,
+            distinctId: state.distinctId,
+            groups,
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            properties: {
+                ...properties,
+                tool_count: toolNames.length,
             },
         })
     } catch {
