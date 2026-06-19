@@ -118,7 +118,7 @@ class MockStreamConnection {
     }
 
     /** Emit a default-channel data frame (optionally with the SSE `id:` = Redis stream id). */
-    async emitMessage(data: Record<string, unknown>, id?: string): Promise<void> {
+    async emitMessage(data: object, id?: string): Promise<void> {
         this.deliver({ done: false, value: this.encodeFrame({ data: JSON.stringify(data), id }) })
         await flushPromises()
     }
@@ -1011,22 +1011,8 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
-    describe('content dedup', () => {
-        it('folds an entry once and drops an identical replay', async () => {
-            const frame = sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hi' } })
-
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(frame)
-                logic.actions.ingestAcpFrame(frame)
-            }).toFinishAllListeners()
-
-            const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
-            expect(assistantItems).toHaveLength(1)
-            expect(assistantItems[0].text).toEqual('Hi')
-            expect(logic.values.logStore.order).toHaveLength(1)
-        })
-
-        it('does not dedup distinct chunks of the same message', async () => {
+    describe('chunk folding', () => {
+        it('folds distinct chunks of the same message into one growing buffer', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
                     sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'A' } })
@@ -1040,97 +1026,25 @@ describe('sandboxStreamLogic', () => {
             expect(assistantItem?.text).toEqual('AB')
         })
 
-        it('drops a full replay against preserved thread state without doubling it', async () => {
-            // The dedup set lives in Redux alongside `threadItems`, so a state-preserving reload (HMR)
-            // keeps the two in sync: re-ingesting the whole corpus — as a reconnect's full re-broadcast
-            // does — must be a no-op rather than re-folding every frame into the surviving thread.
-            const corpus: StoredLogEntry[] = [
-                notification('_posthog/run_started', { runId: 'run-1' }),
-                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hello' } }),
-                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm2', content: { text: 'World' } }),
-            ]
-
-            await expectLogic(logic, () => {
-                corpus.forEach((entry) => logic.actions.ingestAcpFrame(entry))
-            }).toFinishAllListeners()
-
-            const before = logic.values.threadItems
-            expect(before.filter((item) => item.type === 'assistant_message')).toHaveLength(2)
-
-            await expectLogic(logic, () => {
-                corpus.forEach((entry) => logic.actions.ingestAcpFrame(entry))
-            }).toFinishAllListeners()
-
-            expect(logic.values.threadItems).toEqual(before)
-            expect(logic.values.logStore.order).toHaveLength(corpus.length)
-        })
-    })
-
-    describe('keyed log store identity', () => {
-        it('keeps two distinct live chunks with identical text (distinct event ids) instead of dropping one', async () => {
-            // The old content-hash identity collapsed identical notification bodies, silently losing a
-            // repeated token. Keyed by the SSE event id, both survive and fold into one buffer.
+        it('keeps two chunks with identical text instead of collapsing them', async () => {
+            // A repeated identical token is real content, not a duplicate — the append-only log keeps
+            // both and they fold into one growing buffer (no per-frame content dedup at ingest).
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
-                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'tok ' } }),
-                    'live',
-                    'evt-1'
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'tok ' } })
                 )
                 logic.actions.ingestAcpFrame(
-                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'tok ' } }),
-                    'live',
-                    'evt-2'
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'tok ' } })
                 )
             }).toFinishAllListeners()
 
             const assistant = logic.values.threadItems.find((item) => item.type === 'assistant_message')
             expect(assistant?.text).toEqual('tok tok ')
-            expect(logic.values.logStore.order).toHaveLength(2)
+            expect(logic.values.log.entries).toHaveLength(2)
         })
+    })
 
-        it('is idempotent under a full re-broadcast — re-delivering the same event ids changes nothing', async () => {
-            const frames: { frame: StoredLogEntry; id: string }[] = [
-                { frame: notification('_posthog/run_started', { runId: 'run-1' }), id: 'evt-1' },
-                {
-                    frame: sessionUpdate({
-                        sessionUpdate: 'agent_message_chunk',
-                        messageId: 'm1',
-                        content: { text: 'Hel' },
-                    }),
-                    id: 'evt-2',
-                },
-                {
-                    frame: sessionUpdate({
-                        sessionUpdate: 'agent_message_chunk',
-                        messageId: 'm1',
-                        content: { text: 'lo' },
-                    }),
-                    id: 'evt-3',
-                },
-                {
-                    frame: sessionUpdate({
-                        sessionUpdate: 'agent_message',
-                        messageId: 'm1',
-                        content: { text: 'Hello' },
-                    }),
-                    id: 'evt-4',
-                },
-            ]
-
-            await expectLogic(logic, () => {
-                frames.forEach(({ frame, id }) => logic.actions.ingestAcpFrame(frame, 'live', id))
-            }).toFinishAllListeners()
-            const before = logic.values.threadItems
-
-            await expectLogic(logic, () => {
-                frames.forEach(({ frame, id }) => logic.actions.ingestAcpFrame(frame, 'live', id))
-            }).toFinishAllListeners()
-
-            expect(logic.values.threadItems).toEqual(before)
-            expect(logic.values.threadItems.filter((item) => item.type === 'assistant_message')).toHaveLength(1)
-            expect(logic.values.logStore.order).toHaveLength(4)
-        })
-
+    describe('resume-context filter (§6)', () => {
         it('drops the synthetic resume-context prompt on a resume run but keeps the genuine turn (§6)', async () => {
             const resumePrompt =
                 'You are resuming a previous conversation. Here is the conversation history. Continue from where you left off.'
@@ -1432,7 +1346,7 @@ describe('sandboxStreamLogic', () => {
             expect(MockStream.latest().options.startLatest).toEqual(false)
         })
 
-        it('replays logs/ then opens SSE with start=latest for a non-terminal run', async () => {
+        it('opens SSE with start=latest and replays history for a non-terminal run', async () => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
                 notification('_posthog/run_started', {}) as any,
                 sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'history' } }) as any,
@@ -1445,7 +1359,7 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.runStarted).toEqual(true)
             const assistantItem = logic.values.threadItems.find((item) => item.type === 'assistant_message')
             expect(assistantItem?.text).toEqual('history')
-            // No live frame carried an id during replay, so the first connect opens from latest.
+            // No live frame carried an id, so the connect opens from latest (no resume cursor).
             expect(MockStream.latest().options.startLatest).toEqual(true)
             expect(MockStream.latest().options.lastEventId).toBeUndefined()
         })
@@ -1460,91 +1374,109 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.currentRunStatus).toEqual('completed')
             expect(MockStream.connections.length).toEqual(0)
         })
-    })
 
-    describe('terminal history reconcile (§5)', () => {
-        it('fills a content-keyed frame the live stream gapped, without re-applying keyless frames', async () => {
-            // The live stream delivered the tool call and its completion, but the finalized agent
-            // message was XADD'd to Redis in the bootstrap→connect seam and missed by `?start=latest`.
-            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            await MockStream.latest().emitOpen()
-            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1-0')
-            await MockStream.latest().emitMessage(
-                sessionUpdate({
-                    sessionUpdate: 'tool_call',
-                    toolCallId: 't1',
-                    toolName: 'exec',
-                    status: 'in_progress',
-                }),
-                '2-0'
-            )
-            await MockStream.latest().emitMessage(
-                sessionUpdate({
-                    sessionUpdate: 'tool_call_update',
-                    toolCallId: 't1',
-                    status: 'completed',
-                    content: [{ type: 'text', text: 'done' }],
-                }),
-                '3-0'
-            )
-
-            // The finalized S3 log carries everything: the gapped agent message and a gapped,
-            // never-resolved permission request from mid-run.
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
-                notification('_posthog/run_started', {}) as any,
-                sessionUpdate({
-                    sessionUpdate: 'tool_call',
-                    toolCallId: 't1',
-                    toolName: 'exec',
-                    status: 'in_progress',
-                }) as any,
-                sessionUpdate({
-                    sessionUpdate: 'tool_call_update',
-                    toolCallId: 't1',
-                    status: 'completed',
-                    content: [{ type: 'text', text: 'done' }],
-                }) as any,
-                notification('_posthog/permission_request', {
-                    requestId: 'perm-gap',
-                    toolCall: { toolCallId: 't1', rawInput: {} },
-                    options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
-                }) as any,
-                sessionUpdate({
-                    sessionUpdate: 'agent_message',
-                    messageId: 'm1',
-                    content: { text: 'final answer' },
-                }) as any,
-            ])
-
-            // Terminal → the reconcile re-reads S3 and folds the gapped content-keyed frame in.
-            logic.actions.handleTerminalStatus({ status: 'completed' })
-            await flushPromises()
-
-            // The gapped finalized message is now rendered, exactly once.
-            const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
-            expect(assistantItems.map((item) => item.text)).toEqual(['final answer'])
-
-            // The tool call already seen live isn't duplicated, and its keyless `tool_call_update` is
-            // skipped by the reconcile — so its content blocks aren't re-applied (no double-fold).
-            const toolItems = logic.values.threadItems.filter((item) => item.type === 'tool_invocation')
-            expect(toolItems).toHaveLength(1)
-            const invocation = logic.values.toolInvocations.get('t1')
-            expect(invocation?.status).toEqual('completed')
-            expect(invocation?.contentBlocks).toEqual([{ type: 'text', text: 'done' }])
-
-            // The gapped permission request is NOT resurfaced — a terminal run can't accept approvals.
-            expect(logic.values.pendingPermissionRequest).toBeNull()
-        })
-
-        it('does not reconcile a run surfaced read-only from history (S3 was just fetched)', async () => {
+        it('fetches history exactly once for a terminal run (no terminal reconcile pass)', async () => {
             const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
 
-            // One fetch on bootstrap, none on the read-only terminal path.
             expect(logsSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('connects the SSE before reading history and buffers live frames until the snapshot drains', async () => {
+            // Connect-first is what closes the seam: a frame the agent emits while the history fetch
+            // is in flight is captured by the (already-open) live stream and buffered, not gapped.
+            let resolveLogs: (value: unknown) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise((resolve) => (resolveLogs = resolve)) as any
+            )
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            // The SSE is open before the (still-pending) history fetch resolves.
+            expect(MockStream.connections.length).toEqual(1)
+            expect(MockStream.latest().options.startLatest).toEqual(true)
+
+            // A live frame arriving now is buffered, not yet rendered.
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm-live', content: { text: 'live tail' } }),
+                '5-0'
+            )
+            expect(logic.values.threadItems.filter((item) => item.type === 'assistant_message')).toHaveLength(0)
+
+            // Snapshot lands → history renders, then the buffered live tail drains in after it.
+            resolveLogs([
+                notification('_posthog/run_started', {}) as any,
+                sessionUpdate({
+                    sessionUpdate: 'agent_message',
+                    messageId: 'm-hist',
+                    content: { text: 'history' },
+                }) as any,
+            ])
+            await flushPromises()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
+            ).toEqual(['history', 'live tail'])
+        })
+
+        it('drains the seam by content: a frame in both history and the buffered live tail renders once', async () => {
+            // The exact keyless-`agent_message` duplication: the same finalized message is delivered
+            // live during the fetch AND persisted in the snapshot. The multiset absorbs the live copy.
+            let resolveLogs: (value: unknown) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise((resolve) => (resolveLogs = resolve)) as any
+            )
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await MockStream.latest().emitOpen()
+
+            const overlap = sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'overlap' } })
+            await MockStream.latest().emitMessage(overlap, '9-0')
+
+            resolveLogs([overlap as any])
+            await flushPromises()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
+            ).toEqual(['overlap'])
+        })
+
+        it('keeps a genuinely repeated payload when the buffer holds more copies than history (multiset)', async () => {
+            // The agent legitimately emitted the same message twice live; the snapshot captured only
+            // one (the second landed after the snapshot read). One historical copy absorbs one buffered
+            // copy; the surplus survives — counts, not a set.
+            let resolveLogs: (value: unknown) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise((resolve) => (resolveLogs = resolve)) as any
+            )
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await MockStream.latest().emitOpen()
+
+            const repeated = sessionUpdate({
+                sessionUpdate: 'agent_message',
+                messageId: 'm1',
+                content: { text: 'ping' },
+            })
+            await MockStream.latest().emitMessage(repeated, '1-0')
+            await MockStream.latest().emitMessage(repeated, '2-0')
+
+            resolveLogs([repeated as any])
+            await flushPromises()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
+            ).toEqual(['ping', 'ping'])
         })
     })
 
@@ -1585,7 +1517,7 @@ describe('sandboxStreamLogic', () => {
             await source.emitMessage({ type: 'telemetry_v2', payload: { value: 1 } })
 
             expect(logic.values.threadItems).toEqual([])
-            expect(logic.values.logStore.order).toHaveLength(0)
+            expect(logic.values.log.entries).toHaveLength(0)
         })
     })
 
@@ -1954,7 +1886,7 @@ describe('sandboxStreamLogic', () => {
     })
 
     describe('mixed notification replay', () => {
-        it('ingests known, unknown, and degenerate notifications without throwing, hashing each once', async () => {
+        it('ingests known, unknown, and degenerate notifications without throwing, appending each once', async () => {
             const corpus: StoredLogEntry[] = [
                 notification('_posthog/run_started', { runId: 'run-1' }),
                 notification('_posthog/usage_update', { used: { inputTokens: 1 }, cost: null }),
@@ -1969,8 +1901,8 @@ describe('sandboxStreamLogic', () => {
                 corpus.forEach((entry) => logic.actions.ingestAcpFrame(entry))
             }).toFinishAllListeners()
 
-            // Dedup hashing operates on the notification body — every distinct frame hashes once.
-            expect(logic.values.logStore.order).toHaveLength(corpus.length)
+            // The log is append-only — every frame lands once, in order.
+            expect(logic.values.log.entries).toHaveLength(corpus.length)
         })
     })
 
@@ -2235,13 +2167,16 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.threadItems.some((item) => item.type === 'error')).toEqual(true)
         })
 
-        it('reports was_bootstrapping=true when the run never connected before erroring', async () => {
+        it('reports was_bootstrapping=true when the snapshot fails before the agent starts', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
 
+            // The history fetch failed during bootstrap and no `_posthog/run_started` ever arrived, so
+            // the provisioning flag is still set even though the SSE briefly opened (connect-first).
             const disconnect = captureSpy.mock.calls.find((c) => c[0] === 'sandbox_stream_disconnected')
             expect(disconnect?.[1]).toEqual(expect.objectContaining({ was_bootstrapping: true }))
         })

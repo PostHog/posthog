@@ -171,11 +171,6 @@ function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
     } as StoredLogEntry
 }
 
-function stringParam(params: Record<string, unknown> | undefined, key: string): string | null {
-    const value = params?.[key]
-    return typeof value === 'string' && value ? value : null
-}
-
 function isResumeRun(run: { state?: unknown }): boolean {
     const state = run.state
     return isRecord(state) && typeof state.resume_from_run_id === 'string' && state.resume_from_run_id !== ''
@@ -443,38 +438,23 @@ export function parsePermissionRequestFrame(
 /** Who ingested a frame: the `logs/` bootstrap, the live SSE, or a client-injected synthetic entry. */
 export type FrameSource = 'replay' | 'live' | 'client'
 
-/** One frame in the keyed log, tagged with its source so the projection can branch on it (§6 resume filter). */
+/** One frame in the ordered log, tagged with its source so the projection can branch on it (§6 resume filter). */
 export interface StoredEntry {
     entry: StoredLogEntry
     source: FrameSource
 }
 
 /**
- * Ordered, keyed, idempotent raw-frame log — the single source of truth. Ingesting a frame is an
- * upsert at a fixed `key`: a new key appends to `order`; an existing key replaces its value and
- * leaves `order` untouched. Re-ingesting the same logical frame — bootstrap↔live overlap, a
- * reconnect re-broadcast, an HMR re-bootstrap, or a stale connection — is therefore a no-op-or-
- * replace at a stable position, so duplication is impossible by construction. `threadItems` and
- * `toolInvocations` are pure projections of this log (see `foldLogToThread`).
+ * Ordered, append-only raw-frame log, in render order — the single source of truth. `threadItems`
+ * and `toolInvocations` are pure projections of it (see `foldLogToThread`). Frames are appended,
+ * never keyed or per-entry deduped: the only place two independently-identified sources overlap is
+ * the bootstrap seam (the S3 history vs. the live SSE, which is connected *before* the history loads
+ * so no frame is gapped), and that one overlap is reconciled once by `dedupeBufferedAgainstHistory`
+ * before the live tail is appended. Steady-state live frames resume exactly after the last-seen
+ * Redis id (exclusive), so they never re-deliver — a plain append therefore cannot double the thread.
  */
-export interface SandboxLogStore {
-    order: string[]
-    byKey: Record<string, StoredEntry>
-}
-
-/** Deterministic JSON with sorted keys — so S3↔Redis key-ordering drift can't change a content key. */
-function stableStringify(value: unknown): string {
-    if (value === null || typeof value !== 'object') {
-        return JSON.stringify(value) ?? 'null'
-    }
-    if (Array.isArray(value)) {
-        return `[${value.map(stableStringify).join(',')}]`
-    }
-    const obj = value as Record<string, unknown>
-    return `{${Object.keys(obj)
-        .sort()
-        .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`)
-        .join(',')}}`
+export interface SandboxLog {
+    entries: StoredEntry[]
 }
 
 /**
@@ -489,89 +469,48 @@ function isResumeContextPrompt(text: string): boolean {
 }
 
 /**
- * Stable logical key for a frame that carries one identical across the S3 and Redis copies — so the
- * same logical frame folds once regardless of source. Returns null for frames that have no such key
- * (streamed chunks, `tool_call_update`, keyless `_posthog/*`); those fall back to the SSE `event_id`
- * (live) or a per-replay-pass occurrence index (S3) in `computeEntryKey`.
+ * One-shot multiset reconciliation of the bootstrap seam (port of the reference client's
+ * `drainBufferedLogBatches`). While the S3 history loads we connect the live SSE first and buffer
+ * its frames; some buffered frames are the same logical entries the history already contains (the
+ * live stream and the S3 log overlap around the connect cutoff). This drops each buffered frame a
+ * historical frame accounts for, keyed on the ACP `notification` payload — the only field identical
+ * across both copies. The SSE `id` is the Redis stream id (absent from S3), and the envelope
+ * `timestamp` is stamped independently on the persist and the live-publish paths, so neither can be
+ * part of the key. A *multiset* (counts, not a set) so N genuine repeats of an identical payload
+ * survive: each historical copy absorbs exactly one buffered copy, and any buffered surplus passes
+ * through. Steady-state live frames after the drain are appended directly and never deduped.
  */
-function frameContentKey(notification: StoredLogEntry['notification']): string | null {
-    const method = notification.method
-    const params = (notification.params ?? {}) as Record<string, unknown>
-    if (method === '_posthog/permission_request' || method === '_posthog/permission_resolved') {
-        // Distinct keys per lifecycle phase so the resolved frame isn't mistaken for a re-ingest of
-        // the request (they share a requestId) — otherwise its card-clearing side effect is skipped.
-        const requestId = stringParam(params, 'requestId')
-        return requestId ? `${method}:${requestId}` : null
+function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: StoredLogEntry[]): StoredLogEntry[] {
+    const seamKey = (entry: StoredLogEntry): string => JSON.stringify(entry.notification)
+    const historicalCounts = new Map<string, number>()
+    for (const entry of history) {
+        const key = seamKey(entry)
+        historicalCounts.set(key, (historicalCounts.get(key) ?? 0) + 1)
     }
-    if (method === '_posthog/run_started') {
-        return `run_started:${stringParam(params, 'runId') ?? stringParam(params, 'sessionId') ?? ''}`
-    }
-    if (method === '_posthog/progress') {
-        const group = stringParam(params, 'group')
-        const step = stringParam(params, 'step')
-        return group && step ? `progress:${group}:${step}` : null
-    }
-    if (method === '_posthog/sdk_session') {
-        return 'sdk_session'
-    }
-    if (method === 'session/update') {
-        const update = params.update
-        if (isRecord(update)) {
-            const toolCallId = typeof update.toolCallId === 'string' ? update.toolCallId : ''
-            if (update.sessionUpdate === 'tool_call' && toolCallId) {
-                return `tool_call:${toolCallId}`
-            }
-            if (update.sessionUpdate === 'agent_message' && typeof update.messageId === 'string' && update.messageId) {
-                // Suffix with the sessionUpdate so the key stays distinct if a future change ever
-                // content-keys another messageId-bearing update (e.g. a chunk) by the same id.
-                return `msg:${update.messageId}:${update.sessionUpdate}`
-            }
+    const survivors: StoredLogEntry[] = []
+    for (const entry of buffered) {
+        const key = seamKey(entry)
+        const remaining = historicalCounts.get(key) ?? 0
+        if (remaining > 0) {
+            historicalCounts.set(key, remaining - 1)
+            continue
         }
+        survivors.push(entry)
     }
-    return null
+    return survivors
 }
 
-/**
- * Resolve the idempotent log key for a frame. Stable content key first; then the SSE `event_id`
- * (the permanent Redis stream id — identical across any re-read, so a full re-broadcast keys the
- * same and two identical-content chunks stay distinct); then, for an id-less replay frame, a
- * per-pass occurrence index over `occCounts` (reset each bootstrap, so a re-bootstrap reproduces the
- * same keys). A bare/live frame with no id falls back to a content key.
- */
-function computeEntryKey(
-    entry: StoredLogEntry,
-    eventId: string | undefined,
-    source: FrameSource,
-    occCounts: Record<string, number>
-): string {
-    const contentKey = frameContentKey(entry.notification)
-    if (contentKey) {
-        return contentKey
-    }
-    if (eventId) {
-        return `evt:${eventId}`
-    }
-    const base = `c:${entry.notification.method ?? ''}:${stableStringify(entry.notification.params)}`
-    if (source === 'replay') {
-        const n = occCounts[base] ?? 0
-        occCounts[base] = n + 1
-        return `${base}#${n}`
-    }
-    return base
-}
-
-interface FoldedThread {
+export interface FoldedThread {
     threadItems: ThreadItem[]
     toolInvocations: Map<string, ToolInvocation>
 }
 
 /**
- * Pure projection: fold the ordered, deduped log into the rendered thread (and the tool-invocation
- * map the renderer looks up). Replaces the old append-only `threadItems` reducer cases — same fold
- * rules (chunk buffering with the tail rule, tool-update merge, human-turn hoisting), but computed
- * deterministically from the keyed log so item ids are stable across re-folds. `isResumeRun` drives
- * the §6 resume-context filter; per-entry `source` decides whether a wire user turn renders (replay)
- * or is left to the live echo (live).
+ * Pure projection: fold the ordered log into the rendered thread (and the tool-invocation map the
+ * renderer looks up). The fold rules (chunk buffering with the tail rule, tool-update merge,
+ * human-turn hoisting) are computed deterministically from the ordered log so item ids are stable
+ * across re-folds. `isResumeRun` drives the §6 resume-context filter; per-entry `source` decides
+ * whether a wire user turn renders (replay) or is left to the live echo (live).
  */
 export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: boolean }): FoldedThread {
     let items: ThreadItem[] = []
@@ -897,9 +836,9 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
  * `maxThreadLogic`'s streaming loop — the sandbox path never enters the LangGraph stream loop.
  *
  * Covers open/close, `data.type === 'notification'` → `ingestAcpFrame` dispatch, terminal status,
- * and stream-error capture, plus the reconnect/backoff loop on SSE drops, the keyed idempotent log
- * store the projection folds, HTTP-status error mapping, and the `bootstrapRun`
- * history-replay-then-SSE helper.
+ * and stream-error capture, plus the reconnect/backoff loop on SSE drops, the ordered append-only
+ * log the projection folds, HTTP-status error mapping, and the `bootstrapRun`
+ * connect-first/buffer/snapshot/drain helper.
  *
  * Keyed by `streamKey` (the conversation id for PostHog AI, the task id for a generic task viewer)
  * so concurrent streams keep independent stream state and connections.
@@ -913,9 +852,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     })),
     actions({
         /**
-         * Bootstrap an existing run on conversation open: replay history from the products/tasks
-         * `logs/` endpoint, then open SSE if the run is non-terminal. `justCreatedRun` skips the
-         * `logs/` round-trip (fresh-run fast path — nothing historical to assemble).
+         * Bootstrap an existing run on conversation open. Terminal run: replay the `logs/` history
+         * and stay read-only (no SSE). In-progress run: connect the SSE *first* (buffering live
+         * frames), then read the `logs/` snapshot, then drain the buffered tail against it
+         * (`dedupeBufferedAgainstHistory`) so the seam neither duplicates nor gaps. `justCreatedRun`
+         * skips the `logs/` round-trip (fresh-run fast path — nothing historical to assemble).
          */
         bootstrapRun: (payload: { taskId: string; runId: string; justCreatedRun?: boolean; traceId?: string }) =>
             payload,
@@ -927,26 +868,18 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         /** Internal: an SSE drop initiates the refetch + backoff loop. */
         sseDropped: true,
         /**
-         * Frame ingestion — called by the live SSE listener (`source: 'live'`, with the SSE `eventId`)
-         * and by the products/tasks `logs/` replay (`source: 'replay'`). Computes the idempotent log
-         * key, upserts the frame into the keyed store, and runs the one-shot side effects (telemetry,
-         * permission routing, value folds) only for a genuinely new key.
+         * Frame ingestion — appends one frame to the log and runs its one-shot side effects
+         * (telemetry, permission routing, value folds). Called by the live SSE listener
+         * (`source: 'live'`), the products/tasks `logs/` replay (`source: 'replay'`), and the
+         * bootstrap drain (the deduped live tail). Telemetry is suppressed for replay; the
+         * permission/run-started/tool-completion guards keep the side effects fired-once without a
+         * per-frame key. The resume cursor (`cache.lastEventId`) is stamped by the SSE reader, not here.
          */
-        ingestAcpFrame: (entry: StoredLogEntry, source: FrameSource = 'live', eventId?: string) => ({
-            entry,
-            source,
-            eventId,
-        }),
-        /** Idempotent upsert into the keyed log store (the single source of truth). */
-        ingestLogEntry: (key: string, entry: StoredLogEntry, source: FrameSource) => ({ key, entry, source }),
+        ingestAcpFrame: (entry: StoredLogEntry, source: FrameSource = 'live') => ({ entry, source }),
+        /** Append frames to the ordered log (the single source of truth). */
+        appendEntries: (entries: StoredEntry[]) => ({ entries }),
         /** Records whether the bootstrapped run is a resume run, so the projection can drop its synthetic resume prompt. */
         markBootstrapResumeRun: (value: boolean) => ({ value }),
-        /**
-         * After a streamed run terminates, re-read the finalized `logs/` (S3) copy and fill any
-         * content-keyed frame the live stream gapped (the bootstrap→connect seam). Idempotent — no-op
-         * for frames already folded.
-         */
-        reconcileTerminalHistory: (taskId: string, runId: string) => ({ taskId, runId }),
         /**
          * Surface a permission request. `replayedFromHistory` marks requests re-derived from the
          * `logs/` bootstrap — they restore card state but don't re-fire telemetry (the event
@@ -1080,32 +1013,18 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 reset: () => null,
             },
         ],
-        // The single source of truth: an ordered, keyed, idempotent log of every ingested frame
-        // (plus client-injected synthetic entries). `threadItems` and `toolInvocations` are pure
-        // projections of it (see the selectors). Lives in Redux so it survives a state-preserving
-        // reload (HMR); re-ingesting a frame upserts at its stable key, so a re-bootstrap or
-        // reconnect re-broadcast can never double the thread.
-        logStore: [
-            { order: [], byKey: {} } as SandboxLogStore,
+        // The single source of truth: an ordered, append-only log of every ingested frame (plus
+        // client-injected synthetic entries). `threadItems` and `toolInvocations` are pure
+        // projections of it (see the selectors). The bootstrap seam is reconciled once before its
+        // live tail is appended (see `bootstrapRun` / `dedupeBufferedAgainstHistory`), and
+        // steady-state live frames resume exclusively after the last-seen Redis id, so a plain
+        // append never doubles the thread.
+        log: [
+            { entries: [] } as SandboxLog,
             {
-                ingestLogEntry: (state, { key, entry, source }) => {
-                    const existing = state.byKey[key]
-                    // Exact re-ingest (a reconnect re-broadcast of an unchanged frame) → return the
-                    // same reference so the projection selector short-circuits instead of re-folding.
-                    if (
-                        existing &&
-                        existing.source === source &&
-                        stableStringify(existing.entry) === stableStringify(entry)
-                    ) {
-                        return state
-                    }
-                    const byKey = { ...state.byKey, [key]: { entry, source } }
-                    if (existing) {
-                        return { order: state.order, byKey }
-                    }
-                    return { order: [...state.order, key], byKey }
-                },
-                reset: () => ({ order: [], byKey: {} }),
+                appendEntries: (state, { entries }) =>
+                    entries.length === 0 ? state : { entries: [...state.entries, ...entries] },
+                reset: () => ({ entries: [] }),
             },
         ],
         // Whether the bootstrapped run is a resume run — drives the §6 resume-prompt filter in the
@@ -1248,17 +1167,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     }),
     selectors({
         /**
-         * Pure projection of the keyed log into the rendered thread plus the tool-invocation map.
-         * Memoized on `logStore` identity, so it recomputes only when a frame is actually ingested
-         * (an idempotent re-ingest leaves `logStore` referentially equal and skips the fold).
+         * Pure projection of the ordered log into the rendered thread plus the tool-invocation map.
+         * Memoized on `log` identity, so it recomputes only when a frame is actually appended.
          */
         foldedThread: [
-            (s) => [s.logStore, s.isBootstrapResumeRun],
-            (logStore, isResumeRun): FoldedThread =>
-                foldLogToThread(
-                    logStore.order.map((key) => logStore.byKey[key]),
-                    { isResumeRun }
-                ),
+            (s) => [s.log, s.isBootstrapResumeRun],
+            (log, isResumeRun): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
         ],
         threadItems: [(s) => [s.foldedThread], (foldedThread): ThreadItem[] => foldedThread.threadItems],
         toolInvocations: [
@@ -1318,79 +1232,75 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // `sseOpened`/`_posthog/run_started`.
             cache.isBootstrapping = true
 
-            // Fresh-run fast path: nothing historical to assemble — go straight to SSE.
+            // Fresh-run fast path: nothing historical to assemble — stream from the top, with nothing
+            // to buffer or drain.
             if (justCreatedRun) {
                 actions.openSseForRun({ taskId, runId, startLatest: false })
                 return
             }
 
-            // Existing run: fetch metadata, replay the assembled resume-chain log, then open SSE if needed.
-            let entries: unknown[]
+            // Existing run: read the status first to branch terminal (read-only history) vs.
+            // in-progress (connect-first, then reconcile the seam).
             let run: { status?: string; state?: unknown }
             try {
-                ;[run, entries] = await Promise.all([
-                    api.tasks.runs.get(taskId, runId),
-                    api.tasks.runs.getLogEntries(taskId, runId),
-                ])
+                run = await api.tasks.runs.get(taskId, runId)
             } catch (error) {
                 actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
                 return
             }
             breakpoint()
             // Flag the run's resume-ness so the projection can drop the synthetic resume-context
-            // prompt (§6). Reset the per-pass occurrence counter so id-less replay frames key
-            // identically on a re-bootstrap (HMR), keeping the upsert idempotent. The forEach tags
-            // every frame `replay`, so the projection renders persisted human turns and side-effect
-            // telemetry stays suppressed for history.
+            // prompt (§6) before any history frame folds.
             actions.markBootstrapResumeRun(isResumeRun(run))
-            cache.replayOccCounts = {}
-            entries
+            const terminal = isTerminalRunStatus(run.status ?? null)
+
+            // Connect the live SSE *before* reading the S3 snapshot for an in-progress run. Frames the
+            // agent emits while the history loads are then captured by the live stream and buffered
+            // (see `handleSseEvent`), not gapped between the snapshot read and the connect cutoff. The
+            // buffered tail is reconciled against the history once the snapshot lands (the drain below).
+            if (!terminal) {
+                cache.bufferingLiveFrames = true
+                cache.bufferedLiveFrames = []
+                actions.openSseForRun({ taskId, runId, startLatest: true })
+            }
+
+            let entries: unknown[]
+            try {
+                entries = await api.tasks.runs.getLogEntries(taskId, runId)
+            } catch (error) {
+                // The snapshot failed; for an in-progress run the SSE is already open, so tear it
+                // down too — a thread of live-only frames with no history is more confusing than a
+                // clean, retryable error.
+                cache.bufferingLiveFrames = false
+                cache.bufferedLiveFrames = undefined
+                cache.disposables.dispose('reconnect-backoff')
+                cache.disposables.dispose('event-source')
+                actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
+                return
+            }
+            breakpoint()
+
+            // The full resume-chain S3 snapshot — replayed as `replay`, so the projection renders
+            // persisted human turns and side-effect telemetry stays suppressed for history.
+            const history = entries
                 .map(normalizeNotificationEntry)
                 .filter((entry): entry is StoredLogEntry => entry !== null)
-                .forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+            history.forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
 
-            if (isTerminalRunStatus(run.status ?? null)) {
+            if (terminal) {
                 // Read-only history — surface the terminal status, do not open SSE. Flag the replay
                 // so the listener records the status without re-emitting termination telemetry.
                 actions.handleTerminalStatus({ status: run.status as SandboxRunStatus, replayedFromHistory: true })
                 return
             }
-            // Non-terminal: open SSE from the latest point, deduping against the replayed history.
-            actions.openSseForRun({ taskId, runId, startLatest: true })
-        },
-        reconcileTerminalHistory: async ({ taskId, runId }) => {
-            // The live stream resumes via `?start=latest` after the S3 bootstrap, so a frame XADD'd to
-            // Redis in the seam between the snapshot read and the connect cutoff can be missed by both
-            // (a gap, not a dup — no live re-broadcast recovers it). Once the run terminates the S3 log
-            // is final, so re-read it and re-ingest the *content-keyed* frames as 'replay': they carry
-            // a stable key identical across S3 and the live stream, so a frame already folded is an
-            // idempotent no-op and a gapped one (e.g. a finalized agent message that never streamed) is
-            // filled. Keyless-repeating frames (tool_call_update, status, …) are deliberately skipped —
-            // their S3 occurrence key can't be matched to the live `event_id` key, so re-ingesting them
-            // would land the same logical frame under two keys and double the accumulate-folds. Closing
-            // that keyless gap needs a stable per-frame `seq` stamped into both copies (the backend
-            // follow-up), not this frontend-only pass. Best-effort: a failed re-fetch leaves the thread
-            // exactly as the live stream left it.
-            let entries: unknown[]
-            try {
-                entries = await api.tasks.runs.getLogEntries(taskId, runId)
-            } catch {
-                return
-            }
-            entries
-                .map(normalizeNotificationEntry)
-                .filter((entry): entry is StoredLogEntry => entry !== null)
-                .filter((entry) => {
-                    // Skip the permission lifecycle: a terminal run can't accept approvals, and
-                    // re-routing a gapped request here would resurface a card the terminal-status
-                    // reducer just cleared.
-                    const method = entry.notification.method
-                    if (method === '_posthog/permission_request' || method === '_posthog/permission_resolved') {
-                        return false
-                    }
-                    return frameContentKey(entry.notification) !== null
-                })
-                .forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+
+            // Drain the seam: drop buffered-live frames the snapshot already accounts for (content
+            // multiset), then append the surviving tail as live. Stop buffering first so any frame
+            // arriving during the drain appends directly rather than landing in a buffer we've moved past.
+            const buffered = (cache.bufferedLiveFrames as StoredLogEntry[] | undefined) ?? []
+            cache.bufferingLiveFrames = false
+            cache.bufferedLiveFrames = undefined
+            dedupeBufferedAgainstHistory(buffered, history).forEach((entry) => actions.ingestAcpFrame(entry, 'live'))
         },
         openSseForRun: ({ taskId, runId, startLatest }) => {
             const projectId = values.currentProjectId
@@ -1410,9 +1320,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // envelope) split into one callback keyed off the `event` field.
             const handleSseEvent = ({ id, event, data }: EventSourceMessage): void => {
                 if (id) {
-                    // The Redis stream id. Stamped so a reconnect resumes exactly after it via the
-                    // Last-Event-ID header — and it keys this frame in the store identically on any
-                    // re-read, so even a re-broadcast upserts the same key and never doubles the thread.
+                    // The Redis stream id. Stamped (even for a buffered frame) so a reconnect resumes
+                    // exactly after it via the Last-Event-ID header — an exclusive resume, so the
+                    // steady-state stream never re-delivers a frame we've already appended.
                     cache.lastEventId = id
                 }
                 if (event === 'error') {
@@ -1441,7 +1351,15 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     return
                 }
                 if (isNotificationFrame(parsed)) {
-                    actions.ingestAcpFrame(parsed, 'live', id || undefined)
+                    // During the bootstrap window the SSE is connected before the S3 snapshot lands,
+                    // so buffer live notification frames instead of appending them; the drain
+                    // reconciles them against the snapshot once it loads (see `bootstrapRun`). Steady
+                    // state (and every send/reconnect open, which never buffers) appends directly.
+                    if (cache.bufferingLiveFrames) {
+                        ;(cache.bufferedLiveFrames as StoredLogEntry[]).push(parsed)
+                    } else {
+                        actions.ingestAcpFrame(parsed, 'live')
+                    }
                 } else if (isPermissionRequestFrame(parsed)) {
                     // requestId-keyed dedup: this top-level envelope isn't a notification, so a
                     // reconnect's resume could re-deliver it verbatim.
@@ -1550,9 +1468,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             )
         },
         sseOpened: () => {
-            // Provisioning ends at the first successful connection; clear the flag the disconnect
-            // telemetry reads. Stamp the connection time for the healthy-connection rule in sseDropped.
-            cache.isBootstrapping = false
+            // Stamp the connection time for the healthy-connection rule in sseDropped. The
+            // provisioning flag (`isBootstrapping`, read by the disconnect telemetry) is NOT cleared
+            // here: connect-first opens the SSE before the history snapshot loads, so the bootstrap
+            // window (connect → snapshot → drain → first `run_started`) outlives the first connect.
+            // It clears when the agent actually starts (`_posthog/run_started`) or on reset.
             cache.sseConnectedAtMs = Date.now()
         },
         sseDropped: async (_, breakpoint) => {
@@ -1745,17 +1665,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
 
             // A run that already terminated in a prior session is surfaced read-only on reopen —
             // the reducers still record the terminal status, but re-emitting telemetry on every
-            // page load would inflate termination counts. Its `logs/` copy was also just fetched by
-            // bootstrap, so there is nothing to reconcile.
+            // page load would inflate termination counts.
             if (replayedFromHistory) {
                 return
-            }
-
-            // A run we were streaming just terminated → its S3 log is now final. Reconcile against it
-            // to fill any content-keyed frame the live stream gapped in the bootstrap→connect seam.
-            const terminatedRun = cache.activeRun as { taskId: string; runId: string } | undefined
-            if (terminatedRun) {
-                actions.reconcileTerminalHistory(terminatedRun.taskId, terminatedRun.runId)
             }
 
             // Crash/failure affordance: a failed run carrying an error_message otherwise just blanks
@@ -1812,12 +1724,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.disposables.dispose('event-source')
         },
         reset: () => {
-            // `logStore` clears via its own reducer on `reset`, so the projection empties with it.
+            // `log` clears via its own reducer on `reset`, so the projection empties with it.
             cache.activeRun = undefined
             cache.turnStartedAtMs = undefined
             cache.isBootstrapping = false
+            cache.bufferingLiveFrames = false
+            cache.bufferedLiveFrames = undefined
             cache.sseConnectedAtMs = undefined
-            cache.replayOccCounts = undefined
             // Drop the resume cursor so the next bootstrap opens fresh (start=latest) instead of
             // resuming a prior run's stream.
             cache.lastEventId = undefined
@@ -1826,30 +1739,33 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         },
         pushHumanMessage: ({ content }) => {
             // The echo is always a live turn (replayed human turns render straight from the log), so
-            // stamp the turn start for per-turn duration metrics and inject it as a `client`-sourced
+            // stamp the turn start for per-turn duration metrics and append it as a `client`-sourced
             // log entry the projection renders in order.
             cache.turnStartedAtMs = Date.now()
-            cache.clientSeq = ((cache.clientSeq as number | undefined) ?? 0) + 1
-            actions.ingestLogEntry(
-                `client-human:${cache.clientSeq}`,
-                { type: 'notification', notification: { method: '_client/human_message', params: { content } } },
-                'client'
-            )
+            actions.appendEntries([
+                {
+                    entry: {
+                        type: 'notification',
+                        notification: { method: '_client/human_message', params: { content } },
+                    },
+                    source: 'client',
+                },
+            ])
         },
         pushErrorItem: ({ errorMessage, variant }) => {
-            // Client-side errors (terminal failure, stream disconnect) aren't wire frames — inject
+            // Client-side errors (terminal failure, stream disconnect) aren't wire frames — append
             // them as `client`-sourced log entries so the projection renders them in thread order.
-            cache.clientSeq = ((cache.clientSeq as number | undefined) ?? 0) + 1
-            actions.ingestLogEntry(
-                `client-error:${cache.clientSeq}`,
+            actions.appendEntries([
                 {
-                    type: 'notification',
-                    notification: { method: '_client/error', params: { message: errorMessage, variant } },
+                    entry: {
+                        type: 'notification',
+                        notification: { method: '_client/error', params: { message: errorMessage, variant } },
+                    },
+                    source: 'client',
                 },
-                'client'
-            )
+            ])
         },
-        ingestAcpFrame: ({ entry, source, eventId }) => {
+        ingestAcpFrame: ({ entry, source }) => {
             const notification = entry?.notification
             if (!notification) {
                 return
@@ -1858,26 +1774,21 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             const isReplay = source === 'replay'
 
             // Pre-update tool status for the once-per-transition `tool_call_completed` telemetry,
-            // read from the projection BEFORE the upsert merges this update in.
+            // read from the projection BEFORE the append folds this update in. Live only — replay
+            // suppresses the telemetry, so the lookup (and its O(N) re-fold) is skipped for history.
             let preToolStatus: ToolInvocationStatus | undefined
-            if (method === 'session/update') {
+            if (!isReplay && method === 'session/update') {
                 const u = notification.params?.update
                 if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
                     preToolStatus = values.toolInvocations.get(String(u.toolCallId ?? ''))?.status
                 }
             }
 
-            // Idempotent upsert into the keyed log — the single source of truth. A re-ingested frame
-            // (bootstrap↔live overlap, reconnect re-broadcast, HMR re-bootstrap) keys the same, so the
-            // one-shot side effects below run only on a genuinely new key.
-            const occCounts =
-                (cache.replayOccCounts as Record<string, number> | undefined) ?? (cache.replayOccCounts = {})
-            const key = computeEntryKey(entry, eventId, source, occCounts)
-            const isNew = !(key in values.logStore.byKey)
-            actions.ingestLogEntry(key, entry, source)
-            if (!isNew) {
-                return
-            }
+            // Append to the ordered log — the single source of truth. The bootstrap seam was already
+            // deduped (see `bootstrapRun`) and steady-state live frames resume exclusively, so the
+            // side effects below run exactly once per frame without a per-frame key; the
+            // run-started/permission/tool-completion guards enforce fire-once on their own.
+            actions.appendEntries([{ entry, source }])
 
             // Custom `_posthog/*` notification namespace emitted by the agent-server. Thread items
             // (errors, status, compaction, task notifications, progress, human turns) are derived by
