@@ -34,9 +34,8 @@ const getSeriesLabel = (series: SqlLineYSeries): string => ('name' in series ? s
 const getSeriesKey = (series: SqlLineYSeries, index: number): string =>
     'breakdownValue' in series ? series.breakdownValue : `${series.column.name}-${index}`
 
-/** quill's native linear trend line per y-series that opts in. Shares {@link getSeriesKey} with
- *  {@link buildSeries} so the `seriesKey` always matches the series it's derived from. */
-export function buildTrendLineConfigs(ySeriesData: SqlLineYSeries[] | undefined): TrendLineConfig[] {
+/** Shares {@link getSeriesKey} with {@link buildSeries} so each trend line's `seriesKey` matches its source series. */
+export function buildTrendLineConfigs(ySeriesData: SqlLineYSeries[] | null | undefined): TrendLineConfig[] {
     if (!ySeriesData) {
         return []
     }
@@ -159,7 +158,7 @@ interface BuildConfigArgs {
     chartSettings: ChartSettings
     timezone: string
     goalLines?: GoalLine[]
-    ySeriesData?: SqlLineYSeries[]
+    ySeriesData?: SqlLineYSeries[] | null
 }
 
 export interface BuildBarConfigArgs extends BuildConfigArgs {

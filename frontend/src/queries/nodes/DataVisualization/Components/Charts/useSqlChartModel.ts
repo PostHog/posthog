@@ -59,7 +59,7 @@ export function useSqlChartModel<TConfig>(
                       timezone,
                       goalLines,
                       visualizationType,
-                      ySeriesData: ySeriesData ?? undefined,
+                      ySeriesData,
                   })
                 : undefined,
         [xData, chartSettings, timezone, goalLines, visualizationType, buildConfig, ySeriesData]
