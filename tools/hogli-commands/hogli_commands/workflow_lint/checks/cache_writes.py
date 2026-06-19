@@ -55,8 +55,12 @@ SETUP_CACHE_ACTIONS = (
 # on purpose — see module docstring, condition 1)
 BRANCH_REF_TRIGGERS = frozenset({"pull_request", "pull_request_target", "merge_group", "workflow_call"})
 
-# step `if:` substrings (whitespace-stripped) that pin a write to the default branch
-GATE_MARKERS = tuple(f"refs/heads/{b}" for b in DEFAULT_BRANCHES) + tuple(f"ref_name=='{b}'" for b in DEFAULT_BRANCHES)
+# step `if:` substrings (whitespace-stripped) that pin a write to the default branch.
+# Positive `==` only, so a negation like `github.ref != 'refs/heads/master'` (which runs
+# on branches) isn't mistaken for a gate.
+GATE_MARKERS = tuple(f"=='refs/heads/{b}'" for b in DEFAULT_BRANCHES) + tuple(
+    f"ref_name=='{b}'" for b in DEFAULT_BRANCHES
+)
 
 # cache-key substrings that make the entry deliberately unique per ref/PR/run
 PER_REF_KEY_MARKERS = (
@@ -122,12 +126,21 @@ def _write_kind(step: dict) -> str | None:
     return None
 
 
-def _is_gated(step: dict, push_is_default_only: bool) -> bool:
-    cond = str(step.get("if") or "").replace(" ", "")
-    if any(marker in cond for marker in GATE_MARKERS):
+def _clause_pins_to_default(clause: str, push_is_default_only: bool) -> bool:
+    if any(marker in clause for marker in GATE_MARKERS):
         return True
     # `event_name == 'push'` only pins to the default branch when push can't fire on a branch
-    return push_is_default_only and "event_name=='push'" in cond
+    return push_is_default_only and "event_name=='push'" in clause
+
+
+def _is_gated(step: dict, push_is_default_only: bool) -> bool:
+    cond = str(step.get("if") or "").replace(" ", "")
+    if not cond:
+        return False
+    # an `||` lets the step also run on the other operand, so EVERY alternative must
+    # independently pin to the default branch — `master || event_name == 'pull_request'`
+    # is not a gate, but `master || main` is
+    return all(_clause_pins_to_default(part, push_is_default_only) for part in cond.split("||"))
 
 
 def _key_is_per_ref(step: dict) -> bool:
