@@ -405,6 +405,20 @@ def test_bigquery_malformed_table_id_is_non_retryable(observed_error):
     assert all(non_retryable_errors[key] is not None for key in matching)
 
 
+def test_non_retryable_errors_match_offline_token_uri_endpoint():
+    """A service account whose `token_uri` points at an offline ngrok tunnel makes google-auth
+    raise a `RefreshError` carrying ngrok's HTML error page — a misconfigured key the user must
+    fix, so the sync must be disabled rather than retried forever."""
+    observed_error = (
+        "RefreshError: <!DOCTYPE html> <html> ... "
+        "<noscript>The endpoint tetrarchical-coercibly-norine.ngrok-free.dev is offline. (ERR_NGROK_3200)</noscript>"
+    )
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Offline token_uri endpoint error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
 @pytest.mark.parametrize(
     "transient_error",
     [
