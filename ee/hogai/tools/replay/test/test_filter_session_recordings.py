@@ -17,6 +17,7 @@ from posthog.schema import (
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from ee.hogai.context.context import AssistantContextManager
@@ -175,10 +176,11 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsNone(artifact)
 
     async def test_reports_truncation_when_more_recordings_exist(self):
-        # The query is capped at SESSION_RECORDINGS_DEFAULT_LIMIT (50); produce more than that so
-        # the result is a truncated page and Max must not report the page size as the total.
+        # The query is capped at SESSION_RECORDINGS_DEFAULT_LIMIT; produce more than that so the
+        # result is a truncated page and Max must not report the page size as the total.
+        limit = SessionRecordingListFromQuery.SESSION_RECORDINGS_DEFAULT_LIMIT
         base_time = datetime(2025, 1, 15, 3, 0, 0)
-        for i in range(55):
+        for i in range(limit + 5):
             self._produce_replay(
                 distinct_id=f"user_{i}",
                 first_timestamp=base_time + timedelta(minutes=i),
@@ -190,9 +192,9 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
-        self.assertIn("Showing the first 50 recordings", result_text)
+        self.assertIn(f"Showing the first {limit} recordings", result_text)
         self.assertIn("truncated page", result_text)
-        self.assertNotIn("Found 50 recordings", result_text)
+        self.assertNotIn(f"Found {limit} recordings", result_text)
         # Must not claim a fixed total when results were truncated
         self.assertNotIn("...and", result_text)
         self.assertIsNone(artifact)
