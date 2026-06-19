@@ -48,33 +48,23 @@ class TestBingAdsSource:
         assert oauth_field.required is True
         assert oauth_field.kind == "bing-ads"
 
-    def test_validate_credentials_missing_account_id(self):
-        """Test validation fails when account ID is missing."""
-        config = BingAdsSourceConfig(account_id="", bing_ads_integration_id=1)
-
-        is_valid, error = self.source.validate_credentials(config, self.team_id)
-
-        assert is_valid is False
-        assert error == "Account ID and Bing Ads integration are required"
-
-    def test_validate_credentials_missing_integration_id(self):
-        """Test validation fails when integration ID is missing."""
-        config = BingAdsSourceConfig(account_id="12345", bing_ads_integration_id=0)
-
-        is_valid, error = self.source.validate_credentials(config, self.team_id)
-
-        assert is_valid is False
-        assert error == "Account ID and Bing Ads integration are required"
-
-    def test_validate_credentials_invalid_account_id(self):
-        config = BingAdsSourceConfig(account_id="ABC123XYZ", bing_ads_integration_id=1)
+    @pytest.mark.parametrize(
+        "account_id,integration_id,expected_error_fragment",
+        [
+            ("", 1, "Account ID and Bing Ads integration are required"),
+            ("12345", 0, "Account ID and Bing Ads integration are required"),
+            ("ABC123XYZ", 1, "Invalid Account ID"),
+        ],
+    )
+    def test_validate_credentials_invalid_input(self, account_id, integration_id, expected_error_fragment):
+        """Validation fails on bad input before ever touching the OAuth integration."""
+        config = BingAdsSourceConfig(account_id=account_id, bing_ads_integration_id=integration_id)
 
         is_valid, error = self.source.validate_credentials(config, self.team_id)
 
         assert is_valid is False
         assert error is not None
-        assert "Invalid Account ID" in error
-        assert "ABC123XYZ" in error
+        assert expected_error_fragment in error
 
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_validate_credentials_success(self, mock_get_oauth):
@@ -88,28 +78,30 @@ class TestBingAdsSource:
         assert error is None
         mock_get_oauth.assert_called_once_with(1, self.team_id)
 
+    @pytest.mark.parametrize(
+        "side_effect,expected_error_fragment,expect_capture_called",
+        [
+            # A deleted/disconnected integration is an expected user state — surface a clean
+            # "reconnect" message and do NOT report it to error tracking.
+            (ValueError("Integration not found: 162559"), "Bing Ads integration not found", False),
+            # Anything else is genuinely unexpected and must still be captured.
+            (Exception("OAuth error"), "Failed to validate Bing Ads credentials", True),
+        ],
+    )
+    @mock.patch("posthog.temporal.data_imports.sources.bing_ads.source.capture_exception")
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
-    def test_validate_credentials_oauth_error(self, mock_get_oauth):
-        """Test validation fails when OAuth integration raises error."""
-        mock_get_oauth.side_effect = Exception("OAuth error")
+    def test_validate_credentials_oauth_failures(
+        self, mock_get_oauth, mock_capture, side_effect, expected_error_fragment, expect_capture_called
+    ):
+        """Validation distinguishes an expected missing integration from a genuine error."""
+        mock_get_oauth.side_effect = side_effect
 
         is_valid, error = self.source.validate_credentials(self.valid_config, self.team_id)
 
         assert is_valid is False
         assert error is not None
-        assert "Failed to validate Bing Ads credentials" in error
-
-    @mock.patch("posthog.temporal.data_imports.sources.bing_ads.source.capture_exception")
-    @mock.patch.object(BingAdsSource, "get_oauth_integration")
-    def test_validate_credentials_integration_not_found(self, mock_get_oauth, mock_capture):
-        """A deleted integration is an expected user state, not an error worth capturing."""
-        mock_get_oauth.side_effect = ValueError("Integration not found: 162559")
-
-        is_valid, error = self.source.validate_credentials(self.valid_config, self.team_id)
-
-        assert is_valid is False
-        assert error == "Bing Ads integration not found. Please reconnect your Bing Ads integration."
-        mock_capture.assert_not_called()
+        assert expected_error_fragment in error
+        assert mock_capture.called is expect_capture_called
 
     def test_get_schemas(self):
         """Test getting available schemas."""

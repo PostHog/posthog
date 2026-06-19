@@ -168,12 +168,12 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         try:
             self.get_oauth_integration(config.bing_ads_integration_id, team_id)
             return True, None
-        except ValueError:
-            # The integration was deleted/disconnected while the source still references it —
-            # an expected user state, not an error worth reporting (get_oauth_integration raises
-            # ValueError("Integration not found: <id>")).
-            return False, "Bing Ads integration not found. Please reconnect your Bing Ads integration."
         except Exception as e:
+            if isinstance(e, ValueError) and "Integration not found" in str(e):
+                # The integration was deleted/disconnected while the source still references it —
+                # an expected user state, not an error worth reporting (get_oauth_integration raises
+                # ValueError("Integration not found: <id>")).
+                return False, "Bing Ads integration not found. Please reconnect your Bing Ads integration."
             capture_exception(e)
             return False, f"Failed to validate Bing Ads credentials: {str(e)}"
 
