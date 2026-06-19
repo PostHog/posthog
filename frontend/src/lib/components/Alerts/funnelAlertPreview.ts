@@ -1,5 +1,6 @@
 import { InsightsThresholdBounds } from '~/queries/schema/schema-general'
 
+import { hasThresholdBounds, valueBreachesBounds } from './alertPreviewShared'
 import { AlertConfig, isFunnelsAlertConfig } from './types'
 
 /** One conversion rate the alert would evaluate right now, with whether it breaches the threshold. */
@@ -67,7 +68,6 @@ export function deriveFunnelAlertPreview(
     }
 
     const fromPrevious = config.metric === 'conversion_from_previous'
-    const hasBounds = !!bounds && (bounds.lower != null || bounds.upper != null)
     const values: FunnelAlertPreviewValue[] = []
     for (const steps of breakdowns) {
         const stepIndex = config.funnel_step ?? steps.length - 1
@@ -75,9 +75,7 @@ export function deriveFunnelAlertPreview(
         if (rate === null) {
             return null // out-of-range / undefined config — the picker and validation prevent this
         }
-        const breaching =
-            (bounds?.lower != null && rate < bounds.lower) || (bounds?.upper != null && rate > bounds.upper)
-        values.push({ label: _breakdownLabel(steps), rate, breaching })
+        values.push({ label: _breakdownLabel(steps), rate, breaching: valueBreachesBounds(rate, bounds) })
     }
-    return { status: 'ok', values, isBreakdown, hasBounds }
+    return { status: 'ok', values, isBreakdown, hasBounds: hasThresholdBounds(bounds) }
 }
