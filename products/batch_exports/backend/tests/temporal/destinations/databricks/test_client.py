@@ -2,7 +2,6 @@ import os
 import time
 import asyncio
 import threading
-from types import SimpleNamespace
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -287,63 +286,14 @@ class TestQueryBuilders:
         )
 
 
-class TestGetTableColumns:
-    @pytest.mark.parametrize(
-        "rows,expected",
-        [
-            # Thrift metadata backend (what we use): JDBC-style COLUMN_NAME + TYPE_NAME, incl. VARIANT
-            (
-                [
-                    SimpleNamespace(COLUMN_NAME="uuid", TYPE_NAME="STRING"),
-                    SimpleNamespace(COLUMN_NAME="properties", TYPE_NAME="VARIANT"),
-                    SimpleNamespace(COLUMN_NAME="team_id", TYPE_NAME="INT"),
-                ],
-                {"uuid": "STRING", "properties": "VARIANT", "team_id": "INT"},
-            ),
-            # rows exposing the name as `name` and without `TYPE_NAME` must not raise
-            (
-                [SimpleNamespace(name="uuid"), SimpleNamespace(name="properties")],
-                {"uuid": "", "properties": ""},
-            ),
-            # when both attributes are present, COLUMN_NAME takes precedence
-            (
-                [SimpleNamespace(COLUMN_NAME="uuid", name="ignored", TYPE_NAME="STRING")],
-                {"uuid": "STRING"},
-            ),
-        ],
-    )
-    async def test_maps_column_name_to_type(
-        self, client: DatabricksClient, mock_cursor: MagicMock, rows: list[SimpleNamespace], expected: dict[str, str]
-    ):
-        mock_cursor.fetchall.return_value = rows
-
-        columns = await client.aget_table_columns("posthog_events_raw")
-
-        assert columns == expected
-
-    async def test_column_names_returns_only_names(self, client: DatabricksClient, mock_cursor: MagicMock):
-        mock_cursor.fetchall.return_value = [
-            SimpleNamespace(COLUMN_NAME="uuid", TYPE_NAME="STRING"),
-            SimpleNamespace(COLUMN_NAME="properties", TYPE_NAME="VARIANT"),
-        ]
-
-        names = await client.aget_table_column_names("posthog_events_raw")
-
-        assert names == ["uuid", "properties"]
-
-
 class TestCopyIntoSchemaMismatch:
     MERGE_ERROR = "[DELTA_FAILED_TO_MERGE_FIELDS] Failed to merge fields 'properties' and 'properties'."
 
     async def test_remaps_merge_error_to_schema_mismatch(self, client: DatabricksClient):
+        """The merge-fields error is remapped to a clear error reporting only the exported schema."""
         fields = [("properties", "STRING"), ("event", "STRING")]
-        with (
-            patch.object(
-                client, "execute_async_query", new=AsyncMock(side_effect=ServerOperationError(self.MERGE_ERROR))
-            ),
-            patch.object(
-                client, "aget_table_columns", new=AsyncMock(return_value={"properties": "VARIANT", "event": "STRING"})
-            ),
+        with patch.object(
+            client, "execute_async_query", new=AsyncMock(side_effect=ServerOperationError(self.MERGE_ERROR))
         ):
             with pytest.raises(DatabricksIncompatibleSchemaError) as exc_info:
                 await client.acopy_into_table_from_volume(
@@ -351,26 +301,9 @@ class TestCopyIntoSchemaMismatch:
                 )
 
         message = str(exc_info.value)
-        # both the exported data schema and the destination table schema are reported
-        assert "Exported data schema: `properties` STRING, `event` STRING" in message
-        assert "Destination table schema: `properties` VARIANT, `event` STRING" in message
-
-    async def test_schema_mismatch_when_schema_fetch_fails(self, client: DatabricksClient):
-        """If we can't fetch the table schema we still raise a clear error reporting the export schema."""
-        with (
-            patch.object(
-                client, "execute_async_query", new=AsyncMock(side_effect=ServerOperationError(self.MERGE_ERROR))
-            ),
-            patch.object(client, "aget_table_columns", new=AsyncMock(side_effect=Exception("oops"))),
-        ):
-            with pytest.raises(DatabricksIncompatibleSchemaError) as exc_info:
-                await client.acopy_into_table_from_volume(
-                    table_name="test_table", volume_path="/Volumes/x", fields=[("properties", "STRING")]
-                )
-
-        message = str(exc_info.value)
         assert "Failed to merge fields" in message
-        assert "Exported data schema: `properties` STRING" in message
+        assert "Exported data schema: `properties` STRING, `event` STRING" in message
+        # we must not disclose the destination table's schema (it could be any table the integration reaches)
         assert "Destination table schema" not in message
 
     async def test_non_merge_error_passes_through(self, client: DatabricksClient):

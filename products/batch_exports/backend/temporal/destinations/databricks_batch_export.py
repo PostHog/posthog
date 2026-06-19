@@ -162,21 +162,14 @@ class DatabricksIncompatibleSchemaError(DatabricksOperationError):
     write STRING, or vice versa).
     """
 
-    def __init__(
-        self,
-        operation: str,
-        reason: str,
-        export_schema: list[DatabricksField] | None = None,
-        table_schema: dict[str, str] | None = None,
-    ):
-        def _format_schema(fields: collections.abc.Iterable[tuple[str, str]]) -> str:
-            return ", ".join(f"`{name}` {type_name}" for name, type_name in fields)
-
+    def __init__(self, operation: str, reason: str, export_schema: list[DatabricksField] | None = None):
         detail = reason
         if export_schema is not None:
-            detail += " Exported data schema: " + _format_schema(export_schema) + "."
-        if table_schema is not None:
-            detail += " Destination table schema: " + _format_schema(table_schema.items()) + "."
+            # We only report the schema of the data we're exporting (which the user already controls)
+            # and deliberately not the destination table's schema: this error is surfaced to users via
+            # the batch export run APIs, and the table could be any table the integration can reach.
+            export_schema_str = ", ".join(f"`{name}` {type_name}" for name, type_name in export_schema)
+            detail += f" Exported data schema: {export_schema_str}."
         super().__init__(
             operation,
             detail,
@@ -607,35 +600,16 @@ class DatabricksClient:
             try:
                 await self.execute_async_query(query, fetch_results=False, timeout=timeout)
             except ServerOperationError as err:
-                await self._raise_if_schema_mismatch(operation, table_name, fields, err)
+                # Delta raises DELTA_FAILED_TO_MERGE_FIELDS when the destination table's column
+                # types are incompatible with the data we're loading (e.g. a VARIANT vs STRING
+                # mismatch). Re-raise as a clear, non-retryable error reporting the schema we're
+                # exporting so the user can compare it against their table.
+                message = err.message or ""
+                if "failed to merge fields" in message.lower() or "delta_failed_to_merge_fields" in message.lower():
+                    raise DatabricksIncompatibleSchemaError(
+                        operation=operation, reason=message, export_schema=fields
+                    ) from err
                 raise
-
-    async def _raise_if_schema_mismatch(
-        self, operation: str, table_name: str, fields: list[DatabricksField], err: ServerOperationError
-    ) -> None:
-        """Re-raise a Delta merge-fields failure as a clear ``DatabricksIncompatibleSchemaError``.
-
-        Delta raises ``DELTA_FAILED_TO_MERGE_FIELDS`` when the destination table's column types
-        are incompatible with the data we're loading (e.g. a VARIANT vs STRING mismatch).
-        The raw error doesn't surface either schema, so we report the schema of the data we're
-        inserting alongside the destination table's schema and let the user compare. Fetching the
-        table schema is best-effort; if it fails we still raise a clear, actionable error with the
-        export schema.
-        """
-        message = err.message or ""
-        message_lower = message.lower()
-        if "failed to merge fields" not in message_lower and "delta_failed_to_merge_fields" not in message_lower:
-            return
-
-        table_schema: dict[str, str] | None = None
-        try:
-            table_schema = await self.aget_table_columns(table_name)
-        except Exception:
-            self.logger.warning("Could not fetch destination table schema to report schema mismatch", exc_info=True)
-
-        raise DatabricksIncompatibleSchemaError(
-            operation=operation, reason=message, export_schema=fields, table_schema=table_schema
-        ) from err
 
     def _get_copy_into_table_from_volume_query(
         self, table_name: str, volume_path: str, fields: list[DatabricksField], with_schema_evolution: bool = True
@@ -713,8 +687,8 @@ class DatabricksClient:
                 timeout=timeout,
             )
 
-    async def aget_table_columns(self, table_name: str, timeout: float = FIVE_MINUTES) -> dict[str, str]:
-        """Asynchronously get the column name -> declared type mapping of a Databricks table.
+    async def aget_table_columns(self, table_name: str, timeout: float = FIVE_MINUTES) -> list[str]:
+        """Asynchronously get the columns of a Databricks table.
 
         The Databricks connector has dedicated methods for retrieving metadata.
         """
@@ -725,10 +699,11 @@ class DatabricksClient:
                         cursor.columns, catalog_name=self.catalog, schema_name=self.schema, table_name=table_name
                     )
                     results = await asyncio.to_thread(cursor.fetchall)
-                    columns = {
-                        (getattr(row, "COLUMN_NAME", None) or row.name): getattr(row, "TYPE_NAME", "")
-                        for row in results
-                    }
+                    try:
+                        column_names = [row.name for row in results]
+                    except AttributeError:
+                        # depending on the table column mapping mode, this could also be returned via a different attribute
+                        column_names = [row.COLUMN_NAME for row in results]
             except (asyncio.CancelledError, TimeoutError):
                 # Abort server-side so that:
                 #   a) the user's warehouse doesn't keep running work nobody's waiting for
@@ -742,11 +717,7 @@ class DatabricksClient:
                         "GET TABLE COLUMNS", str(err), "Please check that you have SELECT permissions on the table."
                     )
                 raise
-            return columns
-
-    async def aget_table_column_names(self, table_name: str, timeout: float = FIVE_MINUTES) -> list[str]:
-        """Asynchronously get the column names of a Databricks table."""
-        return list((await self.aget_table_columns(table_name, timeout=timeout)).keys())
+            return column_names
 
     async def amerge_tables(
         self,
@@ -785,7 +756,7 @@ class DatabricksClient:
         else:
             assert source_table_fields, "source_table_fields must be defined"
             # first we need to get the column names from the target table
-            target_table_field_names = await self.aget_table_column_names(target_table)
+            target_table_field_names = await self.aget_table_columns(target_table)
             self.logger.info(
                 "Merging source table '%s' into target table '%s' without schema evolution", source_table, target_table
             )
