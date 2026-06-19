@@ -359,7 +359,18 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         ],
         enabledSourcesCount: [
             (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[] | null): number => sourceConfigs?.filter((c) => c.enabled).length ?? 0,
+            // The scout gate is a meta-toggle surfaced in the Scout troop section, not a generic
+            // signal source — exclude it so a scout-only project doesn't show the "Signal sources"
+            // setup card as done with a phantom "1 watching".
+            (sourceConfigs: SignalSourceConfig[] | null): number =>
+                sourceConfigs?.filter(
+                    (c) =>
+                        c.enabled &&
+                        !(
+                            c.source_product === SignalSourceProduct.SIGNALS_SCOUT &&
+                            c.source_type === SignalSourceType.CROSS_SOURCE_ISSUE
+                        )
+                ).length ?? 0,
         ],
         hasNoSources: [
             (s) => [s.sourceConfigs, s.enabledSourcesCount],
