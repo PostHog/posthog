@@ -11,6 +11,7 @@ import {
     buildBarChartConfig,
     buildLineChartConfig,
     buildSeries,
+    buildTrendLineConfigs,
     canRenderSqlBarGraph,
     canRenderSqlLineGraph,
     capYSeriesData,
@@ -61,9 +62,9 @@ describe('sqlLineGraphAdapter', () => {
             expect(canRenderSqlLineGraph(baseProps({ yData }))).toBe(false)
         })
 
-        it('falls back when any series has a trend line', () => {
+        it('renders trend-line series natively rather than falling back', () => {
             const yData = [ySeries('a', [1], { display: { trendLine: true } })]
-            expect(canRenderSqlLineGraph(baseProps({ yData }))).toBe(false)
+            expect(canRenderSqlLineGraph(baseProps({ yData }))).toBe(true)
         })
 
         it('falls back when any series targets the right y-axis', () => {
@@ -203,6 +204,45 @@ describe('sqlLineGraphAdapter', () => {
         })
     })
 
+    describe('buildTrendLineConfigs', () => {
+        it('produces a linear trend line only for series that opt in', () => {
+            const yData = [
+                ySeries('a', [1], { display: { trendLine: true } }),
+                ySeries('b', [2]),
+                ySeries('c', [3], { display: { trendLine: true } }),
+            ]
+            expect(buildTrendLineConfigs(yData)).toEqual([
+                { seriesKey: 'a-0', kind: 'linear' },
+                { seriesKey: 'c-2', kind: 'linear' },
+            ])
+        })
+
+        it('returns no trend lines when no series opts in', () => {
+            expect(buildTrendLineConfigs([ySeries('a', [1]), ySeries('b', [2])])).toEqual([])
+        })
+
+        it('returns no trend lines for missing data', () => {
+            expect(buildTrendLineConfigs(undefined)).toEqual([])
+        })
+
+        it('keys breakdown trend lines by breakdown value', () => {
+            const yData = [breakdownSeries('chrome', [1], { display: { trendLine: true } })]
+            expect(buildTrendLineConfigs(yData)).toEqual([{ seriesKey: 'chrome', kind: 'linear' }])
+        })
+
+        it('keys each trend line to the series buildSeries assigns', () => {
+            const yData = [
+                ySeries('a', [1]),
+                ySeries('b', [2], { display: { trendLine: true } }),
+                breakdownSeries('chrome', [3], { display: { trendLine: true } }),
+            ]
+            const seriesKeys = buildSeries(yData, ChartDisplayType.ActionsLineGraph).map((s) => s.key)
+            const trendLineKeys = buildTrendLineConfigs(yData).map((t) => t.seriesKey)
+            expect(trendLineKeys).toEqual(['b-1', 'chrome'])
+            expect(trendLineKeys.every((key) => seriesKeys.includes(key))).toBe(true)
+        })
+    })
+
     describe('formatSqlSeriesValue', () => {
         it('applies the column settings and stringifies the result', () => {
             expect(formatSqlSeriesValue(1200, { formatting: { prefix: '$' } })).toBe('$1200')
@@ -260,6 +300,18 @@ describe('sqlLineGraphAdapter', () => {
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', goalLines })
             expect(config.goalLines).toHaveLength(1)
             expect(config.goalLines?.[0]).toMatchObject({ value: 100, label: 'Target' })
+        })
+
+        it('wires trend lines from series that opt in, keyed to match buildSeries', () => {
+            const ySeriesData = [ySeries('a', [1, 2], { display: { trendLine: true } }), ySeries('b', [3, 4])]
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', ySeriesData })
+            expect(config.trendLines).toEqual([{ seriesKey: 'a-0', kind: 'linear' }])
+        })
+
+        it('omits trend lines when no series opts in', () => {
+            const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4])]
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', ySeriesData })
+            expect(config.trendLines).toEqual([])
         })
     })
 

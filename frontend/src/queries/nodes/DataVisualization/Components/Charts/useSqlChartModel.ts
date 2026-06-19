@@ -51,8 +51,18 @@ export function useSqlChartModel<TConfig>(
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
     const config = useMemo(
-        () => (xData ? buildConfig({ xData, chartSettings, timezone, goalLines, visualizationType }) : undefined),
-        [xData, chartSettings, timezone, goalLines, visualizationType, buildConfig]
+        () =>
+            xData
+                ? buildConfig({
+                      xData,
+                      chartSettings,
+                      timezone,
+                      goalLines,
+                      visualizationType,
+                      ySeriesData: ySeriesData ?? undefined,
+                  })
+                : undefined,
+        [xData, chartSettings, timezone, goalLines, visualizationType, buildConfig, ySeriesData]
     )
 
     if (!xData || !ySeriesData || series.length === 0 || !config) {
