@@ -1,10 +1,10 @@
-import { HogTransformerService, TransformationResult } from '~/cdp/hog-transformations/hog-transformer.service'
+import { HogTransformationResult, HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { PluginEvent } from '~/plugin-scaffold'
 
 export async function transformEventStep(
     event: PluginEvent,
-    hogTransformer: HogTransformerService | null
-): Promise<TransformationResult> {
+    hogTransformer: HogTransformer | null
+): Promise<HogTransformationResult> {
     if (!hogTransformer) {
         return { event, invocationResults: [] }
     }
