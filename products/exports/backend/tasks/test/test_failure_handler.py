@@ -1,6 +1,7 @@
 from unittest import TestCase
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_SYSTEM,
@@ -78,3 +79,9 @@ class TestClassifyFailureType(TestCase):
     )
     def test_classify_failure_type(self, exception_type: str, expected: str) -> None:
         assert classify_failure_type(exception_type) == expected
+
+    def test_drf_validation_error_instance_classifies_as_user(self) -> None:
+        # The funnel validation rules raise rest_framework.exceptions.ValidationError
+        # (e.g. a funnel with fewer than two steps); it must classify as a user error.
+        exception = ValidationError("Funnels require at least two steps.", code="funnels_require_at_least_two_steps")
+        assert classify_failure_type(exception) == FAILURE_TYPE_USER
