@@ -1,6 +1,6 @@
 import avro from 'avsc'
 
-import { deleteKeysWithPrefix } from '~/cdp/_tests/redis'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/logs/log-record-avro'
 import { compileRuleSet } from '~/logs/sampling/compile-rules'

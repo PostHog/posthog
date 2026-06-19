@@ -3,10 +3,10 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { deleteKeysWithPrefix } from '~/cdp/_tests/redis'
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '~/config/kafka-topics'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'

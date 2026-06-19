@@ -1,6 +1,6 @@
 import { register } from 'prom-client'
 
-import { deleteKeysWithPrefix } from '~/cdp/_tests/redis'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest } from '~/common/services/keyed-rate-limiter.service'
 import { Hub } from '~/types'

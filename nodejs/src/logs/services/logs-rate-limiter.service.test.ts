@@ -1,4 +1,4 @@
-import { deleteKeysWithPrefix } from '~/cdp/_tests/redis'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
