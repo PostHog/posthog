@@ -116,6 +116,8 @@ class TestErrorTracking(APIBaseTest):
         # `assignee.id`; if retrieve serializes the user id as a string the issue renders as
         # "Unassigned" despite being assigned. User ids must stay integers, role ids strings.
         issue = self.create_issue(["fingerprint"])
+        expected_id: int | str
+        expected_python_type: type
         if assignee_type == "user":
             ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
             expected_id, expected_python_type = self.user.id, int
