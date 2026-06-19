@@ -28,6 +28,7 @@ from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
+from confluent_kafka import Producer as ConfluentProducer
 from structlog import get_logger
 
 from posthog.celery import app
@@ -252,7 +253,10 @@ def is_kafka_connected() -> bool:
 
     try:
         producer = get_producer(profile=KafkaClusterProfile.DEFAULT)
-        producer.producer.list_topics(timeout=3)
+        # Outside TEST/DEBUG `_KafkaProducer` always wraps a real `ConfluentProducer`
+        # (the test fake has no `list_topics`), but mypy can't see that from the
+        # union type — cast to narrow it.
+        cast(ConfluentProducer, producer.producer).list_topics(timeout=3)
     except Exception:
         logger.debug("kafka_connection_failure", exc_info=True)
         return False
