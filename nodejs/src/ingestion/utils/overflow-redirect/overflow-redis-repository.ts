@@ -7,7 +7,7 @@ import { logger } from '~/utils/logger'
 
 import { overflowRedirectRedisLatency, overflowRedirectRedisOpsTotal } from './metrics'
 
-export type OverflowType = 'events' | 'recordings' | 'ai'
+export type OverflowType = 'events' | 'recordings' | 'ai' | 'errortracking'
 
 const REDIS_KEY_PREFIX = '@posthog/stateful-overflow/'
 
