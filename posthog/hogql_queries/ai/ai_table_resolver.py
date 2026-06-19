@@ -59,6 +59,7 @@ def execute_with_ai_events_fallback(
     limit_context: LimitContext | None = None,
     settings: HogQLGlobalSettings | None = None,
     workload: Workload | None = None,
+    events_fallback_extra_conditions: list[ast.Expr] | None = None,
 ) -> Any:
     """Execute a query written against ai_events, falling back to events if no results.
 
@@ -67,6 +68,12 @@ def execute_with_ai_events_fallback(
     which are rewritten to native columns for ai_events and back for the events fallback.
 
     When the kill switch (is_ai_events_enabled) is off, skips the ai_events attempt entirely.
+
+    `events_fallback_extra_conditions` are ANDed into the WHERE clause only on the events
+    fallback path, never on the ai_events query. Use this for filters the dedicated table
+    doesn't need but the shared `events` table does — chiefly a timestamp bound, since the
+    `events` sort key leads with timestamp and its session/trace skip indexes barely prune
+    without one. Conditions are rewritten for the events table just like placeholders.
 
     `workload` should be specified explicitly for batch / scheduled callers (e.g. usage
     reports). Inside a Celery task the `task_prerun` signal sets `Workload.OFFLINE` on
@@ -110,9 +117,30 @@ def execute_with_ai_events_fallback(
             fallback_source = "shared_table"
 
         events_query = rewrite_query_for_events_table(query)
+        if events_fallback_extra_conditions:
+            rewritten_conditions = [rewrite_expr_for_events_table(c) for c in events_fallback_extra_conditions]
+            events_query = _and_conditions_into_where(events_query, rewritten_conditions)
         events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
         with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source=fallback_source).time():
             return execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
+
+
+def _and_conditions_into_where(
+    query: ast.SelectQuery | ast.SelectSetQuery, conditions: list[ast.Expr]
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """AND extra conditions into a query's WHERE clause.
+
+    Only SelectQuery is supported — the only caller passing extra conditions builds a plain
+    SELECT. A SelectSetQuery (UNION etc.) has no single WHERE to extend, so reject it loudly
+    rather than silently dropping the conditions.
+    """
+    if not isinstance(query, ast.SelectQuery):
+        raise NotImplementedError(
+            f"events_fallback_extra_conditions is only supported for SelectQuery, got {type(query).__name__}"
+        )
+    all_exprs = ([query.where] if query.where is not None else []) + conditions
+    query.where = all_exprs[0] if len(all_exprs) == 1 else ast.And(exprs=all_exprs)
+    return query
 
 
 # Canonical Python list. Node.js mirror: nodejs/src/ingestion/ai/process-ai-event.ts

@@ -16,8 +16,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, SessionMessagesQuery
+from posthog.schema import DateRange, HogQLQueryModifiers, MaterializationMode, SessionMessagesQuery
 
+from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.placeholders import replace_placeholders
@@ -41,6 +42,33 @@ def _skip_indexes_in_plan(plan_json: Any) -> set[str]:
                 for idx in obj["Indexes"]:
                     if isinstance(idx, dict) and idx.get("Type") == "Skip" and isinstance(idx.get("Name"), str):
                         out.add(idx["Name"])
+            for value in obj.values():
+                walk(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                walk(item)
+
+    walk(plan_json)
+    return out
+
+
+def _index_conditions_in_plan(plan_json: Any) -> list[str]:
+    """Collect every index `Condition` / `Keys` string from an EXPLAIN PLAN JSON.
+
+    Used to assert which columns the planner is pruning on, regardless of index type.
+    """
+    out: list[str] = []
+
+    def walk(obj: Any) -> None:
+        if isinstance(obj, dict):
+            if isinstance(obj.get("Indexes"), list):
+                for idx in obj["Indexes"]:
+                    if not isinstance(idx, dict):
+                        continue
+                    if isinstance(idx.get("Condition"), str):
+                        out.append(idx["Condition"])
+                    if isinstance(idx.get("Keys"), list):
+                        out.extend(str(k) for k in idx["Keys"])
             for value in obj.values():
                 walk(value)
         elif isinstance(obj, list):
@@ -251,11 +279,12 @@ class TestSessionMessagesQueryRunner(ClickhouseTestMixin, BaseTest):
         assert returned_types == set(kept_types)
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
-    def test_applies_no_time_bound(self, _mock_flag):
-        # The session-id lookup is bloom-filter indexed, so the runner applies no timestamp
-        # filter — the ai_events TTL bounds retention at the storage layer. An event far
-        # older than the 30-day lookback the previous implementation enforced is still
-        # returned (guards against a date filter creeping back into the WHERE clause).
+    def test_ai_events_path_has_no_time_bound(self, _mock_flag):
+        # The session-id lookup is bloom-filter indexed on ai_events, so the runner applies no
+        # timestamp filter on that path — the ai_events TTL bounds retention at the storage layer
+        # and a date filter would risk clipping a long-running session. An event far older than
+        # the 30-day lookback the previous implementation enforced is still returned (guards
+        # against a date filter creeping back onto the ai_events WHERE clause).
         session_id = "session-ancient"
         bulk_create_ai_events(
             [
@@ -276,6 +305,73 @@ class TestSessionMessagesQueryRunner(ClickhouseTestMixin, BaseTest):
 
         assert len(response.results) == 1
         assert response.results[0].properties["$ai_trace_id"] == "trace-ancient"
+
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
+    def test_ai_events_path_ignores_date_range(self, _mock_flag):
+        # Crux of the date-range fix: the bound must apply ONLY to the events fallback. An event
+        # that sits outside the requested window is still returned from ai_events, because that
+        # path never sees the bound — a session that overruns the viewed window stays complete.
+        session_id = "session-out-of-window"
+        bulk_create_ai_events(
+            [
+                _gen_event_payload(
+                    session_id=session_id,
+                    trace_id="trace-old",
+                    team=self.team,
+                    timestamp=datetime(2025, 1, 1, tzinfo=UTC),
+                ),
+            ]
+        )
+
+        response = SessionMessagesQueryRunner(
+            team=self.team,
+            # Window starts well after the event; ai_events ignores it, so the event is returned.
+            query=SessionMessagesQuery(
+                sessionId=session_id,
+                dateRange=DateRange(date_from="2025-01-10", date_to="2025-01-15"),
+            ),
+        ).calculate()
+
+        assert len(response.results) == 1
+        assert response.results[0].properties["$ai_trace_id"] == "trace-old"
+
+    @parameterized.expand(
+        [
+            # (name, date_range, expect_returned) — the events fallback IS timestamp-bounded.
+            ("in_window", DateRange(date_from="2025-01-10", date_to="2025-01-20"), True),
+            ("window_starts_after_event", DateRange(date_from="2025-01-16", date_to="2025-01-20"), False),
+            ("window_ends_before_event", DateRange(date_from="2025-01-01", date_to="2025-01-10"), False),
+            # No date range → backend default (last 7 days of the frozen 2025-01-15 now) covers it.
+            ("default_window", None, True),
+        ]
+    )
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=False)
+    def test_events_fallback_is_time_bounded(self, _name, date_range, expect_returned, _mock_flag):
+        # Kill switch off → the runner serves the session straight from the shared events table,
+        # where the timestamp bound is mandatory for performance. The event sits at 2025-01-15.
+        session_id = f"session-events-bound-{_name}"
+        _create_event(
+            event="$ai_generation",
+            distinct_id="person1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 10, 0, tzinfo=UTC),
+            properties={
+                "$ai_session_id": session_id,
+                "$ai_trace_id": "trace-bounded",
+                "$ai_input": [{"role": "user", "content": "bounded"}],
+            },
+        )
+
+        response = SessionMessagesQueryRunner(
+            team=self.team,
+            query=SessionMessagesQuery(sessionId=session_id, dateRange=date_range),
+        ).calculate()
+
+        if expect_returned:
+            assert len(response.results) == 1
+            assert response.results[0].properties["$ai_trace_id"] == "trace-bounded"
+        else:
+            assert response.results == []
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
     def test_merges_all_six_heavy_columns_into_properties(self, _mock_flag):
@@ -325,12 +421,14 @@ class TestSessionMessagesEventsFallbackIndex(ClickhouseTestMixin, BaseTest):
         cleanup_materialized_columns()
         self.addCleanup(cleanup_materialized_columns)
 
-    def test_events_fallback_filters_on_session_id_bloom_filter(self):
+    def test_events_fallback_prunes_on_timestamp_and_session_id(self):
         # The events-table fallback (non-migrated teams / sessions fully aged past the ai_events TTL)
-        # must filter on the bloom-filter-indexed materialized $ai_session_id column, not a JSON
-        # extraction. Because the runner applies no time bound, defeating this index turns the query
-        # into a full scan of the team's entire events history (measured at ~6 TiB / ~50s on a busy
-        # prod team). This asserts the column rewriter + printer keep routing session_id to the index.
+        # must prune on BOTH the timestamp bound and the bloom-filter-indexed materialized
+        # $ai_session_id column. The session id bloom filter alone barely prunes the shared events
+        # table (its sort key leads with timestamp), so without the timestamp bound the query
+        # degrades to a near-full scan of the team's entire history (measured at ~15B rows on a busy
+        # prod team). This asserts (a) the timestamp bound reaches the plan as a pruning condition
+        # and (b) the column rewriter + printer keep routing session_id to its bloom filter.
         for i in range(12):
             _create_event(
                 event="$ai_generation",
@@ -349,9 +447,19 @@ class TestSessionMessagesEventsFallbackIndex(ClickhouseTestMixin, BaseTest):
             create_bloom_filter_index=True,
         )
 
-        # Build the exact query the runner hands to the events fallback path.
-        runner = SessionMessagesQueryRunner(team=self.team, query=SessionMessagesQuery(sessionId="seed-5"))
+        # Build the exact query the runner hands to the events fallback path: the rewritten select
+        # plus the events-only timestamp conditions ANDed in (see execute_with_ai_events_fallback).
+        # An explicit window covering the seed data keeps partition pruning from discarding it.
+        runner = SessionMessagesQueryRunner(
+            team=self.team,
+            query=SessionMessagesQuery(
+                sessionId="seed-5", dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-31")
+            ),
+        )
         events_query = rewrite_query_for_events_table(runner._build_query())
+        assert isinstance(events_query, ast.SelectQuery)
+        fallback_conditions = [rewrite_expr_for_events_table(c) for c in runner._events_fallback_conditions()]
+        events_query.where = ast.And(exprs=[events_query.where, *fallback_conditions])
         events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in runner._build_placeholders().items()}
         prepared = replace_placeholders(events_query, events_placeholders)
 
@@ -370,10 +478,18 @@ class TestSessionMessagesEventsFallbackIndex(ClickhouseTestMixin, BaseTest):
             if v is not None
         }
         [[raw_plan]] = sync_execute(f"EXPLAIN indexes = 1, json = 1 {sql}", context.values, settings=settings)
-        used = _skip_indexes_in_plan(json.loads(raw_plan))
+        plan = json.loads(raw_plan)
+        used = _skip_indexes_in_plan(plan)
 
         index_name = get_bloom_filter_index_name(mat_col.name)
         assert index_name in used, (
             f"events fallback no longer prunes on the $ai_session_id bloom filter; "
             f"ClickHouse used {sorted(used)}.\nSQL: {sql}"
+        )
+
+        # The timestamp bound must reach the plan as a pruning condition (partition / primary key /
+        # minmax all key off timestamp) — this is what keeps the shared-table fallback off a full scan.
+        conditions = _index_conditions_in_plan(plan)
+        assert any("timestamp" in c for c in conditions), (
+            f"events fallback no longer prunes on the timestamp bound; plan conditions were {conditions}.\nSQL: {sql}"
         )

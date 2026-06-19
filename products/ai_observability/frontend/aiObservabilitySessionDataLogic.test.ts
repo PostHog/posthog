@@ -164,6 +164,50 @@ describe('aiObservabilitySessionDataLogic — bulk session-events loader', () =>
         expect(logic.values.fullTraces['trace-3'].events).toHaveLength(1)
     })
 
+    it('loadAllSessionEvents forwards the viewed dateRange to bound the events fallback', async () => {
+        // The detail page knows the viewed window; passing it keeps the `events`-table fallback
+        // timestamp-bounded (the `ai_events` path ignores it). Mapped from the session logic's
+        // {dateFrom,dateTo} to the schema's {date_from,date_to}.
+        sessionLogic.actions.setDateRange('2026-05-01', '2026-05-08')
+
+        const traces = [traceSummary('trace-1')]
+        const props = buildProps({ cachedResults: buildCachedResults(traces) })
+        logic = aiObservabilitySessionDataLogic(props)
+        logic.mount()
+
+        mockApi.query.mockResolvedValue({ results: [traceEvent('trace-1', 'evt-1')] } as any)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSessionEvents()
+        }).toFinishAllListeners()
+
+        expect(mockApi.query).toHaveBeenCalledWith(
+            expect.objectContaining({
+                kind: NodeKind.SessionMessagesQuery,
+                sessionId: SESSION_ID,
+                dateRange: { date_from: '2026-05-01', date_to: '2026-05-08' },
+            })
+        )
+    })
+
+    it('loadAllSessionEvents omits dateRange when the session has no viewed window', async () => {
+        // Direct URL access with no date params — the query carries no dateRange and the backend
+        // applies its own bounded default for the events fallback.
+        const traces = [traceSummary('trace-1')]
+        const props = buildProps({ cachedResults: buildCachedResults(traces) })
+        logic = aiObservabilitySessionDataLogic(props)
+        logic.mount()
+
+        mockApi.query.mockResolvedValue({ results: [traceEvent('trace-1', 'evt-1')] } as any)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSessionEvents()
+        }).toFinishAllListeners()
+
+        const queryArg = mockApi.query.mock.calls[0][0] as Record<string, unknown>
+        expect(queryArg).not.toHaveProperty('dateRange')
+    })
+
     it('loadAllSessionEvents preserves trace summary fields when merging events', async () => {
         const traces = [traceSummary('trace-1', { traceName: 'rich-name', errorCount: 7, totalLatency: 12.34 })]
         const props = buildProps({ cachedResults: buildCachedResults(traces) })

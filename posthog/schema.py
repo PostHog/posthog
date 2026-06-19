@@ -20449,16 +20449,20 @@ class SessionMessagesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateRange: DateRange | None = Field(
+        default=None,
+        description=(
+            "Optional time bound. The `ai_events` lookup never needs it (session id is"
+            " bloom-filter indexed and the table is TTL-bounded), but the shared"
+            " `events` fallback does: its skip index on session id barely prunes, so"
+            " without a timestamp bound the fallback degrades to a near-full scan. Pass"
+            " the viewed window when available; the backend defaults it otherwise."
+        ),
+    )
     kind: Literal["SessionMessagesQuery"] = "SessionMessagesQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: SessionMessagesQueryResponse | None = None
-    sessionId: str = Field(
-        ...,
-        description=(
-            "Bulk-loads every AI event for the given session. Session id is"
-            " bloom-filter indexed, so no date range is needed."
-        ),
-    )
+    sessionId: str = Field(..., description="Bulk-loads every AI event for the given session.")
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 

@@ -25441,11 +25441,13 @@ export namespace Schemas {
     }
 
     export interface SessionMessagesQuery {
+      /** Optional time bound. The `ai_events` lookup never needs it (session id is bloom-filter indexed and the table is TTL-bounded), but the shared `events` fallback does: its skip index on session id barely prunes, so without a timestamp bound the fallback degrades to a near-full scan. Pass the viewed window when available; the backend defaults it otherwise. */
+      dateRange?: DateRange | null;
       kind?: 'SessionMessagesQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: SessionMessagesQueryResponse | null;
-      /** Bulk-loads every AI event for the given session. Session id is bloom-filter indexed, so no date range is needed. */
+      /** Bulk-loads every AI event for the given session. */
       sessionId: string;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */

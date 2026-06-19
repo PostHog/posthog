@@ -12,6 +12,14 @@ events have all aged past the `ai_events` 30-day TTL). Heavy AI properties (`$ai
 event's `properties` so the response matches the `LLMTraceEvent` shape and the frontend can
 group by `properties.$ai_trace_id` without knowing about the dedicated columns.
 
+The `ai_events` lookup applies no timestamp filter: `session_id` is bloom-filter indexed and
+the table is TTL-bounded, so the bloom filter prunes the scan on its own and a date filter
+would only risk cutting a long session that spans the viewed window. The `events` fallback is
+different — its sort key leads with `timestamp` and the `$ai_session_id` skip index barely
+prunes, so without a timestamp bound the fallback degrades to a near-full scan of the team's
+entire event history. So the date range (the viewed window, or a bounded backend default) is
+applied *only* on the fallback path via `events_fallback_extra_conditions`.
+
 Events older than the `ai_events` TTL are intentionally not recovered from `events` for
 migrated teams: per the retention policy those payloads are dropped, and the shared-table
 copy only lingers mid-migration. A trace whose events straddle the TTL keeps only its
@@ -19,10 +27,12 @@ in-TTL portion.
 """
 
 from datetime import datetime
+from functools import cached_property
 from typing import Any, cast
 
 from posthog.schema import (
     CachedSessionMessagesQueryResponse,
+    IntervalType,
     LLMTraceEvent,
     NodeKind,
     SessionMessagesQuery,
@@ -35,6 +45,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 # Per the prod distribution of events-per-session over the last 30 day, 2500 covers
 # everything except a tiny fraction which are long-running autonomous-agent loops
@@ -60,6 +71,7 @@ class SessionMessagesQueryRunner(AnalyticsQueryRunner[SessionMessagesQueryRespon
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            events_fallback_extra_conditions=self._events_fallback_conditions(),
         )
 
         columns: list[str] = result.columns or []
@@ -109,9 +121,10 @@ class SessionMessagesQueryRunner(AnalyticsQueryRunner[SessionMessagesQueryRespon
         }
 
     def _build_where_clause(self) -> ast.Expr:
-        # No timestamp bound: `session_id` is bloom-filter indexed, and the `ai_events` TTL
-        # already caps how far back the dedicated table reaches. The resolver rewrites
-        # `session_id`/`trace_id` to `properties.$ai_*` on the events fallback path.
+        # Shared by both read paths. No timestamp bound here: it would cut a long session on the
+        # `ai_events` path. The fallback's timestamp bound is added separately, see
+        # `_events_fallback_conditions`. The resolver rewrites `session_id`/`trace_id` to
+        # `properties.$ai_*` on the events fallback path.
         return ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -126,6 +139,30 @@ class SessionMessagesQueryRunner(AnalyticsQueryRunner[SessionMessagesQueryRespon
                 ),
             ]
         )
+
+    @cached_property
+    def _date_range(self) -> QueryDateRange:
+        # Day interval truncates `date_from` to the start of the day, giving a small buffer so a
+        # session that began just before the viewed window isn't clipped on the events fallback.
+        # When `dateRange` is absent (direct API/MCP callers), QueryDateRange supplies a bounded
+        # default — still far cheaper than the unbounded scan it replaces.
+        return QueryDateRange(self.query.dateRange, self.team, IntervalType.DAY, datetime.now())
+
+    def _events_fallback_conditions(self) -> list[ast.Expr]:
+        # Applied ONLY on the shared `events` fallback (see module docstring). Never reaches the
+        # `ai_events` query, so an in-TTL session is always returned in full.
+        return [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=self._date_range.date_from_as_hogql(),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=self._date_range.date_to_as_hogql(),
+            ),
+        ]
 
     def _map_event(self, row: dict[str, Any]) -> LLMTraceEvent:
         heavy_columns = {name: row.get(name) or "" for name in HEAVY_COLUMN_NAMES}

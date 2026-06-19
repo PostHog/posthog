@@ -39783,6 +39783,10 @@
         "SessionMessagesQuery": {
             "additionalProperties": false,
             "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Optional time bound. The `ai_events` lookup never needs it (session id is bloom-filter indexed and the table is TTL-bounded), but the shared `events` fallback does: its skip index on session id barely prunes, so without a timestamp bound the fallback degrades to a near-full scan. Pass the viewed window when available; the backend defaults it otherwise."
+                },
                 "kind": {
                     "const": "SessionMessagesQuery",
                     "type": "string"
@@ -39795,7 +39799,7 @@
                     "$ref": "#/definitions/SessionMessagesQueryResponse"
                 },
                 "sessionId": {
-                    "description": "Bulk-loads every AI event for the given session. Session id is bloom-filter indexed, so no date range is needed.",
+                    "description": "Bulk-loads every AI event for the given session.",
                     "type": "string"
                 },
                 "tags": {

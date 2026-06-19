@@ -61,7 +61,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
     connect((props: SessionDataLogicProps) => ({
         values: [
             aiObservabilitySessionLogic,
-            ['sessionId'],
+            ['sessionId', 'dateRange'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['response', 'responseLoading', 'responseError', 'canLoadNextData', 'hasMoreData', 'nextDataLoading'],
             maxGlobalLogic,
@@ -245,9 +245,16 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 actions.loadAllSessionEventsSuccess([])
                 return
             }
+            // Pass the viewed window so the `events`-table fallback (non-migrated teams, or
+            // sessions aged past the `ai_events` TTL) stays timestamp-bounded. The `ai_events`
+            // path ignores it. Omitted when absent; the backend then applies a bounded default.
+            const dateRange = values.dateRange?.dateFrom
+                ? { date_from: values.dateRange.dateFrom, date_to: values.dateRange.dateTo ?? undefined }
+                : undefined
             const query: SessionMessagesQuery = {
                 kind: NodeKind.SessionMessagesQuery,
                 sessionId,
+                ...(dateRange ? { dateRange } : {}),
             }
             try {
                 const response = (await api.query(query)) as SessionMessagesQueryResponse

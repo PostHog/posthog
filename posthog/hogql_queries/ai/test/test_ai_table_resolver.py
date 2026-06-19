@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import Mock, patch
 
 from posthog.hogql import ast
@@ -207,3 +208,74 @@ class TestExecuteWithAiEventsFallback:
         assert "limit_context" not in kwargs
         assert "settings" not in kwargs
         assert "workload" not in kwargs
+
+    def _timestamp_condition(self):
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value=0),
+        )
+
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=False)
+    def test_events_fallback_extra_conditions_anded_into_where(self, _mock_flag, mock_execute):
+        mock_execute.return_value = self._make_result([])
+
+        team = Mock(id=1, organization_id="org")
+        execute_with_ai_events_fallback(
+            query=self._make_query(),
+            placeholders={},
+            team=team,
+            query_type="TestQuery",
+            events_fallback_extra_conditions=[self._timestamp_condition()],
+        )
+
+        actual_query = mock_execute.call_args.kwargs.get("query")
+        assert isinstance(actual_query, ast.SelectQuery)
+        # Original `where` (Constant True) ANDed with the extra timestamp condition.
+        assert isinstance(actual_query.where, ast.And)
+        assert any(
+            isinstance(e, ast.CompareOperation) and e.left == ast.Field(chain=["timestamp"])
+            for e in actual_query.where.exprs
+        )
+
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
+    def test_events_fallback_extra_conditions_not_applied_to_ai_events(self, _mock_flag, mock_execute):
+        # ai_events returns data → no fallback → the extra (events-only) conditions never touch
+        # the ai_events query. This is the crux: the timestamp bound must not clip ai_events.
+        mock_execute.return_value = self._make_result([["trace-1"]])
+
+        team = Mock(id=1, organization_id="org")
+        execute_with_ai_events_fallback(
+            query=self._make_query(),
+            placeholders={},
+            team=team,
+            query_type="TestQuery",
+            events_fallback_extra_conditions=[self._timestamp_condition()],
+        )
+
+        assert mock_execute.call_count == 1
+        ai_query = mock_execute.call_args.kwargs.get("query")
+        assert isinstance(ai_query, ast.SelectQuery)
+        # Untouched original WHERE (the Constant True), no timestamp condition grafted on.
+        assert ai_query.where == ast.Constant(value=True)
+
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=False)
+    def test_events_fallback_extra_conditions_reject_select_set_query(self, _mock_flag, mock_execute):
+        mock_execute.return_value = self._make_result([])
+
+        team = Mock(id=1, organization_id="org")
+        set_query = ast.SelectSetQuery(
+            initial_select_query=self._make_query(),
+            subsequent_select_queries=[],
+        )
+        with pytest.raises(NotImplementedError):
+            execute_with_ai_events_fallback(
+                query=set_query,
+                placeholders={},
+                team=team,
+                query_type="TestQuery",
+                events_fallback_extra_conditions=[self._timestamp_condition()],
+            )
