@@ -72,6 +72,17 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # access. The "Access Denied:"/403 keys above only cover BigQuery's own IAM wording, so
             # this lowercase upstream form slips through and retries forever.
             "permission denied for table": 'BigQuery couldn\'t read a federated table because the underlying database denied permission ("permission denied for table"). Please grant the database user behind your BigQuery connection read access to the table, then reconnect the source.',
+            # BigQuery raises this 400 BadRequest when it can't compile a view it's importing, e.g.
+            # "Invalid table-valued function EXTERNAL_QUERY; failed to parse view '<dataset>.<view>'".
+            # For a federated EXTERNAL_QUERY view this means the upstream schema drifted away from the
+            # view definition — a column the view selects was renamed or dropped in the source database
+            # ("prepare statement failed. Error: ERROR:  column \"x\" does not exist"). It's a
+            # deterministic mismatch between the customer's view and their data; retrying can't recover
+            # it — they must fix the view definition or restore the column. The "permission denied for
+            # table" / "Access Denied:" keys only cover federation ACL failures, so this slips through
+            # and retries forever. Matched on BigQuery's stable "failed to parse view" wording rather
+            # than the volatile view/column names.
+            "failed to parse view": "BigQuery couldn't read a view it was importing because its definition no longer matches the underlying data — a column it references was renamed or removed (for federated query views, in the upstream database). Please update the view definition (or restore the column), then reconnect the source.",
             # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
             # `bigquery.py`) when the service account is missing the `bigquery.readsessions.create`
             # permission the Read API requires. The google.api_core PermissionDenied stringifies as
@@ -120,6 +131,17 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # from transient rate-limit quota errors ("Quota exceeded: ..." / reason
             # `rateLimitExceeded`) that must stay retryable.
             "Custom quota exceeded": "Your BigQuery project hit a custom usage quota set by your administrator (for example QueryUsagePerDay). Raise the custom cost-control quota in Google Cloud, or reduce how much data you're syncing, then re-enable the source.",
+            # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
+            # `bigquery.py`) when the source table uses change data capture with a `max_staleness`
+            # window and has pending upserts older than that window. The Storage Read API can't
+            # apply CDC changes on the fly — only GoogleSQL queries and BigQuery's background apply
+            # jobs do — so it rejects the read as a google.api_core InvalidArgument whose str() is
+            # "400 request failed: The table has un-applied upsert data that is not fresh enough to
+            # meet table's max_staleness.". Retrying within the sync's window can't recover it: the
+            # pending changes are applied on BigQuery's own schedule, not ours, so it just hammers
+            # the Read API and spams error tracking until a later sync finds the table caught up.
+            # Matched on the stable freshness phrasing rather than the volatile table id.
+            "un-applied upsert data that is not fresh enough": "BigQuery couldn't read this table through the Storage Read API because it uses change data capture and has pending upserts that haven't been applied within the table's max_staleness window. This usually clears once BigQuery applies the pending changes, so a later sync should recover. If it persists, lower the table's max_staleness or run a query against the table in BigQuery to apply the changes.",
         }
 
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:

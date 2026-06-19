@@ -9,6 +9,7 @@ ViewSet remains in experiments.py.
 from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
+from opentelemetry import trace
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -39,6 +40,8 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+tracer = trace.get_tracer(__name__)
 
 
 class _ExperimentApiMetricsList(PydanticRootModel):
@@ -115,8 +118,10 @@ class ExperimentListSerializer(serializers.ListSerializer):
     serializer context, so a 100-experiment page does one action query instead of hundreds.
     """
 
+    @tracer.start_as_current_span("ExperimentListSerializer.to_representation")
     def to_representation(self, data):
         instances = list(data)
+        trace.get_current_span().set_attribute("experiment_count", len(instances))
 
         metric_queries: list[dict[str, Any] | None] = []
         team: Team | None = None
@@ -345,6 +350,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def get_feature_flag(self, obj):
         return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
 
+    @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # Normalize query date ranges to the experiment's current range
@@ -376,23 +382,26 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         # Update date ranges in saved metrics
         # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
-        for saved_metric in data.get("saved_metrics", []):
-            if saved_metric.get("query"):
-                if saved_metric["query"].get("count_query", {}).get("dateRange"):
-                    saved_metric["query"]["count_query"]["dateRange"] = new_date_range
-                if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
-                    saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+        saved_metrics = data.get("saved_metrics", [])
+        with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
+            span.set_attribute("saved_metric_count", len(saved_metrics))
+            for saved_metric in saved_metrics:
+                if saved_metric.get("query"):
+                    if saved_metric["query"].get("count_query", {}).get("dateRange"):
+                        saved_metric["query"]["count_query"]["dateRange"] = new_date_range
+                    if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
+                        saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
 
-                # Add fingerprint to saved metric returned from API
-                # so that frontend knows what timeseries records to query
-                saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                    saved_metric["query"],
-                    instance.start_date,
-                    get_experiment_stats_method(instance),
-                    instance.exposure_criteria,
-                    only_count_matured_users=instance.only_count_matured_users,
-                    excluded_variants=(instance.parameters or {}).get("excluded_variants"),
-                )
+                    # Add fingerprint to saved metric returned from API
+                    # so that frontend knows what timeseries records to query
+                    saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
+                        saved_metric["query"],
+                        instance.start_date,
+                        get_experiment_stats_method(instance),
+                        instance.exposure_criteria,
+                        only_count_matured_users=instance.only_count_matured_users,
+                        excluded_variants=(instance.parameters or {}).get("excluded_variants"),
+                    )
 
         return data
 
@@ -689,7 +698,7 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=["manual", "experiment_launch", "experiment_stop", "experiment_update"],
+        choices=ExperimentMetricsRecalculation.Trigger.choices,
         required=False,
         default="manual",
         help_text="What triggered this recalculation (manual is the default for user-initiated runs)",
@@ -728,6 +737,14 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing started")
     completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")
+    query_to = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Upper time bound the metrics in this run were calculated against (the data freshness cutoff). "
+            "Shared by every metric in the run; null until processing starts"
+        ),
+    )
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )

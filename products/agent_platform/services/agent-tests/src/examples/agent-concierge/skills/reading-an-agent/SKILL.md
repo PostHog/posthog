@@ -19,7 +19,7 @@ mental model from earlier in the session.
    `live_revision_id`. Capture `spec` (the full JSON) and
    `bundle_sha256`.
 
-3. **Pre-focus in the console.** If you have `focus_revision`,
+3. **Pre-focus in PostHog Code.** If you have `focus_revision`,
    fire `focus_revision({ slug, revisionId: <live_revision_id> })`
    now so the user sees the same screen you do.
 
