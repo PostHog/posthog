@@ -1,5 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 
@@ -54,15 +55,39 @@ export function buildSignalReportListOrdering(field: InboxSortField, direction: 
 }
 
 /**
- * Persisted inbox filter state. Mirrors desktop's zustand stores:
- * - `inboxReviewerScopeStore` → `scope` (persisted, default "for-you")
- * - `inboxSignalsFilterStore` v2 → `sortField`/`sortDirection` (default priority/asc),
- *   `sourceProductFilter`, `priorityFilter` (all persisted). `searchQuery` is NOT
- *   persisted on desktop, so it isn't here either.
+ * Inbox filter state, backed by `sessionStorage` (not `localStorage`). Filters
+ * survive in-session reloads but reset when the tab — or, in the desktop app, the
+ * window — closes. Persisting them across sessions was confusing: an empty inbox
+ * left by a forgotten filter looked broken (PostHog papercut).
+ *
+ * State covered: `scope` (default "for-you"), `sortField`/`sortDirection` (default
+ * priority/asc), `sourceProductFilter`, `priorityFilter`. `searchQuery` is never
+ * stored. Defaults hydrate from `sessionStorage` at build time; a subscription
+ * writes each value back on change (see below).
  *
  * The central `inboxSceneLogic` connects these values, maps them to list-API
  * params (`source_product`, `priority`, `ordering`), and reloads on change.
  */
+const SESSION_STORAGE_PREFIX = 'posthog.inboxFilters'
+
+function readSessionFilter<T>(key: string, fallback: T): T {
+    try {
+        const raw = window.sessionStorage?.getItem(`${SESSION_STORAGE_PREFIX}.${key}`)
+        return raw != null ? (JSON.parse(raw) as T) : fallback
+    } catch {
+        // sessionStorage unavailable (private mode / restricted) or malformed JSON — fall back to default.
+        return fallback
+    }
+}
+
+function writeSessionFilter(key: string, value: unknown): void {
+    try {
+        window.sessionStorage?.setItem(`${SESSION_STORAGE_PREFIX}.${key}`, JSON.stringify(value))
+    } catch {
+        // sessionStorage unavailable — filters just won't survive a reload, which is acceptable.
+    }
+}
+
 export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxFiltersLogic']),
 
@@ -100,13 +125,12 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
 
     reducers({
         scope: [
-            INBOX_SCOPE_FOR_YOU as InboxScope,
-            { persist: true },
+            readSessionFilter<InboxScope>('scope', INBOX_SCOPE_FOR_YOU),
             {
                 setScope: (_, { scope }) => scope,
             },
         ],
-        // Not persisted – matches desktop (searchQuery is excluded from `partialize`).
+        // Never stored — matches desktop (searchQuery is excluded from `partialize`).
         searchQuery: [
             '',
             {
@@ -115,22 +139,19 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             },
         ],
         sortField: [
-            'priority' as InboxSortField,
-            { persist: true },
+            readSessionFilter<InboxSortField>('sortField', 'priority'),
             {
                 setSort: (_, { field }) => field,
             },
         ],
         sortDirection: [
-            'asc' as InboxSortDirection,
-            { persist: true },
+            readSessionFilter<InboxSortDirection>('sortDirection', 'asc'),
             {
                 setSort: (_, { direction }) => direction,
             },
         ],
         sourceProductFilter: [
-            [] as string[],
-            { persist: true },
+            readSessionFilter<string[]>('sourceProductFilter', []),
             {
                 toggleSourceProduct: (state, { source }) =>
                     state.includes(source) ? state.filter((s) => s !== source) : [...state, source],
@@ -138,8 +159,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             },
         ],
         priorityFilter: [
-            [] as SignalReportPriority[],
-            { persist: true },
+            readSessionFilter<SignalReportPriority[]>('priorityFilter', []),
             {
                 togglePriority: (state, { priority }) =>
                     state.includes(priority) ? state.filter((p) => p !== priority) : [...state, priority],
@@ -147,6 +167,17 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             },
         ],
     }),
+
+    // Mirror each filter into sessionStorage so it survives in-session reloads but resets on tab/window close.
+    subscriptions(() => ({
+        scope: (scope: InboxScope) => writeSessionFilter('scope', scope),
+        sortField: (sortField: InboxSortField) => writeSessionFilter('sortField', sortField),
+        sortDirection: (sortDirection: InboxSortDirection) => writeSessionFilter('sortDirection', sortDirection),
+        sourceProductFilter: (sourceProductFilter: string[]) =>
+            writeSessionFilter('sourceProductFilter', sourceProductFilter),
+        priorityFilter: (priorityFilter: SignalReportPriority[]) =>
+            writeSessionFilter('priorityFilter', priorityFilter),
+    })),
 
     afterMount(({ actions }) => {
         actions.loadAvailableReviewers()
