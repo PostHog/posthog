@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from braintrust import EvalCase
 
-from ..base import BaseMaxEval
+from ..base import MaxPrivateEval
 from ..scorers.mcp import LatencyMs, ToolCallCount
 from .mcp_runner import RunResult, run_prompt
 
@@ -19,7 +19,7 @@ async def eval_mcp_smoke(mcp_server, pytestconfig):
     async def task(prompt: str) -> RunResult:
         return await run_prompt(mcp_server, prompt)
 
-    await BaseMaxEval(
+    await MaxPrivateEval(
         experiment_name="mcp-smoke",
         task=task,
         scores=[
@@ -27,12 +27,10 @@ async def eval_mcp_smoke(mcp_server, pytestconfig):
             LatencyMs(),
         ],
         data=[
-            EvalCase(
+            EvalCase[str, RunResult](
                 input="What insights were created by me in the last 3 months? Just give me the count and a couple of names.",
                 expected=None,
             ),
         ],
         pytestconfig=pytestconfig,
-        is_public=False,
-        no_send_logs=True,
     )

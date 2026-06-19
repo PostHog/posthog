@@ -16,7 +16,7 @@ from .harness import MCPServer, start_mcp_server
 
 
 @pytest.fixture(scope="session")
-def mcp_server() -> Generator[MCPServer, None, None]:
+def mcp_server() -> Generator[MCPServer]:
     server, process = start_mcp_server()
     try:
         yield server

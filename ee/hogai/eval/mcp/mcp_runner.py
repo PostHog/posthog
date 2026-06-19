@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import time
-import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -179,7 +178,3 @@ async def run_prompt(
     finally:
         if owns_client:
             await anthropic_client.close()
-
-
-def run_prompt_sync(server: MCPServer, prompt: str, **kwargs: Any) -> RunResult:
-    return asyncio.run(run_prompt(server, prompt, **kwargs))
