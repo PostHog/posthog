@@ -104,6 +104,7 @@ class TestExternalDataSchema(APIBaseTest):
             "incremental_available": False,
             "append_available": True,
             "cdc_available": None,
+            "xmin_available": None,
             "full_refresh_available": True,
             "supports_webhooks": True,
             "webhook_only": False,
@@ -331,6 +332,10 @@ class TestExternalDataSchema(APIBaseTest):
         with (
             mock.patch.object(source_impl, "validate_credentials", return_value=(True, None)),
             mock.patch.object(source_impl, "get_schemas", return_value=[fake_schema]),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_xmin_enabled_for_team",
+                return_value=True,
+            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
