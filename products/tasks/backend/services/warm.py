@@ -70,11 +70,11 @@ class SandboxWarmer:
     # Each checker returns None or raises a DRF APIException; the in-process caller can't return an HTTP
     # Response, so the contract is exception-based and DRF renders the status from any depth. Fail-closed:
     # a product warms only once it registers a gate here, else it would provision sandboxes with no ceiling.
-    ORIGIN_PRODUCT_QUOTA: dict["Task.OriginProduct", Callable[[Team, User], None]] = {
+    ORIGIN_PRODUCT_QUOTA: dict[str, Callable[[Team, User], None]] = {
         Task.OriginProduct.POSTHOG_AI: _ai_credits_checker,
     }
 
-    ORIGIN_PRODUCT_CAPS: dict["Task.OriginProduct", WarmPoolCaps] = {
+    ORIGIN_PRODUCT_CAPS: dict[str, WarmPoolCaps] = {
         Task.OriginProduct.POSTHOG_AI: WarmPoolCaps(per_user=2, per_org=10),
     }
     _DEFAULT_CAPS: WarmPoolCaps = WarmPoolCaps(per_user=2, per_org=10)
@@ -84,7 +84,7 @@ class SandboxWarmer:
         self.user = user
 
     @classmethod
-    def enforce_quota(cls, origin_product: "Task.OriginProduct", team: Team, user: User) -> None:
+    def enforce_quota(cls, origin_product: str, team: Team, user: User) -> None:
         """Raise if ``team`` may not warm a Run for ``origin_product`` (over quota, or product not registered)."""
         checker = cls.ORIGIN_PRODUCT_QUOTA.get(origin_product)
         if checker is None:
@@ -92,7 +92,7 @@ class SandboxWarmer:
         checker(team, user)
 
     @classmethod
-    def at_capacity(cls, origin_product: "Task.OriginProduct", team: Team, user: User) -> bool:
+    def at_capacity(cls, origin_product: str, team: Team, user: User) -> bool:
         """True if the user or org already holds the max concurrent *warm* Runs.
 
         Counts only Runs still awaiting their first message (``state.await_user_message`` set) — so the
