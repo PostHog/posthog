@@ -17,6 +17,7 @@ from posthog.temporal.backfill_group_type_created_at.activities import (
 from posthog.temporal.backfill_group_type_created_at.types import (
     ApplyBackfillInput,
     BackfillGroupTypeCreatedAtError,
+    GroupTypeUpdate,
     PlanBackfillInput,
 )
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -257,7 +258,7 @@ class TestApplyGroupTypeCreatedAtBackfillIntegration:
         yield
         GroupTypeMapping.objects.filter(project_id=self.team.project_id).delete()
 
-    def _update(self, index: int, new_created_at: datetime) -> dict:
+    def _update(self, index: int, new_created_at: datetime) -> GroupTypeUpdate:
         return {
             "group_type": "organization",
             "group_type_index": index,
