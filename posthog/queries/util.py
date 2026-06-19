@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum, auto
 from typing import Any, Optional, Union, overload
 from zoneinfo import ZoneInfo
@@ -102,7 +102,12 @@ def get_earliest_timestamp(team_id: int) -> datetime:
     )
 
     if len(results) > 0:
-        return results[0][0]
+        earliest = results[0][0]
+        # ClickHouse may return a `date` rather than a `datetime` for some teams' data; downstream
+        # interval alignment assumes a `datetime` (e.g. `datetime.date.replace` rejects time kwargs).
+        if isinstance(earliest, date) and not isinstance(earliest, datetime):
+            return datetime.combine(earliest, time.min, tzinfo=UTC)
+        return earliest
     else:
         return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
