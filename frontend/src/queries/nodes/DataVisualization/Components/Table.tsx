@@ -64,7 +64,7 @@ function getDisplayedColumnTitle(
 // header, the way trends tables and the SQL editor results tab already can. Numbers
 // sort numerically, everything else falls back to a numeric-aware string compare, and
 // empty cells sort to the bottom of an ascending sort.
-function compareTableCells(a: TableDataCell<any> | undefined, b: TableDataCell<any> | undefined): number {
+export function compareTableCells(a: TableDataCell<any> | undefined, b: TableDataCell<any> | undefined): number {
     const aValue = a?.value
     const bValue = b?.value
     if (aValue == null && bValue == null) {
