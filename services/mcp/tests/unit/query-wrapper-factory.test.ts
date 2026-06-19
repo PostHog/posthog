@@ -129,65 +129,29 @@ describe('createQueryWrapper _posthogUrl', () => {
         source: z.looseObject({ kind: z.string() }),
     })
 
-    it('dispatches TrendsQuery source to trendsActors', async () => {
-        const { context, trendsActors, lifecycleActors } = createActorsDispatchContext()
+    const ACTOR_HANDLERS = [
+        'trendsActors',
+        'lifecycleActors',
+        'pathsActors',
+        'retentionActors',
+        'stickinessActors',
+    ] as const
+
+    it.each([
+        ['TrendsQuery', 'trendsActors'],
+        ['LifecycleQuery', 'lifecycleActors'],
+        ['PathsQuery', 'pathsActors'],
+        ['RetentionQuery', 'retentionActors'],
+        ['StickinessQuery', 'stickinessActors'],
+    ] as const)('dispatches %s source to %s and no other handler', async (sourceKind, expectedHandler) => {
+        const ctx = createActorsDispatchContext()
         const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
 
-        const result = (await tool.handler(context, { source: { kind: 'TrendsQuery' } })) as any
+        const result = (await tool.handler(ctx.context, { source: { kind: sourceKind } })) as any
 
-        expect(trendsActors).toHaveBeenCalledOnce()
-        expect(lifecycleActors).not.toHaveBeenCalled()
-        expect(result._posthogUrl).toContain('DataTableNode')
-    })
-
-    it('dispatches LifecycleQuery source to lifecycleActors', async () => {
-        const { context, trendsActors, lifecycleActors } = createActorsDispatchContext()
-        const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
-
-        const result = (await tool.handler(context, { source: { kind: 'LifecycleQuery' } })) as any
-
-        expect(lifecycleActors).toHaveBeenCalledOnce()
-        expect(trendsActors).not.toHaveBeenCalled()
-        expect(result._posthogUrl).toContain('DataTableNode')
-    })
-
-    it('dispatches PathsQuery source to pathsActors', async () => {
-        const { context, trendsActors, lifecycleActors, pathsActors } = createActorsDispatchContext()
-        const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
-
-        const result = (await tool.handler(context, { source: { kind: 'PathsQuery' } })) as any
-
-        expect(pathsActors).toHaveBeenCalledOnce()
-        expect(trendsActors).not.toHaveBeenCalled()
-        expect(lifecycleActors).not.toHaveBeenCalled()
-        expect(result._posthogUrl).toContain('DataTableNode')
-    })
-
-    it('dispatches RetentionQuery source to retentionActors', async () => {
-        const { context, trendsActors, lifecycleActors, pathsActors, retentionActors } = createActorsDispatchContext()
-        const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
-
-        const result = (await tool.handler(context, { source: { kind: 'RetentionQuery' } })) as any
-
-        expect(retentionActors).toHaveBeenCalledOnce()
-        expect(trendsActors).not.toHaveBeenCalled()
-        expect(lifecycleActors).not.toHaveBeenCalled()
-        expect(pathsActors).not.toHaveBeenCalled()
-        expect(result._posthogUrl).toContain('DataTableNode')
-    })
-
-    it('dispatches StickinessQuery source to stickinessActors', async () => {
-        const { context, trendsActors, lifecycleActors, pathsActors, retentionActors, stickinessActors } =
-            createActorsDispatchContext()
-        const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
-
-        const result = (await tool.handler(context, { source: { kind: 'StickinessQuery' } })) as any
-
-        expect(stickinessActors).toHaveBeenCalledOnce()
-        expect(trendsActors).not.toHaveBeenCalled()
-        expect(lifecycleActors).not.toHaveBeenCalled()
-        expect(pathsActors).not.toHaveBeenCalled()
-        expect(retentionActors).not.toHaveBeenCalled()
+        for (const handler of ACTOR_HANDLERS) {
+            expect(ctx[handler]).toHaveBeenCalledTimes(handler === expectedHandler ? 1 : 0)
+        }
         expect(result._posthogUrl).toContain('DataTableNode')
     })
 
