@@ -425,12 +425,20 @@ def get_snowflake_source_table_location(
     schema_name: str,
     source_schema: SourceSchema | None,
     default_schema: str | None,
-) -> tuple[str | None, str | None, str | None]:
-    return (
-        source_schema.source_catalog if source_schema else None,
-        source_schema.source_schema if source_schema else None,
-        source_schema.source_table_name if source_schema else None,
+    default_catalog: str | None = None,
+) -> tuple[str | None, str, str]:
+    catalog = source_schema.source_catalog if source_schema and source_schema.source_catalog else default_catalog
+    if source_schema and source_schema.source_schema and source_schema.source_table_name:
+        return catalog, source_schema.source_schema, source_schema.source_table_name
+
+    normalized_default_schema = (
+        default_schema.strip() if isinstance(default_schema, str) and default_schema.strip() else None
     )
+    if normalized_default_schema is None and "." in schema_name:
+        inferred_schema, inferred_table_name = schema_name.split(".", 1)
+        return catalog, inferred_schema, inferred_table_name
+
+    return catalog, normalized_default_schema or "", schema_name
 
 
 CUSTOM_SOURCE_LIMIT_MESSAGE = f"You can create at most {MAX_CUSTOM_SOURCES_PER_TEAM} custom sources per project."
@@ -1682,7 +1690,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     get_snowflake_source_table_location(
                         schema_name=schema_name,
                         source_schema=source_schema,
-                        default_schema=default_source_schema or source_config.to_dict().get("database"),
+                        default_schema=default_source_schema,
+                        default_catalog=source_config.to_dict().get("database"),
                     )
                 )
             else:

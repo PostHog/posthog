@@ -697,12 +697,17 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 
         source = getattr(self, "_direct_source", None)
+        has_direct_mysql_table = any(isinstance(table_type.table, DirectMySQLTable) for table_type in base_table_types)
+        has_direct_snowflake_table = any(
+            isinstance(table_type.table, DirectSnowflakeTable) for table_type in base_table_types
+        )
+
         dialect: Literal["postgres", "mysql", "snowflake"]
         engine: Literal["direct_postgres", "direct_mysql", "direct_snowflake"]
-        if source is not None and source.is_direct_mysql:
+        if has_direct_mysql_table or (source is not None and source.is_direct_mysql):
             dialect = "mysql"
             engine = "direct_mysql"
-        elif source is not None and source.is_direct_snowflake:
+        elif has_direct_snowflake_table or (source is not None and source.is_direct_snowflake):
             dialect = "snowflake"
             engine = "direct_snowflake"
         else:

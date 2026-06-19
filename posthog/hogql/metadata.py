@@ -105,9 +105,13 @@ def get_hogql_metadata(
             response.table_names = hogql_table_names
 
             if not printed_sql or not prepared_ast:
-                direct_dialect: Literal["postgres", "mysql"] = (
-                    "mysql" if source and source.is_direct_mysql else "postgres"
-                )
+                direct_dialect: Literal["postgres", "mysql", "snowflake"]
+                if source and source.is_direct_mysql:
+                    direct_dialect = "mysql"
+                elif source and source.is_direct_snowflake:
+                    direct_dialect = "snowflake"
+                else:
+                    direct_dialect = "postgres"
                 printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
