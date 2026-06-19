@@ -2,8 +2,9 @@ from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
 from langchain_core.runnables import RunnableConfig, RunnableLambda
+from parameterized import parameterized
 
-from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage, HumanMessage
+from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage, FailureMessage, HumanMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -53,7 +54,13 @@ class TestSQLGeneratorNode(NonAtomicBaseTest):
             self.assertIsNone(new_state.plan)
             self.assertIsNone(new_state.rag_context)
 
-    async def test_node_handles_retry_exhaustion_gracefully(self):
+    @parameterized.expand(
+        [
+            ("with_tool_call", "tool_123", AssistantToolCallMessage),
+            ("without_tool_call", None, FailureMessage),
+        ]
+    )
+    async def test_node_handles_retry_exhaustion_gracefully(self, _name, root_tool_call_id, expected_message_type):
         node = SQLGeneratorNode(self.team, self.user)
         config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
 
@@ -68,7 +75,7 @@ class TestSQLGeneratorNode(NonAtomicBaseTest):
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     plan="Plan",
-                    root_tool_call_id="tool_123",
+                    root_tool_call_id=root_tool_call_id,
                     root_tool_insight_plan="question",
                 ),
                 config,
@@ -77,10 +84,10 @@ class TestSQLGeneratorNode(NonAtomicBaseTest):
         assert new_state is not None
         self.assertEqual(len(new_state.messages), 1)
         msg = new_state.messages[0]
-        self.assertIsInstance(msg, AssistantToolCallMessage)
-        assert isinstance(msg, AssistantToolCallMessage)
-        self.assertEqual(msg.tool_call_id, "tool_123")
+        self.assertIsInstance(msg, expected_message_type)
         self.assertIn("valid SQL query", msg.content)
+        if isinstance(msg, AssistantToolCallMessage):
+            self.assertEqual(msg.tool_call_id, root_tool_call_id)
         # Node ends gracefully and clears the tool call so the run terminates
         self.assertIsNone(new_state.root_tool_call_id)
         self.assertIsNone(new_state.intermediate_steps)
