@@ -67,6 +67,58 @@ Embedding creation event (text to vector).
 | `$ai_total_cost_usd` | float  | Total cost in USD          |
 | `$ai_latency`        | float  | Duration in seconds        |
 
+## Where heavy content lives: `events` vs `ai_events`
+
+The heavy LLM properties are **not stored on `events`** — they live as native columns on a dedicated
+ClickHouse table, referenced in HogQL as **`posthog.ai_events`**. The `events` table keeps only the lightweight metadata (token counts, costs,
+model, provider, `$ai_trace_id`, latency, error flags).
+
+| Heavy content  | `events` property    | `ai_events` column |
+| -------------- | -------------------- | ------------------ |
+| Input messages | `$ai_input`          | `input`            |
+| Output         | `$ai_output`         | `output`           |
+| Output choices | `$ai_output_choices` | `output_choices`   |
+| Input state    | `$ai_input_state`    | `input_state`      |
+| Output state   | `$ai_output_state`   | `output_state`     |
+| Tools          | `$ai_tools`          | `tools`            |
+
+`posthog.ai_events` is `ORDER BY (team_id, trace_id, timestamp)`, so **`trace_id` is the access
+path, not `timestamp`**. Rows are dropped after the retention period (30 days by default), so
+traces older than that have no content. Nothing restricts which heavy columns an event can carry,
+but the typical shape is: `$ai_generation` carries `input` / `output_choices` / `tools` (embeddings
+carry `input`); `$ai_span` and `$ai_trace` carry `input_state` / `output_state`.
+
+For trace inspection, prefer the `query-llm-trace` / `query-llm-traces-list` tools — they read
+`posthog.ai_events` for you. Drop to the SQL below only for custom analysis (aggregations, joins,
+batch extraction) or when you're already at the SQL layer.
+
+**Single trace** — when you already have a `trace_id` (e.g. from a trace URL or `query-llm-traces-list`): read it directly.
+
+```sql
+SELECT timestamp, span_id, event, model, input, output_choices
+FROM posthog.ai_events
+WHERE trace_id = '<trace_id>'
+ORDER BY timestamp
+```
+
+**Batch / analytics (a time window across many traces):** filter on the timestamp-indexed
+`events` table first to get the trace IDs, then fetch the heavy content from `posthog.ai_events`
+anchored on `trace_id`.
+
+```sql
+WITH matching_traces AS (
+    SELECT DISTINCT properties.$ai_trace_id AS trace_id
+    FROM events
+    WHERE event = '$ai_generation'
+        AND timestamp >= now() - INTERVAL 7 DAY
+        AND properties.$ai_model = 'gpt-4o'  -- token/cost/model/ids stay on events
+)
+SELECT a.trace_id, a.span_id, a.model, a.input, a.output_choices
+FROM posthog.ai_events AS a
+WHERE a.trace_id IN (SELECT trace_id FROM matching_traces)
+ORDER BY a.trace_id, a.timestamp
+```
+
 ## Common patterns
 
 ### Linking events in a trace
@@ -93,3 +145,7 @@ These properties can contain megabytes of data:
 
 Use `contentDetail: "preview"` or `"none"` when querying via MCP tools.
 When using `contentDetail: "full"`, dump results to a file.
+
+In raw SQL these live only on `posthog.ai_events`, not `events.properties` —
+see [Where heavy content lives](#where-heavy-content-lives-events-vs-ai_events) for the column
+mapping and query patterns.

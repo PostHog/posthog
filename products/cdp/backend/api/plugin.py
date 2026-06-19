@@ -12,7 +12,6 @@ from django.utils.timezone import now
 
 import requests
 from dateutil.relativedelta import relativedelta
-from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from rest_framework import renderers, request, serializers, status, viewsets
@@ -341,7 +340,6 @@ class PluginSerializer(serializers.ModelSerializer):
         return cast(Plugin, super().update(plugin, validated_data))
 
 
-@extend_schema(tags=["core"])
 class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = Plugin.objects.all()
@@ -408,9 +406,16 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def unused(self, request: request.Request, **kwargs):
-        ids = Plugin.objects.exclude(
-            id__in=PluginConfig.objects.filter(enabled=True).values_list("plugin_id", flat=True)
-        ).values_list("id", flat=True)
+        ids = (
+            self.get_queryset()
+            .exclude(
+                id__in=PluginConfig.objects.filter(
+                    enabled=True, team__organization_id=self.organization_id
+                ).values_list("plugin_id", flat=True)
+            )
+            .order_by("id")
+            .values_list("id", flat=True)
+        )
         return Response(ids)
 
     @action(methods=["GET"], detail=False)
@@ -786,7 +791,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return response
 
 
-@extend_schema(tags=["core"])
 class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = PluginConfig.objects.all()

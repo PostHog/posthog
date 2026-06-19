@@ -12,13 +12,18 @@
 // Products under SMALL_THRESHOLD duration get grouped into one matrix entry
 // to avoid spinning up a full Docker stack for a handful of tests.
 // Durations come from .test_durations (maintained by pytest-split).
+// DEDICATED_BUCKET_PRODUCTS opt out of grouping and always run alone.
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
+//         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
+//         is false, schema-impact.js narrows the matrix to products that
+//         depend on the affected posthog.schema types.
 // Output: JSON on stdout: { matrix, run_legacy, django_shards }
 //         Diagnostics on stderr
 
 const { execFileSync } = require('child_process')
 const fs = require('fs')
+const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
 // Each product is atomic for packing, but unlike Django the test pool isn't
@@ -36,23 +41,39 @@ const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
+// Products that always get their own matrix entry instead of being packed with
+// others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
+// at the job timeout. Trade-off: a dedicated runner.
+const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
 
 // --- Django shard auto-sizing (Amdahl's law) ---
 // wall_clock = overhead + (total_from_durations_file / shards)
 //
-// .test_durations has migration-inflated first-test durations corrected
-// by optimize_test_durations.py (using JUnit to identify carriers and
-// subtract the migration tax). Durations reflect actual test work.
+// .test_durations has migration-tax contamination removed by
+// optimize_test_durations.py: tests recorded far above their JUnit call
+// time (the DB-setup walk lands on whichever test first hits the DB) are
+// floored back to that call time. Durations reflect actual test work.
 //
 // Per-segment overhead constants below cover the fixed per-shard cost
 // outside test work: job setup, pytest collection, per-shard DB setup,
-// per-segment infra. Measured from JUnit + job wall clocks on a recent
-// run (lower bound — includes some per-test fixture setup that JUnit's
-// junit_duration_report=call doesn't capture):
-//   Core:     median 303s, max 591s   → 4 min covers it comfortably
-//   CorePOE:  median 233s, max 280s   → 4 min has headroom
-//   Temporal: median 375s, max 693s   → 6 min, temporal-server boot adds
-//                                        meaningful fixed cost beyond Core
+// per-segment infra.
+//
+// These are calibrated for the PR path, which is >95% of runs. On PRs the
+// test DB is primed from a cached pre-migrated schema dump (restore step in
+// ci-backend.yml, ~60s) instead of walking Django migrations, so the per-
+// shard overhead stays small. Measured as wall_clock minus the shard's
+// corrected test work on a PR run with the schema cache hitting:
+//   Core:     median ~4.5 min, max ~9 min  → 4 min is tight but holds
+//   CorePOE:  median ~4 min                → 4 min
+//   Temporal: median ~4 min                → 6 min has headroom for temporal-server boot
+//
+// Master pushes SKIP the schema-cache restore and walk migrations fresh
+// (~7 min), so master shards run ~11 min overhead and blow past the 20 min
+// target. That is accepted: master runs are rare, happen uniformly across
+// shards, and are where .test_durations is collected anyway. Calibrating up
+// to protect them would over-shard every PR. Note the consequence: a PR with
+// a schema-cache MISS (stale branch, key drift) falls back to the full walk
+// and its shards will also overrun — uniformly, same as master.
 const DJANGO_OVERHEAD_SECONDS_BY_SEGMENT = {
     Core: 4 * 60,
     CorePOE: 4 * 60,
@@ -112,6 +133,67 @@ function logAffectedReasons(label, tasks) {
         reasons[reason] = (reasons[reason] || 0) + 1
     }
     console.error(`${label} affected reasons: ${JSON.stringify(reasons)}`)
+}
+
+// --- Test quarantine (.test_quarantine.json) ---
+// Schema contract: tools/hogli-commands/hogli_commands/quarantine/core.py.
+// This script consumes a deliberately trivial subset of it: pytest entries
+// with an explicit `product:<dashed-name>` selector and `mode: "skip"` drop
+// the whole product from the matrix (mode "run" entries need no matrix change
+// — their tests xfail in-shard). ISO date strings compare lexicographically;
+// an entry is active while today <= expires.
+const QUARANTINE_FILE = '.test_quarantine.json'
+
+function quarantinedSkipProducts(jsonText, todayISO) {
+    const parsed = JSON.parse(jsonText)
+    if (parsed?.version !== 1 || !Array.isArray(parsed.entries)) {
+        return new Set()
+    }
+    const products = new Set()
+    for (const entry of parsed.entries) {
+        if (typeof entry?.id !== 'string' || !entry.id.startsWith('product:')) continue
+        if ((entry.runner ?? 'pytest') !== 'pytest' || entry.mode !== 'skip') continue
+        if (typeof entry.expires !== 'string' || entry.expires < todayISO) continue
+        products.add(entry.id.slice('product:'.length))
+    }
+    return products
+}
+
+function loadQuarantinedSkipProducts(todayISO) {
+    try {
+        return quarantinedSkipProducts(fs.readFileSync(QUARANTINE_FILE, 'utf-8'), todayISO)
+    } catch (e) {
+        // Fail-open: a missing or malformed file means no quarantine, never a blocked matrix.
+        console.error(`Warning: could not read ${QUARANTINE_FILE} (${e.message}) — quarantine ignored`)
+        return new Set()
+    }
+}
+
+function loadBaseQuarantinedSkipProducts(base, todayISO) {
+    // Fail-open: file absent at base (or unreadable ref) means nothing was quarantined there.
+    try {
+        const raw = readBaseSchema(base, QUARANTINE_FILE)
+        return raw === null ? new Set() : quarantinedSkipProducts(raw, todayISO)
+    } catch {
+        return new Set()
+    }
+}
+
+// Warn on names matching no real product (catches the dash/underscore mixup:
+// the dir is batch_exports but the product is batch-exports), then drop the
+// rest from the matrix.
+function dropProducts(products, allProducts, names, label) {
+    const allProductSet = new Set(allProducts)
+    for (const name of names) {
+        if (!allProductSet.has(name)) {
+            console.error(
+                `::warning::${label}: unknown product '${name}' — use the dashed name (e.g. 'batch-exports'), not the directory form`
+            )
+        }
+    }
+    const remaining = products.filter((p) => !names.has(p))
+    console.error(`${label}: ${[...names].join(',')} — dropped ${products.length - remaining.length} product(s)`)
+    return remaining
 }
 
 function loadTestDurations() {
@@ -280,6 +362,13 @@ function buildMatrix(products, durations) {
                     pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm duration_based_chunks`,
                 })
             }
+        } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
+            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → dedicated bucket (never packed)`)
+            matrix.push({
+                group: product,
+                filters: `--filter=@posthog/products-${product}`,
+                pytest_args: '',
+            })
         } else {
             packable.push(product)
         }
@@ -302,6 +391,7 @@ function buildMatrix(products, durations) {
 // --- Main ---
 
 const legacyChanged = process.env.LEGACY_CHANGED === 'true'
+const schemaChanged = process.env.SCHEMA_CHANGED === 'true'
 
 let allTestTasks, affectedTestTasks, affectedContractTasks, contractTasks
 try {
@@ -364,6 +454,62 @@ if (legacyChanged) {
         products = []
         runLegacy = false
     }
+
+    if (schemaChanged) {
+        const impact = analyzeSchemaImpact({ scmBase: process.env.TURBO_SCM_BASE })
+        console.error(`Schema impact: ${JSON.stringify({ kind: impact.kind, counts: impact.counts, reason: impact.reason })}`)
+        if (impact.kind === 'fallback') {
+            console.error(`Schema diff unavailable (${impact.reason}) — falling back to all products + Django`)
+            products = allProducts
+            runLegacy = true
+        } else {
+            if (impact.kind === 'impacting') {
+                console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
+                if (impact.wildcardProducts && impact.wildcardProducts.length > 0) {
+                    console.error(
+                        `Products with unresolved schema module imports (always tested): ${JSON.stringify(impact.wildcardProducts)}`
+                    )
+                }
+                products = [...new Set([...products, ...impact.affectedProducts])].sort()
+            } else {
+                console.error('Schema change is purely additive — no extra products needed')
+            }
+            // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
+            runLegacy = true
+        }
+    }
+}
+
+// Kill switch: products named in the SKIP_PRODUCT_TESTS repo variable (comma-
+// separated) are dropped from the matrix without a code change — use it to stop
+// running, and blocking on, a product whose tests are temporarily too flaky.
+const skipProducts = new Set((process.env.SKIP_PRODUCT_TESTS || '').split(',').map((p) => p.trim()).filter(Boolean))
+if (skipProducts.size > 0) {
+    products = dropProducts(products, allProducts, skipProducts, 'SKIP_PRODUCT_TESTS')
+}
+
+const todayISO = new Date().toISOString().slice(0, 10)
+const quarantinedProducts = loadQuarantinedSkipProducts(todayISO)
+if (quarantinedProducts.size > 0) {
+    products = dropProducts(products, allProducts, quarantinedProducts, 'Quarantined products (mode: skip)')
+}
+
+// Un-quarantining must re-run the suite. Today the ci-backend `legacy` paths-
+// filter already forces a full run on any PR touching the quarantine file, so
+// this diff against the merge base rarely changes the outcome — it is the
+// backstop that keeps product re-runs correct if that coarse trigger is ever
+// narrowed (Turbo itself never sees .test_quarantine.json as a product input).
+if (process.env.TURBO_SCM_BASE) {
+    const baseQuarantined = loadBaseQuarantinedSkipProducts(process.env.TURBO_SCM_BASE, todayISO)
+    const allProductSet = new Set(allProducts)
+    const productSet = new Set(products)
+    for (const name of baseQuarantined) {
+        if (quarantinedProducts.has(name) || skipProducts.has(name)) continue
+        if (!allProductSet.has(name) || productSet.has(name)) continue
+        console.error(`Quarantine lifted for '${name}' since ${process.env.TURBO_SCM_BASE} — forced into matrix`)
+        products.push(name)
+    }
+    products.sort()
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)

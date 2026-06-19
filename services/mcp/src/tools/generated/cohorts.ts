@@ -15,7 +15,7 @@ import {
 } from '@/generated/cohorts/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CohortsAddPersonsToStaticCohortPartialUpdateSchema = CohortsAddPersonsToStaticCohortPartialUpdateParams.omit({
@@ -82,6 +82,9 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, WithPostHogUrl<Sc
 const CohortsListSchema = CohortsListQueryParams.extend({
     limit: z.preprocess(castStringToInt, CohortsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, CohortsListQueryParams.shape['offset']).optional(),
+    hide_behavioral_cohorts: CohortsListQueryParams.shape['hide_behavioral_cohorts'].describe(
+        'Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.'
+    ),
 })
 
 const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schemas.PaginatedCohortList>> =>
@@ -94,6 +97,8 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`,
                 query: {
+                    basic: params.basic,
+                    hide_behavioral_cohorts: params.hide_behavioral_cohorts,
                     limit: params.limit,
                     offset: params.offset,
                 },
@@ -172,7 +177,15 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, WithPostHogUr
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/${encodeURIComponent(String(params.id))}/`,
             })
-            return await withPostHogUrl(context, result, `/cohorts/${result.id}`)
+            const filtered = omitResponseFields(result, [
+                'filters.properties.values.*.values.*.bytecode',
+                'filters.properties.values.*.values.*.bytecode_error',
+                'filters.properties.values.*.values.*.conditionHash',
+                'filters.properties.values.*.bytecode',
+                'filters.properties.values.*.bytecode_error',
+                'filters.properties.values.*.conditionHash',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/cohorts/${filtered.id}`)
         },
     })
 

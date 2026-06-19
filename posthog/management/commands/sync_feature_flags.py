@@ -27,6 +27,8 @@ INACTIVE_FLAGS = [
     "webhooks-denylist",
     "insight-horizontal-controls",
     "flagged-feature-indicator",
+    "read-only-mode",
+    "mcp-hints",
 ]
 
 

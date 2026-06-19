@@ -42,7 +42,7 @@ def test_json_schema_type_label(prop: dict, expected: str) -> None:
 
 
 @pytest.fixture()
-def register_fake_module() -> Generator[Callable[..., None], None, None]:
+def register_fake_module() -> Generator[Callable[..., None]]:
     """Factory fixture that registers a Pydantic model as a fake module for import.
 
     Returns a callable: register(module_name, class_name, model_cls).

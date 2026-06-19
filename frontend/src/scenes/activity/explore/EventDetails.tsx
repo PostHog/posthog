@@ -18,6 +18,7 @@ import { PropertyDefinitionType } from '~/types'
 
 import { ConversationDisplay } from 'products/ai_observability/frontend/ConversationDisplay/ConversationDisplay'
 import { EvaluationDisplay } from 'products/ai_observability/frontend/ConversationDisplay/EvaluationDisplay'
+import { TagDisplay } from 'products/ai_observability/frontend/ConversationDisplay/TagDisplay'
 
 import { MCPEventView } from './MCPEventView'
 
@@ -91,6 +92,12 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 <EvaluationDisplay eventProperties={properties} />
                             </div>
                         )
+                    case 'tag':
+                        return (
+                            <div className="mx-3 -mt-2 mb-2">
+                                <TagDisplay eventProperties={properties} />
+                            </div>
+                        )
                     case 'error_display':
                         return (
                             <div className="mx-3">
@@ -150,7 +157,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                             <div className="mx-3 -mt-4">
                                 <p>
                                     "Set once" person properties sent with this event. Will replace any property value
-                                    that have never been set on this person profile before now.{' '}
+                                    that has never been set on this person profile before now.{' '}
                                     <Link to="https://posthog.com/docs/getting-started/person-properties">
                                         Learn more
                                     </Link>

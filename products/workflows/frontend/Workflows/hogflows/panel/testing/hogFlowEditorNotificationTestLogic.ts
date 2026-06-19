@@ -6,9 +6,9 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
+import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
-import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { CyclotronJobInvocationGlobals, FilterLogicalOperator, PersonType, PropertyFilterType } from '~/types'
@@ -271,7 +271,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                     },
                 }
 
-                const eventResponse = await performQuery(query)
+                const eventResponse = await performWideEventsQueryInTwoPhases(query)
                 let event = eventResponse?.results?.[0]?.[0]
 
                 if (!event) {

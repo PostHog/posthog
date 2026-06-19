@@ -16,8 +16,6 @@ from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey
-
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -193,7 +191,6 @@ class ScoreDefinitionFilter(django_filters.FilterSet):
         return queryset
 
 
-@extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class ScoreDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

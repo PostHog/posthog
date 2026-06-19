@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "force_refresh": {
+            "default": false,
+            "description": "When true, bypass cached summaries and regenerate. Defaults to false.",
+            "type": "boolean"
+        },
+        "id": {
+            "description": "A UUID string identifying this survey.",
+            "type": "string"
+        },
+        "question_id": {
+            "description": "Question UUID. Preferred over question_index — stable across question edits.",
+            "type": "string"
+        },
+        "question_index": {
+            "description": "Zero-based question index. Omit to get the survey-wide headline instead.",
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

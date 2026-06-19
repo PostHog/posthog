@@ -8,7 +8,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
-import { slugify } from 'lib/utils'
+import { slugify } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'
@@ -18,23 +18,16 @@ import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
 
 export interface EndpointFromInsightModalProps {
-    tabId: string
     insightQuery: HogQLQuery | EndpointQueryNode
     insightShortId?: string
 }
 
-export function EndpointFromInsightModal({
-    tabId,
-    insightQuery,
-    insightShortId,
-}: EndpointFromInsightModalProps): JSX.Element {
-    const { createEndpoint, setEndpointName, setEndpointDescription, closeCreateFromInsightModal } = useActions(
-        endpointLogic({ tabId })
-    )
-    const { endpointName, endpointDescription, createFromInsightModalOpen, duplicateEndpoint } = useValues(
-        endpointLogic({ tabId })
-    )
-    const { endpoints } = useValues(endpointsLogic({ tabId }))
+export function EndpointFromInsightModal({ insightQuery, insightShortId }: EndpointFromInsightModalProps): JSX.Element {
+    const { createEndpoint, setEndpointName, setEndpointDescription, closeCreateFromInsightModal } =
+        useActions(endpointLogic)
+    const { endpointName, endpointDescription, createFromInsightModalOpen, duplicateEndpoint } =
+        useValues(endpointLogic)
+    const { endpoints } = useValues(endpointsLogic)
 
     const endpointsFromThisInsight = insightShortId
         ? endpoints.filter((endpoint) => endpoint.derived_from_insight === insightShortId)

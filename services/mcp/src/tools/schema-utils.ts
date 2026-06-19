@@ -17,26 +17,64 @@ interface SummarizedProperty {
     hint?: string
 }
 
-interface SchemaSummary {
+/**
+ * A summarized schema node. `properties` is always present (empty for non-object
+ * nodes) so callers can read it unconditionally; `items` (arrays) and `variants`
+ * (unions) carry the recursive shape that the old object-only summarizer dropped.
+ */
+interface NodeSummary {
     type: string
+    title?: string
     required?: string[]
     properties: Record<string, SummarizedProperty>
-    note?: string
+    items?: NodeSummary
+    variants?: NodeSummary[]
+    description?: string
+    enum?: unknown[]
+    const?: unknown
+    default?: unknown
+}
+
+/**
+ * Properties that conventionally discriminate a union variant. Zod discriminated
+ * unions (e.g. the trends `series` EventsNode/ActionsNode/GroupNode split) carry the
+ * variant identity in one of these as a `const`/single-value `enum`, not in `title`.
+ */
+const DISCRIMINATOR_KEYS = ['kind', 'type', 'nodeKind'] as const
+
+/** Best-effort human label for a union variant: `title`, a root `const`, or a discriminator property's `const`/single-value `enum`. */
+function variantName(variant: JSONSchema): string | undefined {
+    if (typeof variant.title === 'string') {
+        return variant.title
+    }
+    if (typeof variant.const === 'string') {
+        return variant.const
+    }
+    const props = variant.properties as Record<string, JSONSchema> | undefined
+    if (!props) {
+        return undefined
+    }
+    for (const key of DISCRIMINATOR_KEYS) {
+        const disc = props[key]
+        if (!disc) {
+            continue
+        }
+        if (typeof disc.const === 'string') {
+            return disc.const
+        }
+        if (Array.isArray(disc.enum) && disc.enum.length === 1 && typeof disc.enum[0] === 'string') {
+            return disc.enum[0]
+        }
+    }
+    return undefined
 }
 
 /**
  * Describe the type of a union (anyOf/oneOf) concisely.
- * Extracts variant names from `title`, `description`, or `const` fields.
+ * Names variants via `variantName` (title, root const, or discriminator const).
  */
 function describeUnion(variants: JSONSchema[]): string {
-    const names: string[] = []
-    for (const v of variants) {
-        if (typeof v.title === 'string') {
-            names.push(v.title)
-        } else if (typeof v.const === 'string') {
-            names.push(v.const)
-        }
-    }
+    const names = variants.map(variantName).filter((n): n is string => typeof n === 'string')
     if (names.length > 0 && names.length <= 6) {
         return `union of ${variants.length} types (${names.join(', ')})`
     }
@@ -108,11 +146,17 @@ function describeItems(items: JSONSchema): string {
     return getTypeString(items)
 }
 
+// Defensive recursion bound for `summarizeNode`. Zod's `toJSONSchema` inlines, so
+// schemas are finite trees, but array/union unwrapping recurses — cap it anyway.
+const MAX_SUMMARY_DEPTH = 6
+
 /**
- * Summarize a JSON Schema's top-level properties.
- * Produces field names, types, descriptions, and drill-down hints for complex fields.
+ * Summarize an object's top-level properties: field names, types, descriptions,
+ * and drill-down hints for complex fields. Intentionally does NOT recurse into a
+ * nested object/array/union field — each complex field instead carries a `hint`
+ * pointing at the next `schema <tool> <path>` call.
  */
-export function summarizeSchema(schema: JSONSchema, toolName: string, fieldPath?: string): SchemaSummary {
+function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: string): NodeSummary {
     const properties = (schema.properties || {}) as Record<string, JSONSchema>
     const requiredFields = (schema.required || []) as string[]
     const result: Record<string, SummarizedProperty> = {}
@@ -120,8 +164,7 @@ export function summarizeSchema(schema: JSONSchema, toolName: string, fieldPath?
 
     for (const [name, prop] of Object.entries(properties)) {
         const entry: SummarizedProperty = {}
-        const typeStr = getTypeString(prop)
-        entry.type = typeStr
+        entry.type = getTypeString(prop)
 
         if (typeof prop.description === 'string') {
             entry.description = prop.description
@@ -159,11 +202,109 @@ export function summarizeSchema(schema: JSONSchema, toolName: string, fieldPath?
         result[name] = entry
     }
 
-    return {
+    const summary: NodeSummary = {
         type: (schema.type as string) || 'object',
         ...(requiredFields.length > 0 ? { required: requiredFields } : {}),
         properties: result,
     }
+    if (typeof schema.title === 'string') {
+        summary.title = schema.title
+    }
+    return summary
+}
+
+/** Summarize a scalar/leaf node — its descriptive metadata only, no children. */
+function summarizeLeaf(schema: JSONSchema): NodeSummary {
+    const summary: NodeSummary = { type: getTypeString(schema), properties: {} }
+    if (typeof schema.title === 'string') {
+        summary.title = schema.title
+    }
+    if (typeof schema.description === 'string') {
+        summary.description = schema.description
+    }
+    if (schema.enum) {
+        summary.enum = schema.enum as unknown[]
+    }
+    if (schema.const !== undefined) {
+        summary.const = schema.const
+    }
+    if (schema.default !== undefined) {
+        summary.default = schema.default
+    }
+    return summary
+}
+
+/**
+ * Summarize any schema node, dispatching on its kind.
+ *
+ * Array and union WRAPPERS recurse, unlike the per-field summary inside an object
+ * (which stops at one level and emits a `hint`). The reason: `items` and union
+ * variants don't consume a path segment — `resolveSchemaPath` walks through them
+ * transparently (`series.event` reaches into `series`'s array-of-union items) — so
+ * a faithful summary has to unwrap them until it reaches the object/scalar beneath.
+ * Without this, summarizing an array- or union-typed field that overflows the inline
+ * budget (e.g. `query-trends series`) collapsed to an empty `{ type, properties: {} }`
+ * and the variant shapes were invisible.
+ */
+function summarizeNode(
+    schema: JSONSchema,
+    toolName: string,
+    fieldPath: string | undefined,
+    depth: number
+): NodeSummary {
+    // Union: summarize each non-null variant. A lone non-null variant (a nullable
+    // wrapper) collapses to that variant so we don't emit a pointless 1-way union.
+    const unionVariants = (schema.anyOf || schema.oneOf) as JSONSchema[] | undefined
+    if (unionVariants) {
+        const nonNull = unionVariants.filter((v) => v.type !== 'null')
+        if (nonNull.length === 0) {
+            return { type: 'null', properties: {} }
+        }
+        if (depth >= MAX_SUMMARY_DEPTH) {
+            return { type: getTypeString(schema), properties: {} }
+        }
+        if (nonNull.length === 1) {
+            // Unwrap a nullable wrapper. Count it against `depth` so a pathological
+            // chain of nested nullable unions still terminates at MAX_SUMMARY_DEPTH.
+            return summarizeNode(nonNull[0]!, toolName, fieldPath, depth + 1)
+        }
+        return {
+            type: getTypeString(schema),
+            properties: {},
+            variants: nonNull.map((v) => summarizeNode(v, toolName, fieldPath, depth + 1)),
+        }
+    }
+
+    // Array: summarize the item schema (which itself may be an object or a union).
+    if (schema.type === 'array' && schema.items && !Array.isArray(schema.items)) {
+        const items = schema.items as JSONSchema
+        if (depth >= MAX_SUMMARY_DEPTH) {
+            return { type: 'array', properties: {}, items: { type: describeItems(items), properties: {} } }
+        }
+        return { type: 'array', properties: {}, items: summarizeNode(items, toolName, fieldPath, depth + 1) }
+    }
+
+    // Object with properties: list field names + drill-down hints (one level deep).
+    if (schema.properties) {
+        return summarizeObject(schema, toolName, fieldPath)
+    }
+
+    // A property-less object keeps the historical empty shape; anything else is a leaf.
+    if (schema.type === 'object') {
+        return { type: 'object', properties: {} }
+    }
+    return summarizeLeaf(schema)
+}
+
+/**
+ * Summarize a JSON Schema for the `info` / `schema` exec commands.
+ *
+ * Objects list their top-level properties with drill-down hints; arrays and unions
+ * recurse through the wrapper into the underlying item/variant shapes, so the result
+ * is never an empty `{ type, properties: {} }`.
+ */
+export function summarizeSchema(schema: JSONSchema, toolName: string, fieldPath?: string): NodeSummary {
+    return summarizeNode(schema, toolName, fieldPath, 0)
 }
 
 /**

@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.read_taxonomy.core import (
     DYNAMIC_EVENT_PROPERTIES_HINT,
@@ -17,7 +19,6 @@ from ee.hogai.tools.read_taxonomy.core import (
 from ee.hogai.tools.read_taxonomy.tool import ReadTaxonomyTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
-from ee.models import Conversation
 
 
 class TestReadTaxonomyTool(NonAtomicBaseTest):

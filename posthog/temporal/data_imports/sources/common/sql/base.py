@@ -53,7 +53,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     wiring around it.
     """
 
-    supports_column_selection: bool = False
+    supports_column_selection: bool = True
 
     @property
     @abstractmethod

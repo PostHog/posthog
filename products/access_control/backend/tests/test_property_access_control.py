@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -14,6 +15,13 @@ from products.access_control.backend.property_access_control import (
 )
 
 
+def _enable_property_access_control(organization):
+    organization.available_product_features = [
+        {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+    ]
+    organization.save()
+
+
 class TestGetDefaultAccessLevel(BaseTest):
     def test_default_is_read_write(self):
         assert get_default_access_level() == PropertyAccessLevel.READ_WRITE
@@ -22,6 +30,7 @@ class TestGetDefaultAccessLevel(BaseTest):
 class TestGetPropertyAccessLevel(BaseTest):
     def setUp(self):
         super().setUp()
+        _enable_property_access_control(self.organization)
         self.prop_def = PropertyDefinition.objects.create(
             team=self.team,
             name="secret_field",
@@ -295,6 +304,7 @@ class TestGetPropertyAccessLevel(BaseTest):
 class TestGetRestrictedPropertiesForTeam(BaseTest):
     def setUp(self):
         super().setUp()
+        _enable_property_access_control(self.organization)
         self.event_prop = PropertyDefinition.objects.create(
             team=self.team,
             name="secret_event_prop",
@@ -408,6 +418,7 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
 class TestRestrictionCacheScope(BaseTest):
     def setUp(self):
         super().setUp()
+        _enable_property_access_control(self.organization)
         self.event_prop = PropertyDefinition.objects.create(
             team=self.team,
             name="secret_event_prop",
@@ -466,3 +477,56 @@ class TestRestrictionCacheScope(BaseTest):
             assert get_restricted_properties_for_team(team_id=self.team.pk, user=self.user) == {
                 ("secret_event_prop", PropertyDefinition.Type.EVENT)
             }
+
+
+class TestQueryTimeFeatureGate(BaseTest):
+    """
+    Without the PROPERTY_ACCESS_CONTROL entitlement, query-time enforcement must short-circuit —
+    every property resolves to the default access level and no property is restricted, even when
+    rules exist in the DB. (The rules stay in the DB so behavior restores cleanly if the org
+    re-subscribes.)
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Intentionally do NOT enable PROPERTY_ACCESS_CONTROL.
+        self.event_prop = PropertyDefinition.objects.create(
+            team=self.team,
+            name="gated_event_prop",
+            property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        self.person_prop = PropertyDefinition.objects.create(
+            team=self.team,
+            name="gated_person_prop",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+
+    def _create_none_rule(self, prop_def: PropertyDefinition) -> None:
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+    def test_get_property_access_level_returns_default_without_feature(self):
+        self._create_none_rule(self.event_prop)
+        level = get_property_access_level(property=self.event_prop, user=self.user)
+        assert level == PropertyAccessLevel.READ_WRITE
+
+    def test_get_restricted_properties_for_team_returns_empty_without_feature(self):
+        self._create_none_rule(self.event_prop)
+        self._create_none_rule(self.person_prop)
+        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+        assert restricted == set()
+
+    def test_enforcement_restored_when_feature_re_enabled(self):
+        self._create_none_rule(self.event_prop)
+        assert get_restricted_properties_for_team(team_id=self.team.pk, user=self.user) == set()
+
+        _enable_property_access_control(self.organization)
+
+        assert get_restricted_properties_for_team(team_id=self.team.pk, user=self.user) == {
+            ("gated_event_prop", PropertyDefinition.Type.EVENT)
+        }

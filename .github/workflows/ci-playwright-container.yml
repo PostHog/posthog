@@ -7,9 +7,9 @@ on:
     workflow_dispatch:
         inputs:
             playwright-version:
-                description: 'Playwright image tag to mirror (e.g. v1.45.0)'
+                description: 'Playwright image tag to mirror (e.g. v1.60.0)'
                 required: true
-                default: 'v1.45.0'
+                default: 'v1.60.0'
     schedule:
         # Weekly check — keeps the mirror fresh if the tag is mutable
         - cron: '0 6 * * 1'
@@ -31,7 +31,7 @@ jobs:
 
             - name: Pull from MCR and push to GHCR
               env:
-                  TAG: ${{ inputs.playwright-version || 'v1.45.0' }}
+                  TAG: ${{ inputs.playwright-version || 'v1.60.0' }}
               run: |
                   SOURCE="mcr.microsoft.com/playwright:${TAG}"
                   TARGET="ghcr.io/posthog/playwright:${TAG}"

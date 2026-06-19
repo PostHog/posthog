@@ -7,111 +7,145 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface EvaluationRunRequestApi {
-    /** UUID of the evaluation to run. */
-    evaluation_id: string
-    /** UUID of the $ai_generation event to evaluate. */
-    target_event_id: string
-    /** ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup). */
-    timestamp: string
-    /** Event name. Defaults to '$ai_generation'. */
-    event?: string
+export interface _SummaryApi {
+    /** Inclusive UTC start of the spend window resolved from the request. */
+    date_from: string
+    /** Exclusive UTC end of the spend window resolved from the request. */
+    date_to: string
+    /** The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`. */
+    product: string
+    /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
+    total_cost_usd: number
+    /** Total $ai_generation + $ai_embedding events captured across every product. */
+    event_count: number
+    /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
+    scoped_cost_usd: number
+    /** Total $ai_generation + $ai_embedding events for the scoped slice. */
+    scoped_event_count: number
+}
+
+export interface _ProductBreakdownRowApi {
     /**
-     * Distinct ID of the event (optional, improves lookup performance).
+     * Value of the `ai_product` property on the event (e.g. `posthog_code`, `background_agents`). Null when unset.
      * @nullable
      */
-    distinct_id?: string | null
+    product: string | null
+    /** Number of $ai_generation + $ai_embedding events for this product. */
+    event_count: number
+    /** Total cost in USD for this product over the lookback window. */
+    cost_usd: number
+}
+
+export interface _ProductBreakdownApi {
+    /** Rows of spend by product, ordered by cost descending. */
+    items: _ProductBreakdownRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
+}
+
+export interface _ToolBreakdownRowApi {
+    /**
+     * Individual tool name from `$ai_tools_called` (split on `,` since multi-tool generations store a comma-separated list). Null = pure text response with no tool call.
+     * @nullable
+     */
+    tool: string | null
+    /** Number of $ai_generation events whose tool list includes this tool. */
+    generation_count: number
+    /** Sum of `$ai_total_cost_usd` for generations whose tool list includes this tool. Multi-tool generations contribute their full cost to every tool they invoked, so this sum can exceed `summary.scoped_cost_usd`. Prefer `share_of_scoped` for headline percentages — it's computed per row and doesn't require the totals to reconcile. */
+    cost_usd: number
+    /** This tool's share of `summary.scoped_cost_usd`, expressed as a float in `[0, 1]`. Independent per row, so co-occurring tools can each show a substantial share — the headline number to present (e.g. `'Bash drove 47% of your spend'`). */
+    share_of_scoped: number
+    /** Average `$ai_input_tokens` across these generations — high values signal context bloat per call. */
+    avg_input_tokens: number
+}
+
+export interface _ToolBreakdownApi {
+    /** Rows of spend by tool, ordered by cost descending. */
+    items: _ToolBreakdownRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
+}
+
+export interface _ModelBreakdownRowApi {
+    /**
+     * Value of the `$ai_model` property.
+     * @nullable
+     */
+    model: string | null
+    /** Number of $ai_generation + $ai_embedding events. */
+    generation_count: number
+    /** Total cost in USD for this model. */
+    cost_usd: number
+    /** Sum of `$ai_input_tokens` for this model. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` for this model. */
+    output_tokens: number
+}
+
+export interface _ModelBreakdownApi {
+    /** Rows of spend by model, ordered by cost descending. */
+    items: _ModelBreakdownRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
+}
+
+export interface _TopTraceRowApi {
+    /**
+     * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
+     * @nullable
+     */
+    trace_id: string | null
+    /** Number of $ai_generation events in this trace. */
+    generation_count: number
+    /** Total cost in USD for this trace. */
+    cost_usd: number
+    /**
+     * Timestamp of the earliest event in this trace.
+     * @nullable
+     */
+    started_at: string | null
+}
+
+export interface _TopTracesApi {
+    /** Rows of top traces by cost, ordered by cost descending. */
+    items: _TopTraceRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
 }
 
 /**
- * * `active` - Active
- * `paused` - Paused
- * `error` - Error
+ * Structured personal LLM spend analysis for the requesting user.
  */
-export type EvaluationStatusEnumApi = (typeof EvaluationStatusEnumApi)[keyof typeof EvaluationStatusEnumApi]
-
-export const EvaluationStatusEnumApi = {
-    Active: 'active',
-    Paused: 'paused',
-    Error: 'error',
-} as const
+export interface PersonalSpendAnalysisResponseApi {
+    /** High-level totals for the lookback window. */
+    summary: _SummaryApi
+    /** Spend grouped by the `ai_product` property — always across all products, never filtered. */
+    by_product: _ProductBreakdownApi
+    /** Spend grouped by tool. Scoped to `product` when set. */
+    by_tool: _ToolBreakdownApi
+    /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
+    by_model: _ModelBreakdownApi
+    /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
+    top_traces: _TopTracesApi
+}
 
 /**
- * * `trial_limit_reached` - Trial evaluation limit reached
- * `model_not_allowed` - Model not available on the trial plan
- * `provider_key_deleted` - Provider API key was deleted
+ * DRF's default error envelope — `{ "detail": str }` — typed for the OpenAPI schema.
  */
-export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
-
-export const StatusReasonEnumApi = {
-    TrialLimitReached: 'trial_limit_reached',
-    ModelNotAllowed: 'model_not_allowed',
-    ProviderKeyDeleted: 'provider_key_deleted',
-} as const
-
-/**
- * * `llm_judge` - LLM as a judge
- * `hog` - Hog
- */
-export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
-
-export const EvaluationTypeEnumApi = {
-    LlmJudge: 'llm_judge',
-    Hog: 'hog',
-} as const
-
-/**
- * * `boolean` - Boolean (Pass/Fail)
- */
-export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
-
-export const OutputTypeEnumApi = {
-    Boolean: 'boolean',
-} as const
-
-/**
- * * `openai` - Openai
- * `anthropic` - Anthropic
- * `gemini` - Gemini
- * `openrouter` - Openrouter
- * `fireworks` - Fireworks
- * `azure_openai` - Azure OpenAI
- * `together_ai` - Together AI
- */
-export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
-
-export const LLMProviderEnumApi = {
-    Openai: 'openai',
-    Anthropic: 'anthropic',
-    Gemini: 'gemini',
-    Openrouter: 'openrouter',
-    Fireworks: 'fireworks',
-    AzureOpenai: 'azure_openai',
-    TogetherAi: 'together_ai',
-} as const
-
-/**
- * Nested serializer for model configuration.
- */
-export interface ModelConfigurationApi {
-    provider: LLMProviderEnumApi
-    /** @maxLength 100 */
-    model: string
-    /** @nullable */
-    provider_key_id?: string | null
-    /** @nullable */
-    readonly provider_key_name: string | null
+export interface _ErrorResponseApi {
+    /** Human-readable error description from DRF. */
+    detail: string
 }
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -158,8 +192,233 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface DatasetItemApi {
+    readonly id: string
+    dataset: string
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_trace_id?: string | null
+    /** @nullable */
+    ref_timestamp?: string | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_source_id?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedDatasetItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DatasetItemApi[]
+}
+
+export interface PatchedDatasetItemApi {
+    readonly id?: string
+    dataset?: string
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_trace_id?: string | null
+    /** @nullable */
+    ref_timestamp?: string | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_source_id?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    readonly created_by?: UserBasicApi
+    readonly team?: number
+}
+
+export interface DatasetApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    description?: string | null
+    metadata?: unknown
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedDatasetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DatasetApi[]
+}
+
+export interface PatchedDatasetApi {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** @nullable */
+    description?: string | null
+    metadata?: unknown
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly team?: number
+}
+
+export interface EvaluationRunRequestApi {
+    /** UUID of the evaluation to run. */
+    evaluation_id: string
+    /** UUID of the $ai_generation event to evaluate. */
+    target_event_id: string
+    /** ISO 8601 timestamp of the target event (needed for efficient ClickHouse lookup). */
+    timestamp: string
+    /** Event name. Defaults to '$ai_generation'. */
+    event?: string
+    /**
+     * Distinct ID of the event (optional, improves lookup performance).
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
 /**
- * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+ * * `active` - Active
+ * * `paused` - Paused
+ * * `error` - Error
+ */
+export type EvaluationStatusEnumApi = (typeof EvaluationStatusEnumApi)[keyof typeof EvaluationStatusEnumApi]
+
+export const EvaluationStatusEnumApi = {
+    Active: 'active',
+    Paused: 'paused',
+    Error: 'error',
+} as const
+
+/**
+ * * `trial_limit_reached` - Trial evaluation limit reached
+ * * `model_not_allowed` - Model not available on the trial plan
+ * * `provider_key_deleted` - Provider API key was deleted
+ */
+export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
+
+export const StatusReasonEnumApi = {
+    TrialLimitReached: 'trial_limit_reached',
+    ModelNotAllowed: 'model_not_allowed',
+    ProviderKeyDeleted: 'provider_key_deleted',
+} as const
+
+/**
+ * * `llm_judge` - LLM as a judge
+ * * `hog` - Hog
+ * * `sentiment` - Sentiment analysis
+ */
+export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
+
+export const EvaluationTypeEnumApi = {
+    LlmJudge: 'llm_judge',
+    Hog: 'hog',
+    Sentiment: 'sentiment',
+} as const
+
+/**
+ * * `boolean` - Boolean (Pass/Fail)
+ * * `sentiment` - Sentiment
+ */
+export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
+
+export const OutputTypeEnumApi = {
+    Boolean: 'boolean',
+    Sentiment: 'sentiment',
+} as const
+
+export type EvaluationConditionApiPropertiesItem = { [key: string]: unknown }
+
+/**
+ * A trigger condition set controlling which generations an evaluation runs on.
+ */
+export interface EvaluationConditionApi {
+    /**
+     * Stable identifier for this condition set.
+     * @maxLength 100
+     */
+    id: string
+    /**
+     * Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage?: number
+    /** Property filters (event or person) that scope which generations match this condition set. */
+    properties?: EvaluationConditionApiPropertiesItem[]
+}
+
+/**
+ * * `openai` - Openai
+ * * `anthropic` - Anthropic
+ * * `gemini` - Gemini
+ * * `openrouter` - Openrouter
+ * * `fireworks` - Fireworks
+ * * `azure_openai` - Azure OpenAI
+ * * `together_ai` - Together AI
+ */
+export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
+
+export const LLMProviderEnumApi = {
+    Openai: 'openai',
+    Anthropic: 'anthropic',
+    Gemini: 'gemini',
+    Openrouter: 'openrouter',
+    Fireworks: 'fireworks',
+    AzureOpenai: 'azure_openai',
+    TogetherAi: 'together_ai',
+} as const
+
+/**
+ * Nested serializer for model configuration.
+ */
+export interface ModelConfigurationApi {
+    provider: LLMProviderEnumApi
+    /** @maxLength 100 */
+    model: string
+    /** @nullable */
+    provider_key_id?: string | null
+    /** @nullable */
+    readonly provider_key_name: string | null
+}
+
+/**
+ * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
  */
 export type EvaluationApiEvaluationConfig =
     | {
@@ -175,6 +434,10 @@ export type EvaluationApiEvaluationConfig =
            * @minLength 1
            */
           source: string
+      }
+    | {
+          /** Classify sentiment from user messages in the generation input. */
+          source?: 'user_messages'
       }
 
 /**
@@ -198,21 +461,23 @@ export interface EvaluationApi {
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
     readonly status_reason: StatusReasonEnumApi | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
-
-  * `llm_judge` - LLM as a judge
-  * `hog` - Hog */
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis */
     evaluation_type: EvaluationTypeEnumApi
-    /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+    /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: EvaluationApiEvaluationConfig
-    /** Output format. Currently only 'boolean' is supported.
-
-  * `boolean` - Boolean (Pass/Fail) */
+    /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
+     *
+     * * `boolean` - Boolean (Pass/Fail)
+     * * `sentiment` - Sentiment */
     output_type: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: EvaluationApiOutputConfig
-    /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
-    conditions?: unknown
+    /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
+    conditions?: EvaluationConditionApi[]
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
@@ -231,7 +496,7 @@ export interface PaginatedEvaluationListApi {
 }
 
 /**
- * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+ * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
  */
 export type PatchedEvaluationApiEvaluationConfig =
     | {
@@ -247,6 +512,10 @@ export type PatchedEvaluationApiEvaluationConfig =
            * @minLength 1
            */
           source: string
+      }
+    | {
+          /** Classify sentiment from user messages in the generation input. */
+          source?: 'user_messages'
       }
 
 /**
@@ -270,21 +539,23 @@ export interface PatchedEvaluationApi {
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
     readonly status_reason?: StatusReasonEnumApi | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
-
-  * `llm_judge` - LLM as a judge
-  * `hog` - Hog */
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis */
     evaluation_type?: EvaluationTypeEnumApi
-    /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+    /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
     evaluation_config?: PatchedEvaluationApiEvaluationConfig
-    /** Output format. Currently only 'boolean' is supported.
-
-  * `boolean` - Boolean (Pass/Fail) */
+    /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
+     *
+     * * `boolean` - Boolean (Pass/Fail)
+     * * `sentiment` - Sentiment */
     output_type?: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: PatchedEvaluationApiOutputConfig
-    /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
-    conditions?: unknown
+    /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
+    conditions?: EvaluationConditionApi[]
     model_configuration?: ModelConfigurationApi | null
     readonly created_at?: string
     readonly updated_at?: string
@@ -350,8 +621,8 @@ export interface TestHogResponseApi {
 
 /**
  * * `trace` - trace
- * `generation` - generation
- * `evaluation` - evaluation
+ * * `generation` - generation
+ * * `evaluation` - evaluation
  */
 export type ClusteringJobAnalysisLevelEnumApi =
     (typeof ClusteringJobAnalysisLevelEnumApi)[keyof typeof ClusteringJobAnalysisLevelEnumApi]
@@ -397,7 +668,7 @@ export type ClusteringRunRequestApiEventFiltersItem = { [key: string]: unknown }
 
 /**
  * * `none` - none
- * `l2` - l2
+ * * `l2` - l2
  */
 export type EmbeddingNormalizationEnumApi =
     (typeof EmbeddingNormalizationEnumApi)[keyof typeof EmbeddingNormalizationEnumApi]
@@ -409,8 +680,8 @@ export const EmbeddingNormalizationEnumApi = {
 
 /**
  * * `none` - none
- * `umap` - umap
- * `pca` - pca
+ * * `umap` - umap
+ * * `pca` - pca
  */
 export type DimensionalityReductionMethodEnumApi =
     (typeof DimensionalityReductionMethodEnumApi)[keyof typeof DimensionalityReductionMethodEnumApi]
@@ -423,7 +694,7 @@ export const DimensionalityReductionMethodEnumApi = {
 
 /**
  * * `hdbscan` - hdbscan
- * `kmeans` - kmeans
+ * * `kmeans` - kmeans
  */
 export type ClusteringMethodEnumApi = (typeof ClusteringMethodEnumApi)[keyof typeof ClusteringMethodEnumApi]
 
@@ -434,8 +705,8 @@ export const ClusteringMethodEnumApi = {
 
 /**
  * * `umap` - umap
- * `pca` - pca
- * `tsne` - tsne
+ * * `pca` - pca
+ * * `tsne` - tsne
  */
 export type VisualizationMethodEnumApi = (typeof VisualizationMethodEnumApi)[keyof typeof VisualizationMethodEnumApi]
 
@@ -462,15 +733,15 @@ export interface ClusteringRunRequestApi {
      */
     max_samples?: number
     /** Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)
-
-  * `none` - none
-  * `l2` - l2 */
+     *
+     * * `none` - none
+     * * `l2` - l2 */
     embedding_normalization?: EmbeddingNormalizationEnumApi
     /** Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'
-
-  * `none` - none
-  * `umap` - umap
-  * `pca` - pca */
+     *
+     * * `none` - none
+     * * `umap` - umap
+     * * `pca` - pca */
     dimensionality_reduction_method?: DimensionalityReductionMethodEnumApi
     /**
      * Target dimensions for dimensionality reduction (ignored if method is 'none')
@@ -479,9 +750,9 @@ export interface ClusteringRunRequestApi {
      */
     dimensionality_reduction_ndims?: number
     /** Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)
-
-  * `hdbscan` - hdbscan
-  * `kmeans` - kmeans */
+     *
+     * * `hdbscan` - hdbscan
+     * * `kmeans` - kmeans */
     clustering_method?: ClusteringMethodEnumApi
     /**
      * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
@@ -513,10 +784,10 @@ export interface ClusteringRunRequestApi {
      */
     run_label?: string
     /** Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'
-
-  * `umap` - umap
-  * `pca` - pca
-  * `tsne` - tsne */
+     *
+     * * `umap` - umap
+     * * `pca` - pca
+     * * `tsne` - tsne */
     visualization_method?: VisualizationMethodEnumApi
     /** Property filters to scope which traces are included in clustering (PostHog standard format) */
     event_filters?: ClusteringRunRequestApiEventFiltersItem[]
@@ -529,9 +800,9 @@ export interface ClusteringRunRequestApi {
 
 /**
  * * `unknown` - Unknown
- * `ok` - Ok
- * `invalid` - Invalid
- * `error` - Error
+ * * `ok` - Ok
+ * * `invalid` - Invalid
+ * * `error` - Error
  */
 export type LLMProviderKeyStateEnumApi = (typeof LLMProviderKeyStateEnumApi)[keyof typeof LLMProviderKeyStateEnumApi]
 
@@ -598,7 +869,7 @@ export interface EvaluationConfigSetActiveKeyRequestApi {
 
 /**
  * * `scheduled` - Scheduled
- * `every_n` - Every N
+ * * `every_n` - Every N
  */
 export type EvaluationReportFrequencyEnumApi =
     (typeof EvaluationReportFrequencyEnumApi)[keyof typeof EvaluationReportFrequencyEnumApi]
@@ -613,9 +884,9 @@ export interface EvaluationReportApi {
     /** UUID of the evaluation this report config belongs to. */
     evaluation: string
     /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
-
-  * `scheduled` - Scheduled
-  * `every_n` - Every N */
+     *
+     * * `scheduled` - Scheduled
+     * * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
@@ -685,9 +956,9 @@ export interface PatchedEvaluationReportApi {
     /** UUID of the evaluation this report config belongs to. */
     evaluation?: string
     /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
-
-  * `scheduled` - Scheduled
-  * `every_n` - Every N */
+     *
+     * * `scheduled` - Scheduled
+     * * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
@@ -745,9 +1016,9 @@ export interface PatchedEvaluationReportApi {
 
 /**
  * * `pending` - Pending
- * `delivered` - Delivered
- * `partial_failure` - Partial Failure
- * `failed` - Failed
+ * * `delivered` - Delivered
+ * * `partial_failure` - Partial Failure
+ * * `failed` - Failed
  */
 export type DeliveryStatusEnumApi = (typeof DeliveryStatusEnumApi)[keyof typeof DeliveryStatusEnumApi]
 
@@ -772,11 +1043,11 @@ export interface EvaluationReportRunApi {
     /** End of the evaluation window covered by this report. */
     readonly period_end: string
     /** 'pending', 'delivered', or 'failed'.
-
-  * `pending` - Pending
-  * `delivered` - Delivered
-  * `partial_failure` - Partial Failure
-  * `failed` - Failed */
+     *
+     * * `pending` - Pending
+     * * `delivered` - Delivered
+     * * `partial_failure` - Partial Failure
+     * * `failed` - Failed */
     readonly delivery_status: DeliveryStatusEnumApi
     /** List of delivery error messages if delivery failed. */
     readonly delivery_errors: unknown
@@ -794,9 +1065,9 @@ export interface PaginatedEvaluationReportRunListApi {
 
 /**
  * * `all` - all
- * `pass` - pass
- * `fail` - fail
- * `na` - na
+ * * `pass` - pass
+ * * `fail` - fail
+ * * `na` - na
  */
 export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
 
@@ -814,11 +1085,11 @@ export interface EvaluationSummaryRequestApi {
     /** UUID of the evaluation config to summarize */
     evaluation_id: string
     /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-
-  * `all` - all
-  * `pass` - pass
-  * `fail` - fail
-  * `na` - na */
+     *
+     * * `all` - all
+     * * `pass` - pass
+     * * `fail` - fail
+     * * `na` - na */
     filter?: FilterEnumApi
     /**
      * Optional: specific generation IDs to include in summary (max 250)
@@ -882,6 +1153,53 @@ export interface OfflineExperimentItemsRequestApi {
 export interface OfflineExperimentItemsResponseApi {
     /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
     results: unknown[][]
+}
+
+export interface ParserRecipeApi {
+    readonly id: string
+    /**
+     * Human-readable recipe name shown in the editor.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+     * @maxLength 100000
+     */
+    source: string
+    /** User who created the recipe. */
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedParserRecipeListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ParserRecipeApi[]
+}
+
+export interface PatchedParserRecipeApi {
+    readonly id?: string
+    /**
+     * Human-readable recipe name shown in the editor.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+     * @maxLength 100000
+     */
+    source?: string
+    /** User who created the recipe. */
+    readonly created_by?: UserBasicApi | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
 }
 
 export interface PaginatedLLMProviderKeyListApi {
@@ -1008,8 +1326,8 @@ export interface PatchedReviewQueueUpdateApi {
 
 /**
  * * `categorical` - categorical
- * `numeric` - numeric
- * `boolean` - boolean
+ * * `numeric` - numeric
+ * * `boolean` - boolean
  */
 export type ExperimentMetricKindEnumApi = (typeof ExperimentMetricKindEnumApi)[keyof typeof ExperimentMetricKindEnumApi]
 
@@ -1034,7 +1352,7 @@ export interface CategoricalScoreOptionApi {
 
 /**
  * * `single` - single
- * `multiple` - multiple
+ * * `multiple` - multiple
  */
 export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
 
@@ -1047,9 +1365,9 @@ export interface CategoricalScoreDefinitionConfigApi {
     /** Ordered categorical options available to the scorer. */
     options: CategoricalScoreOptionApi[]
     /** Whether reviewers can select one option or multiple options. Defaults to `single`.
-
-  * `single` - single
-  * `multiple` - multiple */
+     *
+     * * `single` - single
+     * * `multiple` - multiple */
     selection_mode?: SelectionModeEnumApi
     /**
      * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
@@ -1139,10 +1457,10 @@ export interface ScoreDefinitionCreateApi {
      */
     description?: string | null
     /** Scorer kind. This cannot be changed after creation.
-
-  * `categorical` - categorical
-  * `numeric` - numeric
-  * `boolean` - boolean */
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
     kind: ExperimentMetricKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
@@ -1177,7 +1495,7 @@ export interface ScoreDefinitionNewVersionApi {
 
 /**
  * * `trace` - trace
- * `generation` - generation
+ * * `generation` - generation
  */
 export type SentimentRequestAnalysisLevelEnumApi =
     (typeof SentimentRequestAnalysisLevelEnumApi)[keyof typeof SentimentRequestAnalysisLevelEnumApi]
@@ -1195,9 +1513,9 @@ export interface SentimentRequestApi {
      */
     ids: string[]
     /** Whether the IDs are 'trace' IDs or 'generation' IDs.
-
-  * `trace` - trace
-  * `generation` - generation */
+     *
+     * * `trace` - trace
+     * * `generation` - generation */
     analysis_level?: SentimentRequestAnalysisLevelEnumApi
     /** If true, bypass cache and reclassify. */
     force_refresh?: boolean
@@ -1241,10 +1559,10 @@ export interface SentimentBatchResponseApi {
 
 /**
  * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
-
-`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
-path used (dateRange, filterTestAccounts, properties), so the migration is
-behaviour-preserving for callers that pass a request unchanged.
+ *
+ * `filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
+ * path used (dateRange, filterTestAccounts, properties), so the migration is
+ * behaviour-preserving for callers that pass a request unchanged.
  */
 export interface SentimentGenerationsRequestApi {
     filters?: unknown
@@ -1256,7 +1574,7 @@ export interface SentimentGenerationsResponseApi {
 
 /**
  * * `trace` - trace
- * `event` - event
+ * * `event` - event
  */
 export type SummarizeTypeEnumApi = (typeof SummarizeTypeEnumApi)[keyof typeof SummarizeTypeEnumApi]
 
@@ -1267,7 +1585,7 @@ export const SummarizeTypeEnumApi = {
 
 /**
  * * `minimal` - minimal
- * `detailed` - detailed
+ * * `detailed` - detailed
  */
 export type DetailModeValueEnumApi = (typeof DetailModeValueEnumApi)[keyof typeof DetailModeValueEnumApi]
 
@@ -1278,14 +1596,14 @@ export const DetailModeValueEnumApi = {
 
 export interface SummarizeRequestApi {
     /** Type of entity to summarize. Inferred automatically when using trace_id or generation_id.
-
-  * `trace` - trace
-  * `event` - event */
+     *
+     * * `trace` - trace
+     * * `event` - event */
     summarize_type?: SummarizeTypeEnumApi
     /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
-
-  * `minimal` - minimal
-  * `detailed` - detailed */
+     *
+     * * `minimal` - minimal
+     * * `detailed` - detailed */
     mode?: DetailModeValueEnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
@@ -1349,9 +1667,9 @@ export interface BatchCheckRequestApi {
      */
     trace_ids: string[]
     /** Summary detail level to check for
-
-  * `minimal` - minimal
-  * `detailed` - detailed */
+     *
+     * * `minimal` - minimal
+     * * `detailed` - detailed */
     mode?: DetailModeValueEnumApi
     /**
      * LLM model used for cached summaries
@@ -1372,9 +1690,9 @@ export interface BatchCheckResponseApi {
 
 /**
  * * `$ai_generation` - $ai_generation
- * `$ai_span` - $ai_span
- * `$ai_embedding` - $ai_embedding
- * `$ai_trace` - $ai_trace
+ * * `$ai_span` - $ai_span
+ * * `$ai_embedding` - $ai_embedding
+ * * `$ai_trace` - $ai_trace
  */
 export type EventTypeEnumApi = (typeof EventTypeEnumApi)[keyof typeof EventTypeEnumApi]
 
@@ -1410,11 +1728,11 @@ export interface TextReprOptionsApi {
 
 export interface TextReprRequestApi {
     /** Type of LLM event to stringify
-
-  * `$ai_generation` - $ai_generation
-  * `$ai_span` - $ai_span
-  * `$ai_embedding` - $ai_embedding
-  * `$ai_trace` - $ai_trace */
+     *
+     * * `$ai_generation` - $ai_generation
+     * * `$ai_span` - $ai_span
+     * * `$ai_embedding` - $ai_embedding
+     * * `$ai_trace` - $ai_trace */
     event_type: EventTypeEnumApi
     /** Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields. */
     data: unknown
@@ -1515,6 +1833,7 @@ export interface TraceReviewScoreWriteApi {
      * Categorical option keys selected for this score.
      * @minItems 1
      * @nullable
+     * @items.maxLength 128
      */
     categorical_values?: string[] | null
     /**
@@ -1704,322 +2023,9 @@ export interface LLMPromptResolveResponseApi {
     has_more: boolean
 }
 
-export interface LLMSkillOutlineEntryApi {
-    /**
-     * Markdown heading level (1-6).
-     * @minimum 1
-     * @maximum 6
-     */
-    level: number
-    /** Heading text. */
-    text: string
-}
-
-/**
- * Arbitrary key-value metadata.
- */
-export type LLMSkillListApiMetadata = { [key: string]: unknown }
-
-/**
- * List serializer that omits body and file manifest — progressive disclosure (Level 1).
- */
-export interface LLMSkillListApi {
-    readonly id: string
-    /**
-     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
-     * @maxLength 64
-     */
-    name: string
-    /**
-     * What this skill does and when to use it. Max 4096 characters.
-     * @maxLength 4096
-     */
-    description: string
-    /**
-     * License name or reference to a bundled license file.
-     * @maxLength 255
-     */
-    license?: string
-    /**
-     * Environment requirements (intended product, system packages, network access, etc.).
-     * @maxLength 500
-     */
-    compatibility?: string
-    /** List of pre-approved tools the skill may use. */
-    allowed_tools?: string[]
-    /** Arbitrary key-value metadata. */
-    metadata?: LLMSkillListApiMetadata
-    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
-    readonly outline: readonly LLMSkillOutlineEntryApi[]
-    readonly version: number
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-    readonly deleted: boolean
-    readonly is_latest: boolean
-    readonly latest_version: number
-    readonly version_count: number
-    readonly first_version_created_at: string
-}
-
-export interface PaginatedLLMSkillListListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: LLMSkillListApi[]
-}
-
-/**
- * Arbitrary key-value metadata.
- */
-export type LLMSkillCreateApiMetadata = { [key: string]: unknown }
-
-export interface LLMSkillFileInputApi {
-    /**
-     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
-     * @maxLength 500
-     */
-    path: string
-    /** Text content of the file. */
-    content: string
-    /**
-     * MIME type of the file content.
-     * @maxLength 100
-     */
-    content_type?: string
-}
-
-/**
- * Create serializer — accepts bundled files as write-only input on POST.
- */
-export interface LLMSkillCreateApi {
-    readonly id: string
-    /**
-     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
-     * @maxLength 64
-     */
-    name: string
-    /**
-     * What this skill does and when to use it. Max 4096 characters.
-     * @maxLength 4096
-     */
-    description: string
-    /** The SKILL.md instruction content (markdown). */
-    body: string
-    /**
-     * License name or reference to a bundled license file.
-     * @maxLength 255
-     */
-    license?: string
-    /**
-     * Environment requirements (intended product, system packages, network access, etc.).
-     * @maxLength 500
-     */
-    compatibility?: string
-    /** List of pre-approved tools the skill may use. */
-    allowed_tools?: string[]
-    /** Arbitrary key-value metadata. */
-    metadata?: LLMSkillCreateApiMetadata
-    /** Bundled files to include with the initial version (scripts, references, assets). */
-    files?: LLMSkillFileInputApi[]
-    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
-    readonly outline: readonly LLMSkillOutlineEntryApi[]
-    readonly version: number
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-    readonly deleted: boolean
-    readonly is_latest: boolean
-    readonly latest_version: number
-    readonly version_count: number
-    readonly first_version_created_at: string
-}
-
-/**
- * Arbitrary key-value metadata.
- */
-export type LLMSkillApiMetadata = { [key: string]: unknown }
-
-export interface LLMSkillFileManifestApi {
-    /** @maxLength 500 */
-    path: string
-    /** @maxLength 100 */
-    content_type?: string
-}
-
-export interface LLMSkillApi {
-    readonly id: string
-    /**
-     * Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.
-     * @maxLength 64
-     */
-    name: string
-    /**
-     * What this skill does and when to use it. Max 4096 characters.
-     * @maxLength 4096
-     */
-    description: string
-    /** The SKILL.md instruction content (markdown). */
-    body: string
-    /**
-     * License name or reference to a bundled license file.
-     * @maxLength 255
-     */
-    license?: string
-    /**
-     * Environment requirements (intended product, system packages, network access, etc.).
-     * @maxLength 500
-     */
-    compatibility?: string
-    /** List of pre-approved tools the skill may use. */
-    allowed_tools?: string[]
-    /** Arbitrary key-value metadata. */
-    metadata?: LLMSkillApiMetadata
-    /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
-    readonly files: readonly LLMSkillFileManifestApi[]
-    /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
-    readonly outline: readonly LLMSkillOutlineEntryApi[]
-    readonly version: number
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-    readonly deleted: boolean
-    readonly is_latest: boolean
-    readonly latest_version: number
-    readonly version_count: number
-    readonly first_version_created_at: string
-}
-
-/**
- * Arbitrary key-value metadata.
- */
-export type PatchedLLMSkillPublishApiMetadata = { [key: string]: unknown }
-
-export interface LLMSkillEditOperationApi {
-    /** Text to find in the target content. Must match exactly once. */
-    old: string
-    /** Replacement text. */
-    new: string
-}
-
-export interface LLMSkillFileEditApi {
-    /**
-     * Path of the bundled file to edit. Must match an existing file on the current skill version.
-     * @maxLength 500
-     */
-    path: string
-    /** Sequential find/replace operations to apply to this file's content. */
-    edits: LLMSkillEditOperationApi[]
-}
-
-export interface PatchedLLMSkillPublishApi {
-    /** Full skill body (SKILL.md instruction content) to publish as a new version. Mutually exclusive with edits. */
-    body?: string
-    /** List of find/replace operations to apply to the current skill body. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with body. */
-    edits?: LLMSkillEditOperationApi[]
-    /**
-     * Updated description for the new version.
-     * @maxLength 4096
-     */
-    description?: string
-    /**
-     * License name or reference.
-     * @maxLength 255
-     */
-    license?: string
-    /**
-     * Environment requirements.
-     * @maxLength 500
-     */
-    compatibility?: string
-    /** List of pre-approved tools the skill may use. */
-    allowed_tools?: string[]
-    /** Arbitrary key-value metadata. */
-    metadata?: PatchedLLMSkillPublishApiMetadata
-    /** Bundled files to include with this version. Replaces all files from the previous version. Mutually exclusive with file_edits. */
-    files?: LLMSkillFileInputApi[]
-    /** Per-file find/replace updates. Each entry targets one existing file by path and applies sequential edits to its content. Non-targeted files carry forward unchanged. Cannot add, remove, or rename files — use 'files' for that. Mutually exclusive with files. */
-    file_edits?: LLMSkillFileEditApi[]
-    /**
-     * Latest version you are editing from. Used for optimistic concurrency checks.
-     * @minimum 1
-     */
-    base_version?: number
-}
-
-export interface LLMSkillDuplicateApi {
-    /**
-     * Name for the duplicated skill. Must be unique.
-     * @maxLength 64
-     */
-    new_name: string
-}
-
-export interface LLMSkillFileCreateApi {
-    /**
-     * File path relative to skill root, e.g. 'scripts/setup.sh' or 'references/guide.md'.
-     * @maxLength 500
-     */
-    path: string
-    /** Text content of the file. */
-    content: string
-    /**
-     * MIME type of the file content.
-     * @maxLength 100
-     */
-    content_type?: string
-    /**
-     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
-     * @minimum 1
-     */
-    base_version?: number
-}
-
-export interface LLMSkillFileRenameApi {
-    /**
-     * Current file path to rename.
-     * @maxLength 500
-     */
-    old_path: string
-    /**
-     * New file path. Must not already exist in the skill.
-     * @maxLength 500
-     */
-    new_path: string
-    /**
-     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
-     * @minimum 1
-     */
-    base_version?: number
-}
-
-export interface LLMSkillFileApi {
-    /** @maxLength 500 */
-    path: string
-    content: string
-    /** @maxLength 100 */
-    content_type?: string
-}
-
-export interface LLMSkillVersionSummaryApi {
-    readonly id: string
-    readonly version: number
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly is_latest: boolean
-}
-
-export interface LLMSkillResolveResponseApi {
-    skill: LLMSkillApi
-    versions: LLMSkillVersionSummaryApi[]
-    has_more: boolean
-}
-
 /**
  * * `llm` - LLM
- * `hog` - Hog
+ * * `hog` - Hog
  */
 export type TaggerTypeEnumApi = (typeof TaggerTypeEnumApi)[keyof typeof TaggerTypeEnumApi]
 
@@ -2097,14 +2103,14 @@ export interface TaggerConditionApi {
  */
 export interface TaggerModelConfigurationApi {
     /** LLM provider to use for this tagger.
-
-  * `openai` - Openai
-  * `anthropic` - Anthropic
-  * `gemini` - Gemini
-  * `openrouter` - Openrouter
-  * `fireworks` - Fireworks
-  * `azure_openai` - Azure OpenAI
-  * `together_ai` - Together AI */
+     *
+     * * `openai` - Openai
+     * * `anthropic` - Anthropic
+     * * `gemini` - Gemini
+     * * `openrouter` - Openrouter
+     * * `fireworks` - Fireworks
+     * * `azure_openai` - Azure OpenAI
+     * * `together_ai` - Together AI */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2149,14 +2155,14 @@ export interface PaginatedTaggerListApi {
 
 export interface TaggerModelConfigurationWriteApi {
     /** LLM provider to use for this tagger.
-
-  * `openai` - Openai
-  * `anthropic` - Anthropic
-  * `gemini` - Gemini
-  * `openrouter` - Openrouter
-  * `fireworks` - Fireworks
-  * `azure_openai` - Azure OpenAI
-  * `together_ai` - Together AI */
+     *
+     * * `openai` - Openai
+     * * `anthropic` - Anthropic
+     * * `gemini` - Gemini
+     * * `openrouter` - Openrouter
+     * * `fireworks` - Fireworks
+     * * `azure_openai` - Azure OpenAI
+     * * `together_ai` - Together AI */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2181,6 +2187,34 @@ export interface TaggerCreateApi {
     /** Conditions that scope when the tagger runs */
     conditions?: TaggerConditionApi[]
     model_configuration?: TaggerModelConfigurationWriteApi | null
+}
+
+export interface TaggerUpdateApi {
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    enabled?: boolean
+    tagger_type?: TaggerTypeEnumApi
+    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
+    tagger_config: TaggerConfigApi
+    /** Conditions that scope when the tagger runs */
+    conditions?: TaggerConditionApi[]
+    model_configuration?: TaggerModelConfigurationWriteApi | null
+    deleted?: boolean
+}
+
+export interface PatchedTaggerUpdateApi {
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    enabled?: boolean
+    tagger_type?: TaggerTypeEnumApi
+    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
+    tagger_config?: TaggerConfigApi
+    /** Conditions that scope when the tagger runs */
+    conditions?: TaggerConditionApi[]
+    model_configuration?: TaggerModelConfigurationWriteApi | null
+    deleted?: boolean
 }
 
 export interface TestHogTaggerTagApi {
@@ -2242,238 +2276,78 @@ export interface TestHogTaggerResponseApi {
     message?: string
 }
 
-export interface _SummaryApi {
-    /** Inclusive UTC start of the spend window resolved from the request. */
-    date_from: string
-    /** Exclusive UTC end of the spend window resolved from the request. */
-    date_to: string
-    /** The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`. */
+export type LlmAnalyticsPersonalSpendListParams = {
+    /**
+     * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
+     * @minLength 1
+     * @maxLength 32
+     */
+    date_from?: string
+    /**
+     * End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
+    /**
+     * Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.
+     * @minLength 1
+     * @maxLength 64
+     */
     product: string
-    /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
-    total_cost_usd: number
-    /** Total $ai_generation + $ai_embedding events captured across every product. */
-    event_count: number
-    /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
-    scoped_cost_usd: number
-    /** Total $ai_generation + $ai_embedding events for the scoped slice. */
-    scoped_event_count: number
-}
-
-export interface _ProductBreakdownRowApi {
     /**
-     * Value of the `ai_product` property on the event (e.g. `posthog_code`, `background_agents`). Null when unset.
-     * @nullable
+     * If true, bypass the result cache and re-run the underlying queries against ClickHouse.
      */
-    product: string | null
-    /** Number of $ai_generation + $ai_embedding events for this product. */
-    event_count: number
-    /** Total cost in USD for this product over the lookback window. */
-    cost_usd: number
+    refresh?: boolean
 }
 
-export interface _ProductBreakdownApi {
-    /** Rows of spend by product, ordered by cost descending. */
-    items: _ProductBreakdownRowApi[]
-    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
-    truncated: boolean
-}
-
-export interface _ToolBreakdownRowApi {
+export type DatasetItemsListParams = {
     /**
-     * Individual tool name from `$ai_tools_called` (split on `,` since multi-tool generations store a comma-separated list). Null = pure text response with no tool call.
-     * @nullable
+     * Filter by dataset ID
      */
-    tool: string | null
-    /** Number of $ai_generation events whose tool list includes this tool. */
-    generation_count: number
-    /** Sum of `$ai_total_cost_usd` for generations whose tool list includes this tool. Multi-tool generations contribute their full cost to every tool they invoked, so this sum can exceed `summary.scoped_cost_usd`. Prefer `share_of_scoped` for headline percentages — it's computed per row and doesn't require the totals to reconcile. */
-    cost_usd: number
-    /** This tool's share of `summary.scoped_cost_usd`, expressed as a float in `[0, 1]`. Independent per row, so co-occurring tools can each show a substantial share — the headline number to present (e.g. `'Bash drove 47% of your spend'`). */
-    share_of_scoped: number
-    /** Average `$ai_input_tokens` across these generations — high values signal context bloat per call. */
-    avg_input_tokens: number
-}
-
-export interface _ToolBreakdownApi {
-    /** Rows of spend by tool, ordered by cost descending. */
-    items: _ToolBreakdownRowApi[]
-    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
-    truncated: boolean
-}
-
-export interface _ModelBreakdownRowApi {
-    /**
-     * Value of the `$ai_model` property.
-     * @nullable
-     */
-    model: string | null
-    /** Number of $ai_generation + $ai_embedding events. */
-    generation_count: number
-    /** Total cost in USD for this model. */
-    cost_usd: number
-    /** Sum of `$ai_input_tokens` for this model. */
-    input_tokens: number
-    /** Sum of `$ai_output_tokens` for this model. */
-    output_tokens: number
-}
-
-export interface _ModelBreakdownApi {
-    /** Rows of spend by model, ordered by cost descending. */
-    items: _ModelBreakdownRowApi[]
-    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
-    truncated: boolean
-}
-
-export interface _TopTraceRowApi {
-    /**
-     * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
-     * @nullable
-     */
-    trace_id: string | null
-    /** Number of $ai_generation events in this trace. */
-    generation_count: number
-    /** Total cost in USD for this trace. */
-    cost_usd: number
-    /**
-     * Timestamp of the earliest event in this trace.
-     * @nullable
-     */
-    started_at: string | null
-}
-
-export interface _TopTracesApi {
-    /** Rows of top traces by cost, ordered by cost descending. */
-    items: _TopTraceRowApi[]
-    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
-    truncated: boolean
-}
-
-/**
- * Structured personal LLM spend analysis for the requesting user.
- */
-export interface PersonalSpendAnalysisResponseApi {
-    /** High-level totals for the lookback window. */
-    summary: _SummaryApi
-    /** Spend grouped by the `ai_product` property — always across all products, never filtered. */
-    by_product: _ProductBreakdownApi
-    /** Spend grouped by tool. Scoped to `product` when set. */
-    by_tool: _ToolBreakdownApi
-    /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
-    by_model: _ModelBreakdownApi
-    /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
-    top_traces: _TopTracesApi
-}
-
-/**
- * DRF's default error envelope — `{ "detail": str }` — typed for the OpenAPI schema.
- */
-export interface _ErrorResponseApi {
-    /** Human-readable error description from DRF. */
-    detail: string
-}
-
-export interface DatasetItemApi {
-    readonly id: string
-    dataset: string
-    input?: unknown
-    output?: unknown
-    metadata?: unknown
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_trace_id?: string | null
-    /** @nullable */
-    ref_timestamp?: string | null
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_source_id?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    readonly created_by: UserBasicApi
-    readonly team: number
-}
-
-export interface PaginatedDatasetItemListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DatasetItemApi[]
-}
-
-export interface PatchedDatasetItemApi {
-    readonly id?: string
     dataset?: string
-    input?: unknown
-    output?: unknown
-    metadata?: unknown
     /**
-     * @maxLength 255
-     * @nullable
+     * Number of results to return per page.
      */
-    ref_trace_id?: string | null
-    /** @nullable */
-    ref_timestamp?: string | null
+    limit?: number
     /**
-     * @maxLength 255
-     * @nullable
+     * The initial index from which to return the results.
      */
-    ref_source_id?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    readonly created_by?: UserBasicApi
-    readonly team?: number
+    offset?: number
 }
 
-export interface DatasetApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    description?: string | null
-    metadata?: unknown
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by: UserBasicApi
-    readonly team: number
-}
-
-export interface PaginatedDatasetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DatasetApi[]
-}
-
-export interface PatchedDatasetApi {
-    readonly id?: string
-    /** @maxLength 400 */
-    name?: string
-    /** @nullable */
-    description?: string | null
-    metadata?: unknown
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by?: UserBasicApi
-    readonly team?: number
+export type DatasetsListParams = {
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Ordering
+     *
+     * * `created_at` - Created At
+     * * `-created_at` - Created At (descending)
+     * * `updated_at` - Updated At
+     * * `-updated_at` - Updated At (descending)
+     */
+    order_by?: string[]
+    /**
+     * Search in name, description, or metadata
+     */
+    search?: string
 }
 
 export type EvaluationRunsCreate200 = { [key: string]: unknown }
@@ -2496,15 +2370,15 @@ export type EvaluationsListParams = {
      */
     offset?: number
     /**
- * Ordering
-
-* `created_at` - Created At
-* `-created_at` - Created At (descending)
-* `updated_at` - Updated At
-* `-updated_at` - Updated At (descending)
-* `name` - Name
-* `-name` - Name (descending)
- */
+     * Ordering
+     *
+     * * `created_at` - Created At
+     * * `-created_at` - Created At (descending)
+     * * `updated_at` - Updated At
+     * * `-updated_at` - Updated At (descending)
+     * * `name` - Name
+     * * `-name` - Name (descending)
+     */
     order_by?: string[]
     /**
      * Search in name or description
@@ -2584,6 +2458,17 @@ export const LlmAnalyticsModelsRetrieveProvider = {
 export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsParserRecipesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }
 
@@ -2739,13 +2624,13 @@ export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown }
 
 export type LlmPromptsListParams = {
     /**
- * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
-
-* `full` - full
-* `preview` - preview
-* `none` - none
- * @minLength 1
- */
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     *
+     * * `full` - full
+     * * `preview` - preview
+     * * `none` - none
+     * @minLength 1
+     */
     content?: LlmPromptsListContent
     /**
      * Filter prompts by the ID of the user who created them.
@@ -2775,13 +2660,13 @@ export const LlmPromptsListContent = {
 
 export type LlmPromptsNameRetrieveParams = {
     /**
- * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
-
-* `full` - full
-* `preview` - preview
-* `none` - none
- * @minLength 1
- */
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     *
+     * * `full` - full
+     * * `preview` - preview
+     * * `none` - none
+     * @minLength 1
+     */
     content?: LlmPromptsNameRetrieveContent
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
@@ -2827,77 +2712,6 @@ export type LlmPromptsResolveNameRetrieveParams = {
     version_id?: string
 }
 
-export type LlmSkillsListParams = {
-    /**
-     * Filter skills by the ID of the user who created them.
-     */
-    created_by_id?: number
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Optional substring filter applied to skill names and descriptions.
-     */
-    search?: string
-}
-
-export type LlmSkillsNameRetrieveParams = {
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number
-}
-
-export type LlmSkillsNameFilesRetrieveParams = {
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number
-}
-
-export type LlmSkillsNameFilesDestroyParams = {
-    /**
-     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
-     * @minimum 1
-     */
-    base_version?: number
-}
-
-export type LlmSkillsResolveNameRetrieveParams = {
-    /**
-     * Return versions older than this version number. Mutually exclusive with offset.
-     * @minimum 1
-     */
-    before_version?: number
-    /**
-     * Maximum number of versions to return per page (1-100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number
-    /**
-     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
-     * @minimum 0
-     */
-    offset?: number
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number
-    /**
-     * Exact skill version UUID to resolve.
-     */
-    version_id?: string
-}
-
 export type TaggersListParams = {
     /**
      * Filter by enabled status
@@ -2916,92 +2730,18 @@ export type TaggersListParams = {
      */
     offset?: number
     /**
- * Ordering
-
-* `created_at` - Created At
-* `-created_at` - Created At (descending)
-* `updated_at` - Updated At
-* `-updated_at` - Updated At (descending)
-* `name` - Name
-* `-name` - Name (descending)
- */
+     * Ordering
+     *
+     * * `created_at` - Created At
+     * * `-created_at` - Created At (descending)
+     * * `updated_at` - Updated At
+     * * `-updated_at` - Updated At (descending)
+     * * `name` - Name
+     * * `-name` - Name (descending)
+     */
     order_by?: string[]
     /**
      * Search in name or description
-     */
-    search?: string
-}
-
-export type LlmAnalyticsPersonalSpendListParams = {
-    /**
-     * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
-     * @minLength 1
-     * @maxLength 32
-     */
-    date_from?: string
-    /**
-     * End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted.
-     * @maxLength 32
-     * @nullable
-     */
-    date_to?: string | null
-    /**
-     * Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.
-     * @minimum 1
-     * @maximum 200
-     */
-    limit?: number
-    /**
-     * Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.
-     * @minLength 1
-     * @maxLength 64
-     */
-    product: string
-    /**
-     * If true, bypass the result cache and re-run the underlying queries against ClickHouse.
-     */
-    refresh?: boolean
-}
-
-export type DatasetItemsListParams = {
-    /**
-     * Filter by dataset ID
-     */
-    dataset?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type DatasetsListParams = {
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[]
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
- * Ordering
-
-* `created_at` - Created At
-* `-created_at` - Created At (descending)
-* `updated_at` - Updated At
-* `-updated_at` - Updated At (descending)
- */
-    order_by?: string[]
-    /**
-     * Search in name, description, or metadata
      */
     search?: string
 }

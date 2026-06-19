@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,6 +14,7 @@ import {
     visualReviewReposQuarantineList,
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
+    visualReviewRunsFinalizeCreate,
     visualReviewRunsRecomputeCreate,
     visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
@@ -26,6 +28,7 @@ import type {
     SnapshotApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
 
 export interface VisualReviewRunSceneLogicProps {
@@ -37,13 +40,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     props({} as VisualReviewRunSceneLogicProps),
     key((props) => props.runId),
     connect(() => ({
-        values: [teamLogic, ['currentProjectId']],
+        values: [teamLogic, ['currentProjectId'], visualReviewPreferencesLogic, ['addImagesToComment']],
+        actions: [visualReviewPreferencesLogic, ['setAddImagesToComment']],
     })),
     actions({
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
-        approveChanges: true,
-        approveChangesSuccess: true,
-        approveChangesFailure: true,
+        finalizeRun: true,
+        finalizeRunSuccess: true,
+        finalizeRunFailure: true,
         approveSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         approveSnapshotSuccess: true,
         approveSnapshotFailure: true,
@@ -64,6 +68,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         recomputeRunSuccess: true,
         recomputeRunFailure: true,
         markThumbnailFailed: (identifier: string) => ({ identifier }),
+        toggleQuarantinedThumbnails: true,
     }),
     reducers({
         selectedSnapshotId: [
@@ -72,12 +77,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 setSelectedSnapshotId: (_, { snapshotId }) => snapshotId,
             },
         ],
-        isApproving: [
+        isFinalizing: [
             false,
             {
-                approveChanges: () => true,
-                approveChangesSuccess: () => false,
-                approveChangesFailure: () => false,
+                finalizeRun: () => true,
+                finalizeRunSuccess: () => false,
+                finalizeRunFailure: () => false,
             },
         ],
         isApprovingSnapshot: [
@@ -106,6 +111,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 },
             },
         ],
+        showQuarantinedThumbnails: [
+            false,
+            {
+                toggleQuarantinedThumbnails: (state) => !state,
+            },
+        ],
     }),
     loaders(({ props, values }) => ({
         run: [
@@ -122,6 +133,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 loadSnapshots: async () => {
                     const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
                         limit: 10000,
+                        include_quarantined: true,
                     })
                     return response.results
                 },
@@ -172,12 +184,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     })),
     selectors({
         selectedSnapshot: [
-            (s) => [s.snapshots, s.selectedSnapshotId],
-            (snapshots, selectedSnapshotId): SnapshotApi | null => {
-                if (!selectedSnapshotId) {
-                    return snapshots.find((s) => s.result !== 'unchanged') || snapshots[0] || null
+            (s) => [s.snapshots, s.selectedSnapshotId, s.quarantinedIdentifierSet],
+            (snapshots, selectedSnapshotId, quarantinedIdentifierSet): SnapshotApi | null => {
+                if (selectedSnapshotId) {
+                    return snapshots.find((s) => s.id === selectedSnapshotId) || null
                 }
-                return snapshots.find((s) => s.id === selectedSnapshotId) || null
+                const changed = snapshots.filter((s) => s.result !== 'unchanged')
+                const changedNotQuarantined = changed.filter((s) => !quarantinedIdentifierSet.has(s.identifier))
+                return changedNotQuarantined[0] || changed[0] || snapshots[0] || null
             },
         ],
         changedSnapshots: [
@@ -294,32 +308,43 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.loadToleratedHashes(snapshot.identifier)
             }
         },
-        approveChanges: async () => {
+        finalizeRun: async () => {
             const { run } = values
             if (!run) {
                 return
             }
 
             try {
-                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, {
+                const addImages = values.addImagesToComment
+                // approve_all approves any still-pending changes (tolerated ones are left alone),
+                // commits the approved baseline, and greens the gate.
+                await visualReviewRunsFinalizeCreate(String(values.currentProjectId), props.runId, {
                     approve_all: true,
+                    add_images_to_comment_on_pr: addImages,
                 })
-                actions.approveChangesSuccess()
-                lemonToast.success('Changes approved successfully')
+                actions.finalizeRunSuccess()
+                posthog.capture('visual_review_run_finalized', { added_images_to_comment: addImages })
+                lemonToast.success(
+                    addImages
+                        ? 'Run finalized — baseline committed, PR commented with snapshots'
+                        : 'Run finalized — baseline committed, PR commented'
+                )
                 actions.loadRun()
-                // Patch in place — refetching all snapshots after a bulk approve made the whole
-                // grid flash and lost the user's selection. Server is the source of truth on
-                // next mount; we only need the UI to reflect the change immediately.
+                // Patch in place — refetching all snapshots after finalize made the whole grid
+                // flash and lost the user's selection. Server is the source of truth on next mount;
+                // we only need the UI to reflect the change immediately.
                 actions.loadSnapshotsSuccess(
                     values.snapshots.map((s) =>
-                        s.review_state === 'pending' && s.result !== 'unchanged'
+                        s.review_state === 'pending' &&
+                        s.result !== 'unchanged' &&
+                        !values.quarantinedIdentifierSet.has(s.identifier)
                             ? { ...s, review_state: 'approved' }
                             : s
                     )
                 )
             } catch (e: any) {
-                actions.approveChangesFailure()
-                lemonToast.error(e?.detail || e?.message || 'Failed to approve changes')
+                actions.finalizeRunFailure()
+                lemonToast.error(e?.detail || e?.message || 'Failed to finalize run')
             }
         },
         approveSnapshot: async ({ snapshot }) => {
@@ -338,10 +363,18 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ],
             }
 
-            // Find the next pending snapshot in sorted order before the async call
+            // Find the next pending snapshot in sorted order before the async call.
+            // Skip quarantined snapshots when they're hidden, otherwise approving advances
+            // onto an unrelated quarantined item the user can't see in the thumbnail strip.
             const sorted = values.sortedChangedSnapshots
             const currentIdx = sorted.findIndex((s) => s.id === snapshot.id)
-            const nextPending = sorted.slice(currentIdx + 1).find((s) => s.review_state === 'pending')
+            const nextPending = sorted
+                .slice(currentIdx + 1)
+                .find(
+                    (s) =>
+                        s.review_state === 'pending' &&
+                        (values.showQuarantinedThumbnails || !values.quarantinedIdentifierSet.has(s.identifier))
+                )
 
             try {
                 await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)

@@ -18,14 +18,16 @@ import collections.abc
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import Forbidden
+from google.api_core.exceptions import BadRequest, Forbidden, NotFound
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
+from google.cloud.bigquery_storage_v1.services.big_query_read.transports.grpc import BigQueryReadGrpcTransport
 from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
@@ -38,15 +40,26 @@ from posthog.temporal.data_imports.pipelines.helpers import (
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+from posthog.temporal.data_imports.sources.common.grpc import make_tracked_channel
 from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, TrackedHTTPAdapter
+from posthog.temporal.data_imports.sources.common.sql import (
+    ColumnTypeCategory,
+    ValidatedRowFilter,
+    compute_projected_columns,
+    is_multi_value_operator,
+)
+from posthog.temporal.data_imports.sources.common.sql.identifiers import BacktickIdentifierQuoter
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
+from posthog.temporal.data_imports.sources.common.sql.projection import format_projected_select_clause
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [
+    "BIGQUERY_TOKEN_RESPONSE_ERROR",
     "BigQueryImplementation",
+    "BigQueryTokenRefreshError",
     "bigquery_client",
     "bigquery_storage_read_client",
     "build_destination_table_prefix",
@@ -56,9 +69,51 @@ __all__ = [
     "validate_bigquery_credentials",
 ]
 
+# Host used both to build the Storage Read API gRPC channel and to label the
+# tracked gRPC transport's logs/metrics.
+BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
+
+# Stable, source-specific marker for a failed service-account OAuth token refresh.
+# Used both when raising below and when matching in `BigQuerySource.get_non_retryable_errors`,
+# so it must stay free of volatile data (urls, ids, timestamps).
+BIGQUERY_TOKEN_RESPONSE_ERROR = "BigQuery OAuth token endpoint returned an unexpected response"
+
+
+class BigQueryTokenRefreshError(Exception):
+    """Raised when the service-account OAuth token endpoint returns a non-JSON-object 200.
+
+    google-auth's `jwt_grant` reads `response_data["access_token"]` while guarding only
+    against `KeyError`. When the token endpoint replies 200 with a body that isn't a JSON
+    object — an intercepting proxy, or a misconfigured `token_uri` in the service-account
+    key file — `response_data` is a `str` and the lookup raises an opaque
+    `TypeError: string indices must be integers` instead of a `RefreshError`. We re-raise it
+    as this clear, non-retryable error so the sync stops hammering an endpoint that can't
+    authenticate us, and the user gets an actionable message.
+    """
+
 
 def build_destination_table_prefix(schema_id: str | None) -> str:
     return f"__posthog_import_{schema_id.replace('-', '_') if schema_id else ''}"
+
+
+def _normalize_identifier(value: str) -> str:
+    """Trim whitespace from a user-supplied BigQuery identifier.
+
+    Project and dataset IDs are pasted into the source form by hand, so a stray
+    leading or trailing space slips in easily. BigQuery then rejects every
+    request with an opaque `BadRequest: Invalid project ID ' ...'` /
+    `Invalid dataset ID ' ...'` that no amount of retrying can fix. Trimming
+    here keeps the sync working instead of failing on a copy-paste artifact.
+    """
+    return value.strip()
+
+
+def _resolve_project_id(config: BigQuerySourceConfig) -> str:
+    return _normalize_identifier(config.key_file.project_id)
+
+
+def _resolve_dataset_id(config: BigQuerySourceConfig) -> str:
+    return _normalize_identifier(config.dataset_id)
 
 
 def _resolve_region(config: BigQuerySourceConfig) -> str | None:
@@ -66,9 +121,9 @@ def _resolve_region(config: BigQuerySourceConfig) -> str | None:
         config.use_custom_region
         and config.use_custom_region.enabled
         and config.use_custom_region.region is not None
-        and config.use_custom_region.region != ""
+        and _normalize_identifier(config.use_custom_region.region) != ""
     ):
-        return config.use_custom_region.region
+        return _normalize_identifier(config.use_custom_region.region)
     return None
 
 
@@ -77,10 +132,20 @@ def _resolve_dataset_project_id(config: BigQuerySourceConfig) -> str | None:
         config.dataset_project
         and config.dataset_project.enabled
         and config.dataset_project.dataset_project_id is not None
-        and config.dataset_project.dataset_project_id != ""
+        and _normalize_identifier(config.dataset_project.dataset_project_id) != ""
     ):
-        return config.dataset_project.dataset_project_id
+        return _normalize_identifier(config.dataset_project.dataset_project_id)
     return None
+
+
+def _resolve_query_project(config: BigQuerySourceConfig) -> str:
+    """Project used to run INFORMATION_SCHEMA discovery queries.
+
+    Prefers the (optional) dataset project over the service account project,
+    mirroring the routing the rest of the source uses.
+    """
+    dataset_project_id = _resolve_dataset_project_id(config)
+    return dataset_project_id if dataset_project_id is not None else _resolve_project_id(config)
 
 
 @contextlib.contextmanager
@@ -93,6 +158,7 @@ def bigquery_client(
     token_uri: str,
 ) -> typing.Iterator[bigquery.Client]:
     """Manage a BigQuery client."""
+    project_id = _normalize_identifier(project_id)
     credentials = service_account.Credentials.from_service_account_info(
         {
             "private_key": private_key,
@@ -128,6 +194,7 @@ def bigquery_storage_read_client(
     project_id: str, private_key: str, private_key_id: str, client_email: str, token_uri: str
 ):
     """Manage a BigQuery Storage client."""
+    project_id = _normalize_identifier(project_id)
     credentials = service_account.Credentials.from_service_account_info(
         {
             "private_key": private_key,
@@ -139,11 +206,39 @@ def bigquery_storage_read_client(
         scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
     )
 
-    client = bigquery_storage.BigQueryReadClient(
+    # Build the credential-bearing gRPC channel ourselves, wrap it in the tracked
+    # interceptors, then hand it to the transport. Passing a `channel` makes the
+    # transport ignore credentials, so they must already be baked into the channel
+    # via `create_channel(credentials=...)`. This routes the Storage Read API's
+    # create_read_session (unary) + read_rows (server-streaming) RPCs through our
+    # logging / metrics / sample-capture pipeline.
+    #
+    # `read_rows` streams Arrow record batches whose ReadRowsResponse messages
+    # routinely exceed gRPC's default 4 MiB client receive limit (wide rows or large
+    # string columns such as GeoJSON push a single message past it). When the
+    # transport builds its own channel it sets both message-length limits to -1
+    # (unlimited); because we supply the channel ourselves that default is skipped,
+    # so we must replicate it here. Without it large pages fail with RESOURCE_EXHAUSTED
+    # "Received message larger than max" and the sync can never make progress.
+    channel = BigQueryReadGrpcTransport.create_channel(
+        host=BIGQUERY_STORAGE_HOST,
         credentials=credentials,
+        options=[
+            ("grpc.max_send_message_length", -1),
+            ("grpc.max_receive_message_length", -1),
+        ],
     )
+    tracked_channel = make_tracked_channel(channel, host=BIGQUERY_STORAGE_HOST)
+    transport = BigQueryReadGrpcTransport(channel=tracked_channel)
 
-    yield client
+    try:
+        client = bigquery_storage.BigQueryReadClient(transport=transport)
+        yield client
+    finally:
+        # We own the channel (built above), so we must close it — otherwise each
+        # sync leaks an open gRPC channel + its file descriptors. Closing the
+        # transport closes the underlying channel.
+        transport.close()
 
 
 def delete_table(
@@ -179,6 +274,13 @@ def delete_all_temp_destination_tables(
                     bq.delete_table(table.reference)
                     if logger:
                         logger.debug(f"Deleted bigquery table {table.table_id}")
+        except (Forbidden, NotFound) as e:
+            # Best-effort cleanup. If the service account has lost permission to list/delete
+            # tables, or the dataset no longer exists, there's nothing to recover here — log
+            # quietly rather than capturing an expected, non-actionable condition that would
+            # otherwise fire on every sync for an affected source.
+            if logger:
+                logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
         except Exception as e:
             capture_exception(e)
 
@@ -222,6 +324,13 @@ def validate_bigquery_credentials(
 
     if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
         return False
+
+    # Trim copy-paste whitespace from the identifiers before they reach BigQuery,
+    # which otherwise rejects them with an opaque `Invalid project ID`/`Invalid dataset ID`.
+    project_id = _normalize_identifier(project_id)
+    dataset_id = _normalize_identifier(dataset_id)
+    dataset_project_id = _normalize_identifier(dataset_project_id) if dataset_project_id else dataset_project_id
+    location = _normalize_identifier(location) if location else location
 
     with bigquery_client(project_id, location, private_key, private_key_id, client_email, token_uri) as bq:
         try:
@@ -298,6 +407,19 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     return primary_keys
 
 
+def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
+    """True for BigQuery's `resourcesExceeded` query failures.
+
+    BigQuery raises this when a query can't run within a node's memory (for
+    example a large GROUP BY or sort over a big table). It's a property of the
+    customer's data volume, not something we can fix, so best-effort diagnostic
+    queries should degrade gracefully instead of treating it as an actionable
+    crash.
+    """
+    reasons = {err.get("reason") for err in (getattr(error, "errors", None) or [])}
+    return "resourcesExceeded" in reasons or "Resources exceeded during query execution" in str(error)
+
+
 def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
     if not primary_keys or len(primary_keys) == 0:
         return False
@@ -315,6 +437,20 @@ def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, 
 
         for _ in job.result():
             return True
+    except BadRequest as e:
+        if _is_bigquery_resource_exceeded(e):
+            # The duplicate-key probe runs a full GROUP BY over the table; on very large
+            # tables BigQuery can't sort it within a node's memory and raises
+            # `resourcesExceeded`. That's a data-volume limit we can't fix, and this check
+            # is best-effort, so skip it quietly rather than capturing non-actionable noise
+            # on every sync.
+            structlog.get_logger().warning(
+                "Skipping duplicate primary key check for BigQuery table %s.%s: query exceeded BigQuery memory limits",
+                table.dataset_id,
+                table.table_id,
+            )
+            return False
+        capture_exception(e)
     except Exception as e:
         capture_exception(e)
 
@@ -329,26 +465,30 @@ def _get_rows_to_sync(
     logger: FilteringBoundLogger,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
 ) -> int:
     try:
-        if not should_use_incremental_field:
+        # `num_rows` is the whole-table count, so it's only a valid shortcut when nothing
+        # filters the rows — row filters (like incremental) require an actual COUNT query.
+        if not should_use_incremental_field and not row_filters:
             table = client.get_table(table)
             if table.num_rows:
                 logger.debug(f"_get_rows_to_sync: table.num_rows={table.num_rows}")
 
                 return table.num_rows
 
-        inner_query = _get_query(
+        inner_query, query_parameters = _get_query(
             should_use_incremental_field,
             db_incremental_field_last_value,
             table,
             incremental_field,
             incremental_field_type,
+            row_filters=row_filters,
         )
 
         query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
 
-        job_config = QueryJobConfig()
+        job_config = QueryJobConfig(query_parameters=query_parameters)
         job = client.query(query, job_config=job_config, project=table.project)
 
         rows = job.result(page_size=1)
@@ -369,13 +509,106 @@ def _get_rows_to_sync(
         return 0
 
 
+_BQ_QUOTER = BacktickIdentifierQuoter()
+
+
+def _bq_select_clause(
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None,
+) -> str:
+    """BigQuery SELECT-list with backtick quoting and identifier allowlist."""
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    return format_projected_select_clause(projected, _BQ_QUOTER)
+
+
+# Map a column type category onto a BigQuery scalar-parameter type, used as a fallback
+# when the column isn't found in the table schema.
+_BQ_PARAM_TYPE_BY_CATEGORY = {
+    ColumnTypeCategory.INTEGER: "INT64",
+    ColumnTypeCategory.NUMERIC: "NUMERIC",
+    ColumnTypeCategory.STRING: "STRING",
+    ColumnTypeCategory.BOOLEAN: "BOOL",
+    ColumnTypeCategory.DATE: "DATE",
+    ColumnTypeCategory.TIMESTAMP: "TIMESTAMP",
+}
+
+_BQ_FIELD_TYPE_NORMALIZATION = {
+    "INTEGER": "INT64",
+    "INT64": "INT64",
+    "FLOAT": "FLOAT64",
+    "FLOAT64": "FLOAT64",
+    "NUMERIC": "NUMERIC",
+    "BIGNUMERIC": "BIGNUMERIC",
+    "BOOLEAN": "BOOL",
+    "BOOL": "BOOL",
+    "STRING": "STRING",
+    "DATE": "DATE",
+    "DATETIME": "DATETIME",
+    "TIMESTAMP": "TIMESTAMP",
+    "TIME": "TIME",
+}
+
+
+def _adapt_bq_value(value: typing.Any, bq_type: str) -> typing.Any:
+    """Coerce a coerced filter value to what the BigQuery client expects for `bq_type`."""
+    if bq_type == "FLOAT64" and isinstance(value, Decimal):
+        return float(value)
+    if bq_type == "DATETIME" and isinstance(value, datetime) and value.tzinfo is not None:
+        return value.replace(tzinfo=None)
+    return value
+
+
+def _bq_row_filter_conditions(
+    row_filters: list[ValidatedRowFilter] | None,
+    bq_table: bigquery.Table,
+) -> tuple[list[str], list[bigquery.ScalarQueryParameter]]:
+    """Build row-filter SQL conditions + bound BigQuery scalar parameters.
+
+    Columns are quoted; values leave only as named params (`@row_filter_i`, or
+    `@row_filter_i_j` per element for IN). The param type follows the column's actual
+    BigQuery type so DATETIME vs TIMESTAMP don't mismatch.
+    """
+    if not row_filters:
+        return [], []
+
+    column_field_types = {field.name: field.field_type for field in bq_table.schema}
+    conditions: list[str] = []
+    parameters: list[bigquery.ScalarQueryParameter] = []
+    for index, row_filter in enumerate(row_filters):
+        quoted = _BQ_QUOTER.quote(row_filter.column)
+        bq_type = _BQ_FIELD_TYPE_NORMALIZATION.get(
+            column_field_types.get(row_filter.column, "").upper()
+        ) or _BQ_PARAM_TYPE_BY_CATEGORY.get(row_filter.category, "STRING")
+
+        if is_multi_value_operator(row_filter.operator):
+            placeholders = []
+            for position, element in enumerate(row_filter.value):
+                name = f"row_filter_{index}_{position}"
+                placeholders.append(f"@{name}")
+                parameters.append(bigquery.ScalarQueryParameter(name, bq_type, _adapt_bq_value(element, bq_type)))
+            conditions.append(f"{quoted} {row_filter.operator} ({', '.join(placeholders)})")
+        else:
+            name = f"row_filter_{index}"
+            conditions.append(f"{quoted} {row_filter.operator} @{name}")
+            parameters.append(bigquery.ScalarQueryParameter(name, bq_type, _adapt_bq_value(row_filter.value, bq_type)))
+    return conditions, parameters
+
+
 def _get_query(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: typing.Any,
     bq_table: bigquery.Table,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
-) -> str:
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
+) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
+    select_clause = _bq_select_clause(enabled_columns, primary_keys, incremental_field)
+    table_ref = f"`{bq_table.dataset_id}`.`{bq_table.table_id}`"
+    filter_conditions, query_parameters = _bq_row_filter_conditions(row_filters, bq_table)
+
     if should_use_incremental_field:
         if incremental_field is None or incremental_field_type is None:
             raise ValueError("incremental_field and incremental_field_type can't be None")
@@ -385,17 +618,31 @@ def _get_query(
         else:
             last_value = db_incremental_field_last_value
 
-        if isinstance(last_value, datetime) or isinstance(last_value, date):
+        if isinstance(last_value, datetime):
+            # BigQuery DATETIME columns are timezone-naive and reject a literal that carries
+            # a UTC offset (e.g. `1970-01-01T00:00:00+00:00`), failing with "Could not cast
+            # literal ... to type DATETIME". The shared initial cursor value is tz-aware UTC,
+            # so drop the offset for DATETIME fields. TIMESTAMP columns are timezone-aware and
+            # keep it.
+            if incremental_field_type == IncrementalFieldType.DateTime and last_value.tzinfo is not None:
+                last_value = last_value.replace(tzinfo=None)
+            last_value = f"'{last_value.isoformat()}'"
+        elif isinstance(last_value, date):
             last_value = f"'{last_value.isoformat()}'"
 
         operator = incremental_type_to_operator(incremental_field_type)
-        return f"""
-            SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
-            WHERE `{incremental_field}` {operator} {last_value}
-            ORDER BY `{incremental_field}` ASC
-            """
+        conditions = [f"`{incremental_field}` {operator} {last_value}", *filter_conditions]
+        query = (
+            f"SELECT {select_clause} FROM {table_ref} "
+            f"WHERE {' AND '.join(conditions)} "
+            f"ORDER BY `{incremental_field}` ASC"
+        )
+        return query, query_parameters
 
-    return f"SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`"
+    if filter_conditions:
+        return f"SELECT {select_clause} FROM {table_ref} WHERE {' AND '.join(filter_conditions)}", query_parameters
+
+    return f"SELECT {select_clause} FROM {table_ref}", query_parameters
 
 
 class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigquery.Client, Any]):
@@ -416,7 +663,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     def connect(self, config: BigQuerySourceConfig) -> Iterator[bigquery.Client]:
         region = _resolve_region(config)
         with bigquery_client(
-            config.key_file.project_id,
+            _resolve_project_id(config),
             region,
             config.key_file.private_key,
             config.key_file.private_key_id,
@@ -437,13 +684,16 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     ) -> dict[str, list[tuple[str, str, bool]]]:
         schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
-        query = conn.query(
-            f"SELECT table_name, column_name, data_type, is_nullable FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
-            project=config.dataset_project.dataset_project_id
-            if config.dataset_project and config.dataset_project.enabled
-            else config.key_file.project_id,
-        )
         try:
+            # `conn.query()` eagerly creates the BigQuery job (POST .../jobs) and triggers the
+            # lazy service-account token refresh, so a `Forbidden` (e.g. missing
+            # `bigquery.jobs.create`) or auth failure surfaces here rather than at `result()`.
+            # Both calls must sit inside the try so a permission-denied account degrades to
+            # "no new schemas" instead of crashing schema discovery.
+            query = conn.query(
+                f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+                project=_resolve_query_project(config),
+            )
             rows = query.result()
         except Forbidden:
             structlog.get_logger().warning(
@@ -451,6 +701,15 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 config.dataset_id,
             )
             return {}
+        except TypeError as e:
+            # See `BigQueryTokenRefreshError`: google-auth raises an opaque
+            # `TypeError: string indices must be integers` when the OAuth token endpoint
+            # returns a non-JSON-object 200. Anything else is a genuine bug — let it propagate.
+            if "string indices must be integers" not in str(e):
+                raise
+            raise BigQueryTokenRefreshError(
+                f"{BIGQUERY_TOKEN_RESPONSE_ERROR}. Please re-upload your service account key file and verify its token_uri."
+            ) from e
 
         for row in rows:
             schema_list[row.table_name].append((row.column_name, row.data_type, row.is_nullable == "YES"))
@@ -477,11 +736,8 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         if not tables:
             return {}
 
-        project = (
-            config.dataset_project.dataset_project_id
-            if config.dataset_project and config.dataset_project.enabled
-            else config.key_file.project_id
-        )
+        project = _resolve_query_project(config)
+        dataset_id = _resolve_dataset_id(config)
 
         # Join against INFORMATION_SCHEMA.COLUMNS so a PK constraint that
         # references a column already dropped (stale metadata between
@@ -495,10 +751,10 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         # half the rows get dropped.
         query = f"""
         SELECT tc.table_name, kcu.column_name
-        FROM `{config.dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-        JOIN `{config.dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+        FROM `{dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+        JOIN `{dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
         ON tc.constraint_name = kcu.constraint_name
-        JOIN `{config.dataset_id}`.INFORMATION_SCHEMA.COLUMNS c
+        JOIN `{dataset_id}`.INFORMATION_SCHEMA.COLUMNS c
         ON kcu.table_name = c.table_name
         AND (
             kcu.column_name = c.column_name
@@ -545,15 +801,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         try:
             result: dict[str, set[str]] = {table: set() for table in tables}
 
-            project = (
-                config.dataset_project.dataset_project_id
-                if config.dataset_project and config.dataset_project.enabled
-                else config.key_file.project_id
-            )
+            project = _resolve_query_project(config)
 
             query = f"""
             SELECT table_name, column_name
-            FROM `{config.dataset_id}`.INFORMATION_SCHEMA.COLUMNS
+            FROM `{_resolve_dataset_id(config)}`.INFORMATION_SCHEMA.COLUMNS
             WHERE is_partitioning_column = 'YES'
                OR clustering_ordinal_position = 1
             """
@@ -582,15 +834,16 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
         region = _resolve_region(config)
         dataset_project_id = _resolve_dataset_project_id(config)
-        destination_table_dataset_id = config.dataset_id
+        project_id = _resolve_project_id(config)
+        destination_table_dataset_id = _resolve_dataset_id(config)
 
         if (
             config.temporary_dataset
             and config.temporary_dataset.enabled
             and config.temporary_dataset.temporary_dataset_id is not None
-            and config.temporary_dataset.temporary_dataset_id != ""
+            and _normalize_identifier(config.temporary_dataset.temporary_dataset_id) != ""
         ):
-            destination_table_dataset_id = config.temporary_dataset.temporary_dataset_id
+            destination_table_dataset_id = _normalize_identifier(config.temporary_dataset.temporary_dataset_id)
 
         # Including the schema ID in table prefix ensures we only delete tables
         # from this schema, and that if we fail we will clean up any previous
@@ -599,12 +852,12 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         # relaxed with using a relatively long UUID as part of the prefix.
         destination_table_prefix = build_destination_table_prefix(inputs.schema_id)
 
-        destination_table = f"{config.key_file.project_id}.{destination_table_dataset_id}.{destination_table_prefix}_{inputs.job_id.replace('-', '_')}_{str(datetime.now().timestamp()).replace('.', '')}"
+        destination_table = f"{project_id}.{destination_table_dataset_id}.{destination_table_prefix}_{inputs.job_id.replace('-', '_')}_{str(datetime.now().timestamp()).replace('.', '')}"
 
         delete_all_temp_destination_tables(
             dataset_id=destination_table_dataset_id,
             table_prefix=destination_table_prefix,
-            project_id=config.key_file.project_id,
+            project_id=project_id,
             location=region,
             dataset_project_id=dataset_project_id,
             private_key=config.key_file.private_key,
@@ -626,7 +879,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             # Delete the destination table (if it exists) after we're done with it
             delete_table(
                 table_id=destination_table,
-                project_id=config.key_file.project_id,
+                project_id=project_id,
                 location=region,
                 private_key=config.key_file.private_key,
                 private_key_id=config.key_file.private_key_id,
@@ -659,9 +912,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         db_incremental_field_last_value = (
             inputs.db_incremental_field_last_value if should_use_incremental_field else None
         )
+        enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
         logger = inputs.logger
 
-        project_id = config.key_file.project_id
+        project_id = _resolve_project_id(config)
         location = region
         private_key = config.key_file.private_key
         private_key_id = config.key_file.private_key_id
@@ -670,7 +925,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
         project_id_for_dataset = dataset_project_id or project_id
         name = NamingConvention.normalize_identifier(table_name)
-        fully_qualified_table_name = f"{project_id_for_dataset}.{config.dataset_id}.{table_name}"
+        fully_qualified_table_name = f"{project_id_for_dataset}.{_resolve_dataset_id(config)}.{table_name}"
 
         with bigquery_client(
             project_id=project_id,
@@ -692,6 +947,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 logger,
                 incremental_field,
                 incremental_field_type,
+                row_filters=row_filters,
             )
 
         def get_rows(max_table_size: int) -> collections.abc.Iterator[pa.Table]:
@@ -705,6 +961,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             ) as bq_client:
                 bq_table = bq_client.get_table(fully_qualified_table_name)
 
+                # Query path projects into the temp table; direct-storage path projects via
+                # `selected_fields` on the read session.
+                projected_columns = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+                storage_selected_fields: list[str] | None = None
+
                 if should_use_incremental_field:
                     # This is only done because incremental syncs require progress tracking.
                     # This requirement means we need to enforce an order, as otherwise
@@ -714,52 +975,62 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                     # TODO: Think about whether this is at all necessary. We (and our users)
                     # are paying a (potentially high) cost to run this query job and store
                     # this data, when we could instead give up tracking and read it.
-                    query = _get_query(
+                    query, query_parameters = _get_query(
                         should_use_incremental_field,
                         db_incremental_field_last_value,
                         bq_table,
                         incremental_field,
                         incremental_field_type,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
 
                     destination_table = bigquery.Table(bq_destination_table_id)
-                    job_config = QueryJobConfig(destination=destination_table)
+                    job_config = QueryJobConfig(destination=destination_table, query_parameters=query_parameters)
                     job = bq_client.query(query, job_config=job_config, project=bq_table.project)
                     _ = job.result()
 
                     bq_table = bq_client.get_table(destination_table)
 
-                elif bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW", "EXTERNAL"):
+                elif bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW", "EXTERNAL") or row_filters:
                     # BigQuery storage API does not support reading directly from views or
-                    # materialized views. So, similarly to incremental runs, we must copy the
-                    # results to a temporary table first. In the case of an incremental sync,
-                    # we already do this for all tables and views, so here we just handle the
-                    # views or materialized views that are not incremental.
-                    query = _get_query(
+                    # materialized views, nor can it apply row filters. So, similarly to
+                    # incremental runs, we copy the (optionally filtered) results to a temporary
+                    # table first, then read that table via the storage API.
+                    query, query_parameters = _get_query(
                         should_use_incremental_field,
                         db_incremental_field_last_value,
                         bq_table,
                         incremental_field,
                         incremental_field_type,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
 
                     destination_table = bigquery.Table(bq_destination_table_id)
-                    job_config = QueryJobConfig(destination=destination_table)
+                    job_config = QueryJobConfig(destination=destination_table, query_parameters=query_parameters)
                     job = bq_client.query(query, job_config=job_config, project=bq_table.project)
                     _ = job.result()
 
                     bq_table = bq_client.get_table(destination_table)
+
+                else:
+                    if projected_columns is not None:
+                        storage_selected_fields = projected_columns
 
                 requested_session = bigquery_storage.ReadSession(
                     table=bq_table.to_bqstorage(),
                     data_format=bigquery_storage.DataFormat.ARROW,
                     read_options=bigquery_storage.ReadSession.TableReadOptions(
+                        selected_fields=storage_selected_fields or [],
                         arrow_serialization_options=bigquery_storage.ArrowSerializationOptions(
                             # LZ4 offers a good trade-off of low resource usage for compression, so
                             # as an initial value without further testing it should do fine. That being said,
                             # TODO: Evaluate if ZSTD is a better alternative for our use case.
                             buffer_compression=bigquery_storage.ArrowSerializationOptions.CompressionCodec.LZ4_FRAME
-                        )
+                        ),
                     ),
                 )
                 with bigquery_storage_read_client(

@@ -37,7 +37,7 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npx convex env set POSTHOG_API_KEY "<ph_project_token>"
+                            npx convex env set POSTHOG_PROJECT_TOKEN "<ph_project_token>"
                             npx convex env set POSTHOG_HOST "<ph_client_api_host>"
                         `}
                     />
@@ -83,7 +83,7 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                               spanProcessors: [
                                 new SimpleSpanProcessor(
                                   new PostHogTraceExporter({
-                                    apiKey: process.env.POSTHOG_API_KEY!,
+                                    projectToken: process.env.POSTHOG_PROJECT_TOKEN!,
                                     host: process.env.POSTHOG_HOST,
                                   })
                                 ),
@@ -157,7 +157,7 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                               spanProcessors: [
                                 new SimpleSpanProcessor(
                                   new PostHogTraceExporter({
-                                    apiKey: process.env.POSTHOG_API_KEY!,
+                                    projectToken: process.env.POSTHOG_PROJECT_TOKEN!,
                                     host: process.env.POSTHOG_HOST,
                                   })
                                 ),

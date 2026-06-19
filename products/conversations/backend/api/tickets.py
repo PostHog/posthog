@@ -13,7 +13,7 @@ from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from loginas.utils import is_impersonated_session
 from rest_framework import (
     pagination,
@@ -25,24 +25,18 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.schema import HogQLQueryModifiers
-
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
-from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids, get_persons_by_uuids
-from posthog.models.team import Team
+from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -65,63 +59,11 @@ from products.conversations.backend.events import (
 )
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
+from products.conversations.backend.person_lookup import _get_persons_by_email
 
 from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
-
-# Case-insensitive batch email lookup. Exposed so tests can EXPLAIN the exact query that runs.
-PERSON_EMAIL_LOOKUP_QUERY = """
-SELECT id, properties.email
-FROM persons
-WHERE lower(properties.email) IN {emails}
-"""
-
-
-def _get_persons_by_email(
-    team: Team,
-    emails: list[str],
-    modifiers: HogQLQueryModifiers | None = None,
-) -> dict[str, Person]:
-    """Batch look up persons by their properties.email value via ClickHouse.
-
-    Returns a dict mapping lowercase email -> Person for the first match.
-    Only checks ``properties.email`` (the canonical, materialized key with
-    a skip index). Uses the HogQL ``persons`` virtual table (argMax dedup
-    handled automatically).
-    """
-    if not emails:
-        return {}
-
-    emails_lower = [e.lower() for e in emails]
-    with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
-        response = execute_hogql_query(
-            PERSON_EMAIL_LOOKUP_QUERY,
-            placeholders={"emails": ast.Constant(value=emails_lower)},
-            team=team,
-            query_type="conversations_person_email_lookup",
-            modifiers=modifiers,
-        )
-
-    if not response.results:
-        return {}
-
-    email_to_uuid: dict[str, str] = {}
-    for person_uuid, prop_email in response.results:
-        if prop_email:
-            lower = prop_email.lower()
-            if lower not in email_to_uuid:
-                email_to_uuid[lower] = str(person_uuid)
-
-    persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
-    uuid_to_person: dict[str, Person] = {str(p.uuid): p for p in persons}
-
-    result: dict[str, Person] = {}
-    for email_lower, person_uuid in email_to_uuid.items():
-        person = uuid_to_person.get(person_uuid)
-        if person is not None:
-            result[email_lower] = person
-    return result
 
 
 class SuggestReplyResponseSerializer(serializers.Serializer):
@@ -131,6 +73,57 @@ class SuggestReplyResponseSerializer(serializers.Serializer):
 class SuggestReplyErrorSerializer(serializers.Serializer):
     detail = serializers.CharField()
     error_type = serializers.CharField(required=False)
+
+
+class TicketMessageSerializer(serializers.Serializer):
+    """A single message in a ticket thread (output-only)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Message (comment) UUID.")
+    content = serializers.CharField(read_only=True, help_text="Plain-text message body.")
+    rich_content = serializers.JSONField(read_only=True, allow_null=True, help_text="TipTap rich content JSON, if any.")
+    author_type = serializers.CharField(read_only=True, help_text="One of: customer, support, AI.")
+    author_name = serializers.CharField(read_only=True, help_text="Display name of the author.")
+    is_private = serializers.BooleanField(
+        read_only=True, help_text="True for internal notes not visible to the customer."
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+
+
+class TicketReplyRequestSerializer(serializers.Serializer):
+    """Payload for posting a reply or internal note to a ticket."""
+
+    message = serializers.CharField(
+        max_length=5000,
+        help_text="Reply content in markdown.",
+    )
+    is_private = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "If true, store as an internal note (not sent to the customer). "
+            "If false, the reply is delivered to the customer over the ticket's channel."
+        ),
+    )
+    rich_content = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Optional TipTap rich content JSON for formatted messages.",
+    )
+
+    def validate_message(self, value: str) -> str:
+        if not value or not value.strip():
+            raise serializers.ValidationError("Message content is required.")
+        return value.strip()
+
+    def validate_rich_content(self, value: object) -> object:
+        if value is None:
+            return value
+        try:
+            serialized = json.dumps(value)
+        except (TypeError, ValueError) as e:
+            raise serializers.ValidationError("Rich content must be JSON-serializable.") from e
+        if len(serialized) > 100_000:
+            raise serializers.ValidationError("Rich content too large (max 100KB).")
+        return value
 
 
 class ComposeTicketSerializer(serializers.Serializer):
@@ -166,7 +159,13 @@ class ComposeTicketSerializer(serializers.Serializer):
         return value.strip()
 
     def validate_rich_content(self, value: object) -> object:
-        if value is not None and len(json.dumps(value)) > 100_000:
+        if value is None:
+            return value
+        try:
+            serialized = json.dumps(value)
+        except (TypeError, ValueError) as e:
+            raise serializers.ValidationError("Rich content must be JSON-serializable.") from e
+        if len(serialized) > 100_000:
             raise serializers.ValidationError("Rich content too large (max 100KB).")
         return value
 
@@ -176,9 +175,41 @@ class ComposeTicketResponseSerializer(serializers.Serializer):
     ticket_number = serializers.IntegerField(help_text="Human-readable ticket number.")
 
 
+BULK_UPDATE_STATUS_MAX_IDS = 500
+
+
+class BulkUpdateStatusRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_STATUS_MAX_IDS,
+        help_text="List of ticket UUIDs to update.",
+    )
+    status = serializers.ChoiceField(
+        choices=Status.choices,
+        help_text="New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.",
+    )
+
+
+class BulkUpdateStatusResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of tickets whose status actually changed.")
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="UUIDs of the tickets whose status changed.",
+    )
+
+
 class TicketPagination(pagination.LimitOffsetPagination):
     default_limit = 100
     max_limit = 1000
+
+
+class TicketMessagePagination(pagination.LimitOffsetPagination):
+    default_limit = 50
+    max_limit = 200
+
+
+MAX_TAG_FILTER_VALUES = 50
 
 
 class TicketPersonSerializer(serializers.Serializer):
@@ -280,8 +311,24 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         return None
 
 
+TICKET_ID_PARAM = OpenApiParameter(
+    name="id",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.PATH,
+    description="The ticket's UUID or its numeric ticket number.",
+)
+
+
+@extend_schema_view(
+    retrieve=extend_schema(parameters=[TICKET_ID_PARAM]),
+    update=extend_schema(parameters=[TICKET_ID_PARAM]),
+    partial_update=extend_schema(parameters=[TICKET_ID_PARAM]),
+    destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
+)
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
+    scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply"]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
@@ -405,7 +452,28 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             try:
                 tags_list = json.loads(tags_param)
                 if isinstance(tags_list, list) and tags_list:
-                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list[:MAX_TAG_FILTER_VALUES]).distinct()
+            except json.JSONDecodeError:
+                pass
+
+        tags_all_param = self.request.query_params.get("tags_all")
+        if tags_all_param:
+            try:
+                tags_all_list = json.loads(tags_all_param)
+                if isinstance(tags_all_list, list) and tags_all_list:
+                    # One filter per tag (not __in) so this is AND: the ticket must carry every tag.
+                    for tag_name in tags_all_list[:MAX_TAG_FILTER_VALUES]:
+                        queryset = queryset.filter(tagged_items__tag__name=tag_name)
+                    queryset = queryset.distinct()
+            except json.JSONDecodeError:
+                pass
+
+        tags_exclude_param = self.request.query_params.get("tags_exclude")
+        if tags_exclude_param:
+            try:
+                tags_exclude_list = json.loads(tags_exclude_param)
+                if isinstance(tags_exclude_list, list) and tags_exclude_list:
+                    queryset = queryset.exclude(tagged_items__tag__name__in=tags_exclude_list[:MAX_TAG_FILTER_VALUES])
             except json.JSONDecodeError:
                 pass
 
@@ -468,7 +536,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         if not distinct_ids:
             return
 
-        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
+        with personhog_caller_tag("conversations/ticket-attach-persons"):
+            persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
 
         distinct_id_to_person: dict[str, Person] = {}
         distinct_ids_set = set(distinct_ids)
@@ -586,7 +655,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 "tags",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description='JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.',
+                description='JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `["billing","urgent"]`.',
+            ),
+            OpenApiParameter(
+                "tags_all",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `["billing","urgent"]`.',
+            ),
+            OpenApiParameter(
+                "tags_exclude",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.',
             ),
             OpenApiParameter(
                 "order_by",
@@ -712,10 +793,12 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         try:
             if status_changed:
-                capture_ticket_status_changed(instance, old_status, new_status)
+                capture_ticket_status_changed(instance, old_status, new_status, actor=request.user, actor_type="user")
 
             if priority_changed:
-                capture_ticket_priority_changed(instance, old_priority, new_priority)
+                capture_ticket_priority_changed(
+                    instance, old_priority, new_priority, actor=request.user, actor_type="user"
+                )
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 
@@ -800,6 +883,92 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         # Re-serialize to include updated assignee
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    def _emit_status_change_side_effects(self, request, ticket: Ticket, old_status: str, new_status: str) -> None:
+        """Emit analytics + activity log for a single ticket status change.
+
+        Called from both ``update()`` and ``bulk_update_status()`` to keep
+        event-tracking logic in one place.
+        """
+        try:
+            capture_ticket_status_changed(ticket, old_status, new_status, actor=request.user, actor_type="user")
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=f"Ticket #{ticket.ticket_number}",
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="status",
+                            before=old_status,
+                            after=new_status,
+                            action="changed",
+                        )
+                    ],
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
+    @extend_schema(
+        request=BulkUpdateStatusRequestSerializer,
+        responses={200: OpenApiResponse(response=BulkUpdateStatusResponseSerializer)},
+    )
+    @action(detail=False, methods=["POST"])
+    def bulk_update_status(self, request, *args, **kwargs):
+        """Update the status of multiple tickets in a single request.
+
+        Only tickets belonging to the current team are affected; other-team UUIDs
+        are silently ignored.  Tickets already in the requested status are skipped.
+        """
+        serializer = BulkUpdateStatusRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ticket_ids: list[uuid.UUID] = serializer.validated_data["ids"]
+        new_status: str = serializer.validated_data["status"]
+
+        changed: list[tuple[Ticket, str]] = []
+        with transaction.atomic():
+            tickets = list(self.get_queryset().filter(id__in=ticket_ids).select_for_update(of=("self",)))
+            for ticket in tickets:
+                old_status = ticket.status
+                if old_status == new_status:
+                    continue
+                ticket.status = new_status
+                ticket.save(update_fields=["status", "updated_at"])
+                changed.append((ticket, old_status))
+
+        def _emit_bulk_side_effects() -> None:
+            if any(old == "resolved" or new_status == "resolved" for _, old in changed):
+                invalidate_unread_count_cache(self.team_id)
+
+            for ticket, old_status in changed:
+                self._emit_status_change_side_effects(request, ticket, old_status, new_status)
+
+            if changed:
+                try:
+                    report_user_action(
+                        request.user,
+                        "support tickets bulk status updated",
+                        {"count": len(changed), "ticket_status": new_status},
+                        team=self.team,
+                        request=request,
+                    )
+                except Exception as e:
+                    capture_exception(e, {"team_id": self.team_id})
+
+        transaction.on_commit(_emit_bulk_side_effects)
+
+        return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
     @extend_schema(
         request=None,
@@ -886,6 +1055,109 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         return Response({"count": count})
 
     @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        responses={200: TicketMessageSerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], pagination_class=TicketMessagePagination)
+    def messages(self, request, *args, **kwargs):
+        """Return the message thread for a ticket, ordered chronologically (paginated)."""
+        ticket = self.get_object()
+
+        comments = (
+            Comment.objects.filter(
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                deleted=False,
+            )
+            .select_related("created_by")
+            .order_by("created_at")
+        )
+
+        page = self.paginate_queryset(comments)
+        comments_to_serialize = page if page is not None else list(comments)
+
+        message_list = [self._serialize_message(comment, ticket) for comment in comments_to_serialize]
+        data = TicketMessageSerializer(message_list, many=True).data
+
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response(data)
+
+    def _serialize_message(self, comment: Comment, ticket: Ticket) -> dict:
+        item_context = comment.item_context or {}
+        author_type = item_context.get("author_type", "customer")
+
+        if comment.created_by:
+            author_name = comment.created_by.first_name or comment.created_by.email
+        elif author_type == "customer":
+            traits = ticket.anonymous_traits or {}
+            author_name = traits.get("name") or traits.get("email") or "Customer"
+        elif author_type == "AI":
+            author_name = "PostHog Assistant"
+        else:
+            author_name = "Support"
+
+        return {
+            "id": comment.id,
+            "content": comment.content,
+            "rich_content": comment.rich_content,
+            "author_type": author_type,
+            "author_name": author_name,
+            "is_private": item_context.get("is_private") is True,
+            "created_at": comment.created_at,
+        }
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=TicketReplyRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=TicketMessageSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        pagination_class=None,
+        throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
+    )
+    def reply(self, request, *args, **kwargs):
+        """Post a reply or internal note to a ticket.
+
+        With is_private=false, the reply is delivered to the customer via the
+        ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
+        the message is stored as an internal note only visible to team members.
+        """
+        ticket = self.get_object()
+
+        if not self.team.conversations_enabled:
+            return Response(
+                {"detail": "Conversations is not enabled."},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = TicketReplyRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        is_private = data["is_private"]
+
+        comment = Comment.objects.create(
+            team=self.team,
+            created_by=request.user,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content=data["message"],
+            rich_content=data.get("rich_content"),
+            item_context={"author_type": "support", "is_private": is_private},
+        )
+
+        return Response(
+            TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
+            status=drf_status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
         request=ComposeTicketSerializer,
         responses={
             201: OpenApiResponse(response=ComposeTicketResponseSerializer),
@@ -935,7 +1207,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         person: Person | None = None
         if distinct_id != recipient_email:
-            person = get_person_by_distinct_id(team.id, distinct_id)
+            # Only person.properties is read for this lookup, so skip the distinct-id fetch.
+            with personhog_caller_tag("conversations/ticket-recipient-lookup"):
+                person = get_person_by_distinct_id(team.id, distinct_id, distinct_id_limit=0)
 
         if person is None:
             person = _get_persons_by_email(team, [recipient_email]).get(recipient_email.lower())
@@ -1088,6 +1362,6 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
             else:
                 assignee_type = None
                 assignee_id = None
-            capture_ticket_assigned(ticket, assignee_type, assignee_id)
+            capture_ticket_assigned(ticket, assignee_type, assignee_id, actor=user, actor_type="user")
         except Exception as e:
             capture_exception(e, {"ticket_id": str(ticket.id)})

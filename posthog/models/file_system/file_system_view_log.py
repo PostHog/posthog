@@ -10,6 +10,7 @@ from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.utils import timezone
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import UUIDModel
@@ -24,6 +25,11 @@ class FileSystemViewLog(UUIDModel):
     type = models.CharField(max_length=150)
     ref = models.CharField(max_length=200)
     viewed_at = models.DateTimeField(default=timezone.now)
+    # Product surface this view belongs to (e.g. "web", "desktop"). NULL == DEFAULT_SURFACE.
+    # Not part of the unique constraint below: a (type, ref) item is exclusive to one surface,
+    # so (team, user, type, ref) already identifies a view uniquely. The column only lets us
+    # filter Recents to a single surface without joining back to FileSystem.
+    surface = models.CharField(max_length=100, null=True, blank=True)
 
     class Meta:
         indexes = [
@@ -42,13 +48,16 @@ def _drop_view_logs_when_file_deleted(sender, instance: FileSystem, **kwargs) ->
     # their canonical file, so we only act when the canonical row is gone.
     if not instance.ref or instance.type == "folder" or instance.shortcut:
         return
+    surface = instance.surface or DEFAULT_SURFACE
     if (
-        FileSystem.objects.filter(team_id=instance.team_id, type=instance.type, ref=instance.ref)
+        FileSystem.objects.filter(surface_q(surface), team_id=instance.team_id, type=instance.type, ref=instance.ref)
         .exclude(shortcut=True)
         .exists()
     ):
         return
-    FileSystemViewLog.objects.filter(team_id=instance.team_id, type=instance.type, ref=instance.ref).delete()
+    FileSystemViewLog.objects.filter(
+        surface_q(surface), team_id=instance.team_id, type=instance.type, ref=instance.ref
+    ).delete()
 
 
 def log_file_system_view(
@@ -69,23 +78,28 @@ def log_file_system_view(
 
     now = viewed_at or timezone.now()
 
+    # The (team, user, type, ref) unique constraint allows one view-log row per item, so surface
+    # is not part of the lookup. The same (type, ref) can exist in more than one surface, so we
+    # refresh `surface` on every view: the row reflects the most recent view's surface, keeping
+    # Recents (filtered per-surface) and the delete-cleanup signal accurate. Legacy rows are NULL (== web).
     update_kwargs = {
         "team_id": resolved_team_id,
         "user_id": user.id,
         "type": representation.type,
         "ref": str(representation.ref),
     }
+    surface = getattr(representation, "surface", DEFAULT_SURFACE)
 
-    updated = FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now)
+    updated = FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
 
     if updated:
         return
 
     try:
-        FileSystemViewLog.objects.create(viewed_at=now, **update_kwargs)
+        FileSystemViewLog.objects.create(viewed_at=now, surface=surface, **update_kwargs)
     except IntegrityError:
         # Another request may have created the row after our update attempt.
-        FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now)
+        FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
 
 
 def annotate_file_system_with_view_logs(

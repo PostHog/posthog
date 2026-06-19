@@ -1,8 +1,6 @@
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
-import { DateTime } from 'luxon'
-
 import { HogFlow } from '~/schema/hogflow'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -16,6 +14,7 @@ import {
 } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
@@ -25,6 +24,7 @@ import {
     createKafkaMessage,
 } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
+import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpEventsConsumer } from './cdp-events.consumer'
@@ -988,31 +988,37 @@ describe('hog flow processing', () => {
                 { key: 'data_pipelines', name: 'Data Pipelines' },
                 { key: 'group_analytics', name: 'Group Analytics' },
             ])
-            // Clear cached team data so the new features are picked up
             hub.teamManager['lazyLoader'].clear()
-            processor['groupsManager'].clear()
 
-            await hub.groupRepository.insertGroupType(team.id, team.id as any, 'company', 0)
-            await hub.groupRepository.insertGroupType(team.id, team.id as any, 'project', 1)
+            const mockGroupRepo: GroupReadRepository = {
+                fetchGroupsByKeys: jest.fn().mockResolvedValue([
+                    {
+                        team_id: team.id,
+                        group_type_index: 0,
+                        group_key: 'acme-inc',
+                        group_properties: { name: 'Acme Inc', industry: 'Tech' },
+                    },
+                    {
+                        team_id: team.id,
+                        group_type_index: 1,
+                        group_key: 'project-alpha',
+                        group_properties: { name: 'Project Alpha', status: 'active' },
+                    },
+                ]),
+                fetchGroupTypesByTeamIds: jest.fn().mockImplementation((teamIds: number[]) => {
+                    const result: Record<string, { group_type: string; group_type_index: number }[]> = {}
+                    for (const id of teamIds) {
+                        result[id.toString()] = [
+                            { group_type: 'company', group_type_index: 0 },
+                            { group_type: 'project', group_type_index: 1 },
+                        ]
+                    }
+                    return Promise.resolve(result)
+                }),
+                fetchGroupTypesByProjectIds: jest.fn().mockResolvedValue({}),
+            }
 
-            await hub.groupRepository.insertGroup(
-                team.id,
-                0 as any,
-                'acme-inc',
-                { name: 'Acme Inc', industry: 'Tech' },
-                DateTime.now(),
-                {},
-                {}
-            )
-            await hub.groupRepository.insertGroup(
-                team.id,
-                1 as any,
-                'project-alpha',
-                { name: 'Project Alpha', status: 'active' },
-                DateTime.now(),
-                {},
-                {}
-            )
+            processor['groupsManager'] = new GroupsManagerService(hub.teamManager, mockGroupRepo)
         }
 
         beforeEach(() => {

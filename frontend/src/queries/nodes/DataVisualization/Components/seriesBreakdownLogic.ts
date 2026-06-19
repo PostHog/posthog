@@ -28,8 +28,18 @@ export interface BreakdownSeriesData<T> {
     xData: AxisSeries<string>
     seriesData: AxisBreakdownSeries<T>[]
     isUnaggregated?: boolean
-    error?: string
+    warning?: string
 }
+
+/** Most series we'll render for a single breakdown before the chart becomes unreadable. */
+export const MAX_BREAKDOWN_SERIES = 50
+
+/** Short label shown when a breakdown is capped — pairs with the detailed warning below. */
+export const BREAKDOWN_LIMIT_LABEL = `Breakdowns are limited to ${MAX_BREAKDOWN_SERIES}`
+
+/** Detailed, count-aware copy shown in the cap's info tooltip. */
+export const getBreakdownLimitWarning = (totalValues: number): string =>
+    `Showing the top ${MAX_BREAKDOWN_SERIES} breakdown values by total out of ${totalValues}. Refine your query to narrow the breakdown.`
 
 export const EmptyBreakdownSeries: BreakdownSeriesData<number | null> = {
     xData: {
@@ -45,13 +55,6 @@ export const EmptyBreakdownSeries: BreakdownSeriesData<number | null> = {
         data: [],
     },
     seriesData: [],
-}
-
-const createEmptyBreakdownSeriesWithError = (error: string): BreakdownSeriesData<number | null> => {
-    return {
-        ...EmptyBreakdownSeries,
-        error,
-    }
 }
 
 const parseBreakdownSeriesValue = (value: unknown, selectedYAxis: SelectedYAxis): number | null => {
@@ -176,16 +179,38 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     return EmptyBreakdownSeries
                 }
 
-                if (breakdownColumnValues.length > 50) {
-                    return createEmptyBreakdownSeriesWithError('Too many breakdown values (max 50)')
-                }
-
                 const data: any[] =
                     'results' in response && Array.isArray(response.results)
                         ? response.results
                         : 'result' in response && Array.isArray(response.result)
                           ? response.result
                           : []
+
+                const yColumns = yAxis
+                    .map((selectedYAxis) => columns.find((n) => n.name === selectedYAxis.name))
+                    .filter((column): column is NonNullable<typeof column> => Boolean(column))
+
+                // When there are more breakdown values than we can legibly chart, keep the
+                // most significant ones (highest total across the y-series) rather than an
+                // arbitrary first-N, and tell the user we capped it.
+                let visibleBreakdownValues = breakdownColumnValues
+                let warning: string | undefined
+                if (breakdownColumnValues.length > MAX_BREAKDOWN_SERIES) {
+                    const totalByValue = new Map<unknown, number>()
+                    for (const row of data) {
+                        const rowTotal = yColumns.reduce((sum, yColumn) => {
+                            const numeric = Number(row[yColumn.dataIndex])
+                            return Number.isNaN(numeric) ? sum : sum + numeric
+                        }, 0)
+                        const breakdownValue = row[breakdownColumn.dataIndex]
+                        totalByValue.set(breakdownValue, (totalByValue.get(breakdownValue) ?? 0) + rowTotal)
+                    }
+
+                    visibleBreakdownValues = [...breakdownColumnValues]
+                        .sort((a, b) => (totalByValue.get(b) ?? 0) - (totalByValue.get(a) ?? 0))
+                        .slice(0, MAX_BREAKDOWN_SERIES)
+                    warning = getBreakdownLimitWarning(breakdownColumnValues.length)
+                }
 
                 // xData is unique x values
                 const xData = Array.from(new Set(data.map((n) => n[xColumn.dataIndex])))
@@ -203,7 +228,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                         return []
                     }
 
-                    return breakdownColumnValues.map<AxisBreakdownSeries<number | null>>((value) => {
+                    return visibleBreakdownValues.map<AxisBreakdownSeries<number | null>>((value) => {
                         const seriesName = multipleYSeries
                             ? `${selectedYAxis.name} - ${value || '[No value]'}`
                             : value || '[No value]'
@@ -276,6 +301,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                     },
                     seriesData,
                     isUnaggregated,
+                    warning,
                 }
             },
         ],

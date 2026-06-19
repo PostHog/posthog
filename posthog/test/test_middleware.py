@@ -26,13 +26,13 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import per_request_logging_context_middleware
-from posthog.models import Cohort
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
@@ -354,8 +354,8 @@ class TestAutoProjectMiddleware(APIBaseTest):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
         with self.assertNumQueries(
-            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 9)
-        ):  # +1 from activity logging _get_before_update()
+            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
+        ):  # +1 from activity logging _get_before_update(), +1 from passkey credential review check
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -708,6 +708,56 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
 
+    @parameterized.expand(
+        [
+            # A safe `next` lets staff return straight to the PostHog app.
+            ("safe_next", "?next=/", "/"),
+            # No `next` keeps the default admin change-page redirect.
+            ("no_next", "", None),
+            # Unsafe `next` values are ignored, falling back to the admin default.
+            ("unsafe_scheme_relative", "?next=//evil.com/path", None),
+            ("unsafe_absolute_url", "?next=https://evil.com", None),
+        ]
+    )
+    def test_loginas_logout_redirect(self, _name, query_suffix, expected_location):
+        """The loginas logout endpoint redirects to a safe `next` when given, otherwise to the admin change page."""
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+            res = self.client.get(f"/admin/logout/{query_suffix}")
+            assert res.status_code == 302
+            assert res.headers["Location"] == (expected_location or f"/admin/posthog/user/{self.other_user.id}/change/")
+
+            # Verify we're back to the original staff user
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "user1@posthog.com"
+
+    def test_loginas_logout_with_next_returns_to_app_after_expiry(self):
+        """Even when the session has expired server-side, `next` survives the middleware
+        bounce so staff still land back in the PostHog app."""
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+        with freeze_time(now + timedelta(seconds=35)):
+            # First hit: the auto-logout middleware restores the original login and
+            # bounces back to the same path, preserving ?next=/.
+            res = self.client.get("/admin/logout/?next=/")
+            assert res.status_code == 302
+            assert res.headers["Location"] == "/admin/logout/?next=/"
+
+            # Second hit: no longer an impersonated session, so the view honors `next`.
+            res = self.client.get("/admin/logout/?next=/")
+            assert res.status_code == 302
+            assert res.headers["Location"] == "/"
+
+            # Verify we're back to the original staff user
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "user1@posthog.com"
+
 
 @override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
 @override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
@@ -789,6 +839,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "external_data_schemas_incremental_fields",
                 "external_data_schemas/00000000-0000-0000-0000-000000000000/incremental_fields/",
                 {},
+            ),
+            (
+                "exports",
+                "exports/",
+                {"export_format": "video/mp4", "export_context": {"session_recording_id": "test-session"}},
             ),
         ]
     )

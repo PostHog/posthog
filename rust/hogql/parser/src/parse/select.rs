@@ -463,11 +463,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 .set_field(&mut obj, "ctes", self.emit.list_value(ctes));
         }
 
-        // Catch typo'd SELECT keyword (e.g. `SELEC`) with a message close
-        // enough to the ANTLR-style "mismatched input" that the existing
-        // `test_malformed_sql` substring-match passes. End position spans
-        // through the rest of the source (matching C++ which highlights
-        // the whole malformed region, not just the first token).
+        // Catch typo'd SELECT keyword (e.g. `SELEC`) with the exact ANTLR-style
+        // "mismatched input" message cpp emits, so cross-backend assertions match
+        // on equality, not just substring. End position spans through the rest of
+        // the source (matching C++ which highlights the whole malformed region,
+        // not just the first token).
         if !matches!(self.peek(), TokenKind::Keyword(Kw::Select)) {
             let raw = if self.peek0.kind == TokenKind::Eof {
                 "<eof>"
@@ -475,8 +475,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 self.text(self.peek0)
             };
             return Err(ParseError::syntax(
-                format!("mismatched input '{raw}' expecting {{SELECT, WITH, '{{', '(', '<'}} (reserved keyword expected)"),
-                self.peek0.start, self.src.len(),
+                format!("mismatched input '{raw}' expecting {{SELECT, WITH, '{{', '(', '<'}}"),
+                self.peek0.start,
+                self.src.len(),
             ));
         }
         self.bump()?;
@@ -1133,21 +1134,22 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         .set_field(obj, "limit_with_ties", self.emit.bool(true));
                 }
             } else {
-                // Verbose form (or no second operand).
+                // After LIMIT BY's trailing LIMIT n, ANTLR ALL(*) picks
+                // `limitAndOffsetClause`'s compact alt — `LIMIT n PERCENT?
+                // (COMMA m)? (WITH TIES)?` — over verbose (which would
+                // consume OFFSET) because compact is listed first in the
+                // grammar. So we stop here even if `OFFSET m` follows; the
+                // outer `selectSetStmt`'s `limitAndOffsetClauseOptional`
+                // picks it up, and `merge_select_decorators` attaches it
+                // to the inner SelectQuery — keeping the inner's position
+                // span stopping before OFFSET, matching cpp's selectStmt
+                // ctx. Verbose-form `__rust_offset_liftable` is never set
+                // here: limit-by's trailing OFFSET stays on the inner.
                 if self.peek_kw2(Kw::With, Kw::Ties) {
                     self.bump()?;
                     self.bump()?;
                     self.emit
                         .set_field(obj, "limit_with_ties", self.emit.bool(true));
-                }
-                if self.eat_kw(Kw::Offset)? {
-                    let _v = self.parse_expr_bp(0)?;
-                    self.emit.set_field(obj, "offset", _v);
-                    // Sentinel for the SelectSetStmt wrapper's
-                    // conditional lift logic — only the verbose form
-                    // is liftable.
-                    self.emit
-                        .set_field(obj, "__rust_offset_liftable", self.emit.bool(true));
                 }
             }
         } else if self.eat_kw(Kw::Offset)? {

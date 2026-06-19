@@ -5,7 +5,7 @@ from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
@@ -26,7 +26,7 @@ class SucceedMaterializationInputs:
     update_node: bool = True
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _succeed_node_and_data_modeling_job(inputs: SucceedMaterializationInputs):
     node = None
     if inputs.update_node:

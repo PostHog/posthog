@@ -102,6 +102,11 @@ pub trait GroupStorage: Send + Sync {
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<GroupTypeMapping>>;
 
+    async fn count_group_type_mappings(
+        &self,
+        consistency: ConsistencyLevel,
+    ) -> StorageResult<Vec<(i64, i64)>>;
+
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         team_id: i64,

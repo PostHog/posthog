@@ -9,6 +9,7 @@ from posthog.schema import ArtifactContentType, ArtifactSource, VisualizationArt
 
 from posthog.models import Team
 
+from products.posthog_ai.backend.models.assistant import AgentArtifact
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.handlers.base import ArtifactHandler, EnrichmentContext, register_handler
@@ -20,7 +21,6 @@ from ee.hogai.artifacts.types import (
 )
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.utils.types.base import AssistantMessageUnion
-from ee.models.assistant import AgentArtifact
 
 
 @register_handler

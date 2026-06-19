@@ -3,8 +3,11 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    VisionObservationsListQueryParams,
+    VisionObservationsRetrieveParams,
     VisionScannersCreateBody,
     VisionScannersDestroyParams,
+    VisionScannersEstimateCreateBody,
     VisionScannersListQueryParams,
     VisionScannersObservationsListParams,
     VisionScannersObservationsListQueryParams,
@@ -17,6 +20,64 @@ import {
 } from '@/generated/replay_vision/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const VisionObservationsListSchema = VisionObservationsListQueryParams
+
+const visionObservationsList = (): ToolBase<
+    typeof VisionObservationsListSchema,
+    WithPostHogUrl<Schemas.PaginatedReplayObservationList>
+> => ({
+    name: 'vision-observations-list',
+    schema: VisionObservationsListSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionObservationsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedReplayObservationList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                order_by: params.order_by,
+                session_id: params.session_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay-vision')
+    },
+})
+
+const VisionObservationsRetrieveSchema = VisionObservationsRetrieveParams.omit({ project_id: true })
+
+const visionObservationsRetrieve = (): ToolBase<
+    typeof VisionObservationsRetrieveSchema,
+    Schemas.ReplayObservation
+> => ({
+    name: 'vision-observations-retrieve',
+    schema: VisionObservationsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionObservationsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReplayObservation>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const VisionQuotaRetrieveSchema = z.object({})
+
+const visionQuotaRetrieve = (): ToolBase<typeof VisionQuotaRetrieveSchema, Schemas.VisionQuota> => ({
+    name: 'vision-quota-retrieve',
+    schema: VisionQuotaRetrieveSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof VisionQuotaRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.VisionQuota>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/quota/`,
+        })
+        return result
+    },
+})
 
 const VisionScannersCreateSchema = VisionScannersCreateBody
 
@@ -58,7 +119,7 @@ const visionScannersCreate = (): ToolBase<typeof VisionScannersCreateSchema, Sch
         }
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/`,
             body,
         })
         return result
@@ -74,7 +135,33 @@ const visionScannersDelete = (): ToolBase<typeof VisionScannersDeleteSchema, unk
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const VisionScannersEstimateCreateSchema = VisionScannersEstimateCreateBody
+
+const visionScannersEstimateCreate = (): ToolBase<
+    typeof VisionScannersEstimateCreateSchema,
+    Schemas.EstimateResponse
+> => ({
+    name: 'vision-scanners-estimate-create',
+    schema: VisionScannersEstimateCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionScannersEstimateCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.sampling_rate !== undefined) {
+            body['sampling_rate'] = params.sampling_rate
+        }
+        const result = await context.api.request<Schemas.EstimateResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/estimate/`,
+            body,
         })
         return result
     },
@@ -89,7 +176,7 @@ const visionScannersGet = (): ToolBase<typeof VisionScannersGetSchema, Schemas.R
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -107,14 +194,16 @@ const visionScannersList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedReplayScannerList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/`,
             query: {
+                created_by: params.created_by,
                 emits_signals: params.emits_signals,
                 enabled: params.enabled,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
                 scanner_type: params.scanner_type,
+                search: params.search,
             },
         })
         return await withPostHogUrl(context, result, '/replay-vision')
@@ -133,7 +222,7 @@ const visionScannersObservationsGet = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ReplayObservation>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -153,14 +242,16 @@ const visionScannersObservationsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedReplayObservationList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
                 session_id: params.session_id,
                 status: params.status,
+                tags: params.tags,
                 triggered_by: params.triggered_by,
+                verdict: params.verdict,
             },
         })
         return await withPostHogUrl(context, result, '/replay-vision')
@@ -182,7 +273,7 @@ const visionScannersScanSession = (): ToolBase<typeof VisionScannersScanSessionS
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/observe/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/observe/`,
             body,
         })
         return result
@@ -231,7 +322,7 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
         }
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'PATCH',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
@@ -239,8 +330,12 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'vision-observations-list': visionObservationsList,
+    'vision-observations-retrieve': visionObservationsRetrieve,
+    'vision-quota-retrieve': visionQuotaRetrieve,
     'vision-scanners-create': visionScannersCreate,
     'vision-scanners-delete': visionScannersDelete,
+    'vision-scanners-estimate-create': visionScannersEstimateCreate,
     'vision-scanners-get': visionScannersGet,
     'vision-scanners-list': visionScannersList,
     'vision-scanners-observations-get': visionScannersObservationsGet,

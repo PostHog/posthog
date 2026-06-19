@@ -13,6 +13,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import CacheOrigin, parse_select
@@ -108,7 +109,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 team_id=self.team.pk, connection_id=self.query.connectionId
             )
             if source is None:
-                raise ExposedHogQLError("Invalid connectionId for this team")
+                raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
 
         if self.query.sendRawQuery and self.query.connectionId:
             return execute_hogql_query(
@@ -118,6 +119,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 modifiers=self.query.modifiers or self.modifiers,
                 team=self.team,
                 user=self.user,
+                user_access_control=self.user_access_control,
                 timings=self.timings,
                 variables=self.query.variables,
                 connection_id=self.query.connectionId,
@@ -147,6 +149,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             modifiers=self.query.modifiers or self.modifiers,
             team=self.team,
             user=self.user,
+            user_access_control=self.user_access_control,
             timings=self.timings,
             variables=self.query.variables,
             connection_id=self.query.connectionId,

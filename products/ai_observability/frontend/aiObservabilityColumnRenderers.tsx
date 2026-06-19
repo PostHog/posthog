@@ -23,10 +23,11 @@ import { EventData, useAIData } from './hooks/useAIData'
 import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { normalizeMessages } from './messageNormalization'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import { TraceReviewValue } from './traceReviews/TraceReviewValue'
 import { CompatMessage } from './types'
-import { normalizeMessages, parseJSONPreview } from './utils'
+import { parseJSONPreview } from './utils'
 
 const truncateValue = (value: string): string => {
     if (value.length > 8) {
@@ -171,7 +172,7 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
     )
 }
 
-function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
     const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
     const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
 
@@ -289,7 +290,7 @@ function AIInputCell({ eventData }: { eventData: EventData }): JSX.Element {
     let inputNormalized: CompatMessage[] | undefined
     try {
         const parsed = parseJSONPreview(input)
-        inputNormalized = normalizeMessages(parsed, 'user')
+        inputNormalized = normalizeMessages(parsed, 'user').messages
     } catch (e) {
         console.warn('Error normalizing properties.$ai_input', e)
     }
@@ -311,7 +312,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
     let outputNormalized: CompatMessage[] | undefined
     try {
         const parsed = parseJSONPreview(output)
-        outputNormalized = normalizeMessages(parsed, 'assistant')
+        outputNormalized = normalizeMessages(parsed, 'assistant').messages
     } catch (e) {
         console.warn('Error normalizing properties.$ai_output_choices', e)
     }
@@ -368,7 +369,7 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
 
 const MAX_VISIBLE_TOOLS = 5
 
-function ToolsDisplay({ tools }: { tools: string[] | undefined | null }): JSX.Element {
+export function ToolsDisplay({ tools }: { tools: string[] | undefined | null }): JSX.Element {
     if (!tools || tools.length === 0) {
         return <>–</>
     }

@@ -218,7 +218,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         return hasattr(obj, "action_id") and obj.action_id is not None
 
 
-@extend_schema(tags=["core"])
 class EventDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,

@@ -14,6 +14,7 @@ import json
 import shlex
 import shutil
 import socket
+import functools
 import itertools
 import threading
 import subprocess
@@ -34,8 +35,11 @@ DEFAULT_TEMPLATE = "posthog-linux"
 # create` that `--yes` does not bypass. Callers must always forward `--preset`
 # with a concrete value -- either a preset the template defines, or the literal
 # NO_PRESET sentinel below.
-DEFAULT_PRESET = "Default (warm)"
 NO_PRESET = "none"
+# Opt out of presets by default so a vanilla `hogli devbox:start` never claims
+# from a prebuild warm pool (a Coder premium feature). Pass `--preset <name>` to
+# select a template preset explicitly where one is defined.
+DEFAULT_PRESET = NO_PRESET
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
@@ -45,14 +49,23 @@ DOTFILES_URI_PARAMETER = "dotfiles_uri"
 DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
 
-# Region selector. The template defines `workspace_region` with a us-east-1
-# default; eu-central-1 became a valid option when the EU infrastructure went
-# live. The value is immutable after creation, but it must still be forwarded
-# on `coder update` and the parameter sync -- when a template author changes a
-# parameter's allowed values, Coder re-prompts existing workspaces for that
-# parameter regardless of `--use-parameter-defaults`, and the prompt is not
-# bypassable by any flag. Pinning the current value short-circuits the picker.
-# Valid values match the template contract exactly.
+# Opt-in: bring the PostHog app (the `hogli up` dev stack) up in the
+# background on every workspace start. Mutable and sticky on the workspace, so
+# it stays in effect for future starts until explicitly flipped off. On
+# template versions that don't define it yet, the retry shim drops it with a
+# visible warning.
+AUTO_START_APP_PARAMETER = "auto_start_app"
+
+# Create-time region selector. The template defines `workspace_region` with a
+# us-east-1 default; eu-central-1 became a valid option when the EU
+# infrastructure went live. The value is immutable after creation, so it is
+# forwarded on `coder create` only -- never on `coder update` or the pre-start
+# parameter sync. Coder carries an immutable parameter's value forward on its
+# own during an update and *rejects* any explicit `--parameter
+# workspace_region=` with "parameter is immutable and cannot be updated". The
+# option-change re-prompt that no flag can bypass only applies to *mutable*
+# parameters, so forwarding the region here breaks every resume instead of
+# suppressing a picker. Valid values match the template contract exactly.
 WORKSPACE_REGION_PARAMETER = "workspace_region"
 REGIONS = ("us-east-1", "eu-central-1")
 DEFAULT_REGION = REGIONS[0]
@@ -947,8 +960,14 @@ def get_default_git_identity() -> tuple[str | None, str | None]:
     return git_name, git_email
 
 
+@functools.cache
 def get_username() -> str:
-    """Get current Coder username."""
+    """Get current Coder username (cached -- it cannot change within one invocation).
+
+    Every helper that builds or parses workspace names calls this, and each
+    uncached call is a `coder` subprocess. Failures raise instead of caching,
+    so an auth retry within the same process still re-probes.
+    """
     user_info = get_coder_user_info()
     username = _first_non_empty_string(user_info.get("username"))
     if username:
@@ -1032,6 +1051,20 @@ def extract_workspace_label(workspace_name: str) -> str | None:
             rest = rest[: -len(reserved) - 1]
             break
     return rest or None
+
+
+def region_from_workspace_name(workspace_name: str) -> str:
+    """Return the region a workspace name encodes via its suffix.
+
+    The name is authoritative -- non-default regions carry a `-{suffix}` and
+    the suffix-free form is the default region (see ``REGION_NAME_SUFFIXES``).
+    Unlike ``get_workspace_region`` this needs no live ``coder`` metadata, so it
+    is correct even for boxes created before the region metadata item existed.
+    """
+    for region, suffix in REGION_NAME_SUFFIXES.items():
+        if suffix and workspace_name.endswith(f"-{suffix}"):
+            return region
+    return DEFAULT_REGION
 
 
 def list_user_workspaces() -> list[dict[str, Any]]:
@@ -1124,6 +1157,19 @@ def resolve_template_preset(template: str, requested: str) -> str:
     return NO_PRESET
 
 
+def _start_app_param(start_app: bool | None) -> dict[str, str]:
+    """Map the tri-state --start-app flag to a parameter dict (empty = leave as-is).
+
+    ``None`` (flag omitted) returns ``{}`` so the value stays sticky on an
+    existing workspace and falls back to the template default on creation.
+    ``True``/``False`` are written explicitly so the choice survives even if the
+    template default changes.
+    """
+    if start_app is None:
+        return {}
+    return {AUTO_START_APP_PARAMETER: "true" if start_app else "false"}
+
+
 def create_workspace(
     name: str,
     disk_size: int,
@@ -1135,6 +1181,7 @@ def create_workspace(
     region: str = DEFAULT_REGION,
     template: str = DEFAULT_TEMPLATE,
     preset: str = DEFAULT_PRESET,
+    start_app: bool | None = None,
     verbose: bool = False,
 ) -> None:
     """Create a new Coder workspace.
@@ -1167,6 +1214,7 @@ def create_workspace(
         parameters[GIT_EMAIL_PARAMETER] = git_email
     if dotfiles_uri:
         parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
+    parameters.update(_start_app_param(start_app))
 
     resolved_preset = resolve_template_preset(template, preset)
     base_args = [

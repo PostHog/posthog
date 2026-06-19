@@ -110,6 +110,18 @@ def validate_message_body(value: str | None) -> str | None:
     return value
 
 
+def contains_bare_domain(value: str | None) -> bool:
+    """
+    True if `value` contains a bare domain (e.g. `example.com`) after NFKC
+    normalization. The `validate_*` helpers above intentionally *allow* bare
+    domains; callers that want to reject domains entirely (e.g. so mail clients
+    can't auto-link them in a branded email) layer this check on top.
+    """
+    if not value:
+        return False
+    return bool(_BARE_DOMAIN_RE.search(unicodedata.normalize("NFKC", value)))
+
+
 def _extract_error_code(err: serializers.ValidationError) -> str:
     """
     Pull the first `code` off a DRF ValidationError. `err.detail` is a union

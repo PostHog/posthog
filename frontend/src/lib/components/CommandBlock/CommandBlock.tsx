@@ -4,9 +4,9 @@ import { useState } from 'react'
 
 import { IconCopy, IconTerminal } from '@posthog/icons'
 
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 type Size = 'sm' | 'md'
 type Decoration = 'plain' | 'rainbow'
@@ -31,6 +31,9 @@ interface CommandBlockProps {
     /** Fired after each copy click, with a monotonically increasing key. Lets callers
      *  trigger their own keyed remount animations (e.g. the wizard hedgehog cast). */
     onCopy?: (copyKey: number) => void
+    /** Skip the "Copied … to clipboard" toast. Set when this block lives inside another
+     *  long-lived toast that would otherwise get pushed around by the success info toast. */
+    silentCopy?: boolean
 }
 
 export function CommandBlock({
@@ -41,13 +44,14 @@ export function CommandBlock({
     size = 'md',
     decoration = 'plain',
     onCopy,
+    silentCopy = false,
 }: CommandBlockProps): JSX.Element {
     const [copyKey, setCopyKey] = useState(0)
     const sizeStyle = SIZE_STYLES[size]
     const isStorybook = inStorybook() || inStorybookTestRunner()
 
     const handleCopy = (): void => {
-        void copyToClipboard(command, copyLabel)
+        void copyToClipboard(command, copyLabel, { silent: silentCopy })
         const next = copyKey + 1
         setCopyKey(next)
         onCopy?.(next)

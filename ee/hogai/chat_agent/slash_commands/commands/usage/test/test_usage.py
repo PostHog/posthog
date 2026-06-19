@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import uuid4
@@ -5,21 +6,32 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.exceptions import SynchronousOnlyOperation
+
+from asgiref.sync import async_to_sync
+from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.schema import AssistantMessage, HumanMessage
+
+from products.posthog_ai.backend.models.assistant import Conversation
+
+from ee.hogai.chat_agent.slash_commands.commands.usage.command import UsageCommand
 from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     CLOUD_REGION_TO_TEAM_ID,
     CLOUD_REGION_TO_URL,
     DEFAULT_FREE_TIER_CREDITS,
     DEFAULT_GA_LAUNCH_DATE,
+    AiUsagePeriod,
     format_usage_message,
     get_ai_credits,
     get_ai_free_tier_credits,
+    get_ai_usage_period,
     get_conversation_start_time,
     get_ga_launch_date,
     get_past_month_start,
 )
-from ee.models.assistant import Conversation
+from ee.hogai.utils.types import AssistantState
 
 
 class TestUsage(BaseTest):
@@ -96,25 +108,20 @@ class TestUsage(BaseTest):
         end = datetime(2026, 5, 2, tzinfo=UTC)
         conversation_id = uuid4()
 
-        group_mappings = (
-            [
-                {"group_type": "organization", "group_type_index": 0},
-                {"group_type": "instance", "group_type_index": instance_group_index},
-            ]
-            if instance_group_index is not None
-            else []
-        )
-
         with (
             patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region") as mock_region,
             patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.sync_execute") as mock_sync_execute,
             patch(
-                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_group_types_for_team"
-            ) as mock_group_types,
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.build_ai_billing_region_filter"
+            ) as mock_region_filter,
         ):
             mock_region.return_value = region
             mock_sync_execute.return_value = [(42,)]
-            mock_group_types.return_value = group_mappings
+            if expected_region_url is not None:
+                mock_region_filter.return_value = {
+                    "region_group_property": f"$group_{instance_group_index}",
+                    "region_url": expected_region_url,
+                }
 
             credits = get_ai_credits(team_id=133393, begin=begin, end=end, conversation_id=conversation_id)
 
@@ -125,17 +132,17 @@ class TestUsage(BaseTest):
             if expected_region_url is None:
                 self.assertNotIn("region_url", params)
                 self.assertNotIn("%(region_url)s", query)
-                mock_group_types.assert_not_called()
+                mock_region_filter.assert_not_called()
             else:
                 self.assertEqual(params["region_url"], expected_region_url)
-                mock_group_types.assert_called_once_with(expected_team_to_query)
+                self.assertEqual(params["region_group_property"], f"$group_{instance_group_index}")
+                mock_region_filter.assert_called_once_with(expected_team_to_query, expected_region_url)
                 self.assertIn(
-                    f"AND JSONExtractString(properties, '$group_{instance_group_index}') = %(region_url)s",
+                    "AND JSONExtractString(properties, %(region_group_property)s) = %(region_url)s",
                     query,
                 )
 
-    def test_get_ai_credits_skips_region_filter_when_instance_group_missing(self):
-        """If the destination team has no `instance` group registered, skip the region filter rather than match nothing."""
+    def test_get_ai_credits_returns_zero_when_instance_group_missing(self):
         begin = datetime(2026, 5, 1, tzinfo=UTC)
         end = datetime(2026, 5, 2, tzinfo=UTC)
         conversation_id = uuid4()
@@ -144,18 +151,16 @@ class TestUsage(BaseTest):
             patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region") as mock_region,
             patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.sync_execute") as mock_sync_execute,
             patch(
-                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_group_types_for_team",
-                return_value=[{"group_type": "organization", "group_type_index": 0}],
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.build_ai_billing_region_filter",
+                return_value=None,
             ),
         ):
             mock_region.return_value = "EU"
-            mock_sync_execute.return_value = [(0,)]
 
-            get_ai_credits(team_id=133393, begin=begin, end=end, conversation_id=conversation_id)
+            credits = get_ai_credits(team_id=133393, begin=begin, end=end, conversation_id=conversation_id)
 
-            query, params = mock_sync_execute.call_args[0][:2]
-            self.assertNotIn("region_url", params)
-            self.assertNotIn("%(region_url)s", query)
+            self.assertEqual(credits, 0)
+            mock_sync_execute.assert_not_called()
 
     def test_get_conversation_start_time_exists(self):
         """Test retrieving conversation start time for existing conversation."""
@@ -217,28 +222,151 @@ class TestUsage(BaseTest):
             past_month_start = get_past_month_start()
             self.assertEqual(past_month_start, DEFAULT_GA_LAUNCH_DATE)
 
+    def test_get_ai_usage_period_from_billing_context(self):
+        billing_context = {
+            "billing_period": {
+                "current_period_start": "2026-05-02T14:51:12Z",
+                "current_period_end": "2026-06-02T14:51:12Z",
+                "interval": "month",
+            },
+            "billing_plan": "paid",
+            "has_active_subscription": True,
+            "is_deactivated": False,
+            "products": [],
+            "settings": {"autocapture_on": True, "active_destinations": 0},
+            "subscription_level": "paid",
+        }
+
+        usage_period = get_ai_usage_period(self.team, billing_context)
+
+        self.assertEqual(usage_period.label, "Billing period")
+        self.assertEqual(usage_period.start, datetime(2026, 5, 2, 14, 51, 12, tzinfo=UTC))
+        self.assertEqual(usage_period.end, datetime(2026, 6, 2, 14, 51, 12, tzinfo=UTC))
+        self.assertEqual(usage_period.query_start, datetime(2026, 5, 2, 14, 51, 12, tzinfo=UTC))
+
+    def test_get_ai_usage_period_from_organization_usage(self):
+        self.organization.usage = {
+            "period": ["2026-05-02T14:51:12Z", "2026-06-02T14:51:12Z"],
+        }
+
+        usage_period = get_ai_usage_period(self.team, None)
+
+        self.assertEqual(usage_period.label, "Billing period")
+        self.assertEqual(usage_period.start, datetime(2026, 5, 2, 14, 51, 12, tzinfo=UTC))
+        self.assertEqual(usage_period.end, datetime(2026, 6, 2, 14, 51, 12, tzinfo=UTC))
+        self.assertEqual(usage_period.query_start, datetime(2026, 5, 2, 14, 51, 12, tzinfo=UTC))
+
+    @patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.posthoganalytics.get_feature_flag_payload")
+    def test_get_ai_usage_period_caps_query_start_at_ga_launch(self, mock_payload):
+        mock_payload.return_value = None
+        self.organization.usage = {
+            "period": ["2025-11-01T00:00:00Z", "2025-12-01T00:00:00Z"],
+        }
+
+        usage_period = get_ai_usage_period(self.team, None)
+
+        self.assertEqual(usage_period.label, "Billing period")
+        self.assertEqual(usage_period.start, datetime(2025, 11, 1, tzinfo=UTC))
+        self.assertEqual(usage_period.end, datetime(2025, 12, 1, tzinfo=UTC))
+        self.assertEqual(usage_period.query_start, DEFAULT_GA_LAUNCH_DATE)
+
+    def test_get_ai_usage_period_falls_back_to_past_month(self):
+        now = datetime(2025, 12, 20, tzinfo=UTC)
+        with patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.datetime") as mock_datetime:
+            mock_datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+            mock_datetime.now.return_value = now
+
+            usage_period = get_ai_usage_period(self.team, None)
+
+        self.assertEqual(usage_period.label, "Past 30 days")
+        self.assertEqual(usage_period.start, datetime(2025, 11, 20, tzinfo=UTC))
+        self.assertEqual(usage_period.end, now)
+        self.assertEqual(usage_period.query_start, datetime(2025, 11, 20, tzinfo=UTC))
+
+    def test_execute_runs_usage_period_off_event_loop(self):
+        # Without a billing context, get_ai_usage_period falls back to team.organization.usage, a sync
+        # ORM access. It must run off the event loop or Django raises SynchronousOnlyOperation, which the
+        # command would swallow into a generic failure. This guard mimics that check: it raises only when
+        # get_ai_usage_period executes directly on the running loop.
+        conversation = Conversation.objects.create(team=self.team, user=self.user)
+        config = RunnableConfig(configurable={"thread_id": str(conversation.id)})
+        state = AssistantState(messages=[HumanMessage(content="/usage")])
+
+        def usage_period_guarded(*args, **kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return AiUsagePeriod(
+                    label="Past 30 days",
+                    start=datetime(2026, 5, 1, tzinfo=UTC),
+                    end=datetime(2026, 6, 1, tzinfo=UTC),
+                    query_start=datetime(2026, 5, 1, tzinfo=UTC),
+                )
+            raise SynchronousOnlyOperation(
+                "You cannot call this from an async context - use a thread or sync_to_async."
+            )
+
+        with (
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.command.get_ai_usage_period",
+                side_effect=usage_period_guarded,
+            ),
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.command.get_ai_credits_for_conversation",
+                return_value=10,
+            ),
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.command.get_ai_credits_for_team",
+                return_value=100,
+            ),
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.command.get_ai_free_tier_credits",
+                return_value=2000,
+            ),
+        ):
+            result = async_to_sync(UsageCommand(self.team, self.user).execute)(config, state)
+
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        content = cast(str, message.content)
+        self.assertIn("PostHog AI usage", content)
+        self.assertNotIn("query failed", content)
+
     def test_format_usage_message_no_usage(self):
         """Test formatting when no credits have been used."""
         message = format_usage_message(
             conversation_credits=0,
-            past_month_credits=0,
+            period_credits=0,
             free_tier_credits=2000,
+            usage_period=AiUsagePeriod(
+                label="Billing period",
+                start=datetime(2026, 5, 2, 14, 51, 12, tzinfo=UTC),
+                end=datetime(2026, 6, 2, 14, 51, 12, tzinfo=UTC),
+                query_start=datetime(2026, 5, 2, 14, 51, 12, tzinfo=UTC),
+            ),
         )
         self.assertIn("**Current conversation**: 0 credits", message)
-        self.assertIn("**Past 30 days**: 0 credits", message)
+        self.assertIn("**Billing period** (2026-05-02 to 2026-06-02): 0 credits", message)
         self.assertIn("**Free tier limit**: 2,000 credits", message)
         self.assertIn("**Remaining**: 2,000 credits", message)
         self.assertIn("0% of free tier", message)
+        self.assertIn("_Billing period resets on_: 2026-06-02 14:51 UTC", message)
 
     def test_format_usage_message_partial_usage(self):
         """Test formatting with partial usage."""
         message = format_usage_message(
             conversation_credits=50,
-            past_month_credits=500,
+            period_credits=500,
             free_tier_credits=2000,
+            usage_period=AiUsagePeriod(
+                label="Billing period",
+                start=datetime(2026, 5, 2, tzinfo=UTC),
+                end=datetime(2026, 6, 2, tzinfo=UTC),
+                query_start=datetime(2026, 5, 2, tzinfo=UTC),
+            ),
         )
         self.assertIn("**Current conversation**: 50 credits", message)
-        self.assertIn("**Past 30 days**: 500 credits", message)
+        self.assertIn("**Billing period** (2026-05-02 to 2026-06-02): 500 credits", message)
         self.assertIn("**Remaining**: 1,500 credits", message)
         self.assertIn("25% of free tier", message)
 
@@ -246,8 +374,14 @@ class TestUsage(BaseTest):
         """Test formatting when over the free tier limit."""
         message = format_usage_message(
             conversation_credits=100,
-            past_month_credits=2500,
+            period_credits=2500,
             free_tier_credits=2000,
+            usage_period=AiUsagePeriod(
+                label="Billing period",
+                start=datetime(2026, 5, 2, tzinfo=UTC),
+                end=datetime(2026, 6, 2, tzinfo=UTC),
+                query_start=datetime(2026, 5, 2, tzinfo=UTC),
+            ),
         )
         self.assertIn("**Overage**: 500 credits over limit", message)
         self.assertIn("125% of free tier", message)
@@ -258,9 +392,14 @@ class TestUsage(BaseTest):
         mock_payload.return_value = None
         message = format_usage_message(
             conversation_credits=10,
-            past_month_credits=100,
+            period_credits=100,
             free_tier_credits=2000,
-            past_month_start=DEFAULT_GA_LAUNCH_DATE,
+            usage_period=AiUsagePeriod(
+                label="Billing period",
+                start=datetime(2025, 11, 1, tzinfo=UTC),
+                end=datetime(2025, 12, 1, tzinfo=UTC),
+                query_start=DEFAULT_GA_LAUNCH_DATE,
+            ),
         )
         self.assertIn(f"since {DEFAULT_GA_LAUNCH_DATE.strftime('%Y-%m-%d')}", message)
         self.assertIn(
@@ -272,7 +411,7 @@ class TestUsage(BaseTest):
         conv_start = datetime(2025, 11, 18, 10, 30, tzinfo=UTC)
         message = format_usage_message(
             conversation_credits=25,
-            past_month_credits=200,
+            period_credits=200,
             free_tier_credits=2000,
             conversation_start=conv_start,
         )
@@ -282,7 +421,7 @@ class TestUsage(BaseTest):
         """Test that progress bar is rendered correctly."""
         message = format_usage_message(
             conversation_credits=0,
-            past_month_credits=1000,
+            period_credits=1000,
             free_tier_credits=2000,
         )
         self.assertIn("█" * 10, message)
@@ -292,7 +431,7 @@ class TestUsage(BaseTest):
         """Test progress bar when at 100% usage."""
         message = format_usage_message(
             conversation_credits=0,
-            past_month_credits=2000,
+            period_credits=2000,
             free_tier_credits=2000,
         )
         self.assertIn("█" * 20, message)

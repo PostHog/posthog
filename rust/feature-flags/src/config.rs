@@ -11,8 +11,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing::Level;
 
-use crate::billing::AggregatorMode;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlexBool(pub bool);
 
@@ -95,42 +93,6 @@ impl FromStr for BotFilterMode {
             _ => Err(format!(
                 "Invalid FLAGS_BOT_FILTER_MODE: '{s}'. Expected 'disabled', 'log_only', or 'enforced'"
             )),
-        }
-    }
-}
-
-/// Tristate selector for the in-process billing aggregator. Encoded as one
-/// enum so `(authoritative=true, enabled=false)` is unrepresentable — the
-/// previous two-boolean form allowed it and `server.rs` had to panic on it.
-/// See `AggregatorMode` for what each non-`Off` variant does at runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AggregatorModeConfig {
-    Off,
-    Shadow,
-    Authoritative,
-}
-
-impl FromStr for AggregatorModeConfig {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().as_str() {
-            "off" => Ok(AggregatorModeConfig::Off),
-            "shadow" => Ok(AggregatorModeConfig::Shadow),
-            "authoritative" => Ok(AggregatorModeConfig::Authoritative),
-            _ => Err(format!(
-                "Invalid FLAGS_BILLING_AGGREGATOR_MODE: '{s}'. Expected 'off', 'shadow', or 'authoritative'"
-            )),
-        }
-    }
-}
-
-impl AggregatorModeConfig {
-    pub fn into_runtime(self) -> Option<AggregatorMode> {
-        match self {
-            AggregatorModeConfig::Off => None,
-            AggregatorModeConfig::Shadow => Some(AggregatorMode::Shadow),
-            AggregatorModeConfig::Authoritative => Some(AggregatorMode::Authoritative),
         }
     }
 }
@@ -414,6 +376,17 @@ pub struct Config {
     #[envconfig(default = "")]
     pub behavioral_cohorts_read_database_url: String,
 
+    // Decryption keys for encrypted remote-config flag payloads (comma-separated, ordered:
+    // Django encrypts with the first key, this service only decrypts and tries all of them).
+    // Empty falls back to SECRET_KEY, matching Django's FLAGS_SECRET_KEYS default for
+    // self-hosted. See flags::flag_payload_decryptor.
+    #[envconfig(from = "FLAGS_SECRET_KEYS", default = "")]
+    pub flags_secret_keys: String,
+
+    // Django SECRET_KEY, used only as the FLAGS_SECRET_KEYS fallback (self-hosted).
+    #[envconfig(from = "SECRET_KEY", default = "")]
+    pub secret_key: String,
+
     // Team-scoped gate for realtime cohort evaluation. When "none" (default), the
     // realtime cohort block in prepare_flag_evaluation_state is skipped entirely, even
     // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
@@ -678,6 +651,13 @@ pub struct Config {
     #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
+    // Per-credential rate limit for the remote_config endpoint (requests per minute).
+    // Matches Django's RemoteConfigThrottle default of 600/minute. Django's per-project
+    // REMOTE_CONFIG_RATE_LIMITS override is not ported: it can't apply to a per-credential
+    // bucket, is rarely set, and was already mis-keyed (team id vs project id) in Django.
+    #[envconfig(from = "REMOTE_CONFIG_DEFAULT_RATE_PER_MINUTE", default = "600")]
+    pub remote_config_default_rate_per_minute: u32,
+
     // Teams that bypass rate limiting entirely (comma-separated team IDs)
     // Matches Django's RATE_LIMITING_ALLOW_LIST_TEAMS behavior
     #[envconfig(from = "RATE_LIMITING_ALLOW_LIST_TEAMS", default = "")]
@@ -793,6 +773,19 @@ pub struct Config {
     #[envconfig(from = "INTERNAL_REQUEST_TOKEN")]
     pub internal_request_token: Option<String>,
 
+    // Hard ceiling on page size for the internal batch flag evaluation endpoint
+    // (static cohort generation); requests above it are rejected with 400. This is a
+    // safety cap, not a recommended page size: a page evaluates persons sequentially, so
+    // the Django caller should page well below this to stay within the request timeout.
+    #[envconfig(from = "BATCH_FLAG_EVAL_MAX_LIMIT", default = "10000")]
+    pub batch_flag_eval_max_limit: i64,
+
+    // Request timeout for the internal batch flag evaluation endpoint.
+    // Separate from REQUEST_TIMEOUT_MS because a batch page evaluates up to
+    // BATCH_FLAG_EVAL_MAX_LIMIT persons sequentially.
+    #[envconfig(from = "BATCH_FLAG_EVAL_TIMEOUT_MS", default = "120000")]
+    pub batch_flag_eval_timeout_ms: u64,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -862,14 +855,6 @@ pub struct Config {
 
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
-
-    // Selects the in-process billing aggregator mode. See `AggregatorModeConfig`.
-    // Defaults to `shadow` to match what's deployed in dev/prod-eu/prod-us today,
-    // so swapping the old `FLAGS_BILLING_AGGREGATOR_ENABLED=true` env var for
-    // unsetting it leaves runtime behavior unchanged. `default_test_config` keeps
-    // `Off` so tests that don't opt in don't start the aggregator.
-    #[envconfig(from = "FLAGS_BILLING_AGGREGATOR_MODE", default = "shadow")]
-    pub billing_aggregator_mode: AggregatorModeConfig,
 
     // BillingAggregator tuning knobs. `BillingAggregatorConfig::validate`
     // rejects zero values at boot — see the module docs on
@@ -1010,6 +995,16 @@ impl Config {
         }
     }
 
+    /// Baseline config for the integration test harness.
+    ///
+    /// Diverges from production defaults in one billing-critical way:
+    /// `billing_flush_interval_ms` is 100 (vs 10_000 in production). Tests
+    /// that poll Redis for an aggregator write expect a flush inside their
+    /// ~1s budget; tests that assert *absence* of a write sleep ≥ 500ms
+    /// (several flush windows) before reading. If you raise this default,
+    /// audit `test_skip_writes_suppresses_billing_redis_counter` and
+    /// `test_flag_definitions_billing_counter` — their negative-case sleeps
+    /// must cover at least one full flush window.
     pub fn default_test_config() -> Self {
         Self {
             continuous_profiling: ContinuousProfilingConfig::default(),
@@ -1030,6 +1025,8 @@ impl Config {
                 .to_string(),
             behavioral_cohorts_read_database_url:
                 "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            flags_secret_keys: String::new(),
+            secret_key: "test-secret-key-at-least-32-bytes-long".to_string(),
             realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
@@ -1074,6 +1071,7 @@ impl Config {
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
+            remote_config_default_rate_per_minute: 600,
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
             flags_log_bodies_teams: BodyLogTeams::default(),
             flags_log_bodies_request_max_bytes: 65_536,
@@ -1112,8 +1110,9 @@ impl Config {
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
             internal_request_token: None,
-            billing_aggregator_mode: AggregatorModeConfig::Off,
-            billing_flush_interval_ms: 10_000,
+            batch_flag_eval_max_limit: 10_000,
+            batch_flag_eval_timeout_ms: 120_000,
+            billing_flush_interval_ms: 100,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
             billing_shutdown_flush_timeout_ms: 15_000,
@@ -1184,6 +1183,17 @@ impl Config {
         }
     }
 
+    pub fn get_billing_aggregator_config(&self) -> crate::billing::BillingAggregatorConfig {
+        crate::billing::BillingAggregatorConfig {
+            flush_interval: std::time::Duration::from_millis(self.billing_flush_interval_ms),
+            max_pending_entries: self.billing_max_pending_entries,
+            per_flush_batch_size: self.billing_per_flush_batch_size,
+            shutdown_flush_timeout: std::time::Duration::from_millis(
+                self.billing_shutdown_flush_timeout_ms,
+            ),
+        }
+    }
+
     /// Check if persons database routing is enabled
     pub fn is_persons_db_routing_enabled(&self) -> bool {
         !self.persons_read_database_url.is_empty() && !self.persons_write_database_url.is_empty()
@@ -1217,7 +1227,6 @@ pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_co
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rstest::rstest;
 
     #[test]
     fn test_default_config() {
@@ -1259,7 +1268,6 @@ mod tests {
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.
         assert_eq!(config.bot_filter_mode, BotFilterMode::LogOnly);
-        assert_eq!(config.billing_aggregator_mode, AggregatorModeConfig::Shadow);
     }
 
     #[test]
@@ -1319,40 +1327,6 @@ mod tests {
         assert_eq!(
             config.element_chain_as_string_excluded_teams,
             TeamIdCollection::None
-        );
-    }
-
-    #[rstest]
-    #[case::off("off", AggregatorModeConfig::Off)]
-    #[case::shadow("shadow", AggregatorModeConfig::Shadow)]
-    #[case::authoritative("authoritative", AggregatorModeConfig::Authoritative)]
-    #[case::trim_and_lowercase("  SHADOW  ", AggregatorModeConfig::Shadow)]
-    fn aggregator_mode_config_parses_valid_values(
-        #[case] input: &str,
-        #[case] expected: AggregatorModeConfig,
-    ) {
-        assert_eq!(input.parse::<AggregatorModeConfig>().unwrap(), expected);
-    }
-
-    #[test]
-    fn aggregator_mode_config_rejects_invalid_value() {
-        let err = "yes".parse::<AggregatorModeConfig>().unwrap_err();
-        assert!(
-            err.contains("Invalid FLAGS_BILLING_AGGREGATOR_MODE"),
-            "unexpected error message: {err}"
-        );
-    }
-
-    #[test]
-    fn aggregator_mode_config_into_runtime_maps_correctly() {
-        assert_eq!(AggregatorModeConfig::Off.into_runtime(), None);
-        assert_eq!(
-            AggregatorModeConfig::Shadow.into_runtime(),
-            Some(AggregatorMode::Shadow)
-        );
-        assert_eq!(
-            AggregatorModeConfig::Authoritative.into_runtime(),
-            Some(AggregatorMode::Authoritative)
         );
     }
 
@@ -1681,6 +1655,27 @@ mod service_mode_tests {
         assert!("on".parse::<BotFilterMode>().is_err());
         assert!("off".parse::<BotFilterMode>().is_err());
         assert!("true".parse::<BotFilterMode>().is_err());
+    }
+
+    /// Pin the `Config → BillingAggregatorConfig` field mapping. A swap of
+    /// `from_millis`/`from_secs`, or a transposition of `flush_interval` and
+    /// `shutdown_flush_timeout`, would silently change the production
+    /// flush cadence by 1000×.
+    #[test]
+    fn get_billing_aggregator_config_maps_fields_correctly() {
+        use std::time::Duration;
+        let mut config = Config::default_test_config();
+        config.billing_flush_interval_ms = 250;
+        config.billing_max_pending_entries = 99;
+        config.billing_per_flush_batch_size = 7;
+        config.billing_shutdown_flush_timeout_ms = 5_000;
+
+        let bcfg = config.get_billing_aggregator_config();
+
+        assert_eq!(bcfg.flush_interval, Duration::from_millis(250));
+        assert_eq!(bcfg.max_pending_entries, 99);
+        assert_eq!(bcfg.per_flush_batch_size, 7);
+        assert_eq!(bcfg.shutdown_flush_timeout, Duration::from_millis(5_000));
     }
 }
 

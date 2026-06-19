@@ -20,6 +20,7 @@ tower = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+rstest = "0.26"
 tokio = { workspace = true, features = ["macros", "rt"] }
 tower = { workspace = true, features = ["util"] }
 

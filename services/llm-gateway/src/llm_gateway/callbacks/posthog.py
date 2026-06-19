@@ -63,6 +63,33 @@ def _is_product_billable(product: str) -> bool:
     return bool(config and config.billable)
 
 
+def _apply_owned_event_properties(properties: dict[str, Any], product: str, team_id: int | None) -> None:
+    """Enforce gateway-owned event properties, run after caller `x-posthog-property-*` headers are merged.
+
+    `ai_product` and `$ai_billable` are derived from the product config / route and must NOT be
+    overridable by callers — a typo would silently mis-bill or misattribute the generation, so we
+    re-assert them on top of whatever the headers set. `team_id`, in contrast, is a deliberate caller
+    override (a shared-key caller such as signals sets it to the customer team); we only fall back to
+    the authenticated key owner's team when no override was supplied.
+    """
+    properties["ai_product"] = product
+    properties["$ai_billable"] = _is_product_billable(product)
+    if team_id is not None:
+        properties.setdefault("team_id", team_id)
+    # A header-supplied team_id arrives as a string ("42"); store it as an int so the captured
+    # property matches the rest of the platform (the usage reporter reads it via JSONExtractInt)
+    # rather than relying on ClickHouse string coercion.
+    raw_team_id = properties.get("team_id")
+    if raw_team_id is not None:
+        try:
+            properties["team_id"] = int(raw_team_id)
+        except (TypeError, ValueError):
+            if team_id is not None:
+                properties["team_id"] = team_id
+            else:
+                properties.pop("team_id", None)
+
+
 # Stable namespace for hashing non-UUID trace identifiers (e.g. Claude Code's
 # JSON-encoded session blobs sent via Anthropic's metadata.user_id) into a
 # deterministic UUID. Generated once and frozen so the same input always maps
@@ -177,8 +204,6 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_stream": is_streaming,
             "$ai_trace_id": trace_id,
             "$ai_span_id": str(uuid4()),
-            "ai_product": product,
-            "$ai_billable": _is_product_billable(product),
             # Stamped explicitly to bypass the SDK's group_type_index lookup.
             # The AI usage report hardcodes `$group_1` (posthog/tasks/usage_report.py)
             # so the gateway must guarantee that slot regardless of how the
@@ -213,12 +238,24 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
-        if team_id:
-            properties["team_id"] = team_id
+        _apply_owned_event_properties(properties, product, team_id)
 
         response_cost = standard_logging_object.get("response_cost")
         if response_cost is not None:
             properties["$ai_total_cost_usd"] = response_cost
+
+        # Forward LiteLLM's cost_breakdown so ingestion passes the per-side
+        # numbers through instead of rederiving them and mispricing cache.
+        cost_breakdown = standard_logging_object.get("cost_breakdown") or {}
+        for breakdown_key, property_key in (
+            ("input_cost", "$ai_input_cost_usd"),
+            ("output_cost", "$ai_output_cost_usd"),
+            ("cache_read_cost", "$ai_cache_read_cost_usd"),
+            ("cache_creation_cost", "$ai_cache_creation_cost_usd"),
+        ):
+            cost_value = cost_breakdown.get(breakdown_key)
+            if cost_value is not None:
+                properties[property_key] = cost_value
 
         response = standard_logging_object.get("response")
         if response:
@@ -278,8 +315,6 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_trace_id": trace_id,
             "$ai_is_error": True,
             "$ai_error": standard_logging_object.get("error_str", ""),
-            "ai_product": product,
-            "$ai_billable": _is_product_billable(product),
             "$group_1": self._region_url,
         }
 
@@ -293,8 +328,7 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
-        if team_id:
-            properties["team_id"] = team_id
+        _apply_owned_event_properties(properties, product, team_id)
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,

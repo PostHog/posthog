@@ -19,9 +19,10 @@ const SCOPED_CHECKS: &[ScopedCheck] = &[
 
 /// Apply billing quota limits to a batch of events in-place.
 ///
-/// Checks the global limiter first (short-circuit on full batch drop), then
-/// iterates scoped limiters, marking matching events as `Limited` / `Drop`.
-/// Returns `Error::BillingLimitExceeded` when the entire batch is limited.
+/// Checks global limiter first (short-circuit), then scoped limiters.
+/// Returns `Error::BillingLimitExceeded` when every event is limited.
+/// Expects at least one `Ok` event — all-dropped batches should
+/// short-circuit in `process_batch` before reaching here.
 pub async fn apply_quota_limits(
     limiter: &CaptureQuotaLimiter,
     token: &str,
@@ -103,6 +104,8 @@ mod tests {
     use serde_json::value::RawValue;
     use tracing::Level;
     use uuid::Uuid;
+
+    use crate::config::EnvelopeCompression;
 
     use crate::config::{CaptureMode, Config, KafkaConfig};
     use crate::v1::analytics::types::{Event, Options};
@@ -205,6 +208,7 @@ mod tests {
                 kafka_metrics_producer_max_retries: None,
                 kafka_metrics_topic_metadata_refresh_interval_ms: None,
                 kafka_metrics_metadata_max_age_ms: None,
+                kafka_replay_envelope_compression: EnvelopeCompression::None,
             },
             otel_url: None,
             otel_sampling_rate: 0.0,
@@ -224,7 +228,6 @@ mod tests {
             ai_s3_region: "us-east-1".to_string(),
             ai_s3_access_key_id: None,
             ai_s3_secret_access_key: None,
-            request_timeout_seconds: Some(10),
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,

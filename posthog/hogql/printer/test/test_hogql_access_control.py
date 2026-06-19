@@ -14,7 +14,6 @@ from posthog.models import OrganizationMembership
 class TestAccessControlSystemTables(BaseTest):
     """Test resource-level access control for system tables."""
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_org_admin_gets_all_system_tables(self):
         """Org admins should have access to all system tables."""
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -29,7 +28,6 @@ class TestAccessControlSystemTables(BaseTest):
         for table_name in fresh_system.children:
             assert table_name in system_node.children, f"{table_name} missing for admin"
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_regular_user_with_full_access_gets_all_tables(self):
         """Regular users with default full access should see all tables."""
         # Default setup - user has no restrictions
@@ -43,7 +41,6 @@ class TestAccessControlSystemTables(BaseTest):
         system_node = database.tables.children.get("system")
         assert system_node is not None
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_database_without_user_denies_scoped_tables(self):
         """Without user context, scoped tables should be removed and denied (fail-closed)."""
         database = Database.create_for(team=self.team, user=None)
@@ -252,7 +249,6 @@ class TestAccessControlIntegration(BaseTest):
         assert prepared is not None
         return print_prepared_ast(prepared, context=context, dialect="clickhouse")
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_admin_can_query_system_dashboards(self):
         """Admin users should be able to query system.dashboards without restrictions."""
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -272,7 +268,6 @@ class TestAccessControlIntegration(BaseTest):
         assert "id" in sql
         assert "name" in sql
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_query_without_user_fails_on_scoped_table(self):
         """Querying a scoped system table without user should fail with access error."""
         from posthog.hogql.errors import QueryError
@@ -288,19 +283,6 @@ class TestAccessControlIntegration(BaseTest):
             self._compile_select("SELECT id, name FROM system.dashboards", context)
         assert "don't have access" in str(cm.exception)
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=False))
-    def test_database_without_user_keeps_all_tables_when_flag_off(self):
-        """When the feature flag is off, no tables are denied even without user."""
-        database = Database.create_for(team=self.team, user=None)
-        assert len(database._denied_tables) == 0
-        # Verify against a fresh SystemTables instance to avoid shared-state issues
-        fresh_system = SystemTables()
-        system_node = database.tables.children.get("system")
-        assert system_node is not None
-        for table_name in fresh_system.children:
-            assert table_name in system_node.children, f"{table_name} missing from system tables when flag is off"
-
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_query_without_user_works_for_unscoped_tables(self):
         """Unscoped system tables should still be queryable without user context."""
         context = HogQLContext(

@@ -16,6 +16,7 @@ import structlog
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.storage import object_storage
 
+from . import logic
 from .models import LegalDocument
 from .storage import signed_pdf_storage_key
 
@@ -67,6 +68,10 @@ class LegalDocumentAdminForm(forms.ModelForm):
 
 @admin.register(LegalDocument)
 class LegalDocumentAdmin(admin.ModelAdmin):
+    # FK to posthog.Organization — without this the add view renders a <select>
+    # of every org on Cloud, which times out. Autocomplete searches lazily via
+    # OrganizationAdmin.search_fields.
+    autocomplete_fields = ("organization",)
     list_display = (
         "id",
         "document_type",
@@ -228,26 +233,19 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             ) from exc
 
     def delete_model(self, request: HttpRequest, obj: LegalDocument) -> None:
-        self._delete_signed_pdf(obj)
-        super().delete_model(request, obj)
+        # Shared helper voids the PandaDoc envelope, removes the S3 object,
+        # and deletes the row (firing the activity-log entry via
+        # ModelActivityMixin). The same helper backs the public DELETE
+        # endpoint — admin keeps the privilege of deleting signed rows by
+        # calling the helper directly rather than going through the facade.
+        logic.delete_document(obj)
 
     def delete_queryset(self, request: HttpRequest, queryset: Any) -> None:
+        # Per-row delete (rather than queryset.delete()) so each row fires its
+        # own activity-log delete and so the shared helper can run its
+        # PandaDoc + S3 cleanup against each envelope individually.
         for obj in queryset:
-            self._delete_signed_pdf(obj)
-        super().delete_queryset(request, queryset)
-
-    @staticmethod
-    def _delete_signed_pdf(obj: LegalDocument) -> None:
-        try:
-            object_storage.delete(signed_pdf_storage_key(obj))
-        except Exception as exc:
-            # Best effort — the row is going away regardless. Worst case a stale
-            # PDF lingers in S3 with no row referencing it.
-            logger.warning(
-                "legal_document_admin_pdf_delete_failed",
-                document_id=str(obj.id),
-                error=str(exc),
-            )
+            logic.delete_document(obj)
 
     def changelist_view(self, request: HttpRequest, extra_context: dict[str, Any] | None = None) -> HttpResponse:
         if not (is_cloud() or is_dev_mode()):

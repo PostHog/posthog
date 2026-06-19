@@ -63,7 +63,10 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=400)
     description = serializers.CharField(allow_blank=True, default="")
     on_error = serializers.ChoiceField(
-        choices=["continue", "abort", "complete", "branch"], required=False, allow_null=True
+        choices=["continue", "abort"],
+        required=False,
+        allow_null=True,
+        help_text="On failure: continue (skip the action and proceed) or abort (stop the run).",
     )
     created_at = serializers.IntegerField(required=False)
     updated_at = serializers.IntegerField(required=False)
@@ -215,7 +218,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         return super().create(validated_data=validated_data)
 
 
-@extend_schema(tags=["workflows"])
+@extend_schema(extensions={"x-product": "workflows"})
 class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = HogFlowTemplate.objects.all()

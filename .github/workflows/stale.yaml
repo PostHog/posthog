@@ -2,6 +2,7 @@ name: 'Handle stale PRs'
 on:
     schedule:
         - cron: '30 7 * * 1-5'
+    workflow_dispatch:
 
 permissions:
     contents: read
@@ -9,7 +10,7 @@ permissions:
 jobs:
     stale:
         runs-on: ubuntu-24.04
-        timeout-minutes: 10
+        timeout-minutes: 60
         steps:
             - name: Check if holiday period
               id: holiday

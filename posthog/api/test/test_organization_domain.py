@@ -511,6 +511,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
                 "had_jit_provisioning": False,
                 "had_sso_enforcement": False,
                 "had_scim": False,
+                "had_id_jag": False,
             },
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
@@ -662,6 +663,123 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/scim/token")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # ID-JAG (XAA) configuration
+
+    def test_can_configure_id_jag(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.XAA_AUTHENTICATION, "name": "XAA Authentication"}
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {
+                "id_jag_issuer_url": "https://example.com/",
+                "id_jag_jwks_url": "https://example.com/keys.json",
+                "id_jag_allowed_clients": ["client-a", "client-b"],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["id_jag_issuer_url"], "https://example.com")
+        self.assertEqual(response_data["id_jag_jwks_url"], "https://example.com/keys.json")
+        self.assertEqual(response_data["id_jag_allowed_clients"], ["client-a", "client-b"])
+        self.assertTrue(response_data["has_id_jag"])
+
+        self.domain.refresh_from_db()
+        self.assertEqual(self.domain.id_jag_issuer_url, "https://example.com")
+        self.assertEqual(self.domain.id_jag_jwks_url, "https://example.com/keys.json")
+        self.assertEqual(self.domain.id_jag_allowed_clients, ["client-a", "client-b"])
+
+    def test_cannot_configure_id_jag_without_available_feature(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"id_jag_issuer_url": "https://example.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "feature_not_available",
+                "detail": "XAA (ID-JAG) is not available for this organization.",
+                "attr": "id_jag_issuer_url",
+            },
+        )
+
+    def test_can_clear_id_jag_configuration(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.id_jag_issuer_url = "https://example.com"
+        self.domain.save()
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"id_jag_issuer_url": "", "id_jag_jwks_url": "", "id_jag_allowed_clients": []},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["has_id_jag"])
+        self.assertIsNone(response.json()["id_jag_issuer_url"])
+
+        self.domain.refresh_from_db()
+        self.assertIsNone(self.domain.id_jag_issuer_url)
+
+    def test_cannot_configure_id_jag_on_unverified_domain(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"id_jag_issuer_url": "https://example.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "verification_required",
+                "detail": "This attribute cannot be updated until the domain is verified.",
+                "attr": "id_jag_issuer_url",
+            },
+        )
+
+    def test_rejects_disallowed_id_jag_urls(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.XAA_AUTHENTICATION, "name": "XAA Authentication"}
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"id_jag_issuer_url": "http://127.0.0.1"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "URL is not allowed: Local/Loopback host not allowed",
+                "attr": "id_jag_issuer_url",
+            },
+        )
 
 
 class TestSCIMRequestLogsAPI(APILicensedTest):

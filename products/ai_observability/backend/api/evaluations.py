@@ -1,6 +1,5 @@
-import copy
 import json
-from typing import Any
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -20,15 +19,22 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
+from ..feature_flags import is_sentiment_evaluations_enabled
 from ..models.evaluation_config import EvaluationConfig
-from ..models.evaluation_configs import validate_evaluation_configs
+from ..models.evaluation_configs import (
+    EvaluationType,
+    OutputType,
+    evaluation_supports_reports,
+    evaluation_uses_model_configuration,
+    get_evaluation_config_content_key,
+    validate_evaluation_configs,
+)
 from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
@@ -63,6 +69,19 @@ logger = structlog.get_logger(__name__)
                         "type": "string",
                         "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
                         "minLength": 1,
+                    }
+                },
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "title": "Sentiment config",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "enum": ["user_messages"],
+                        "description": "Classify sentiment from user messages in the generation input.",
+                        "default": "user_messages",
                     }
                 },
                 "additionalProperties": False,
@@ -113,16 +132,45 @@ class ModelConfigurationSerializer(serializers.Serializer):
         }
 
 
+class EvaluationConditionSerializer(serializers.Serializer):
+    """A trigger condition set controlling which generations an evaluation runs on."""
+
+    id = serializers.CharField(max_length=100, help_text="Stable identifier for this condition set.")
+    rollout_percentage = serializers.FloatField(
+        default=100,
+        min_value=0,
+        max_value=100,
+        help_text="Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.",
+    )
+    properties = serializers.ListField(
+        child=serializers.DictField(),
+        default=list,
+        help_text="Property filters (event or person) that scope which generations match this condition set.",
+    )
+
+
 class EvaluationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     model_configuration = ModelConfigurationSerializer(required=False, allow_null=True)
     evaluation_config = _EvaluationConfigField(
         required=False,
-        help_text="Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.",
+        help_text=(
+            "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; "
+            "for 'sentiment': {source: 'user_messages'}."
+        ),
     )
     output_config = _OutputConfigField(
         required=False,
         help_text="Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+    )
+    conditions = EvaluationConditionSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Trigger conditions that filter which events are evaluated. OR between condition sets, "
+            "AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` "
+            "(0-100, defaults to 100) is the sampling field the dispatcher reads."
+        ),
     )
 
     class Meta:
@@ -153,26 +201,59 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "description": {"help_text": "Optional description of what this evaluation checks."},
             "enabled": {"help_text": "Whether the evaluation runs automatically on new $ai_generation events."},
             "evaluation_type": {
-                "help_text": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code."
+                "help_text": (
+                    "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; "
+                    "'sentiment' classifies user-message sentiment."
+                )
             },
-            "output_type": {"help_text": "Output format. Currently only 'boolean' is supported."},
-            "conditions": {
-                "help_text": "Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each."
+            "output_type": {
+                "help_text": (
+                    "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis."
+                )
             },
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
         }
 
     def validate(self, data):
-        if "evaluation_config" in data and "output_config" in data:
-            evaluation_type = data.get("evaluation_type")
-            output_type = data.get("output_type")
-            if evaluation_type and output_type:
-                try:
-                    data["evaluation_config"], data["output_config"] = validate_evaluation_configs(
-                        evaluation_type, output_type, data["evaluation_config"], data["output_config"]
-                    )
-                except ValueError as e:
-                    raise serializers.ValidationError({"config": str(e)})
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
+        model_configuration = data.get(
+            "model_configuration",
+            getattr(self.instance, "model_configuration", None) if self.instance else None,
+        )
+
+        if self._requires_sentiment_evaluations_feature(data) and not self._sentiment_evaluations_enabled():
+            raise serializers.ValidationError(
+                {"evaluation_type": "Sentiment evaluations are not available for this project."}
+            )
+
+        if not evaluation_uses_model_configuration(evaluation_type) and model_configuration is not None:
+            raise serializers.ValidationError(
+                {"model_configuration": "This evaluation type does not use model configuration."}
+            )
+
+        should_validate_configs = (
+            self.instance is None
+            or "evaluation_type" in data
+            or "output_type" in data
+            or "evaluation_config" in data
+            or "output_config" in data
+        )
+        if should_validate_configs and evaluation_type and output_type:
+            evaluation_config = data.get(
+                "evaluation_config",
+                getattr(self.instance, "evaluation_config", {}) if self.instance else {},
+            )
+            output_config = data.get(
+                "output_config",
+                getattr(self.instance, "output_config", {}) if self.instance else {},
+            )
+            try:
+                data["evaluation_config"], data["output_config"] = validate_evaluation_configs(
+                    evaluation_type, output_type, evaluation_config, output_config
+                )
+            except ValueError as e:
+                raise serializers.ValidationError({"config": str(e)})
 
         # Guard re-enable transitions: if the eval is currently disabled and the caller is flipping
         # `enabled=True`, make sure whatever caused the disabled state has actually been resolved.
@@ -183,14 +264,42 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
         return data
 
+    def _requires_sentiment_evaluations_feature(self, data: dict) -> bool:
+        if self.instance is None:
+            return (
+                data.get("evaluation_type") == EvaluationType.SENTIMENT.value
+                or data.get("output_type") == OutputType.SENTIMENT.value
+            )
+        if (
+            data.get("evaluation_type") == EvaluationType.SENTIMENT.value
+            and self.instance.evaluation_type != EvaluationType.SENTIMENT.value
+        ):
+            return True
+        if (
+            data.get("output_type") == OutputType.SENTIMENT.value
+            and self.instance.output_type != OutputType.SENTIMENT.value
+        ):
+            return True
+        return (
+            data.get("enabled") is True
+            and not self.instance.enabled
+            and self.instance.evaluation_type == EvaluationType.SENTIMENT.value
+        )
+
+    def _sentiment_evaluations_enabled(self) -> bool:
+        return is_sentiment_evaluations_enabled(
+            cast(User, self.context["request"].user),
+            self.context["get_team"](),
+        )
+
     def _validate_re_enable(self, data: dict) -> None:
         has_byok = self._has_byok_key(data)
         status_reason = getattr(self.instance, "status_reason", None)
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
-        # Hog evals run deterministic bytecode server-side: they never call an LLM provider,
-        # never consume trial quota, and never need a BYOK key. The trial-limit / model-allowlist /
-        # provider-key-deleted gates below all assume an LLM-judge call path, so skip them entirely.
-        if evaluation_type == "hog":
+        # Non-model evals never call an LLM provider, consume trial quota, or need a BYOK key.
+        # The trial-limit / model-allowlist / provider-key-deleted gates below assume an
+        # LLM-judge call path, so skip them entirely.
+        if not evaluation_uses_model_configuration(evaluation_type):
             return
 
         # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
@@ -399,7 +508,6 @@ class TestHogResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["llm_analytics"])
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
@@ -432,25 +540,23 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def _get_config_length(instance) -> int:
         """Get the relevant config content length for tracking."""
         if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
-            if instance.evaluation_type == "hog":
-                source = instance.evaluation_config.get("source", "")
-                return len(source) if isinstance(source, str) else 0
-            else:
-                prompt = instance.evaluation_config.get("prompt", "")
-                return len(prompt) if isinstance(prompt, str) else 0
+            content_key = get_evaluation_config_content_key(instance.evaluation_type)
+            content = instance.evaluation_config.get(content_key, "") if content_key else ""
+            return len(content) if isinstance(content, str) else 0
         return 0
 
     def perform_create(self, serializer):
         with transaction.atomic():
             instance = serializer.save()
 
-            # Auto-create a default report config so reports are generated from the start.
-            # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
-            # and users add email/Slack delivery targets later if they want notifications.
-            EvaluationReport.objects.create(
-                team=self.team,
-                evaluation=instance,
-            )
+            if evaluation_supports_reports(instance.output_type):
+                # Auto-create a default report config so reports are generated from the start.
+                # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
+                # and users add email/Slack delivery targets later if they want notifications.
+                EvaluationReport.objects.create(
+                    team=self.team,
+                    evaluation=instance,
+                )
 
         # Calculate properties for tracking
         conditions = instance.conditions or []
@@ -520,9 +626,13 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                         eval_type = serializer.validated_data.get(
                             "evaluation_type", serializer.instance.evaluation_type
                         )
-                        config_key = "source" if eval_type == "hog" else "prompt"
-                        old_content = old_value.get(config_key, "") if isinstance(old_value, dict) else ""
-                        new_content = new_value.get(config_key, "") if isinstance(new_value, dict) else ""
+                        config_key = get_evaluation_config_content_key(eval_type)
+                        old_content = (
+                            old_value.get(config_key, "") if config_key and isinstance(old_value, dict) else ""
+                        )
+                        new_content = (
+                            new_value.get(config_key, "") if config_key and isinstance(new_value, dict) else ""
+                        )
                         if old_content != new_content:
                             config_content_changed = True
 
@@ -741,53 +851,3 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         )
 
         return Response({"results": results})
-
-
-_COMPILED_KEYS = ("bytecode", "bytecode_error")
-
-
-def _strip_compiled_from_conditions(conditions: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    if not conditions:
-        return []
-    return [{k: v for k, v in cond.items() if k not in _COMPILED_KEYS} for cond in conditions]
-
-
-def _strip_compiled_from_eval_config(config: dict[str, Any] | None) -> dict[str, Any]:
-    if not config:
-        return {}
-    return {k: v for k, v in config.items() if k not in _COMPILED_KEYS}
-
-
-@mutable_receiver(model_activity_signal, sender=Evaluation)
-def handle_evaluation_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    # `save()` re-derives `conditions[*].bytecode` and `evaluation_config.bytecode` on every write.
-    # Strip them on shallow copies so the diff reflects user intent, not the compiler — mutating
-    # `after_update` directly would also mutate the live instance DRF serialises for the response.
-    before_log = copy.copy(before_update) if before_update is not None else None
-    after_log = copy.copy(after_update) if after_update is not None else None
-    for snapshot in (before_log, after_log):
-        if snapshot is not None:
-            snapshot.conditions = _strip_compiled_from_conditions(snapshot.conditions)
-            snapshot.evaluation_config = _strip_compiled_from_eval_config(snapshot.evaluation_config)
-
-    if before_update and after_update:
-        before_deleted = getattr(before_update, "deleted", None)
-        after_deleted = getattr(after_update, "deleted", None)
-        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
-            activity = "restored" if after_deleted is False else "deleted"
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_log, current=after_log),
-            name=after_update.name,
-        ),
-    )

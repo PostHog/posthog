@@ -138,10 +138,12 @@ async def summarize_report_for_signal(
         return EvalReportSignalSummary.model_validate(data)
 
     return await call_llm(
+        team_id=inputs.team_id,
         system_prompt=SUMMARIZE_REPORT_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         validate=validate,
         thinking=True,
+        stage="eval_report_signal_summary",
     )
 
 
@@ -191,7 +193,7 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
 
     summary = await summarize_report_for_signal(inputs, content)
 
-    from products.signals.backend.api import emit_signal
+    from products.signals.backend.facade.api import emit_signal
 
     await emit_signal(
         team=team,

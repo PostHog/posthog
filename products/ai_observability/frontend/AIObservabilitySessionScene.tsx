@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
@@ -9,6 +9,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -22,7 +23,6 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { LLMTrace } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { TraceSummary, aiObservabilitySessionDataLogic } from './aiObservabilitySessionDataLogic'
 import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
 import { AIObservabilityTraceEvents } from './components/AIObservabilityTraceEvents'
@@ -30,6 +30,7 @@ import { SentimentBar } from './components/SentimentTag'
 import { TranscriptBubbleStream } from './ConversationDisplay/TranscriptBubbleStream'
 import { SessionTurn } from './extractSessionTurns'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { llmSessionTitleLazyLoaderLogic } from './llmSessionTitleLazyLoaderLogic'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
@@ -42,16 +43,16 @@ export const scene: SceneExport = {
     logic: aiObservabilitySessionLogic,
 }
 
-export function AIObservabilitySessionScene({ tabId }: { tabId?: string }): JSX.Element {
-    const sessionLogic = aiObservabilitySessionLogic({ tabId })
+export function AIObservabilitySessionScene(): JSX.Element {
+    const sessionLogic = aiObservabilitySessionLogic()
     const { sessionId, query } = useValues(sessionLogic)
-    const sessionDataLogic = aiObservabilitySessionDataLogic({ sessionId, query, tabId })
+    const sessionDataLogic = aiObservabilitySessionDataLogic({ sessionId, query })
 
     useAttachedLogic(sessionDataLogic, sessionLogic)
 
     return (
-        <BindLogic logic={aiObservabilitySessionLogic} props={{ tabId }}>
-            <BindLogic logic={aiObservabilitySessionDataLogic} props={{ sessionId, query, tabId }}>
+        <BindLogic logic={aiObservabilitySessionLogic} props={{}}>
+            <BindLogic logic={aiObservabilitySessionDataLogic} props={{ sessionId, query }}>
                 <SessionSceneWrapper />
             </BindLogic>
         </BindLogic>
@@ -95,9 +96,11 @@ function SessionSceneWrapper(): JSX.Element {
 
     const { traces, responseLoading, responseError, sessionTurns, hasMoreData, nextDataLoading, summariesLoading } =
         useValues(aiObservabilitySessionDataLogic)
-    const { sessionId } = useValues(aiObservabilitySessionLogic)
+    const { sessionId, dateRange } = useValues(aiObservabilitySessionLogic)
     const { summarizeAllTraces, loadNextData } = useActions(aiObservabilitySessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { getSessionTitle } = useValues(llmSessionTitleLazyLoaderLogic)
+    const { ensureSessionTitleLoaded } = useActions(llmSessionTitleLazyLoaderLogic)
     // Compute the URL search-param passthrough once for the page, not per turn —
     // every `SessionTurnView` consumes the same `traceSearchParams`.
     const { searchParams } = useValues(router)
@@ -117,6 +120,13 @@ function SessionSceneWrapper(): JSX.Element {
         { totalCost: 0, totalLatency: 0, traceCount: 0 }
     )
 
+    // Same loader as the sessions list, time-bounded to the page's date range.
+    const heroTitle = getSessionTitle(sessionId)
+    const titleLoading = heroTitle === undefined
+    useEffect(() => {
+        ensureSessionTitleLoaded(sessionId, dateRange ?? undefined)
+    }, [sessionId, dateRange, ensureSessionTitleLoaded])
+
     if (responseLoading) {
         return <SpinnerOverlay />
     }
@@ -128,9 +138,13 @@ function SessionSceneWrapper(): JSX.Element {
     }
 
     return (
-        <div className="relative flex flex-col gap-4">
+        <div className="relative flex flex-col gap-4 max-w-[75rem]">
             <SceneBreadcrumbBackButton />
-            <AIObservabilityRenameBanner />
+            {titleLoading ? (
+                <LemonSkeleton className="h-8 w-96 max-w-full" />
+            ) : (
+                heroTitle && <h1 className="text-2xl font-semibold leading-tight m-0 break-words">{heroTitle}</h1>
+            )}
             <header className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex gap-1.5 flex-wrap">
                     <LemonTag size="medium" className="bg-surface-primary">
@@ -267,7 +281,10 @@ function SessionTurnView({
     const traceUrl = combineUrl(urls.aiObservabilityTrace(trace.id), baseTraceParams).url
     const summaryUrl = combineUrl(urls.aiObservabilityTrace(trace.id), { ...baseTraceParams, tab: 'summary' }).url
 
-    const canShowSteps = turn.isLoaded && turn.userVisibleTurn
+    const hasTranscript = turn.isLoaded && !!turn.userVisibleTurn
+    // Auto-show the Steps panel for span-only turns — they have no transcript to fall
+    // back to, so the span tree IS the conversation.
+    const showStepsPanel = (hasTranscript && stepsShown) || (turn.isLoaded && !turn.userVisibleTurn)
 
     return (
         <div className="flex flex-col">
@@ -321,7 +338,7 @@ function SessionTurnView({
                         </div>
                     )}
 
-                    {canShowSteps && stepsShown && (
+                    {showStepsPanel && (
                         <StepsPanel
                             traceId={trace.id}
                             fullTrace={fullTrace}
@@ -334,7 +351,7 @@ function SessionTurnView({
                 <div className="w-40 shrink-0 flex flex-col gap-1 text-xs text-muted">
                     {showSentiment && <SessionTraceSentimentBar traceId={trace.id} createdAt={trace.createdAt} />}
                     <div className="flex flex-col gap-1 items-start">
-                        {canShowSteps && (
+                        {hasTranscript && (
                             <LemonButton size="xsmall" type="tertiary" onClick={() => toggleSteps(trace.id)}>
                                 {stepsShown ? 'Hide steps' : 'Show steps'}
                             </LemonButton>
@@ -380,7 +397,7 @@ function TurnBody({
     turn: SessionTurn
     isLoading: boolean
     onLoad: () => void
-}): JSX.Element {
+}): JSX.Element | null {
     if (isLoading) {
         return (
             <div className="flex items-center gap-2 text-muted text-sm py-2">
@@ -399,7 +416,8 @@ function TurnBody({
         )
     }
     if (!turn.userVisibleTurn) {
-        return <div className="text-muted text-sm py-2">No conversational turn to render in this trace.</div>
+        // No chat to render — the parent renders `StepsPanel` inline below as the substitute.
+        return null
     }
     // `turn.newInputs` / `outputs` come pre-deduped from `extractSessionTurns`.
     return <TranscriptBubbleStream inputs={turn.newInputs} outputs={turn.outputs} />

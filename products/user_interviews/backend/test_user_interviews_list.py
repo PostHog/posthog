@@ -28,7 +28,12 @@ class TestUserInterviewsListFilters(APIBaseTest):
         )
 
     def _create_interview(
-        self, *, topic: UserInterviewTopic | None, summary: str, team: Team | None = None
+        self,
+        *,
+        topic: UserInterviewTopic | None,
+        summary: str,
+        team: Team | None = None,
+        classifications: list[str] | None = None,
     ) -> UserInterview:
         return UserInterview.objects.create(
             team=team or self.team,
@@ -37,6 +42,7 @@ class TestUserInterviewsListFilters(APIBaseTest):
             transcript="Hello world",
             summary=summary,
             topic=topic,
+            classifications=classifications or [],
         )
 
     @parameterized.expand(
@@ -82,6 +88,64 @@ class TestUserInterviewsListFilters(APIBaseTest):
         filtered_by_other_team_topic = self.client.get(self._list_url(), {"topic": str(other_topic.id)})
         assert filtered_by_other_team_topic.status_code == status.HTTP_200_OK, filtered_by_other_team_topic.content
         assert filtered_by_other_team_topic.json()["results"] == []
+
+    @parameterized.expand(
+        [
+            ("no classification filter returns all", None, {"abandoned-one", "off-topic-one", "unclassified"}),
+            ("single classification", "abandoned", {"abandoned-one"}),
+            ("multiple classifications are OR", "abandoned,off-topic", {"abandoned-one", "off-topic-one"}),
+            ("classification with no matches", "off-topic", {"off-topic-one"}),
+        ]
+    )
+    def test_classifications_filter(
+        self, _name: str, classifications_param: str | None, expected_summaries: set[str]
+    ) -> None:
+        topic = self._create_topic("Classified topic")
+        self._create_interview(topic=topic, summary="abandoned-one", classifications=["abandoned"])
+        self._create_interview(topic=topic, summary="off-topic-one", classifications=["off-topic"])
+        self._create_interview(topic=topic, summary="unclassified", classifications=[])
+
+        params = {} if classifications_param is None else {"classifications": classifications_param}
+        response = self.client.get(self._list_url(), params)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        summaries = {row["summary"] for row in response.json()["results"]}
+        assert summaries == expected_summaries
+
+    def test_list_rejects_unknown_classification(self) -> None:
+        topic = self._create_topic("Classified topic")
+        self._create_interview(topic=topic, summary="abandoned-one", classifications=["abandoned"])
+
+        response = self.client.get(self._list_url(), {"classifications": "abandoned,bogus"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_partial_update_replaces_classifications(self) -> None:
+        topic = self._create_topic("Classified topic")
+        interview = self._create_interview(topic=topic, summary="resp", classifications=["abandoned"])
+
+        response = self.client.patch(
+            f"{self._list_url()}{interview.id}/",
+            {"classifications": ["off-topic"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert set(response.json()["classifications"]) == {"off-topic"}
+        interview.refresh_from_db()
+        assert set(interview.classifications) == {"off-topic"}
+
+    def test_partial_update_rejects_unknown_classification(self) -> None:
+        topic = self._create_topic("Classified topic")
+        interview = self._create_interview(topic=topic, summary="resp", classifications=[])
+
+        response = self.client.patch(
+            f"{self._list_url()}{interview.id}/",
+            {"classifications": ["bogus"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
     def test_retrieve_returns_full_transcript_and_summary(self) -> None:
         topic = self._create_topic("Topic A")

@@ -7,7 +7,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
-import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
+import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 
 import { DateMappingOption } from '~/types'
 
@@ -68,15 +68,11 @@ const DATE_OPTIONS: DateMappingOption[] = [
     },
 ]
 
-export interface MetricsViewerProps {
-    id: string
-}
-
-export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
-    const logic = metricsViewerLogic({ tabId: id })
+export const MetricsViewer = (): JSX.Element => {
+    const logic = metricsViewerLogic()
     // Keep the picker logic mounted alongside the viewer so the chosen metric's
     // metric_type stays available for the aggregation hint after the dropdown closes.
-    const pickerLogic = useMountedLogic(metricNamePickerLogic({ tabId: id }))
+    const pickerLogic = useMountedLogic(metricNamePickerLogic())
     const {
         metricName,
         aggregation,
@@ -149,7 +145,7 @@ export const MetricsViewer = ({ id }: MetricsViewerProps): JSX.Element => {
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-end gap-2">
                 <div className="flex flex-col gap-1">
-                    <MetricNameFilter tabId={id} value={metricName} onChange={setMetricName} />
+                    <MetricNameFilter value={metricName} onChange={setMetricName} />
                     {selectedMetricType && recommendedAggregation && aggregation !== recommendedAggregation && (
                         <span className="text-xs text-secondary">
                             {selectedMetricType} — {recommendedAggregation} recommended

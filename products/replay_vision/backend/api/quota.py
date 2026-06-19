@@ -8,7 +8,6 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.quota import compute_quota_snapshot
 
@@ -40,9 +39,15 @@ class VisionQuotaSerializer(serializers.Serializer):
         read_only=True,
         help_text="First moment of the next quota period (UTC); the current period's exclusive upper bound.",
     )
+    projected_monthly_observations = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Sum of enabled scanners' projected observations/month across the organization. "
+            "Scanners without a computed estimate contribute 0."
+        ),
+    )
 
 
-@extend_schema(tags=[VISION_TAG])
 class VisionQuotaViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "replay_scanner"
     # Custom viewsets must declare scopes or personal-API-key callers 403 silently.

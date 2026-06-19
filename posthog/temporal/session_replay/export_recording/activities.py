@@ -12,7 +12,6 @@ import pytz
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models.exported_recording import ExportedRecording
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.recordings import recording_s3_client
@@ -23,6 +22,8 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.session_replay.export_recording.types import ExportContext, ExportRecordingInput, RedisConfig
+
+from products.replay.backend.models.exported_recording import ExportedRecording
 
 LOGGER = get_write_only_logger()
 

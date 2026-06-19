@@ -2,25 +2,52 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use metrics::{counter, histogram};
+use metrics::{counter, gauge, histogram};
+use rand::Rng;
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
 use crate::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
 
+/// RAII guard that tracks the number of batches currently in flight to a
+/// worker. Increments the gauge on creation and decrements on drop, so every
+/// `send_batch` return path (success, error, retries exhausted, panic unwind)
+/// is covered — mirroring the lifetime of the worker's `Semaphore` permit.
+struct InFlightGuard {
+    worker_url: String,
+}
+
+impl InFlightGuard {
+    fn new(worker_url: &str) -> Self {
+        gauge!("ingestion_consumer_transport_concurrent_batches", "worker" => worker_url.to_string())
+            .increment(1.0);
+        Self {
+            worker_url: worker_url.to_string(),
+        }
+    }
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        gauge!("ingestion_consumer_transport_concurrent_batches", "worker" => self.worker_url.clone())
+            .decrement(1.0);
+    }
+}
+
 /// Sends batches to Node.js worker processes over HTTP.
 ///
 /// Uses reqwest with connection pooling (one pool per worker URL).
-/// Retries on 5xx/timeout with exponential backoff.
+/// Retries on 5xx/timeout/503 with exponential backoff.
 ///
-/// Per-worker `Semaphore`s cap how many concurrent batches we can have in
-/// flight to each worker URL. The capacity must match the worker's own
-/// `BatchingPipeline.concurrentBatches` setting (controlled by
-/// `INGESTION_WORKER_CONCURRENT_BATCHES` on both sides). When all permits
-/// are held, `send_batch` waits — this is the natural backpressure that
-/// replaces retry-on-503. A 503 escaping to the transport indicates a
-/// contract violation (mis-configured limits or a Rust-side timeout
-/// leaving a worker still processing) and is treated as non-retriable.
+/// Per-worker `Semaphore`s are a soft cap on how many concurrent batches we
+/// keep in flight to each worker URL — ideally aligned with the worker's
+/// `BatchingPipeline.concurrentBatches` (`INGESTION_WORKER_CONCURRENT_BATCHES`)
+/// so the happy path proactively backpressures (waits for a permit) before the
+/// worker fills up. The cap need not match the worker exactly: if the worker
+/// rejects a batch with 503, the transport treats it as transient backpressure
+/// and retries with a longer, jittered backoff. This keeps the consumer correct
+/// when a worker is shared by other callers and its true capacity isn't a
+/// number this consumer can reserve in advance.
 pub struct HttpTransport {
     client: reqwest::Client,
     max_retries: u32,
@@ -152,13 +179,23 @@ impl HttpTransport {
             }
         };
 
+        // Now that the permit is held, this batch is genuinely in flight to the
+        // worker. The guard decrements the gauge on every return path.
+        let _in_flight = InFlightGuard::new(worker_url);
+
         let mut last_err = None;
+        // Whether the previous attempt failed with a 503. A busy worker gets a
+        // longer, jittered backoff so callers don't retry it in lockstep.
+        let mut last_was_busy = false;
         for attempt in 0..=self.max_retries {
             if attempt > 0 {
-                let backoff = Duration::from_millis(100 * 2u64.pow(attempt - 1));
-                tokio::time::sleep(backoff).await;
-                counter!("ingestion_consumer_transport_retries_total", "worker" => worker_url.to_string())
-                    .increment(1);
+                tokio::time::sleep(retry_backoff(attempt, last_was_busy)).await;
+                counter!(
+                    "ingestion_consumer_transport_retries_total",
+                    "worker" => worker_url.to_string(),
+                    "reason" => if last_was_busy { "busy" } else { "error" },
+                )
+                .increment(1);
             }
 
             let start = std::time::Instant::now();
@@ -174,6 +211,7 @@ impl HttpTransport {
                         return Ok(response.accepted);
                     }
 
+                    last_was_busy = false;
                     let err_msg = response.error.unwrap_or_default();
                     warn!(
                         worker = %worker_url,
@@ -188,11 +226,8 @@ impl HttpTransport {
                     let elapsed = start.elapsed();
                     histogram!("ingestion_consumer_transport_duration_seconds", "worker" => worker_url.to_string())
                         .record(elapsed.as_secs_f64());
-                    let status_label = if matches!(err, TransportError::WorkerBusy(_)) {
-                        "busy"
-                    } else {
-                        "error"
-                    };
+                    last_was_busy = matches!(err, TransportError::WorkerBusy(_));
+                    let status_label = if last_was_busy { "busy" } else { "error" };
                     counter!("ingestion_consumer_transport_requests_total", "worker" => worker_url.to_string(), "status" => status_label)
                         .increment(1);
 
@@ -237,10 +272,9 @@ impl HttpTransport {
         let response = req_builder.send().await?;
         let status = response.status();
 
-        // 503 means the worker is at concurrent batch capacity. The previous
-        // batch is still being processed — surface as a distinct error so the
-        // caller can apply a longer backoff instead of hammering with 100ms
-        // retries (which all bounce off the same in-flight batch).
+        // 503 means the worker is at concurrent batch capacity. Surface it as a
+        // distinct error so the retry loop applies the longer, jittered busy
+        // backoff (rather than hammering with the short 5xx backoff).
         if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
             let body = response.text().await.unwrap_or_default();
             return Err(TransportError::WorkerBusy(body));
@@ -279,18 +313,79 @@ pub enum TransportError {
 
 impl TransportError {
     /// 4xx errors are non-transient and should not be retried.
-    /// `WorkerBusy` (HTTP 503) is also non-retriable: the consumer's per-worker
-    /// semaphore is supposed to prevent it from ever firing, so it indicates a
-    /// contract violation rather than a transient condition — retrying just
-    /// hammers an already-overloaded worker.
+    /// `WorkerBusy` (HTTP 503) is retriable backpressure: a worker shared by
+    /// other callers can be momentarily at capacity even when this consumer's
+    /// soft semaphore cap would allow more, so we retry with a longer, jittered
+    /// backoff instead of failing.
     pub fn is_retriable(&self) -> bool {
         match self {
             TransportError::HttpStatus(status, _) => *status >= 500,
             TransportError::Http(_) => true,
-            TransportError::WorkerBusy(_) => false,
+            TransportError::WorkerBusy(_) => true,
             TransportError::WorkerError(_) => true,
             TransportError::UnknownWorker(_) => false,
             TransportError::RetriesExhausted => false,
         }
+    }
+}
+
+/// Backoff before a retry. A busy worker (503) gets a longer base plus jitter so
+/// that callers backing off the same worker don't retry in lockstep; other
+/// retriable errors use a short exponential backoff. `attempt` is 1-based (the
+/// first retry passes 1).
+fn retry_backoff(attempt: u32, busy: bool) -> Duration {
+    let exp = 2u64.saturating_pow(attempt.saturating_sub(1));
+    if busy {
+        let base = (250 * exp).min(5_000);
+        let jitter = rand::thread_rng().gen_range(0..=base / 2);
+        Duration::from_millis(base + jitter)
+    } else {
+        Duration::from_millis(100 * exp)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_worker_busy_is_retriable() {
+        assert!(TransportError::WorkerBusy("at capacity".into()).is_retriable());
+    }
+
+    #[test]
+    fn test_client_errors_are_not_retriable() {
+        assert!(!TransportError::HttpStatus(400, "bad".into()).is_retriable());
+        assert!(!TransportError::UnknownWorker("x".into()).is_retriable());
+    }
+
+    #[test]
+    fn test_server_errors_are_retriable() {
+        assert!(TransportError::HttpStatus(500, "boom".into()).is_retriable());
+    }
+
+    #[test]
+    fn test_busy_backoff_is_longer_than_error_backoff() {
+        // Across attempts the busy backoff floor (base, no jitter) must exceed
+        // the error backoff for the same attempt.
+        for attempt in 1..=4 {
+            let busy_min = 250 * 2u64.saturating_pow(attempt - 1);
+            let err = retry_backoff(attempt, false);
+            assert!(
+                retry_backoff(attempt, true) >= Duration::from_millis(busy_min.min(5_000)),
+                "busy backoff below floor at attempt {attempt}"
+            );
+            assert!(
+                err < Duration::from_millis(busy_min.min(5_000)),
+                "error backoff not shorter than busy at attempt {attempt}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_busy_backoff_is_capped() {
+        // Even at a high attempt the busy base is capped at 5s; jitter adds up to
+        // half the base, so the total stays at most 7.5s.
+        assert!(retry_backoff(20, true) <= Duration::from_millis(7_500));
     }
 }

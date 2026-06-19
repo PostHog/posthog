@@ -32,6 +32,11 @@ const IDENTIFIER_URL_FALLBACKS: Record<string, string> = {
     insights: '/insights',
 }
 
+function teamIdFromPath(pathname: string): number | null {
+    const match = pathname.match(/^\/project\/(\d+)(?:\/|$)/)
+    return match ? Number(match[1]) : null
+}
+
 export class Navigation {
     readonly page: Page
 
@@ -49,7 +54,14 @@ export class Navigation {
         // (and only when the parent collapsible section is expanded), so for known scenes
         // we navigate by URL — that's the most reliable cross-layout behavior.
         if (IDENTIFIER_URL_FALLBACKS[name]) {
-            await this.page.goto(IDENTIFIER_URL_FALLBACKS[name])
+            // Caddy proxies the literal paths `/surveys`, `/surveys/`, `/api/surveys`
+            // to the SDK's hypercache-server, and going through `/project/<teamId>/...`
+            // avoids that matcher and lets the app load normally.
+            await this.page.waitForURL(/\/project\/\d+(?:\/|$)/, { timeout: 10_000 }).catch(() => {})
+            const teamId = teamIdFromPath(new URL(this.page.url()).pathname)
+            const path = IDENTIFIER_URL_FALLBACKS[name]
+            const target = teamId !== null ? `/project/${teamId}${path}` : path
+            await this.page.goto(target)
         } else {
             // Fall back to legacy selectors for scenes we haven't mapped yet.
             const navbarSelector = this.page.getByTestId(`navbar-${name}`)

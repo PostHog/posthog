@@ -1,6 +1,6 @@
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText } from 'lib/utils'
-import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
+import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
+import { dateFilterToText } from 'lib/utils/dateFilters'
+import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { Node, NodeKind, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
@@ -72,22 +72,15 @@ export function TopHeading({
     const resolvedDateTooltip = formatResolvedDateRange(alignResolvedDateRangeToInterval(resolvedDateRange, interval))
 
     return (
-        <div className="flex items-center gap-1">
-            {showInsightType && <span title={insightType?.description}>{insightType?.name}</span>}
-            {dateText ? (
-                <>
-                    {showInsightType && <span>•</span>}
-                    {resolvedDateTooltip ? (
-                        <Tooltip title={resolvedDateTooltip}>
-                            <span className="whitespace-nowrap">{dateText}</span>
-                        </Tooltip>
-                    ) : (
-                        <span className="whitespace-nowrap">{dateText}</span>
-                    )}
-                </>
-            ) : null}
+        <CardTopHeadingRow
+            typeLabel={insightType?.name}
+            typeTitle={insightType?.description}
+            showTypeLabel={showInsightType}
+            dateText={dateText}
+            dateTooltip={resolvedDateTooltip}
+        >
             {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
             {hasTileOverrides ? <TileOverridesWarning /> : null}
-        </div>
+        </CardTopHeadingRow>
     )
 }

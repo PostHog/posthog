@@ -32,7 +32,7 @@ pub fn test_context() -> Context {
         user_agent: "test-agent/1.0".to_string(),
         content_type: "application/json".to_string(),
         content_encoding: None,
-        sdk_info: "posthog-rust/1.0.0".to_string(),
+        sdk_info: "posthog-rs/1.0.0".to_string(),
         attempt: 1,
         request_id: Uuid::new_v4(),
         client_timestamp: Utc::now(),
@@ -270,7 +270,7 @@ pub fn realistic_batch() -> Vec<WrappedEvent> {
 }
 
 /// 6-event batch with `user-pos-{0..5}` distinct_ids and per-slot state:
-/// 0=Ok/Main, 1=Drop, 2=Ok/Main, 3=Limited, 4=Ok/Overflow, 5=Ok/Historical.
+/// 0=Ok/Main, 1=Drop, 2=Ok/Main, 3=Warning, 4=Ok/Overflow, 5=Ok/Historical.
 pub fn realistic_ordered_mixed_batch() -> Vec<WrappedEvent> {
     let pageview_ok = realistic_pageview("user-pos-0");
 
@@ -283,10 +283,10 @@ pub fn realistic_ordered_mixed_batch() -> Vec<WrappedEvent> {
 
     let identify_ok = realistic_identify("user-pos-2");
 
-    let mut exception_limited = realistic_custom("user-pos-3", "$exception");
-    exception_limited.result = EventResult::Limited;
-    exception_limited.destination = Destination::Drop;
-    exception_limited.details = Some("exceptions_over_quota");
+    let mut exception_warning = realistic_custom("user-pos-3", "$exception");
+    exception_warning.result = EventResult::Warning;
+    exception_warning.destination = Destination::Drop;
+    exception_warning.details = Some("exceptions_over_quota");
 
     let click_overflow =
         realistic_custom("user-pos-4", "button_clicked").with_destination(Destination::Overflow);
@@ -298,7 +298,7 @@ pub fn realistic_ordered_mixed_batch() -> Vec<WrappedEvent> {
         pageview_ok,
         malformed,
         identify_ok,
-        exception_limited,
+        exception_warning,
         click_overflow,
         pageview_historical,
     ]
@@ -346,7 +346,7 @@ pub fn realistic_spread_destinations() -> Vec<WrappedEvent> {
     let custom = realistic_pageview("user-dest-4")
         .with_destination(Destination::Custom("custom_topic".to_string()));
     let dropped = realistic_pageview("user-dest-5")
-        .with_result(EventResult::Drop, Some("invalid_distinct_id"))
+        .with_result(EventResult::Drop, Some("missing_event_name"))
         .with_destination(Destination::Drop);
     vec![main, historical, overflow, dlq, custom, dropped]
 }
@@ -390,10 +390,7 @@ pub fn assert_round_trip(
 ) -> (common_types::CapturedEvent, common_types::RawEvent) {
     use crate::v1::sinks::event::Event as SinkEvent;
 
-    let mut buf = String::new();
-    wrapped
-        .serialize_into(ctx, &mut buf)
-        .expect("serialize_into failed");
+    let buf = wrapped.serialize(ctx).expect("serialize failed");
     let captured: common_types::CapturedEvent =
         serde_json::from_str(&buf).expect("v1 output must deserialize as CapturedEvent");
     let data: common_types::RawEvent =

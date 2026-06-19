@@ -1,4 +1,4 @@
-from posthog.models.health_issue import HealthIssue
+from posthog.models.health_issue import HealthIssue, _filter_existing_team_ids
 from posthog.temporal.health_checks.models import HealthCheckResult
 
 
@@ -36,9 +36,15 @@ def resolve_stale_issues_with_deltas(
     These are the rows that should trigger a `resolved` alert.
     """
     all_team_ids = healthy_team_ids | set(issues_by_team.keys())
+    # Mirror the bulk_upsert filter — a team deleted mid-workflow already had
+    # its issues cascaded away, so resolving on its ID is wasted work and
+    # produces misleading `resolved` alerts if the IDs were ever reused.
+    all_team_ids = _filter_existing_team_ids(all_team_ids)
 
     keep_hashes: dict[int, set[str]] = {}
     for team_id, results in issues_by_team.items():
+        if team_id not in all_team_ids:
+            continue
         keep_hashes[team_id] = {HealthIssue.compute_unique_hash(kind, r.payload, r.hash_keys) for r in results}
 
     return HealthIssue.bulk_resolve(kind, all_team_ids, keep_hashes or None)

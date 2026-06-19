@@ -33,6 +33,8 @@ class AccountProperties(BaseModel):
     billing_id: str | None = None
     sfdc_id: str | None = None
     zendesk_id: str | None = None
+    slack_channel_id: str | None = None
+    usage_dashboard_link: str | None = None
 
 
 class AccountManager(TeamScopedManager["Account"]):

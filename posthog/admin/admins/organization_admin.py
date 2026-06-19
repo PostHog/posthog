@@ -56,7 +56,7 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
     """
     Returns counts of all bulk-delete models for teams in this organization.
     """
-    from posthog.models.cohort import Cohort, CohortPeople
+    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
     team_ids = list(organization.teams.values_list("id", flat=True))
     if not team_ids:
@@ -106,13 +106,13 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
             {
                 "name": "Cohort People",
                 "count": f"Error: {e}",
-                "model": "posthog.models.cohort.CohortPeople",
+                "model": "products.cohorts.backend.models.CohortPeople",
             }
         )
 
     # BatchExport requires deleted=False filter to match delete_batch_exports() behavior
     try:
-        from posthog.batch_exports.models import BatchExport
+        from products.batch_exports.backend.models.batch_export import BatchExport
 
         batch_export_count = BatchExport.objects.filter(team_id__in=team_ids, deleted=False).count()
         results.append(
@@ -127,7 +127,7 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
             {
                 "name": "Batch Exports",
                 "count": f"Error: {e}",
-                "model": "posthog.batch_exports.models.BatchExport",
+                "model": "products.batch_exports.backend.models.batch_export.BatchExport",
             }
         )
 
@@ -166,6 +166,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_hipaa",
         "is_platform",
         "members_can_invite",
+        "members_can_create_projects",
         "is_ai_data_processing_approved",
         "is_ai_training_opted_in",
         "is_ai_training_locked",

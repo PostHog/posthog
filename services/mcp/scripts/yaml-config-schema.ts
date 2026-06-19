@@ -97,7 +97,6 @@ export const ToolConfigSchema = z
                     })
             )
             .optional(),
-        mcp_version: z.number().int().positive().optional(),
         /**
          * Cross-field refinements applied to the composed tool schema.
          * Each entry names a function exported from `@/schema/tool-inputs` whose
@@ -144,6 +143,8 @@ export const ToolConfigSchema = z
          * - `'disable'`: tool is hidden when the flag is on.
          */
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
+        feature_flag_variant: z.string().optional(),
         /**
          * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
          * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
@@ -165,6 +166,43 @@ export const ToolConfigSchema = z
                 message: 'response.include and response.exclude are mutually exclusive',
             })
             .optional(),
+        /**
+         * Opt the tool into the typed-confirm two-tool paradigm. Codegen
+         * emits TWO tools per YAML entry that declares this block:
+         *
+         *   - `<name>-prepare` — signs the validated args + user identity into
+         *     a hash and returns a result instructing the model to surface the
+         *     confirmation prompt to the user.
+         *   - `<name>-execute` — takes the hash plus the literal string the
+         *     user typed, validates both (single-use, TTL-bounded), then runs
+         *     the underlying action with the original args.
+         *
+         * Use for destructive or security-sensitive actions an LLM should
+         * never perform unattended (org-wide settings, key revocation,
+         * bulk deletes). The security guarantee is weaker than client-
+         * rendered elicitation because the LLM controls the `confirmation`
+         * argument — but strictly stronger than a single destructive tool.
+         */
+        confirmed_action: z
+            .object({
+                /**
+                 * Prompt text shown to the user. Supports `{paramName}`
+                 * placeholders interpolated from the validated tool args
+                 * at runtime.
+                 *
+                 * Example: `"About to enable enforce 2FA on organization {orgId}. Reply 'confirm' to proceed."`
+                 */
+                message: z.string(),
+                /**
+                 * Short human-readable label for the action ("enable 2FA",
+                 * "delete project"). Surfaced in refusal messages when the
+                 * confirmation fails so the user sees what was refused.
+                 * Defaults to the tool's title if omitted.
+                 */
+                action_label: z.string().optional(),
+            })
+            .strict()
+            .optional(),
     })
     .strict()
     .refine(
@@ -178,6 +216,20 @@ export const ToolConfigSchema = z
     )
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
+    })
+    .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
+        message: '`feature_flag_variant` requires `feature_flag` to be set',
+        path: ['feature_flag_variant'],
+    })
+    // confirmed_action emits two factories (`-prepare`, `-execute`) via a
+    // codegen path that doesn't currently wrap either with `withUiApp`.
+    // Reject the combination at YAML time rather than silently drop the
+    // UI app at codegen — if a real consumer wants both, wire `withUiApp`
+    // around the execute factory explicitly first.
+    .refine((data) => !(data.confirmed_action && data.ui_app), {
+        message:
+            '`confirmed_action` cannot be combined with `ui_app` yet — the codegen does not wrap the generated -execute factory with withUiApp. Drop one or extend buildConfirmedActionFactories to opt in.',
+        path: ['confirmed_action'],
     })
 
 export type ToolConfig = z.infer<typeof ToolConfigSchema>
@@ -352,7 +404,6 @@ export const QueryWrapperToolConfigSchema = z
             })
             .strict()
             .optional(),
-        mcp_version: z.number().int().positive().optional(),
         title: z.string().optional(),
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
@@ -398,10 +449,16 @@ export const QueryWrapperToolConfigSchema = z
          * - `'disable'`: tool is hidden when the flag is on.
          */
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
+        feature_flag_variant: z.string().optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {
         message: 'description and description_file are mutually exclusive',
+    })
+    .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
+        message: '`feature_flag_variant` requires `feature_flag` to be set',
+        path: ['feature_flag_variant'],
     })
 
 export type QueryWrapperToolConfig = z.infer<typeof QueryWrapperToolConfigSchema>
@@ -431,6 +488,14 @@ export const CategoryConfigSchema = z
         category: z.string(),
         feature: z.string().regex(FEATURE_NAME_PATTERN, 'Feature must be lowercase snake_case: [a-z0-9_]'),
         url_prefix: z.string(),
+        /**
+         * Category-level feature flag gate, inherited by every tool that doesn't
+         * set its own `feature_flag`. Use to hide a whole not-yet-GA product
+         * from the standard MCP surface in one place. See ToolConfigSchema.feature_flag.
+         */
+        feature_flag: z.string().optional(),
+        feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        feature_flag_variant: z.string().optional(),
         tools: z.record(
             z
                 .string()

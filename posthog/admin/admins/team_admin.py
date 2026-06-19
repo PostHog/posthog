@@ -3,9 +3,11 @@ import csv
 import json
 import uuid
 import asyncio
+import hashlib
 import tempfile
 import dataclasses
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from urllib import parse
 
 from django.conf import settings
@@ -18,6 +20,7 @@ from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import path, reverse
+from django.utils import timezone
 from django.utils.html import escapejs, format_html
 from django.utils.safestring import mark_safe
 
@@ -31,12 +34,13 @@ from posthog.admin.inlines.team_experiments_config_inline import TeamExperiments
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
+from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
-from posthog.models.exported_recording import ExportedRecording
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.session_recordings.recordings import recording_s3_client
+from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
@@ -50,7 +54,12 @@ from posthog.temporal.session_replay.delete_recordings.types import (
 from posthog.temporal.session_replay.export_recording.types import ExportRecordingInput
 from posthog.temporal.session_replay.import_recording.types import ImportRecordingInput
 
+from products.replay.backend.models.exported_recording import ExportedRecording
+
 logger = get_logger()
+
+# Upper bound on a single admin AI gateway top-up, to catch fat-fingered amounts.
+MAX_CREDIT_USD = Decimal("1000000")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -71,6 +80,22 @@ class TeamAdminForm(ModelForm):
         if not isinstance(value, list):
             raise ValidationError("test_account_filters must be a JSON list (e.g. `[]`).")
         return value
+
+    def clean_llm_gateway_overspend_allowance_usd(self):
+        value = self.cleaned_data.get("llm_gateway_overspend_allowance_usd")
+        if value is None:
+            return value
+        # The projection reads the allowance from the project-root team, so a child-env value
+        # never reaches the wire — reject instead of silently no-opping.
+        if self.instance.parent_team_id is not None:
+            raise ValidationError(
+                f"This is a child environment; set the allowance on its project-root team "
+                f"({self.instance.parent_team_id}) instead."
+            )
+        try:
+            return validate_overspend_allowance_usd(value)
+        except ValueError as e:
+            raise ValidationError(str(e))
 
 
 @admin.register(Team)
@@ -113,6 +138,10 @@ class TeamAdmin(admin.ModelAdmin):
         "import_individual_replay",
         "delete_recordings",
         "api_token_display",
+        "admit_state",
+        "ai_gateway_actions",
+        "ai_gateway_wallet",
+        "policy_cache_blob",
     ]
 
     exclude = DEPRECATED_ATTRS
@@ -230,6 +259,30 @@ class TeamAdmin(admin.ModelAdmin):
                 ],
             },
         ),
+        (
+            "AI Gateway",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "llm_gateway_enabled_at",
+                    "llm_gateway_revoked_at",
+                    "llm_gateway_overspend_allowance_usd",
+                    "admit_state",
+                    "ai_gateway_actions",
+                    "ai_gateway_wallet",
+                    "policy_cache_blob",
+                ],
+                "description": mark_safe(
+                    "<strong>Per-region change.</strong> Applies to the current region only. "
+                    "If you want the team enabled or revoked in the other region too, flip the "
+                    "matching Team row there. The gateway admits a team only when "
+                    "<code>llm_gateway_enabled_at</code> is set and "
+                    "<code>llm_gateway_revoked_at</code> is null. "
+                    "<code>llm_gateway_overspend_allowance_usd</code> (0–10000) lets the team keep dispatching "
+                    "past $0 down to that USD floor; leave blank to use the gateway's operator default."
+                ),
+            },
+        ),
     ]
 
     def organization_link(self, team: Team):
@@ -336,6 +389,265 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
+    def _resolve_ai_gateway_team(self, request, object_id):
+        if request.method != "POST":
+            return None, HttpResponseNotAllowed(["POST"])
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+        return team, None
+
+    def _refresh_ai_gateway_policy_cache(self, team: Team) -> None:
+        # Sync write: the post_save signal's Celery task races the redirect,
+        # and idempotent clicks skip team.save() so the signal never fires.
+        from posthog.storage.team_llm_gateway_policy_cache import update_team_llm_gateway_policy_cache
+
+        update_team_llm_gateway_policy_cache(team)
+
+    def enable_ai_gateway_view(self, request, object_id):
+        team, response = self._resolve_ai_gateway_team(request, object_id)
+        if response is not None:
+            return response
+        if team.llm_gateway_enabled_at is None:
+            team.llm_gateway_enabled_at = timezone.now()
+            team.save()
+            logger.info(
+                "admin_enable_ai_gateway",
+                team_id=team.id,
+                triggered_by=request.user.email,
+            )
+            self.message_user(
+                request,
+                f"Enabled AI gateway access for team '{team.name}'.",
+                level=messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Team '{team.name}' was already enabled (since {team.llm_gateway_enabled_at.isoformat()}).",
+                level=messages.INFO,
+            )
+        self._refresh_ai_gateway_policy_cache(team)
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    def revoke_ai_gateway_view(self, request, object_id):
+        team, response = self._resolve_ai_gateway_team(request, object_id)
+        if response is not None:
+            return response
+        if team.llm_gateway_revoked_at is None:
+            team.llm_gateway_revoked_at = timezone.now()
+            team.save()
+            logger.info(
+                "admin_revoke_ai_gateway",
+                team_id=team.id,
+                triggered_by=request.user.email,
+            )
+            self.message_user(
+                request,
+                f"Revoked AI gateway access for team '{team.name}'.",
+                level=messages.WARNING,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Team '{team.name}' was already revoked (since {team.llm_gateway_revoked_at.isoformat()}).",
+                level=messages.INFO,
+            )
+        self._refresh_ai_gateway_policy_cache(team)
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    def clear_ai_gateway_revoke_view(self, request, object_id):
+        team, response = self._resolve_ai_gateway_team(request, object_id)
+        if response is not None:
+            return response
+        if team.llm_gateway_revoked_at is not None:
+            team.llm_gateway_revoked_at = None
+            team.save()
+            logger.info(
+                "admin_clear_ai_gateway_revoke",
+                team_id=team.id,
+                triggered_by=request.user.email,
+            )
+            self.message_user(
+                request,
+                f"Cleared AI gateway revoke for team '{team.name}'.",
+                level=messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Team '{team.name}' was not revoked.",
+                level=messages.INFO,
+            )
+        self._refresh_ai_gateway_policy_cache(team)
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    def add_ai_gateway_credit_view(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        credit_url = reverse("admin:posthog_team_add_ai_gateway_credit", args=[object_id])
+
+        if request.method == "GET":
+            context = {
+                **self.admin_site.each_context(request),
+                "team": team,
+                "title": f"Add AI gateway credit - {team.name}",
+                # Per-render nonce; combined with amount + reason on submit to form the
+                # idempotency key, so a double-submit dedupes but a back-edit-resubmit
+                # of a different amount is treated as a new top-up.
+                "form_nonce": str(uuid.uuid4()),
+            }
+            return render(request, "admin/posthog/team/add_ai_gateway_credit_form.html", context)
+
+        amount_raw = request.POST.get("amount_usd", "").strip()
+        reason = request.POST.get("reason", "").strip()
+        form_nonce = request.POST.get("form_nonce", "").strip() or str(uuid.uuid4())
+
+        if not reason:
+            messages.error(request, "Reason is required")
+            return redirect(credit_url)
+        try:
+            amount = Decimal(amount_raw)
+        except InvalidOperation:
+            messages.error(request, "Amount must be a valid decimal")
+            return redirect(credit_url)
+        # is_finite() rejects NaN/sNaN/±Inf before `amount <= 0`, which raises on NaN.
+        if not amount.is_finite() or amount <= 0:
+            messages.error(request, "Amount must be a positive number")
+            return redirect(credit_url)
+        if amount > MAX_CREDIT_USD:
+            messages.error(request, f"Amount exceeds the ${MAX_CREDIT_USD:,} per-top-up limit")
+            return redirect(credit_url)
+
+        # Bind the key to the amount + reason so editing the amount after a submit
+        # produces a new key instead of replaying the prior top-up.
+        idempotency_key = hashlib.sha256(f"{form_nonce}:{amount}:{reason}".encode()).hexdigest()
+        try:
+            result = add_credit(team.id, str(amount), reason, idempotency_key)
+        except AIGatewayInternalError as exc:
+            logger.warning(
+                "admin_add_ai_gateway_credit_failed",
+                team_id=team.id,
+                amount_usd=amount_raw,
+                error=str(exc),
+                triggered_by=request.user.email,
+            )
+            messages.error(request, f"Failed to add credit: {exc}")
+            return redirect(credit_url)
+
+        logger.info(
+            "admin_add_ai_gateway_credit",
+            team_id=team.id,
+            amount_usd=str(amount),
+            entry_id=result.entry_id,
+            duplicate=result.duplicate,
+            triggered_by=request.user.email,
+        )
+        if result.duplicate:
+            messages.info(
+                request,
+                f"Idempotent replay — no new credit. Team '{team.name}' balance: ${result.balance_usd}.",
+            )
+        else:
+            messages.success(
+                request,
+                f"Added ${result.amount_usd} to team '{team.name}'. New balance: ${result.balance_usd}.",
+            )
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    @admin.display(description="Actions")
+    def ai_gateway_actions(self, team: Team):
+        if not team.pk:
+            return "-"
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/ai_gateway_actions.html",
+                {
+                    "team": team,
+                    "enable_url": reverse("admin:posthog_team_enable_ai_gateway", args=[team.pk]),
+                    "revoke_url": reverse("admin:posthog_team_revoke_ai_gateway", args=[team.pk]),
+                    "clear_revoke_url": reverse("admin:posthog_team_clear_ai_gateway_revoke", args=[team.pk]),
+                    "team_name_escaped": escapejs(team.name),
+                    "is_enabled": team.llm_gateway_enabled_at is not None,
+                    "is_revoked": team.llm_gateway_revoked_at is not None,
+                },
+            )
+        )
+
+    @admin.display(description="Admit state")
+    def admit_state(self, team: Team):
+        if not team.pk:
+            return "-"
+        if team.llm_gateway_revoked_at:
+            return format_html(
+                '<span style="color:red"><strong>Revoked</strong></span> at {}',
+                team.llm_gateway_revoked_at.isoformat(),
+            )
+        if team.llm_gateway_enabled_at:
+            return format_html(
+                '<span style="color:green"><strong>Enrolled</strong></span> since {}',
+                team.llm_gateway_enabled_at.isoformat(),
+            )
+        return format_html("<em>Not enrolled</em>")
+
+    @admin.display(description="Wallet (AI gateway credits)")
+    def ai_gateway_wallet(self, team: Team):
+        if not team.pk:
+            return "-"
+        # The balance read is a blocking call to the gateway, so defer it behind a
+        # link (mirrors remote_config_cache_actions) instead of fetching on every
+        # team page render.
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/ai_gateway_wallet_actions.html",
+                {
+                    "wallet_url": reverse("admin:posthog_team_ai_gateway_wallet", args=[team.pk]),
+                    "add_credit_url": reverse("admin:posthog_team_add_ai_gateway_credit", args=[team.pk]),
+                },
+            )
+        )
+
+    def ai_gateway_wallet_view(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+        if not self.has_view_permission(request, team):
+            raise PermissionDenied
+        context = {
+            **self.admin_site.each_context(request),
+            "team": team,
+            "title": f"AI gateway wallet - {team.name}",
+            "add_credit_url": reverse("admin:posthog_team_add_ai_gateway_credit", args=[team.pk]),
+        }
+        try:
+            context["wallet"] = get_wallet(team.id)
+        except AIGatewayNotConfigured:
+            context["error"] = "ai-gateway internal API not configured in this region"
+        except AIGatewayInternalError as exc:
+            context["error"] = f"wallet unavailable: {exc}"
+        return render(request, "admin/posthog/team/ai_gateway_wallet_page.html", context)
+
+    @admin.display(description="Policy cache blob (what the gateway sees)")
+    def policy_cache_blob(self, team: Team):
+        if not team.pk:
+            return "-"
+        from posthog.storage.team_llm_gateway_policy_cache import get_team_llm_gateway_policy_from_redis
+
+        try:
+            blob, source = get_team_llm_gateway_policy_from_redis(team)
+        except Exception as exc:
+            return format_html("<em>(cache read failed: {})</em>", str(exc))
+        if source == "absent":
+            return format_html("<em>(no entry in Redis for this team; gateway denies until something writes one)</em>")
+        if source == "redis_negative":
+            return format_html(
+                "<em>(negative-cache sentinel in Redis; gateway treats as default-deny "
+                "until the entry expires, default 24h)</em>"
+            )
+        return format_html("<pre>{}</pre>", json.dumps(blob, indent=2, default=str))
+
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -393,6 +705,31 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/delete-recordings/workflows/",
                 self.admin_site.admin_view(self.delete_recordings_workflows_fragment),
                 name="posthog_team_delete_recordings_workflows",
+            ),
+            path(
+                "<path:object_id>/enable-ai-gateway/",
+                self.admin_site.admin_view(self.enable_ai_gateway_view),
+                name="posthog_team_enable_ai_gateway",
+            ),
+            path(
+                "<path:object_id>/revoke-ai-gateway/",
+                self.admin_site.admin_view(self.revoke_ai_gateway_view),
+                name="posthog_team_revoke_ai_gateway",
+            ),
+            path(
+                "<path:object_id>/clear-ai-gateway-revoke/",
+                self.admin_site.admin_view(self.clear_ai_gateway_revoke_view),
+                name="posthog_team_clear_ai_gateway_revoke",
+            ),
+            path(
+                "<path:object_id>/add-ai-gateway-credit/",
+                self.admin_site.admin_view(self.add_ai_gateway_credit_view),
+                name="posthog_team_add_ai_gateway_credit",
+            ),
+            path(
+                "<path:object_id>/ai-gateway-wallet/",
+                self.admin_site.admin_view(self.ai_gateway_wallet_view),
+                name="posthog_team_ai_gateway_wallet",
             ),
         ]
         return custom_urls + urls

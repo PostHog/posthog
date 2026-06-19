@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react'
 
-import type { TooltipContext } from 'lib/hog-charts'
+import type { TooltipContext } from '@posthog/quill-charts'
+
 import { hasBreakdown } from 'scenes/funnels/funnelUtils'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { getDatumTitle, type SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -31,24 +32,37 @@ export function FunnelLineTooltip({
     groupTypeLabel,
     onRowClick,
 }: FunnelLineTooltipProps): React.ReactElement {
-    const seriesData = useMemo<SeriesDatum[]>(
-        () =>
-            context.seriesData.map((entry, idx) => {
-                const meta = entry.series.meta ?? ({} as FunnelSeriesMeta)
-                return {
-                    id: idx,
-                    dataIndex: context.dataIndex,
-                    datasetIndex: idx,
-                    order: meta.order ?? idx,
-                    label: entry.series.label,
-                    color: entry.color,
-                    count: entry.value,
-                    breakdown_value: meta.breakdown_value,
-                    date_label: meta.days?.[context.dataIndex],
-                }
-            }),
-        [context.seriesData, context.dataIndex]
-    )
+    const seriesData = useMemo<SeriesDatum[]>(() => {
+        const data = context.seriesData.map((entry, idx) => {
+            const meta = entry.series.meta ?? ({} as FunnelSeriesMeta)
+            return {
+                id: idx,
+                dataIndex: context.dataIndex,
+                datasetIndex: idx,
+                // Each conversion-rate line is a single value, so every series shares one tooltip
+                // value column. The inverted layout instead separates them into rows keyed by
+                // breakdown_value/compare_label. Distinct orders would split them across columns
+                // the layout never renders, leaving every series but the first showing "–".
+                order: 0,
+                label: entry.series.label,
+                color: entry.color,
+                count: entry.value,
+                breakdown_value: meta.breakdown_value,
+                compare_label: meta.compare_label,
+                date_label: meta.days?.[context.dataIndex],
+            }
+        })
+        // Order rows by conversion value descending (matching the trends tooltip) so the
+        // highest-converting series sits at the top, ties broken alphabetically. datasetIndex
+        // keeps the original series index for persons-modal scoping; only the display id is
+        // re-derived from the sorted order.
+        data.sort(
+            (a, b) =>
+                b.count - a.count ||
+                (a.label === undefined || b.label === undefined ? 0 : a.label.localeCompare(b.label))
+        )
+        return data.map((s, id) => ({ ...s, id }))
+    }, [context.seriesData, context.dataIndex])
 
     const date = context.seriesData[0]?.series.meta?.days?.[context.dataIndex]
 

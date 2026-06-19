@@ -14,7 +14,6 @@ import { personsLogic } from './personsLogic'
 export interface SplitPersonLogicProps {
     person: PersonType
     urlId: string
-    tabId?: string
 }
 
 export type PersonUuids = NonNullable<PersonType['uuid']>[]
@@ -23,14 +22,14 @@ export type SplitMode = 'all' | 'partial'
 
 export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
     props({} as SplitPersonLogicProps),
-    key((props) => `${props.tabId ?? 'notab'}:${props.person.id ?? 'new'}`),
+    key((props) => `${props.person.id ?? 'new'}`),
     path((key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key]),
     connect((props: SplitPersonLogicProps) => ({
         actions: [
-            personsLogic({ syncWithUrl: true, urlId: props.urlId, tabId: props.tabId }),
+            personsLogic({ syncWithUrl: true, urlId: props.urlId }),
             ['setListFilters', 'loadPersons', 'setPerson', 'setSplitMergeModalShown'],
         ],
-        values: [personsLogic({ syncWithUrl: true, urlId: props.urlId, tabId: props.tabId }), ['persons']],
+        values: [personsLogic({ syncWithUrl: true, urlId: props.urlId }), ['persons']],
     })),
     actions({
         setSelectedPersonToAssignSplit: (id: string) => ({ id }),

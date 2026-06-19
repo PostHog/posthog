@@ -1,5 +1,6 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { toJsonSchemaCompat } from '@modelcontextprotocol/sdk/server/zod-json-schema-compat.js'
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScopes } from '@/lib/api'
 import {
@@ -10,14 +11,9 @@ import {
 } from '@/tools/toolDefinitions'
 import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
-import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
-
 interface PreBuiltTool {
     base: ToolBase<ZodObjectAny>
-    definitions: {
-        v1: ToolDefinition | undefined
-        v2: ToolDefinition | undefined
-    }
+    definition: ToolDefinition | undefined
 }
 
 export interface ToolCatalogFilterOptions extends ToolFilterOptions {
@@ -28,6 +24,25 @@ export interface ToolCatalogFilterOptions extends ToolFilterOptions {
 export type { PreBuiltTool }
 
 const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} }
+
+/**
+ * Convert a tool's zod schema to the MCP `inputSchema` wire shape. Single source
+ * for every advertised schema (catalog entries and the `render-ui` umbrella entry)
+ * so what `tools/list` advertises cannot drift from what the executor validates.
+ */
+export function toMcpInputSchema(schema: ZodObjectAny): McpTool['inputSchema'] {
+    let jsonSchema = toJsonSchemaCompat(schema, { strictUnions: true }) as Record<string, unknown>
+    delete jsonSchema['$schema']
+    delete jsonSchema['additionalProperties']
+    // MCP requires inputSchema.type === 'object'. Top-level discriminated unions
+    // (e.g. `oneOf` on a polymorphic request body) come back without a root `type`.
+    // Add it so the schema satisfies the MCP tool contract; the union constraint
+    // still applies via the nested anyOf/oneOf.
+    if (!jsonSchema['type'] && (Array.isArray(jsonSchema['anyOf']) || Array.isArray(jsonSchema['oneOf']))) {
+        jsonSchema = { type: 'object', ...jsonSchema }
+    }
+    return jsonSchema as McpTool['inputSchema']
+}
 
 export class ToolCatalog {
     private _preBuilt: Map<string, PreBuiltTool> = new Map()
@@ -56,17 +71,13 @@ export class ToolCatalog {
             ...GENERATED_TOOL_MAP,
         }
 
-        const v1Defs = getToolDefinitions(1)
-        const v2Defs = getToolDefinitions(2)
+        const defs = getToolDefinitions()
 
         for (const [name, factory] of Object.entries(allFactories)) {
             const base = factory()
             this._preBuilt.set(name, {
                 base,
-                definitions: {
-                    v1: v1Defs[name],
-                    v2: v2Defs[name],
-                },
+                definition: defs[name],
             })
         }
 
@@ -83,26 +94,14 @@ export class ToolCatalog {
         this._entriesByName = new Map()
 
         for (const [name, preBuilt] of this._preBuilt) {
-            const def = preBuilt.definitions.v1 ?? preBuilt.definitions.v2
+            const def = preBuilt.definition
             if (!def) {
                 continue
             }
 
-            let jsonSchema: Record<string, unknown>
+            let jsonSchema: McpTool['inputSchema']
             try {
-                jsonSchema = toJsonSchemaCompat(preBuilt.base.schema, { strictUnions: true }) as Record<string, unknown>
-                delete jsonSchema['$schema']
-                delete jsonSchema['additionalProperties']
-                // MCP requires inputSchema.type === 'object'. Top-level discriminated unions
-                // (e.g. `oneOf` on a polymorphic request body) come back without a root `type`.
-                // Add it so the schema satisfies the MCP tool contract; the union constraint
-                // still applies via the nested anyOf/oneOf.
-                if (
-                    !jsonSchema['type'] &&
-                    (Array.isArray(jsonSchema['anyOf']) || Array.isArray(jsonSchema['oneOf']))
-                ) {
-                    jsonSchema = { type: 'object', ...jsonSchema }
-                }
+                jsonSchema = toMcpInputSchema(preBuilt.base.schema)
             } catch {
                 jsonSchema = EMPTY_OBJECT_JSON_SCHEMA
             }
@@ -119,7 +118,7 @@ export class ToolCatalog {
                 name,
                 title: def.title,
                 description: def.description,
-                inputSchema: jsonSchema as McpTool['inputSchema'],
+                inputSchema: jsonSchema,
                 annotations: def.annotations as McpTool['annotations'],
                 ...(meta ? { _meta: meta } : {}),
             }
@@ -147,7 +146,6 @@ export class ToolCatalog {
     getFilteredTools(options: ToolCatalogFilterOptions): Tool<ZodObjectAny>[] {
         const { scopes = [], excludeTools = [], ...filterOptions } = options
         const allowedToolNames = getToolsForFeatures(filterOptions).filter((name) => !excludeTools.includes(name))
-        const effectiveVersion = filterOptions.version ?? 1
 
         const tools: Tool<ZodObjectAny>[] = []
 
@@ -158,11 +156,7 @@ export class ToolCatalog {
             }
             const { base } = preBuilt
 
-            if (base.mcpVersion !== undefined && base.mcpVersion !== effectiveVersion) {
-                continue
-            }
-
-            const definition = preBuilt.definitions[effectiveVersion === 2 ? 'v2' : 'v1'] ?? preBuilt.definitions.v1
+            const definition = preBuilt.definition
             if (!definition) {
                 continue
             }

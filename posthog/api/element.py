@@ -59,7 +59,7 @@ class ElementStatsSerializer(serializers.Serializer):
     elements = ElementSerializer(many=True)
 
 
-@extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
+@extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "element"
     scope_object_read_actions = ["list", "retrieve", "stats", "values"]

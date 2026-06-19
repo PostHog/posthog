@@ -9,14 +9,6 @@ SNAPCHAT_APP_CLIENT_SECRET = get_from_env("SNAPCHAT_APP_CLIENT_SECRET", "")
 INTERCOM_APP_CLIENT_ID = get_from_env("INTERCOM_APP_CLIENT_ID", "")
 INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 
-SLACK_POSTHOG_CODE_CLIENT_ID = get_from_env("SLACK_POSTHOG_CODE_CLIENT_ID", get_from_env("SLACK_TWIG_CLIENT_ID", ""))
-SLACK_POSTHOG_CODE_CLIENT_SECRET = get_from_env(
-    "SLACK_POSTHOG_CODE_CLIENT_SECRET", get_from_env("SLACK_TWIG_CLIENT_SECRET", "")
-)
-SLACK_POSTHOG_CODE_SIGNING_SECRET = get_from_env(
-    "SLACK_POSTHOG_CODE_SIGNING_SECRET", get_from_env("SLACK_TWIG_SIGNING_SECRET", "")
-)
-
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
 
@@ -26,6 +18,12 @@ LINKEDIN_APP_CLIENT_SECRET = get_from_env("LINKEDIN_APP_CLIENT_SECRET", "")
 GOOGLE_ADS_APP_CLIENT_ID = get_from_env("GOOGLE_ADS_APP_CLIENT_ID", "")
 GOOGLE_ADS_APP_CLIENT_SECRET = get_from_env("GOOGLE_ADS_APP_CLIENT_SECRET", "")
 GOOGLE_ADS_DEVELOPER_TOKEN = get_from_env("GOOGLE_ADS_DEVELOPER_TOKEN", "")
+
+GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID = get_from_env("GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID", "")
+GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET = get_from_env("GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET", "")
+
+GOOGLE_ANALYTICS_APP_CLIENT_ID = get_from_env("GOOGLE_ANALYTICS_APP_CLIENT_ID", "")
+GOOGLE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("GOOGLE_ANALYTICS_APP_CLIENT_SECRET", "")
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
@@ -71,17 +69,13 @@ ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 # with our internal OAuth system to allow the Stripe app to make API calls to users' PostHog instances.
 # We also support their agentic provisioning protocol which requires us to check even more stuff
 # - STRIPE_APP_CLIENT_ID: The app's public client ID, used in the OAuth authorize redirect URL
-# - STRIPE_APP_SANDBOX_CLIENT_ID: Separate client ID Stripe issues for sandbox installs of the same app
 # - STRIPE_APP_OVERRIDE_AUTHORIZE_URL: Optional override for testing (e.g., with a channel link URL)
 # - STRIPE_APP_SECRET_KEY: API secret key used for HTTP Basic auth during live token exchange/refresh
-# - STRIPE_APP_SANDBOX_SECRET_KEY: API secret key used to redeem sandbox-issued OAuth codes (sk_test_*)
 # - STRIPE_POSTHOG_OAUTH_CLIENT_ID: Client ID of the PostHog OAuthApplication for Stripe to authenticate with PostHog APIs
 # - STRIPE_SIGNING_SECRET: Used to verify the authenticity of incoming webhook/agentic provisioning requests from Stripe
 STRIPE_APP_CLIENT_ID = get_from_env("STRIPE_APP_CLIENT_ID", "")
-STRIPE_APP_SANDBOX_CLIENT_ID = get_from_env("STRIPE_APP_SANDBOX_CLIENT_ID", "")
 STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_URL", "")
 STRIPE_APP_SECRET_KEY = get_from_env("STRIPE_APP_SECRET_KEY", "")
-STRIPE_APP_SANDBOX_SECRET_KEY = get_from_env("STRIPE_APP_SANDBOX_SECRET_KEY", "")
 STRIPE_POSTHOG_OAUTH_CLIENT_ID = get_from_env("STRIPE_POSTHOG_OAUTH_CLIENT_ID", "")
 STRIPE_SIGNING_SECRET = get_from_env("STRIPE_SIGNING_SECRET", "")
 STRIPE_ORCHESTRATOR_CALLBACK_URL = get_from_env("STRIPE_ORCHESTRATOR_CALLBACK_URL", "")
@@ -120,3 +114,17 @@ PANDADOC_API_KEY = get_from_env("PANDADOC_API_KEY", "")
 PANDADOC_WEBHOOK_SECRET = get_from_env("PANDADOC_WEBHOOK_SECRET", "")
 PANDADOC_BAA_TEMPLATE_ID = get_from_env("PANDADOC_BAA_TEMPLATE_ID", "")
 PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
+
+# Unlayer (server-side email design → HTML rendering for message templates)
+UNLAYER_API_KEY = get_from_env("UNLAYER_API_KEY", "")
+UNLAYER_API_BASE_URL = get_from_env("UNLAYER_API_BASE_URL", "https://api.unlayer.com")
+
+HEATMAP_BROWSERLESS_URL = get_from_env("HEATMAP_BROWSERLESS_URL", "")
+HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
+# Browserless /screenshot session cap (ms); must stay under the plan's max-timeout.
+HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
+HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)
+HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", False, type_cast=str_to_bool)
+HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS = get_from_env(
+    "HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS", True, type_cast=str_to_bool
+)

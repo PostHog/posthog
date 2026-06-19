@@ -15,7 +15,7 @@ import { hash } from '@/lib/utils'
 import type { Context, Env, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
-import { getCustomApiBaseUrl } from './constants'
+import { getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
 import {
     buildMCPRequestContext,
     buildMCPSessionAnalyticsProperties,
@@ -95,6 +95,7 @@ export class RequestContext {
             this.apiInstance = new ApiClient({
                 apiToken: this.props.apiToken,
                 baseUrl,
+                publicBaseUrl: getPublicBaseUrl(),
                 clientUserAgent: this.props.clientUserAgent,
                 mcpClientName: this.props.mcpClientName,
                 mcpClientVersion: this.props.mcpClientVersion,
@@ -152,7 +153,7 @@ export class RequestContext {
             getDistinctId: () => this.getDistinctId(),
         }
         const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
-            const analyticsContext = await this.getAnalyticsContextSafe(partialContext)
+            const analyticsContext = await this.safelyGetAnalyticsContext(partialContext)
             const distinctId = await this.getDistinctId()
             await this.trackEvent(event, properties, analyticsContext, undefined, distinctId)
         }
@@ -164,7 +165,7 @@ export class RequestContext {
         this.sessionContext = sessionContext
     }
 
-    async getAnalyticsContextSafe(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {
+    async safelyGetAnalyticsContext(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {
         try {
             return await context.stateManager.getAnalyticsContext()
         } catch {
@@ -177,7 +178,7 @@ export class RequestContext {
         context: Context,
         previousContext: MCPAnalyticsContext | undefined
     ): Promise<void> {
-        const resolvedContext = await this.getAnalyticsContextSafe(context)
+        const resolvedContext = await this.safelyGetAnalyticsContext(context)
         if (!resolvedContext) {
             return
         }

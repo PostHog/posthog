@@ -23,6 +23,8 @@ export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
 export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
+export type TicketTagsMatch = 'any' | 'all'
+
 export interface TicketViewFilters {
     status?: TicketStatus[]
     priority?: TicketPriority[]
@@ -30,6 +32,8 @@ export interface TicketViewFilters {
     sla?: TicketSlaState | 'all'
     assignee?: AssigneeFilterValue
     tags?: string[]
+    tagsMatch?: TicketTagsMatch
+    tagsExclude?: string[]
     dateFrom?: string | null
     dateTo?: string | null
     sorting?: Sorting | null
@@ -137,6 +141,9 @@ export interface MessageAuthor {
     email?: string
 }
 
+/** Delivery state of an outbound email reply, denormalized from the backend outbox. */
+export type EmailDeliveryStatus = 'sending' | 'sent' | 'failed'
+
 export interface ChatMessage {
     id: string
     content: string
@@ -146,6 +153,7 @@ export interface ChatMessage {
     createdBy?: MessageAuthor | null
     createdAt: string
     isPrivate?: boolean
+    emailDeliveryStatus?: EmailDeliveryStatus
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [

@@ -5,7 +5,9 @@ description: >
   Use when the user pastes a trace or session URL (e.g. /ai-observability/traces/<id> or /ai-observability/sessions/<id>),
   asks to debug a trace, figure out what went wrong, check if an agent used a tool correctly,
   verify context/files were surfaced, inspect subagent behavior, investigate LLM decisions,
-  or analyze token usage and costs.
+  or analyze token usage and costs. Also use when raw SQL/HogQL against
+  `events.properties.$ai_input` / `$ai_output_choices` returns empty — message content lives only
+  on the dedicated `posthog.ai_events` table.
 ---
 
 # Exploring LLM traces with MCP tools
@@ -291,5 +293,6 @@ results (array for list, object for single trace)
 - Always include the `_posthogUrl` in your response so the user can click through
 - `$ai_input_state` / `$ai_output_state` on spans contain tool call inputs and outputs
 - `$ai_input` / `$ai_output_choices` on generations contain the full LLM conversation — can be megabytes; when the result is persisted to a file, use the parsing scripts
+- In raw SQL, heavy content (`$ai_input` / `$ai_output` / `$ai_output_choices` / `$ai_input_state` / `$ai_output_state` / `$ai_tools`) lives only on the `posthog.ai_events` table, not `events.properties` — see the [event reference](./references/events-and-properties.md) for the column mapping and trace-id-anchored query patterns
 - Use `filterTestAccounts: true` to exclude internal/test traffic when searching
 - `$ai_trace` events are NOT in the `events` array — their data is surfaced via trace-level `inputState`, `outputState`, and `traceName`

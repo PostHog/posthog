@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
+import { phDebugQueryParams } from '../lib/ph-debug'
 import { Task, type TaskUpsertProps } from '../types'
 import type { taskLogicType } from './taskLogicType'
 import { tasksLogic } from './tasksLogic'
@@ -23,7 +24,7 @@ export const taskLogic = kea<taskLogicType>([
             null as Task | null,
             {
                 loadTask: async () => {
-                    return await api.tasks.get(props.taskId)
+                    return await api.tasks.get(props.taskId, phDebugQueryParams())
                 },
                 runTask: async () => {
                     const response = await api.tasks.run(props.taskId)

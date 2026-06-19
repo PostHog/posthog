@@ -1,1 +1,1 @@
-0002_slackuserprofilecache_is_admin_and_more
+0007_slackuserprofilecache_is_bot

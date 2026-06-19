@@ -236,7 +236,8 @@ describe('PersonHogGroupRepository', () => {
                     expect(mockPostgres.fetchGroupsByKeys).toHaveBeenCalledWith(
                         [TEAM_ID],
                         [GROUP_TYPE_INDEX],
-                        [GROUP_KEY]
+                        [GROUP_KEY],
+                        undefined
                     )
                     expect(handlers.getGroupsBatch).not.toHaveBeenCalled()
                 }
@@ -265,7 +266,7 @@ describe('PersonHogGroupRepository', () => {
                     expect(handlers.getGroupTypeMappingsByTeamIds).toHaveBeenCalled()
                     expect(mockPostgres.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
                 } else {
-                    expect(mockPostgres.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_ID])
+                    expect(mockPostgres.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_ID], undefined)
                     expect(handlers.getGroupTypeMappingsByTeamIds).not.toHaveBeenCalled()
                 }
             })
@@ -284,7 +285,7 @@ describe('PersonHogGroupRepository', () => {
                     expect(handlers.getGroupTypeMappingsByProjectIds).toHaveBeenCalled()
                     expect(mockPostgres.fetchGroupTypesByProjectIds).not.toHaveBeenCalled()
                 } else {
-                    expect(mockPostgres.fetchGroupTypesByProjectIds).toHaveBeenCalledWith([PROJECT_ID])
+                    expect(mockPostgres.fetchGroupTypesByProjectIds).toHaveBeenCalledWith([PROJECT_ID], undefined)
                     expect(handlers.getGroupTypeMappingsByProjectIds).not.toHaveBeenCalled()
                 }
             })
@@ -590,11 +591,12 @@ describe('PersonHogGroupRepository', () => {
         it('insertGroupType', async () => {
             mockPostgres.insertGroupType.mockResolvedValue([0 as GroupTypeIndex, true])
             const repo = createRepo(100)
+            const createdAt = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
 
-            const result = await repo.insertGroupType(TEAM_ID, PROJECT_ID, 'organization', 0)
+            const result = await repo.insertGroupType(TEAM_ID, PROJECT_ID, 'organization', 0, createdAt)
 
             expect(result).toEqual([0, true])
-            expect(mockPostgres.insertGroupType).toHaveBeenCalledWith(TEAM_ID, PROJECT_ID, 'organization', 0)
+            expect(mockPostgres.insertGroupType).toHaveBeenCalledWith(TEAM_ID, PROJECT_ID, 'organization', 0, createdAt)
         })
 
         it('inTransaction', async () => {
