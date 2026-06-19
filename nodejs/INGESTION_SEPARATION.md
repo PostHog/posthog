@@ -407,12 +407,13 @@ do not block the plan on it.
 
 Naming (pipelines, not lanes; single-word dirs):
 
-- [ ] Rename `src/ingestion/lanes/` -> `src/ingestion/pipelines/` (dir move + codemod; update guard
-      `laneOf`/`LANES`, jest/tsconfig globs, and `tests/ingestion/lanes/` -> `tests/ingestion/pipelines/`).
+- [x] Rename `src/ingestion/lanes/` -> `src/ingestion/pipelines/` (codemod rewrote 354 imports across 144
+      files + `git mv`; guard `pipelineOf`/`PIPELINES` updated; `tests/ingestion/lanes/` ->
+      `tests/ingestion/pipelines/`; jest/tsconfig needed no change — all under `src/ingestion/`).
       [heatmaps "pipeline not a lane"; tracker line 18]
-- [ ] Rename pipeline dirs to single-word lowercase: `session-replay` -> `sessionreplay`,
-      `error-tracking` -> `errortracking`, `ingestionwarnings` -> `clientwarnings`. [sessionreplay nit;
-      errortracking nit; clientwarnings nit]
+- [x] Rename pipeline dirs to single-word lowercase: `session-replay` -> `sessionreplay`,
+      `error-tracking` -> `errortracking`, `ingestionwarnings` -> `clientwarnings` (same move).
+      [sessionreplay nit; errortracking nit; clientwarnings nit]
 
 Move other-team code out of `src/ingestion/` (ownership / reviewers):
 
@@ -699,3 +700,13 @@ Misc:
   moves to **Phase 7** (feedback sequences first — CI selection keys off the final `pipelines/<name>`
   paths); open question (flagged, not assumed): whether the feedback phase ships in this PR or the follow-up.
   No code moved yet — this is the plan + guideline adaptation only.
+- Phase 6 started (product owner chose: in this PR). First item done — naming realignment: `lanes/` ->
+  `pipelines/` and the three hyphenated dirs to single-word (`session-replay` -> `sessionreplay`,
+  `error-tracking` -> `errortracking`, `ingestionwarnings` -> `clientwarnings`). Codemod rewrote 354 imports
+  across 144 files; `git mv` for src + the `tests/ingestion/` mirror; guard updated (`PIPELINES` single-word
+  set, `pipelineOf` resolves `pipelines/<name>`, message `-> pipeline:`); jest/tsconfig unchanged. Gates
+  green: 0 leftover `ingestion/lanes` refs, static import-resolution 0, guard 0, prettier clean, eslint 0,
+  tsc only the pre-existing `src/cdp` baseline. Committed promptly (a container reset had wiped an earlier
+  uncommitted attempt — lesson: commit each Phase 6 step immediately). Remaining Phase 6: move
+  logs/recording-api/rasterizer out, steps placement, two CDP-import fixes, common-surface trim, the
+  evaluation-scheduler nit.
