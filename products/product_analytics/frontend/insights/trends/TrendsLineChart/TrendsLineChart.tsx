@@ -1,18 +1,10 @@
-import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, type ReactNode } from 'react'
+import { useValues } from 'kea'
+import { useCallback, useMemo } from 'react'
 
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
-import type {
-    ChartLegendConfig,
-    LegendItem,
-    PointClickData,
-    TooltipConfig,
-    TooltipContext,
-} from '@posthog/quill-charts'
+import type { PointClickData, TooltipConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ciRanges } from 'lib/statistics'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -34,9 +26,9 @@ import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
-import { TrendsLegendItemContextMenu } from '../shared/TrendsLegendItemContextMenu'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { useTrendsLegendConfig } from '../shared/useTrendsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
@@ -51,9 +43,10 @@ const handleChartError = makeChartErrorHandler('trends-line-chart')
 export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
-    const { insightProps, insight, canEditInsight } = useValues(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
+    const { insightProps, insight } = useValues(insightLogic)
+
+    const legendConfig = useTrendsLegendConfig({ insightProps, inSharedMode })
+    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -82,10 +75,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         showValuesOnSeries,
         showConfidenceIntervals,
         confidenceLevel,
-        showLegend,
-        legendSeriesIsolationMenuEligible,
     } = useValues(trendsDataLogic(insightProps))
-    const { toggleResultHidden } = useActions(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
@@ -275,56 +265,6 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             valueLabelFormatter,
         ]
     )
-
-    const resultById = useMemo(() => {
-        const m = new Map<string, IndexedTrendResult>()
-        ;(indexedResults ?? []).forEach((r) => m.set(String(r.id), r))
-        return m
-    }, [indexedResults])
-
-    const legendInteractive = canEditInsight && !inSharedMode
-
-    const legendConfig = useMemo<ChartLegendConfig | undefined>(() => {
-        if (!quillLegendEnabled) {
-            return undefined
-        }
-        const hiddenKeys = (indexedResults ?? []).filter((r) => getTrendsHidden(r)).map((r) => String(r.id))
-        const showContextMenu = legendInteractive && legendSeriesIsolationMenuEligible
-        return {
-            show: !!showLegend,
-            interactive: legendInteractive,
-            hiddenKeys,
-            onToggleSeries: (key: string) => {
-                const result = resultById.get(key)
-                if (result) {
-                    toggleResultHidden(result)
-                }
-            },
-            renderItem: showContextMenu
-                ? (node: ReactNode, item: LegendItem) => {
-                      const result = resultById.get(item.key)
-                      if (!result) {
-                          return node
-                      }
-                      return (
-                          <TrendsLegendItemContextMenu insightProps={insightProps} item={result}>
-                              {node as JSX.Element}
-                          </TrendsLegendItemContextMenu>
-                      )
-                  }
-                : undefined,
-        }
-    }, [
-        quillLegendEnabled,
-        indexedResults,
-        getTrendsHidden,
-        showLegend,
-        legendInteractive,
-        legendSeriesIsolationMenuEligible,
-        resultById,
-        toggleResultHidden,
-        insightProps,
-    ])
 
     const configWithLegend = useMemo(
         () => (legendConfig ? { ...config, legend: legendConfig } : config),

@@ -19,6 +19,8 @@ export interface ChartLegendRenderProps {
     show: boolean
     items: LegendItem[]
     position: NonNullable<ChartLegendConfig['position']>
+    align: ChartLegendConfig['align']
+    gap: ChartLegendConfig['gap']
     onItemClick?: (key: string) => void
     hiddenKeys: string[]
     renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
@@ -69,6 +71,8 @@ export function useChartLegend<Meta>(
             show: config?.show ?? false,
             items: derivedItems,
             position: config?.position ?? 'bottom',
+            align: config?.align,
+            gap: config?.gap,
             onItemClick: interactive ? toggle : undefined,
             hiddenKeys,
             renderItem: config?.renderItem,

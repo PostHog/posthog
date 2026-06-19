@@ -245,6 +245,10 @@ export interface ChartLegendConfig {
     show?: boolean
     /** Where the legend sits relative to the plot. Default 'bottom'. */
     position?: 'top' | 'bottom' | 'left' | 'right'
+    /** Legend alignment along its axis. Default 'center'. */
+    align?: 'start' | 'center' | 'end'
+    /** Gap in px between the legend and the plot. */
+    gap?: number
     /** Clicking a legend item hides/shows its series. Default true when the legend is shown;
      *  set false for a static, read-only legend. */
     interactive?: boolean
