@@ -81,8 +81,8 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
     if (preview.status === 'no-data') {
         return (
             <LemonBanner type="info" className="w-full">
-                This funnel has no data for the selected steps yet, so the alert can't evaluate a conversion rate until
-                it does.
+                This funnel has no data for the selected steps yet, so the alert can't evaluate a conversion rate. Try
+                adjusting the funnel steps or the date range.
             </LemonBanner>
         )
     }
@@ -155,7 +155,7 @@ export function FunnelsDefinitionFields({
                 fullWidth
                 className="flex-auto"
                 data-attr="alertForm-funnel-conversion"
-                placeholder="select a conversion"
+                placeholder="Select a conversion"
                 // Wide funnels generate ~2 options per step; cap the menu so it scrolls instead of overflowing.
                 menu={{ className: '!max-h-[400px]' }}
                 value={config ? funnelConfigToOptionKey(config, stepLabels.length) : undefined}

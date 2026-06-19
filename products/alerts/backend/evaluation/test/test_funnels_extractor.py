@@ -106,9 +106,8 @@ def test_breakdown_yields_one_series_per_value():
 
 
 def test_compared_funnel_evaluates_current_period_only():
-    # A compare-enabled funnel concatenates current + previous rows (tagged compare_label). The
-    # extractor must drop the previous rows, else funnel_step=null (last row) would pick a previous
-    # step and divide by the current first step — a meaningless cross-period rate.
+    # A compare-enabled funnel concatenates current + previous rows (tagged compare_label); the
+    # extractor evaluates the current period only.
     compared = [
         {"order": 0, "count": 1000, "compare_label": "current"},
         {"order": 1, "count": 100, "compare_label": "current"},
@@ -118,4 +117,4 @@ def test_compared_funnel_evaluates_current_period_only():
     result = _extract(compared)
     assert result.is_breakdown is False
     assert len(result.series) == 1
-    assert result.series[0].points[0].value == 10.0  # current 100/1000, not previous-mixed 120/1000
+    assert result.series[0].points[0].value == 10.0  # current period: 100/1000

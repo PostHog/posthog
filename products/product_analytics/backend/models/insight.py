@@ -417,9 +417,8 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
 
     @property
     def alertable_query_kind(self) -> "NodeKind | None":
-        """The insight's alert-capable query kind (trends, SQL, or funnel today), or None if alerts
-        aren't supported. Pure kind check — feature-flag gating is the caller's responsibility, so
-        existing alerts keep displaying and survive insight edits regardless of the flag."""
+        # Pure kind check (no flag gating — that's the caller's job), so existing alerts keep
+        # displaying and survive insight edits when a flag is off.
         from posthog.schema import NodeKind  # noqa: PLC0415
 
         kind = self._unwrapped_query_kind()

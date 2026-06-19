@@ -142,8 +142,7 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
 
 
 def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
-    # A funnel STEPS result is a single snapshot, so funnel alerts are absolute-only in v1
-    # (relative change needs a prior window — a deliberate fast-follow).
+    # A funnel STEPS result is a single snapshot (no prior window), so only absolute conditions apply.
     if ctx.query_kind != NodeKind.FUNNELS_QUERY:
         raise ValueError(f"Funnel alert config requires a FunnelsQuery insight, got '{ctx.query_kind}'")
     if ctx.parsed_condition.type != AlertConditionType.ABSOLUTE_VALUE:

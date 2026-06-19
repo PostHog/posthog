@@ -48,8 +48,7 @@ export const areAlertsSupportedForInsight = (
 }
 
 // List only the insight types this account can actually alert on — naming a flag-gated type the
-// user doesn't have would disclose an unreleased feature. Shared by the alerts button and the
-// manage-alerts modal so their "not supported" copy stays in sync as kinds/flags change.
+// user doesn't have would disclose an unreleased feature.
 const alertableInsightTypesLabel = (options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean }): string =>
     ['trends', options.hogqlAlertsEnabled && 'SQL', options.funnelAlertsEnabled && 'funnel'].filter(Boolean).join(', ')
 
