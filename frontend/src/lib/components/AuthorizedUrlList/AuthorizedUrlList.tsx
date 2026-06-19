@@ -60,6 +60,11 @@ export function AuthorizedUrlList({
 
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 
+    // toolbar and web analytics urls are sent through the backend to be validated and have toolbar auth
+    // information added; other urls are simply opened directly
+    const isLaunchableType =
+        type === AuthorizedUrlListType.TOOLBAR_URLS || type === AuthorizedUrlListType.WEB_ANALYTICS
+
     return (
         <div className="flex flex-col gap-2" data-attr="authorized-urls-table">
             <EmptyState
@@ -101,10 +106,6 @@ export function AuthorizedUrlList({
                     return null
                 }
 
-                // toolbar and web analytics urls are sent through the backend to be validated and have toolbar
-                // auth information added; other urls are simply opened directly
-                const isLaunchableType =
-                    type === AuthorizedUrlListType.TOOLBAR_URLS || type === AuthorizedUrlListType.WEB_ANALYTICS
                 const launchTarget = isLaunchableType ? launchUrl(keyedURL.url) : `${keyedURL.url}${query ?? ''}`
                 // The whole row mirrors the Launch button, so the card-like row is a real click target instead of
                 // a dead click. Suggestions (handled separately) and wildcard domains can't be launched.

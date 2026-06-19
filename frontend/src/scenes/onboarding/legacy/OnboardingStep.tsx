@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -56,6 +56,16 @@ export const OnboardingStep = ({
     // advance() kicks off an async URL change that produces no immediate DOM mutation near the button, so without
     // this posthog-js flags the click as a dead click. Setting a pending state gives instant visual feedback.
     const [pendingAdvance, setPendingAdvance] = useState<'skip' | 'continue' | null>(null)
+
+    // On the happy path the component unmounts as soon as navigation happens. If advance() fails or navigation is
+    // blocked, this safety net clears the pending state so the buttons don't stay stuck loading/disabled forever.
+    useEffect(() => {
+        if (!pendingAdvance) {
+            return
+        }
+        const timeout = setTimeout(() => setPendingAdvance(null), 5000)
+        return () => clearTimeout(timeout)
+    }, [pendingAdvance])
 
     const skip = (): void => {
         setPendingAdvance('skip')
