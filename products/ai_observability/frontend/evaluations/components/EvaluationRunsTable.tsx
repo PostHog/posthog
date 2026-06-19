@@ -1,23 +1,26 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconCheck, IconMinus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
+import { EvaluationResultTag, getEvaluationResultSortValue } from '../../components/EvaluationResultTag'
 import { sanitizeTraceUrlSearchParams } from '../../utils'
+import { evaluationSupportsReports } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun } from '../types'
 import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { filteredEvaluationRuns, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
+    const { filteredEvaluationRuns, evaluation, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
+    const showSummary = evaluationSupportsReports(evaluation)
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
@@ -53,45 +56,9 @@ export function EvaluationRunsTable(): JSX.Element {
         {
             title: 'Result',
             key: 'result',
-            render: (_, run) => {
-                if (run.status === 'failed') {
-                    return (
-                        <LemonTag type="danger" icon={<IconWarning />}>
-                            Error
-                        </LemonTag>
-                    )
-                }
-                if (run.status === 'running') {
-                    return <LemonTag type="primary">Running...</LemonTag>
-                }
-                if (run.result === null) {
-                    return (
-                        <LemonTag type="muted" icon={<IconMinus />}>
-                            N/A
-                        </LemonTag>
-                    )
-                }
-                return (
-                    <div className="flex items-center gap-2">
-                        {run.result ? (
-                            <LemonTag type="success" icon={<IconCheck />}>
-                                True
-                            </LemonTag>
-                        ) : (
-                            <LemonTag type="danger" icon={<IconX />}>
-                                False
-                            </LemonTag>
-                        )}
-                    </div>
-                )
-            },
+            render: (_, run) => <EvaluationResultTag run={run} />,
             sorter: (a, b) => {
-                if (a.status !== 'completed' || b.status !== 'completed') {
-                    return a.status.localeCompare(b.status)
-                }
-                const valA = a.result === null ? 0.5 : Number(a.result)
-                const valB = b.result === null ? 0.5 : Number(b.result)
-                return valB - valA
+                return getEvaluationResultSortValue(b) - getEvaluationResultSortValue(a)
             },
         },
         {
@@ -123,7 +90,7 @@ export function EvaluationRunsTable(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
-                <EvaluationSummaryControls />
+                {showSummary ? <EvaluationSummaryControls /> : <div />}
                 <LemonButton
                     type="secondary"
                     icon={<IconRefresh />}
@@ -136,7 +103,7 @@ export function EvaluationRunsTable(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <EvaluationSummaryPanel runsLookup={runsLookup} />
+            {showSummary && <EvaluationSummaryPanel runsLookup={runsLookup} />}
 
             <LemonTable
                 columns={columns}

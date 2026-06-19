@@ -89,7 +89,36 @@ def _aggregation_expr(name: str) -> ast.Expr:
     raise ValueError(f"Unsupported aggregation: {name!r}")
 
 
-_ALLOWED_AGGREGATIONS: frozenset[str] = frozenset({"sum", "avg", "count", "p95", "rate", "increase"})
+_ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
+    {"sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"}
+)
+
+
+def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float]) -> float:
+    """Prometheus-style quantile from explicit-bounds bucket counts.
+
+    `counts` has one entry per bound plus an overflow bucket. Linear
+    interpolation inside the bucket containing the rank; the overflow
+    bucket clamps to the highest finite bound; the first bucket's lower
+    edge is assumed 0 (negative-bound histograms get bounds[0]).
+    """
+    total = sum(counts)
+    if total <= 0 or not bounds:
+        return 0.0
+    rank = quantile * total
+    cumulative = 0.0
+    for index, count in enumerate(counts):
+        cumulative += count
+        if cumulative >= rank:
+            if index >= len(bounds):
+                return bounds[-1]
+            upper = bounds[index]
+            lower = bounds[index - 1] if index > 0 else min(0.0, bounds[0])
+            if count == 0:
+                return upper
+            return lower + (upper - lower) * (rank - (cumulative - count)) / count
+    return bounds[-1]
+
 
 # Target ~60 buckets across the requested range — feels right for a chart.
 _TARGET_BUCKET_COUNT = 60
@@ -164,6 +193,7 @@ class MetricQueryRunner:
         filters: Sequence[MetricFilter] = (),
         group_by: Sequence[MetricGroupBy] = (),
         interval: str | None = None,
+        quantile: float | None = None,
     ) -> None:
         if aggregation not in _ALLOWED_AGGREGATIONS:
             raise ValueError(f"Unsupported aggregation: {aggregation!r}")
@@ -171,6 +201,9 @@ class MetricQueryRunner:
             raise ValueError("date_to must be after date_from")
         if interval is not None and interval not in {name for name, _, _ in _INTERVAL_LADDER}:
             raise ValueError(f"Unknown interval: {interval!r}")
+        if aggregation == "histogram_quantile":
+            if quantile is None or not 0.0 < quantile < 1.0:
+                raise ValueError("histogram_quantile requires a quantile in (0, 1)")
 
         self.team = team
         self.metric_name = metric_name
@@ -180,10 +213,13 @@ class MetricQueryRunner:
         self.filters = tuple(filters)
         self.group_by = tuple(group_by)
         self.interval = interval or _pick_interval(date_from, date_to)
+        self.quantile = quantile
 
     def run(self) -> list[dict[str, Any]]:
         """Bucketed rows: `{"time", "value", "labels"}`. `labels` carries one
         entry per group_by key (always `{}` without group_by)."""
+        if self.aggregation == "histogram_quantile":
+            return self._run_histogram_quantile()
         if self.aggregation in ("rate", "increase"):
             query = self._build_counter_query()
         else:
@@ -203,6 +239,40 @@ class MetricQueryRunner:
                 {
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
                     "value": row[1 + group_count],
+                    "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
+                }
+            )
+        return rows
+
+    def _run_histogram_quantile(self) -> list[dict[str, Any]]:
+        """ClickHouse sums the per-le distributions (temporality-aware,
+        per-series deltas like rate/increase); the quantile interpolation
+        happens here in Python where it is exact and unit-testable."""
+        assert self.quantile is not None
+        query = self._build_histogram_query()
+        response = execute_hogql_query(
+            query_type="MetricQuery",
+            query=query,
+            team=self.team,
+            workload=Workload.LOGS,
+        )
+
+        group_count = len(self.group_by)
+        distinct_bounds = {tuple(variant) for row in response.results for variant in row[2 + group_count] if variant}
+        if len(distinct_bounds) > 1:
+            raise ValueError(
+                "histogram bounds differ across the selected series/time range; "
+                "narrow the query with filters so all series share one bucket layout"
+            )
+
+        rows: list[dict[str, Any]] = []
+        for row in response.results:
+            bounds = list(row[1 + group_count])
+            counts = list(row[3 + group_count])
+            rows.append(
+                {
+                    "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
+                    "value": _histogram_quantile(self.quantile, bounds, counts),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
                 }
             )
@@ -308,6 +378,67 @@ class MetricQueryRunner:
             placeholders={
                 "interval": _interval_expr(self.interval),
                 "divisor": ast.Constant(value=divisor),
+                "metric_name": ast.Constant(value=self.metric_name),
+                "date_from": ast.Constant(value=self.date_from),
+                "date_to": ast.Constant(value=self.date_to),
+                "filters": _filters_expr(self.filters),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        self._splice_group_columns(query)
+        return query
+
+    def _build_histogram_query(self) -> ast.SelectQuery:
+        """Per-time-bucket summed bucket-count distributions for histogram
+        rows, with the same per-series temporality/reset handling as
+        rate/increase applied element-wise to the counts array."""
+        query = parse_select(
+            """
+                SELECT
+                    toStartOfInterval(sample_timestamp, {interval}) AS time,
+                    any(histogram_bounds) AS bounds,
+                    groupUniqArray(histogram_bounds) AS bounds_variants,
+                    sumForEach(contribution_counts) AS counts
+                FROM (
+                    SELECT
+                        timestamp AS sample_timestamp,
+                        attributes AS attributes,
+                        resource_attributes AS resource_attributes,
+                        histogram_bounds AS histogram_bounds,
+                        multiIf(
+                            aggregation_temporality = 'delta', counts_f,
+                            empty(prev_counts), arrayMap(x -> 0.0, counts_f),
+                            length(prev_counts) != length(counts_f), counts_f,
+                            arrayAll((c, p) -> c >= p, counts_f, prev_counts), arrayMap((c, p) -> c - p, counts_f, prev_counts),
+                            counts_f
+                        ) AS contribution_counts
+                    FROM (
+                        SELECT
+                            timestamp,
+                            aggregation_temporality,
+                            attributes,
+                            resource_attributes,
+                            histogram_bounds,
+                            arrayMap(x -> toFloat(x), histogram_counts) AS counts_f,
+                            lagInFrame(arrayMap(x -> toFloat(x), histogram_counts)) OVER (
+                                PARTITION BY service_name, resource_fingerprint, toString(attributes)
+                                ORDER BY timestamp ASC
+                                ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
+                            ) AS prev_counts
+                        FROM posthog.metrics
+                        WHERE metric_name = {metric_name}
+                          AND timestamp >= {date_from}
+                          AND timestamp < {date_to}
+                          AND notEmpty(histogram_counts)
+                          AND {filters}
+                    )
+                )
+                GROUP BY time
+                ORDER BY time ASC
+                LIMIT 10000
+            """,
+            placeholders={
+                "interval": _interval_expr(self.interval),
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),

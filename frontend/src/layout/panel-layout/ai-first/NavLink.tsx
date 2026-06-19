@@ -5,7 +5,7 @@ import { IconGear } from '@posthog/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'

@@ -2,7 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, propsChanged, re
 import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 

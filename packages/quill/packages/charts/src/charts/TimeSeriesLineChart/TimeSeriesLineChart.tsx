@@ -1,7 +1,11 @@
 import React, { useMemo } from 'react'
 
+import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useChartLegend } from '../../components/Legend/useChartLegend'
 import type {
+    ChartLegendConfig,
     ChartTheme,
+    DateRangeZoomData,
     LineChartConfig,
     PointClickData,
     Series,
@@ -50,6 +54,8 @@ export interface TimeSeriesLineChartConfig {
     showAxisLines?: boolean
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
+    /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
+    legend?: ChartLegendConfig
 }
 
 export interface TimeSeriesLineChartProps<Meta = unknown> {
@@ -59,6 +65,7 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     config?: TimeSeriesLineChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     dataAttr?: string
     className?: string
     children?: React.ReactNode
@@ -72,6 +79,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     config,
     tooltip,
     onPointClick,
+    onDateRangeZoom,
     dataAttr,
     className,
     children,
@@ -90,12 +98,17 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showCrosshair,
         showAxisLines,
         tooltip: tooltipConfig,
+        legend,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
 
+    // Toggling works off the raw series so the legend lists the user's series (not derived trend
+    // lines / CI bands); hidden ones flow through the derived pipeline already excluded.
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
+
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
-    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(series, valueLabelsConfig?.seriesKeys)
+    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(visibleSeries, valueLabelsConfig?.seriesKeys)
 
     const finalSeries = useDerivedSeries(seriesAfterValueLabels, {
         confidenceIntervals,
@@ -130,20 +143,23 @@ export function TimeSeriesLineChart<Meta = unknown>({
     }
 
     return (
-        <LineChart
-            series={finalSeries}
-            labels={labels}
-            config={lineChartConfig}
-            theme={theme}
-            tooltip={tooltip}
-            onPointClick={onPointClick}
-            className={className}
-            dataAttr={dataAttr}
-            onError={onError}
-        >
-            {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
-            {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
-            {children}
-        </LineChart>
+        <ChartLegend {...legendProps} legendDataAttr="hog-chart-timeseries-line-legend">
+            <LineChart
+                series={finalSeries}
+                labels={labels}
+                config={lineChartConfig}
+                theme={theme}
+                tooltip={tooltip}
+                onPointClick={onPointClick}
+                onDateRangeZoom={onDateRangeZoom}
+                className={className}
+                dataAttr={dataAttr}
+                onError={onError}
+            >
+                {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
+                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {children}
+            </LineChart>
+        </ChartLegend>
     )
 }

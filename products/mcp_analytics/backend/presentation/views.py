@@ -7,7 +7,6 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -15,7 +14,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission, SingleTenancyOrAdmin
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
@@ -65,9 +64,12 @@ class MCPSessionPagination(LimitOffsetPagination):
 
 class BaseMCPAnalyticsSubmissionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPAnalyticsSubmissionSerializer
-    # Keep these endpoints staff-only until the MCP tools and auth model are ready for customer traffic.
-    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
-    scope_object = "INTERNAL"
+    # Alpha product: gated behind the mcp-analytics feature flag at the API layer (matching
+    # the UI flag) rather than hidden behind a staff-only lock. create -> write, list -> read
+    # map to the default scope actions.
+    scope_object = "mcp_analytics"
+    posthog_feature_flag = "mcp-analytics"
+    permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPAnalyticsPagination
     user_action_name: str = ""
 

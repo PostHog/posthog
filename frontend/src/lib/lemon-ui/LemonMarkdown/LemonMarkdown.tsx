@@ -28,8 +28,11 @@ export interface LemonMarkdownProps {
     /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
     disableDocsRedirect?: boolean
     /**
-     * Whether to render images as plain links instead of <img> elements. Use for untrusted content
-     * (e.g. LLM/agent output), where auto-loading images would fire requests to arbitrary URLs.
+     * Whether to treat images as untrusted. Use for content we don't control (e.g. LLM/agent or
+     * externally-sourced output), where auto-loading an image would fire a request to an arbitrary
+     * URL — leaking the viewer's IP, acting as a tracking pixel, or probing internal addresses.
+     * When set, only images served from PostHog (same-origin or a `posthog.com` host) render inline
+     * as <img>; every other image is rendered as a plain click-to-open link instead.
      */
     disableImages?: boolean
     className?: string
@@ -54,6 +57,27 @@ export function slugifyHeading(text: string): string {
         .replace(/\s+/g, '-')
         .replace(/-+/g, '-')
         .replace(/^-|-$/g, '')
+}
+
+/**
+ * Whether an image source is trusted enough to render inline within untrusted content.
+ * Trusted = served from PostHog itself: same-origin (incl. relative URLs) or any `posthog.com` host.
+ * Anything else (including `data:`/`blob:` URIs) is untrusted and should be rendered as a link.
+ */
+export function isTrustedImageSrc(src: string | undefined): boolean {
+    if (!src) {
+        return false
+    }
+    let url: URL
+    try {
+        url = new URL(src, window.location.origin)
+    } catch {
+        return false
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+        return false
+    }
+    return url.hostname === window.location.hostname || /(^|\.)posthog\.com$/i.test(url.hostname)
 }
 
 export function extractTextFromChildren(children: React.ReactNode): string {
@@ -122,11 +146,14 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             },
             ...(disableImages
                 ? {
-                      img: ({ src, alt }: any): JSX.Element => (
-                          <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
-                              {alt || src}
-                          </Link>
-                      ),
+                      img: ({ src, alt }: any): JSX.Element =>
+                          isTrustedImageSrc(src) ? (
+                              <img src={src} alt={alt} loading="lazy" />
+                          ) : (
+                              <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
+                                  {alt || src}
+                              </Link>
+                          ),
                   }
                 : {}),
             li: ({ children, node }: any): JSX.Element => {

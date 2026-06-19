@@ -19,6 +19,9 @@ from posthog.temporal.data_imports.sources.shopify.constants import SHOPIFY_GRAP
 from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+    SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
+    SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
+    SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
     ShopifyPermissionError,
     ShopifyResumeConfig,
     shopify_source,
@@ -39,6 +42,16 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # 4xx from Shopify's OAuth token endpoint — invalid/revoked app credentials.
             # Retrying cannot recover; the user must reconnect the integration.
             SHOPIFY_ACCESS_TOKEN_AUTH_ERROR: SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+            # GraphQL "Access denied for <field> field" — the access token is missing the
+            # scope required to read this resource. The scope can't change on retry, so fail
+            # fast and tell the user to reconnect with the required permissions.
+            SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR: (
+                "Your Shopify access token is missing the permissions required to read some of your data. "
+                "Please reconnect your Shopify integration and grant the requested access scopes."
+            ),
+            # 402 Payment Required from the Admin API — the store is frozen for an unpaid
+            # bill. Retrying cannot recover; the shop owner must settle their Shopify balance.
+            SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
         }
 
     @property

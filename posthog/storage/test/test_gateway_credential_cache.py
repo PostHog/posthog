@@ -1,11 +1,13 @@
 import json
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -18,22 +20,31 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token, generate_random_token_secret, hash_key_value
+from posthog.redis import get_client
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_FIELDS,
+    GATEWAY_CREDENTIAL_LAST_USED_KEY,
     GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL,
+    OVERSPEND_ALLOWANCE_KEY,
     clear_gateway_credential,
     credential_hash,
+    drain_gateway_credential_last_used,
+    format_overspend_allowance_usd,
     gateway_credential_hypercache as hypercache,
     project_gateway_credential,
     refresh_all_gateway_credentials,
+    validate_overspend_allowance_usd,
 )
 from posthog.tasks.gateway_credential import (
+    drain_gateway_credential_last_used_task,
     refresh_gateway_credentials,
     reproject_team_gateway_credentials_task,
     reproject_user_gateway_credentials_task,
     update_gateway_credential_cache_task,
 )
+
+_TEST_GATEWAY_REDIS_URL = "redis://localhost:6379/15"
 
 GATEWAY_SCOPE = "llm_gateway:read"
 SECRET_KEY_KIND = "project_secret_api_key"
@@ -157,6 +168,85 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         assert blob is not None
         self.assertEqual(blob["team_id"], self.team.id)
         self.assertEqual(blob["project_token"], self.team.api_token)
+
+    def test_overspend_allowance_omitted_when_unset(self):
+        # Null = unset: the field is absent so the gateway falls back to its operator default.
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        self.assertNotIn(OVERSPEND_ALLOWANCE_KEY, blob)
+
+    @parameterized.expand(
+        [
+            ("whole", Decimal("5"), "5.000000"),
+            ("explicit_zero", Decimal("0"), "0.000000"),
+            ("fractional", Decimal("0.5"), "0.500000"),
+            ("max", Decimal("10000"), "10000.000000"),
+        ]
+    )
+    def test_overspend_allowance_projected_as_fixed_point_string(self, _name, value, expected):
+        # update() bypasses signals (no Redis needed) and persists for the fresh team read.
+        Team.objects.filter(pk=self.team.pk).update(llm_gateway_overspend_allowance_usd=value)
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        # Pin the literal wire value, not a serializer round-trip.
+        self.assertEqual(blob[OVERSPEND_ALLOWANCE_KEY], expected)
+        self.assertIsInstance(blob[OVERSPEND_ALLOWANCE_KEY], str)
+
+
+class TestOverspendAllowanceFormatting(BaseTest):
+    @parameterized.expand(
+        [
+            ("whole", Decimal("5"), "5.000000"),
+            ("zero", Decimal("0"), "0.000000"),
+            ("max", Decimal("10000"), "10000.000000"),
+            ("six_dp", Decimal("1.234567"), "1.234567"),
+        ]
+    )
+    def test_format_is_fixed_point_never_scientific(self, _name, value, expected):
+        formatted = format_overspend_allowance_usd(value)
+        self.assertEqual(formatted, expected)
+        self.assertNotIn("E", formatted.upper())
+
+    @parameterized.expand(
+        [
+            ("whole", Decimal("5"), Decimal("5.000000")),
+            ("zero", Decimal("0"), Decimal("0.000000")),
+            ("max", Decimal("10000"), Decimal("10000.000000")),
+            ("six_dp", Decimal("1.234567"), Decimal("1.234567")),
+        ]
+    )
+    def test_validate_accepts_in_range(self, _name, value, expected):
+        self.assertEqual(validate_overspend_allowance_usd(value), expected)
+
+    @parameterized.expand(
+        [
+            ("negative", Decimal("-0.000001")),
+            ("over_max", Decimal("10000.000001")),
+            ("too_precise", Decimal("1.0000001")),
+            ("nan", Decimal("NaN")),
+        ]
+    )
+    def test_validate_rejects_out_of_contract(self, _name, value):
+        with self.assertRaises(ValueError):
+            validate_overspend_allowance_usd(value)
+
+
+class TestOverspendAllowanceDBConstraint(BaseTest):
+    # The CHECK constraint backstops update/bulk_update/shell/raw writes that bypass the validators.
+    @parameterized.expand([("negative", Decimal("-1")), ("over_max", Decimal("10001"))])
+    def test_db_rejects_out_of_range_update(self, _name, value):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Team.objects.filter(pk=self.team.pk).update(llm_gateway_overspend_allowance_usd=value)
+
+    @parameterized.expand([("zero", Decimal("0")), ("max", Decimal("10000")), ("unset", None)])
+    def test_db_accepts_in_range_update(self, _name, value):
+        Team.objects.filter(pk=self.team.pk).update(llm_gateway_overspend_allowance_usd=value)
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.llm_gateway_overspend_allowance_usd, value)
 
 
 class TestGatewayCredentialScopeGating(GatewayCredentialTestMixin):
@@ -647,3 +737,125 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
         team.save()
 
         mock_delay.assert_called_with(self.team.id)
+
+    @parameterized.expand([("set", None, Decimal("5")), ("clear", Decimal("5"), None)])
+    @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
+    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
+    @patch("posthog.tasks.gateway_credential.reproject_team_gateway_credentials_task.delay")
+    def test_team_overspend_allowance_change_reprojects(
+        self, _name, initial, new, mock_delay, mock_settings, mock_transaction
+    ):
+        # Both transitions between the two observable states (unset and set) reproject every
+        # credential blob on the team, rather than waiting out the TTL.
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        if initial is not None:
+            Team.objects.filter(pk=self.team.pk).update(llm_gateway_overspend_allowance_usd=initial)
+        team = Team.objects.get(pk=self.team.pk)  # snapshot allowance at pre_save under patched setting
+        team.llm_gateway_overspend_allowance_usd = new
+        team.save()
+
+        mock_delay.assert_called_with(self.team.id)
+
+    @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
+    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
+    @patch("posthog.tasks.gateway_credential.reproject_team_gateway_credentials_task.delay")
+    def test_team_save_without_gateway_field_change_does_not_reproject(
+        self, mock_delay, mock_settings, mock_transaction
+    ):
+        # A save touching neither api_token nor llm_gateway_overspend_allowance_usd must not enqueue.
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        team = Team.objects.get(pk=self.team.pk)
+        team.name = "renamed, no gateway field touched"
+        team.save()
+
+        mock_delay.assert_not_called()
+
+
+@override_settings(AI_GATEWAY_REDIS_URL=_TEST_GATEWAY_REDIS_URL)
+class TestGatewayCredentialLastUsedDrain(GatewayCredentialTestMixin):
+    """The gateway can't write Django's DB, so it coalesces credential use into a
+    Valkey hash; the drain stamps ProjectSecretAPIKey.last_used_at from it."""
+
+    def setUp(self):
+        super().setUp()
+        # fakeredis is a per-URL singleton that survives the DB rollback; clear it.
+        self.redis = get_client(_TEST_GATEWAY_REDIS_URL)
+        self.redis.delete(GATEWAY_CREDENTIAL_LAST_USED_KEY)
+
+    def _seed(self, marks: dict[str, int]) -> None:
+        # Per-field, not mapping=, so str keys satisfy hset's str|bytes without Mapping's invariant key.
+        for field, ts in marks.items():
+            self.redis.hset(GATEWAY_CREDENTIAL_LAST_USED_KEY, field, ts)
+
+    @staticmethod
+    def _hash(secret_key: ProjectSecretAPIKey) -> str:
+        assert secret_key.secure_value is not None  # set by _make_secret_key
+        return secret_key.secure_value
+
+    @staticmethod
+    def _stored_ts(secret_key: ProjectSecretAPIKey) -> int:
+        secret_key.refresh_from_db()
+        assert secret_key.last_used_at is not None
+        return int(secret_key.last_used_at.timestamp())
+
+    def test_drain_stamps_secret_key_last_used(self):
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        self.assertIsNone(secret_key.last_used_at)
+        used_ts = int(timezone.now().timestamp())
+        self._seed({self._hash(secret_key): used_ts})
+
+        updated = drain_gateway_credential_last_used()
+
+        self.assertEqual(updated, 1)
+        self.assertEqual(self._stored_ts(secret_key), used_ts)
+        # The hash is consumed so a stalled drain can't double-process it.
+        self.assertFalse(self.redis.exists(GATEWAY_CREDENTIAL_LAST_USED_KEY))
+
+    @parameterized.expand(
+        [
+            # name, last_used offset from now, gateway-mark offset from now, expect update
+            ("respects_hour_throttle", timedelta(minutes=-10), timedelta(0), False),
+            ("never_regresses", timedelta(0), timedelta(hours=-2), False),
+            ("stamps_when_older_than_throttle", timedelta(hours=-3), timedelta(0), True),
+        ]
+    )
+    def test_drain_throttle_and_regression(self, _name, initial_offset, gateway_offset, expect_update):
+        now = timezone.now()
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        initial = now + initial_offset
+        ProjectSecretAPIKey.objects.filter(pk=secret_key.pk).update(last_used_at=initial)
+        self._seed({self._hash(secret_key): int((now + gateway_offset).timestamp())})
+
+        updated = drain_gateway_credential_last_used()
+
+        if expect_update:
+            self.assertEqual(updated, 1)
+            self.assertEqual(self._stored_ts(secret_key), int((now + gateway_offset).timestamp()))
+        else:
+            self.assertEqual(updated, 0)
+            self.assertEqual(self._stored_ts(secret_key), int(initial.timestamp()))
+
+    def test_drain_ignores_unknown_hash(self):
+        self._seed({f"{SHA256_HASH_PREFIX}deadbeef": int(timezone.now().timestamp())})
+
+        self.assertEqual(drain_gateway_credential_last_used(), 0)
+
+    def test_drain_empty_hash_is_noop(self):
+        self.assertEqual(drain_gateway_credential_last_used(), 0)
+
+    @override_settings(AI_GATEWAY_REDIS_URL=None)
+    def test_drain_noop_without_redis_url(self):
+        self.assertEqual(drain_gateway_credential_last_used(), 0)
+
+    def test_task_runs_drain(self):
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        used_ts = int(timezone.now().timestamp())
+        self._seed({self._hash(secret_key): used_ts})
+
+        drain_gateway_credential_last_used_task()
+
+        self.assertEqual(self._stored_ts(secret_key), used_ts)

@@ -8,7 +8,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'

@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -63,7 +64,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const defaultInsightName =
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { hogqlAlertsEnabled })
 
     const insightDisplayName = insight?.name || insight?.derived_name
 

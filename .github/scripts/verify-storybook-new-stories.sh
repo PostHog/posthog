@@ -58,7 +58,19 @@ if [ ${#stories_to_verify[@]} -eq 0 ]; then
     exit 0
 fi
 
-echo "Verifying ${#stories_to_verify[@]} file(s) × $REPEAT_COUNT runs:"
+# Scale repeats down for large story sets so the job fits its time budget
+# (runs are sequential with --maxWorkers=1). Small PRs keep full verification;
+# mass refactors degrade to fewer passes instead of timing out.
+file_count=${#stories_to_verify[@]}
+if [ "$file_count" -gt 30 ] && [ "$REPEAT_COUNT" -gt 1 ]; then
+    echo "NOTE: $file_count story files changed — reducing repeat count from $REPEAT_COUNT to 1 to fit the job time budget"
+    REPEAT_COUNT=1
+elif [ "$file_count" -gt 10 ] && [ "$REPEAT_COUNT" -gt 2 ]; then
+    echo "NOTE: $file_count story files changed — reducing repeat count from $REPEAT_COUNT to 2 to fit the job time budget"
+    REPEAT_COUNT=2
+fi
+
+echo "Verifying $file_count file(s) × $REPEAT_COUNT runs:"
 printf "  %s\n" "${stories_to_verify[@]}"
 
 # Build a regex pattern matching any of the changed story files.
@@ -94,10 +106,14 @@ for run in $(seq 1 "$REPEAT_COUNT"); do
     set +e
     # Run test-storybook directly (tests a pre-built storybook dist served over http-server).
     # pipefail is set at script level so tee preserves the exit code.
+    # --passWithNoTests: changed stories may live in a separate storybook
+    # (e.g. services/agent-console, packages/agent-chat) that the main runner's
+    # testMatch doesn't cover. Those are verified by their own CI, so finding no
+    # matching tests here is not a failure.
     pnpm --filter=@posthog/storybook exec test-storybook \
         $snapshot_flag --no-index-json --maxWorkers=1 \
         --browsers chromium \
-        -- --testPathPattern "$pattern" 2>&1 | tee "/tmp/storybook-verify-run${run}.log"
+        -- --testPathPattern "$pattern" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-run${run}.log"
     exit_code=${PIPESTATUS[0]}
     set -e
 

@@ -47,6 +47,11 @@ DLT_TO_PA_TYPE_MAP: dict[
 DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
 DEFAULT_NUMERIC_SCALE = 18  # Good default scale for decimal128, 20 int digits plus 18 decimal cases
 MAX_NUMERIC_SCALE = 32  # Maximum scale for Delta Lake
+
+# pyarrow infers `int64` for Python `int` columns; values outside this range overflow with
+# "OverflowError: Python int too large to convert to C long" (Python ints are unbounded).
+INT64_MIN = -(2**63)
+INT64_MAX = 2**63 - 1
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 type SupportedDltDataType = Literal["text", "bigint", "bool", "timestamp", "json", "double", "date", "time", "decimal"]
@@ -890,6 +895,38 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             columnar_table_data[field_name] = number_arr
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(new_field_type))
+
+        # Integer columns can hold Python ints larger than pyarrow's int64 range (e.g. a Google
+        # Sheets cell with a huge number). pyarrow raises "OverflowError: Python int too large to
+        # convert to C long" while inferring int64. Such a column already failed `pa.array(values)`
+        # above and fell back to an object ndarray, so restrict the scan to those candidates to
+        # avoid touching every normal int column. Promote to decimal when it fits, else stringify.
+        if (
+            py_type is int
+            and unique_types_in_column == {int}
+            and isinstance(columnar_table_data[field_name], np.ndarray)
+        ):
+            all_values = _to_list_array(columnar_table_data[field_name])
+            if any(value is not None and not (INT64_MIN <= value <= INT64_MAX) for value in all_values):
+                try:
+                    overflow_arr = _decimal_array_from_values(
+                        [None if value is None else decimal.Decimal(value) for value in all_values]
+                    )
+                    py_type = decimal.Decimal
+                    unique_types_in_column = {decimal.Decimal}
+                except ValueError:
+                    # Too large even for decimal256 — keep it as text rather than crash the sync.
+                    overflow_arr = pa.array(
+                        [None if value is None else str(value) for value in all_values], type=pa.string()
+                    )
+                    py_type = str
+                    unique_types_in_column = {str}
+
+                columnar_table_data[field_name] = overflow_arr
+                if arrow_schema:
+                    arrow_schema = arrow_schema.set(
+                        field_index, arrow_schema.field(field_index).with_type(overflow_arr.type)
+                    )
 
         # If one type is a list, then make everything into a list
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:

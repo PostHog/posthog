@@ -34,7 +34,10 @@ import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
+import { findLastIndex } from 'lib/utils/arrays'
+import { downloadFile, uuid } from 'lib/utils/dom'
+import { clamp } from 'lib/utils/numbers'
+import { objectsEqual } from 'lib/utils/objects'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -150,6 +153,10 @@ const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
 // rrweb handles that fine — clamping would only add telemetry noise and an
 // extra seek on nearly every playback.
 const MIN_CLAMPABLE_DEAD_ZONE_MS = 1000
+
+// a leading unplayable region longer than this is worth surfacing to the user (banner + scrubber
+// marker); below it the dead-zone clamp handles things silently and a warning would be noise
+const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 
 export type SeekRenderability =
     // a FullSnapshot exists at or before the timestamp for its window
@@ -1128,6 +1135,37 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return allSourcesLoaded ? { kind: 'unplayable' } : { kind: 'waitingForData' }
                 }
             },
+        ],
+
+        // The leading span playback can't render — when the initial full snapshot was lost or arrived
+        // late, this is the offset from start to the FullSnapshot the player clamps the playhead to.
+        // Derived from seekRenderability so the scrubber marker matches where playback actually starts,
+        // window-aware and excluding the no-full-snapshot-anywhere case (handled by the unplayable takeover).
+        // The `clampToFullSnapshot` verdict already requires the data before the recovery point to be
+        // loaded (and so can't later flip to `renderable`), so it gates itself — surfacing the marker as
+        // soon as playback would clamp rather than waiting for the whole recording to finish loading.
+        leadingUnplayableMs: [
+            (s) => [s.sessionPlayerData, s.seekRenderability],
+            (
+                sessionPlayerData: SessionPlayerData,
+                seekRenderability: (timestamp: number) => SeekRenderability
+            ): number => {
+                const start = sessionPlayerData.start?.valueOf()
+                if (start == null) {
+                    return 0
+                }
+                const firstWindowSegment = sessionPlayerData.segments.find((segment) => segment.kind === 'window')
+                if (!firstWindowSegment) {
+                    return 0
+                }
+                const renderability = seekRenderability(firstWindowSegment.startTimestamp)
+                return renderability.kind === 'clampToFullSnapshot' ? Math.max(0, renderability.timestamp - start) : 0
+            },
+        ],
+
+        hasLateFullSnapshot: [
+            (s) => [s.leadingUnplayableMs],
+            (leadingUnplayableMs: number): boolean => leadingUnplayableMs > LATE_FULL_SNAPSHOT_THRESHOLD_MS,
         ],
 
         debugSnapshots: [

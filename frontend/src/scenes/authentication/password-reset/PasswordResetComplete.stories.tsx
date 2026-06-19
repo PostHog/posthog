@@ -1,5 +1,6 @@
 // PasswordResetComplete.stories.tsx
 import { Meta, StoryObj } from '@storybook/react'
+import { HttpResponse, delay } from 'msw'
 
 import { urls } from 'scenes/urls'
 
@@ -26,7 +27,12 @@ export const Default: Story = {
     decorators: [
         mswDecorator({
             get: { '/api/reset/user-uuid-3f32/': { success: true } },
-            post: { '/api/reset/user-uuid-3f32/': (_, __, ctx) => [ctx.delay(1000), ctx.status(200)] },
+            post: {
+                '/api/reset/user-uuid-3f32/': async () => {
+                    await delay(1000)
+                    return new HttpResponse(null, { status: 200 })
+                },
+            },
         }),
     ],
 }

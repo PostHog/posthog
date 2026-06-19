@@ -34,8 +34,10 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from 'lib/ui/quill'
-import { capitalizeFirstLetter, objectsEqual, uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { uuid } from 'lib/utils/dom'
+import { objectsEqual } from 'lib/utils/objects'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 

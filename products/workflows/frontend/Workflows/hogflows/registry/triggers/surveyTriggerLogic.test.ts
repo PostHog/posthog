@@ -33,11 +33,11 @@ describe('surveyTriggerLogic', () => {
         let loadMoreCalled = false
         useMocks({
             get: {
-                '/api/projects/:team_id/surveys/': (req) => {
+                '/api/projects/:team_id/surveys/': ({ request }) => {
                     if (listError) {
                         return [500, { detail: 'Server error' }]
                     }
-                    const offset = Number(req.url.searchParams.get('offset') || 0)
+                    const offset = Number(new URL(request.url).searchParams.get('offset') || 0)
                     if (offset > 0) {
                         if (moreListError && !loadMoreCalled) {
                             loadMoreCalled = true

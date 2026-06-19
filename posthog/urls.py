@@ -30,7 +30,6 @@ from posthog.api import (
     user,
 )
 from posthog.api.github_callback.personal_finish import github_link_complete
-from posthog.api.id_jag import IdJagViewSet
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
@@ -279,6 +278,7 @@ urlpatterns = [
     ),
     path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
+    path("api/customer_analytics/", include("products.customer_analytics.backend.api.urls")),
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
@@ -401,7 +401,6 @@ urlpatterns = [
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
     re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
-    opt_slash_path("id-jag/token", IdJagViewSet.as_view(), name="id_jag_token"),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
@@ -506,6 +505,9 @@ frontend_unauthenticated_routes = [
     "unsubscribe",
     "verify_email",
     r"agentic/account-mismatch",
+    # OAuth redirect target when logging the local frontend into a remote cloud region;
+    # the SPA handles the code→token exchange client-side, so it must load without auth.
+    r"^oauth/callback",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

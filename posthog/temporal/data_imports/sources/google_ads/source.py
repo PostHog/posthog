@@ -13,6 +13,7 @@ from posthog.schema import (
     SuggestedTable,
 )
 
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
@@ -57,6 +58,11 @@ class GoogleAdsSource(
             # has restricted third-party API access for this app (org policy / app not approved).
             # Retrying cannot recover — an admin must grant access before the user reconnects.
             "access_not_configured": "Your Google Workspace administrator has restricted API access for this app. Ask your admin to approve it, then reconnect your Google Ads account.",
+            # Integration.DoesNotExist raised by `google_ads_client` when the stored OAuth
+            # integration row has been deleted/disconnected before the sync runs. Retrying cannot
+            # recover — the user must reconnect their Google Ads account. Model-specific so we don't
+            # swallow unrelated `DoesNotExist` errors from other models, which may be real bugs.
+            "Integration matching query does not exist": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options
@@ -266,6 +272,11 @@ class GoogleAdsSource(
                     f"Customer ID {config.customer_id} is not correct. Please check your customer ID and try again.",
                 )
             return True, None
+        except Integration.DoesNotExist:
+            return (
+                False,
+                "The Google Ads connection for this source no longer exists. Please reconnect your Google Ads account.",
+            )
         except Exception as e:
             error_message = str(e)
             if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_message:

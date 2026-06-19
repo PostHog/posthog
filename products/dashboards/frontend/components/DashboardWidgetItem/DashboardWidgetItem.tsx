@@ -213,6 +213,7 @@ function DashboardWidgetItemContent({
                 widgetTypeLabel={widgetTypeLabel}
                 config={widget.config}
                 headerMeta={headerCatalogEntry.headerMeta}
+                TopHeading={definition?.TopHeading}
                 description={description}
                 showDescription={showDescription}
                 loading={loading}

@@ -5,7 +5,7 @@ import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { getCurrencySymbol } from 'lib/utils/currency'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

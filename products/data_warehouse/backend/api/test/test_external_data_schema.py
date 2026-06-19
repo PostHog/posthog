@@ -580,6 +580,83 @@ class TestExternalDataSchema(APIBaseTest):
         assert schema.sync_frequency_interval == timedelta(minutes=1)
         assert schema.sync_type == ExternalDataSchema.SyncType.CDC
 
+    def test_update_schema_frequency_on_disabled_schema_does_not_touch_missing_schedule(self):
+        # A disabled / never-activated schema has no Temporal schedule. Changing its sync frequency
+        # must not try to update a schedule that doesn't exist (which raises "workflow not found");
+        # the new frequency is just saved, to apply if/when the schema is enabled.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(hours=6),
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync_workflow,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_frequency": "30day"},
+            )
+
+        assert response.status_code == 200, response.content
+        # The frequency is saved...
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == timedelta(days=30)
+        # ...but no schedule create/update is attempted, because the schema has no schedule to touch.
+        mock_sync_workflow.assert_not_called()
+
+    def test_update_schema_frequency_on_enabled_schema_without_schedule_creates_it(self):
+        # An enabled schema whose Temporal schedule is missing should have it created when the
+        # cadence is edited (even when should_sync isn't re-sent), not left silently unscheduled.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(hours=6),
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync_workflow,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_frequency": "30day"},
+            )
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == timedelta(days=30)
+        # The missing schedule is created (recovered) with the new cadence, not left absent.
+        mock_sync_workflow.assert_called_once()
+        assert mock_sync_workflow.call_args.kwargs["create"] is True
+
     def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the
         # API gate landed) must not be re-enabled until a PK is added on the source side.
@@ -2140,3 +2217,126 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         schema = ExternalDataSchema.objects.create(name="Customers", team=other_team, source=source)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
         assert response.status_code == 404
+
+
+class TestExternalDataSchemaRowFilters(APIBaseTest):
+    """PATCH-level validation for the row_filters field. A plain row_filters update needs no
+    source DB connection or temporal schedule — it only reads the schema's discovered columns."""
+
+    SCHEMA_METADATA = {
+        "columns": [
+            {"name": "id", "data_type": "integer", "is_nullable": False},
+            {"name": "created_at", "data_type": "timestamp", "is_nullable": True},
+            {"name": "name", "data_type": "varchar(255)", "is_nullable": True},
+            {"name": "geom", "data_type": "geometry", "is_nullable": True},
+        ]
+    }
+
+    def _create(self) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        # schema_metadata is a read-only property backed by sync_type_config.
+        return ExternalDataSchema.objects.create(
+            name="Customers",
+            team=self.team,
+            source=source,
+            sync_type_config={"schema_metadata": self.SCHEMA_METADATA},
+        )
+
+    def _patch(self, schema: ExternalDataSchema, row_filters: Any):
+        return self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"row_filters": row_filters},
+        )
+
+    def test_valid_row_filters_persist(self):
+        schema = self._create()
+        filters = [
+            {"column": "id", "operator": ">", "value": 10},
+            {"column": "created_at", "operator": ">=", "value": "2026-01-01"},
+        ]
+        response = self._patch(schema, filters)
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.row_filters == filters
+
+    def test_null_clears_row_filters(self):
+        schema = self._create()
+        schema.row_filters = [{"column": "id", "operator": ">", "value": 1}]
+        schema.save(update_fields=["row_filters"])
+        response = self._patch(schema, None)
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.row_filters is None
+
+    def test_row_filters_returned_in_serializer(self):
+        schema = self._create()
+        filters = [{"column": "id", "operator": "<=", "value": 5}]
+        schema.row_filters = filters
+        schema.save(update_fields=["row_filters"])
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
+        assert response.status_code == 200
+        assert response.json()["row_filters"] == filters
+
+    def test_unknown_column_rejected(self):
+        schema = self._create()
+        response = self._patch(schema, [{"column": "does_not_exist", "operator": ">", "value": 1}])
+        assert response.status_code == 400
+        assert "Unknown column" in str(response.json())
+
+    def test_disallowed_operator_rejected(self):
+        schema = self._create()
+        response = self._patch(schema, [{"column": "id", "operator": "LIKE", "value": 1}])
+        assert response.status_code == 400
+
+    def test_type_mismatch_rejected(self):
+        schema = self._create()
+        response = self._patch(schema, [{"column": "id", "operator": ">", "value": "not-an-int"}])
+        assert response.status_code == 400
+
+    def test_bad_date_value_rejected(self):
+        schema = self._create()
+        response = self._patch(schema, [{"column": "created_at", "operator": ">", "value": "nope"}])
+        assert response.status_code == 400
+
+    def test_unsupported_column_type_rejected(self):
+        schema = self._create()
+        response = self._patch(schema, [{"column": "geom", "operator": "=", "value": "x"}])
+        assert response.status_code == 400
+
+    def test_row_filters_rejected_for_direct_postgres_source(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team=self.team,
+            source=source,
+            sync_type_config={"schema_metadata": self.SCHEMA_METADATA},
+        )
+        response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
+        assert response.status_code == 400
+        assert "not supported for direct Postgres" in str(response.json())
+
+    def test_row_filters_rejected_for_cdc_schema(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team=self.team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"schema_metadata": self.SCHEMA_METADATA},
+        )
+        response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
+        assert response.status_code == 400
+        assert "not supported for CDC" in str(response.json())

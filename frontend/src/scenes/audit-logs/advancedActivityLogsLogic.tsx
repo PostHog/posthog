@@ -9,7 +9,8 @@ import { ADVANCED_ACTIVITY_PAGE_SIZE, OrganizationMembershipLevel } from 'lib/co
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dateStringToDayJs, objectClean } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { objectClean } from 'lib/utils/objects'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

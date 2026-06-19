@@ -47,6 +47,7 @@ const run: RunApi = {
     completed_at: '2026-06-10T00:01:00Z',
     is_stale: false,
     metadata: {},
+    search_match_type: null,
 }
 
 const snapshot = (overrides: Partial<SnapshotApi>): SnapshotApi => ({

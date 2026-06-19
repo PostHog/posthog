@@ -30,7 +30,7 @@ def test_can_get_exports_for_your_organizations(
     client: HttpClient, temporal, organization, team, user, interval, timezone, offset_day, offset_hour
 ):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -86,7 +86,7 @@ def test_can_get_exports_for_your_organizations(
 
 def test_cannot_get_exports_for_other_organizations(client: HttpClient, temporal, organization, team, user):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -123,7 +123,7 @@ def test_batch_exports_are_partitioned_by_team(client: HttpClient, temporal, org
     doesn't belong to.
     """
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
