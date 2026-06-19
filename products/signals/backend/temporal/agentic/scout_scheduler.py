@@ -11,6 +11,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.scout_harness.limits import WORKFLOW_HARD_CEILING_S
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
+from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
 
@@ -61,6 +62,7 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
             skill_version=input.skill_version,
             repository=input.repository,
         )
+    metrics.increment_scout_run(result.status or "unknown")
     logger.info(
         "signals_scout activity finished",
         team_id=input.team_id,

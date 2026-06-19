@@ -52,7 +52,10 @@ export function ScoutRowCard({
             <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                     {asHeader ? (
-                        <span className="truncate font-medium text-sm">{displayName}</span>
+                        // min-w keeps the name from being squeezed to zero width by the
+                        // trailing metadata (badges, cadence, emitted count) — truncate
+                        // should clip to an ellipsis, never vanish entirely.
+                        <span className="truncate font-medium text-sm min-w-[6rem]">{displayName}</span>
                     ) : (
                         <Tooltip title={`${config.skill_name} · view scout`}>
                             <Link
@@ -61,7 +64,7 @@ export function ScoutRowCard({
                                 // (hidden) list subtree — close it so it doesn't cover the detail page.
                                 onClick={() => closeSetupModal()}
                                 subtle
-                                className="truncate font-medium text-sm"
+                                className="truncate font-medium text-sm min-w-[6rem]"
                             >
                                 {displayName}
                             </Link>
