@@ -255,6 +255,9 @@ export interface ChartLegendConfig {
     /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state;
      *  omit for chart-managed (uncontrolled) toggling. */
     hiddenKeys?: string[]
+    /** Initial hidden keys for the chart-managed (uncontrolled) state. Ignored when `hiddenKeys`
+     *  is set (controlled). */
+    defaultHiddenKeys?: string[]
     /** Called whenever a series is toggled, with its key and resulting hidden state. */
     onToggleSeries?: (key: string, hidden: boolean) => void
     /** Wrap each rendered legend row — receives the default row node and its item, returns the

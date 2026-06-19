@@ -57,6 +57,17 @@ describe('useChartLegend', () => {
         expect(result.current.visibleSeries.find((s) => s.key === 'b')?.visibility?.excluded).toBeUndefined()
     })
 
+    it('honors defaultHiddenKeys for the initial uncontrolled state', () => {
+        const { result } = renderHook(() =>
+            useChartLegend(SERIES, THEME, {
+                show: true,
+                defaultHiddenKeys: ['c'],
+            })
+        )
+        expect(result.current.legendProps.hiddenKeys).toEqual(['c'])
+        expect(result.current.visibleSeries.find((s) => s.key === 'c')?.visibility?.excluded).toBe(true)
+    })
+
     it('does not mutate its own state in controlled mode — only notifies onToggleSeries', () => {
         const onToggleSeries = jest.fn()
         const { result } = renderHook(() =>

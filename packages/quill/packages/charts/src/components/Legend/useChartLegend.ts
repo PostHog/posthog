@@ -45,7 +45,7 @@ export function useChartLegend<Meta>(
     items?: LegendItem[]
 ): ChartLegendState<Meta> {
     const controlledKeys = config?.hiddenKeys
-    const [internalKeys, setInternalKeys] = useState<string[]>([])
+    const [internalKeys, setInternalKeys] = useState<string[]>(() => config?.defaultHiddenKeys ?? [])
     const hiddenKeys = controlledKeys ?? internalKeys
 
     const onToggleSeries = config?.onToggleSeries
