@@ -75,8 +75,14 @@ def compile_hogql_to_ducklake_sql(team_id: int, query: HogQLQuery) -> tuple[str,
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.parser import parse_select
     from posthog.hogql.printer.utils import prepare_and_print_ast
+    from posthog.hogql.variables import replace_variables
+
+    from posthog.models.team.team import Team
 
     parsed = parse_select(query.query)
+    if query.variables:
+        team = Team.objects.get(pk=team_id)
+        parsed = replace_variables(parsed, list(query.variables.values()), team)
     # Separate context for the Postgres print — the HogQL round-trip below shouldn't
     # contribute to ``postgres_context.values``.
     postgres_context = HogQLContext(team_id=team_id, enable_select_queries=True)

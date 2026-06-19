@@ -3,11 +3,36 @@ from unittest import mock
 
 from psycopg import sql as psql
 
-from posthog.schema import HogQLQuery
+from posthog.schema import HogQLQuery, HogQLVariable
 
-from posthog.ducklake.client import _SEARCH_PATH_SCHEMAS, execute_ducklake_query
+from posthog.ducklake.client import _SEARCH_PATH_SCHEMAS, compile_hogql_to_ducklake_sql, execute_ducklake_query
 
 pytestmark = [pytest.mark.django_db]
+
+
+class TestCompileHogQLToDuckLakeSQL:
+    def test_substitutes_variable_placeholders(self):
+        from posthog.models import Organization, Team
+
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
+
+        org = Organization.objects.create(name="ducklake-vars")
+        team = Team.objects.create(organization=org)
+        variable = InsightVariable.objects.create(
+            team=team, name="Event name", code_name="event_name", type="String", default_value="$pageview"
+        )
+
+        query = HogQLQuery(
+            query="SELECT event FROM events WHERE event = {variables.event_name} LIMIT 10",
+            variables={
+                str(variable.id): HogQLVariable(variableId=str(variable.id), code_name="event_name", value="purchase")
+            },
+        )
+
+        postgres_sql, values, _hogql_pretty = compile_hogql_to_ducklake_sql(team.pk, query)
+
+        assert "purchase" in values.values()
+        assert "variables" not in postgres_sql
 
 
 class TestExecuteDuckLakeQuery:

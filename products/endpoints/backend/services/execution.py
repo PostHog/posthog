@@ -38,6 +38,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.variables import apply_variable_overrides
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import _process_query_request
@@ -447,7 +448,9 @@ class EndpointExecutionService(PydanticModelMixin):
                     result = None
             elif self._should_use_ducklake(endpoint, version_obj):
                 try:
-                    result = self._execute_ducklake_endpoint(endpoint, version_obj.query.copy(), debug=debug)
+                    result = self._execute_ducklake_endpoint(
+                        endpoint, data, version_obj, version_obj.query.copy(), debug=debug
+                    )
                     execution_type = "ducklake"
                 except Exception:
                     logger.warning(
@@ -841,15 +844,24 @@ class EndpointExecutionService(PydanticModelMixin):
     def _execute_ducklake_endpoint(
         self,
         endpoint: Endpoint,
+        data: EndpointRunRequest,
+        version: EndpointVersion,
         query: dict,
         debug: bool = False,
     ) -> Response:
         from posthog.ducklake.client import execute_ducklake_query
 
         try:
+            strategy = strategy_for(endpoint, version, self.team)
+            plan = strategy.build_inline_plan(query, data)
+
+            hogql_query = HogQLQuery(query=query["query"], variables=query.get("variables"))
+            if plan.variables_override and hogql_query.variables:
+                apply_variable_overrides(hogql_query.variables, plan.variables_override)
+
             result = execute_ducklake_query(
                 self.team.pk,
-                query=HogQLQuery(query=query["query"]),
+                query=hogql_query,
                 organization_id=str(self.team.organization_id),
             )
             response_data: dict = {
