@@ -92,15 +92,23 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     if (runs.length === 0) {
                         return []
                     }
+                    // Retains the prior round's links per run on failure: this loader is re-run by the
+                    // runs-window poll, so blindly keeping only the fulfilled responses would drop a
+                    // failed run's already-resolved chips (and an all-rejected retry would clear them
+                    // all). source_id is `run:<run_id>:finding:<id>`, so prior links for a run are the
+                    // ones prefixed with its run_id.
+                    const previous = values.emissionReports
                     const settled = await Promise.allSettled(
                         runs.map((run) => api.signalScout.runs.emissionReports(run.run_id))
                     )
-                    return settled
-                        .filter(
-                            (result): result is PromiseFulfilledResult<SignalScoutEmissionReportLink[]> =>
-                                result.status === 'fulfilled'
-                        )
-                        .flatMap((result) => result.value)
+                    return runs.flatMap((run, index) => {
+                        const result = settled[index]
+                        if (result.status === 'fulfilled') {
+                            return result.value
+                        }
+                        const prefix = `run:${run.run_id}:`
+                        return previous.filter((link) => link.source_id.startsWith(prefix))
+                    })
                 },
             },
         ],
