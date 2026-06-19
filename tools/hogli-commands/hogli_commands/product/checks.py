@@ -247,6 +247,19 @@ class CheckContext:
     is_isolated: bool
     structure: dict
     detailed: bool  # True = single-product run, False = --all
+    _isolation: IsolationStatus | None = field(default=None, repr=False, compare=False)
+
+    def isolation_status(self) -> IsolationStatus:
+        """Memoized isolation seal status, shared across checks within one product run.
+
+        Several checks need it; computing once avoids re-reading tach.toml/pyproject.toml/
+        package.json per check (files don't change mid-run).
+        """
+        if self._isolation is None:
+            self._isolation = compute_isolation_status(
+                self.name, self.product_dir, self.backend_dir, is_isolated=self.is_isolated
+            )
+        return self._isolation
 
 
 @dataclass
@@ -382,7 +395,7 @@ class PackageJsonScriptsCheck(ProductCheck):
         # re-runs the full suite on facade/presentation changes, so an internals
         # change flowing to HTTP through such a view would be hidden. The skip is the
         # reward for finishing — it can't be enabled until the wave empties them.
-        status = compute_isolation_status(ctx.name, ctx.product_dir, ctx.backend_dir, is_isolated=ctx.is_isolated)
+        status = ctx.isolation_status()
         needs_contract_check = status.eligible_for_isolated_tests
         required = ["backend:test"] + (["backend:contract-check"] if needs_contract_check else [])
         for script in required:
@@ -618,7 +631,7 @@ class IsolationChainCheck(ProductCheck):
 
     def run(self, ctx: CheckContext) -> CheckResult:
         facade_api = ctx.backend_dir / "facade" / "api.py"
-        status = compute_isolation_status(ctx.name, ctx.product_dir, ctx.backend_dir, is_isolated=ctx.is_isolated)
+        status = ctx.isolation_status()
         real_facade = status.has_real_facade
         has_tach = status.has_tach_interface
         has_script = status.has_contract_check_script
@@ -657,13 +670,16 @@ class IsolationChainCheck(ProductCheck):
                 "a real facade should convert models to contracts, not just re-export"
             )
 
-        # Earned but not turned on: a fully sealed, eligible product (real facade, tach
-        # interface, no legacy leaks, presentation wave emptied) is required by
-        # PackageJsonScriptsCheck to carry 'backend:contract-check'. Without a turbo.json
-        # narrowing its inputs to facade/presentation, that script inherits the root task's
-        # all-of-backend inputs, so every internal change still re-runs the full Django
-        # suite — the skip is inert. Force the narrowing so READY products land on ON.
-        needs_turn_on = status.eligible_for_isolated_tests and status.externally_sealed and not has_narrowed
+        # Earned but not turned on: a fully sealed, eligible product that already carries
+        # 'backend:contract-check' (real facade, tach interface, no legacy leaks, presentation
+        # wave emptied). Without a turbo.json narrowing its inputs to facade/presentation, that
+        # script inherits the root task's all-of-backend inputs, so every internal change still
+        # re-runs the full Django suite — the skip is inert. Force the narrowing so READY
+        # products land on ON. Gating on has_script keeps this distinct from
+        # PackageJsonScriptsCheck, which is what nags a still-eligible product to add the script.
+        needs_turn_on = (
+            has_script and status.eligible_for_isolated_tests and status.externally_sealed and not has_narrowed
+        )
         if needs_turn_on:
             result.issues.append(
                 "product is fully sealed and eligible for isolated tests and carries "
@@ -679,13 +695,11 @@ class IsolationChainCheck(ProductCheck):
 
         if result.issues or result.warnings:
             # The turn-on issue can't co-occur with the facade/turbo mismatch issues above
-            # (it requires a real facade, a tach interface, and no narrowing — each of which
-            # negates one of those), so when it fires it's the sole issue and the annotation
-            # belongs on turbo.json, not facade/api.py.
+            # (it requires a real facade, a tach interface, a script, and no narrowing — each
+            # of which negates one of those), so when it fires it's the sole issue and the
+            # annotation belongs on turbo.json, not facade/api.py.
             result.file = (
-                f"products/{ctx.name}/turbo.json"
-                if needs_turn_on and len(result.issues) == 1
-                else f"products/{ctx.name}/backend/facade/api.py"
+                f"products/{ctx.name}/turbo.json" if needs_turn_on else f"products/{ctx.name}/backend/facade/api.py"
             )
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]

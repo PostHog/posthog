@@ -266,9 +266,15 @@ _NARROWED_TURBO = {
 chain_check = IsolationChainCheck()
 
 
+_WITH_SCRIPT = {
+    "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+    "backend:contract-check": "echo 'Contract files unchanged'",
+}
+
+
 def _seal_externally(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make compute_isolation_status see an externally sealed product regardless of the
-    repo's real tach.toml/pyproject.toml — the fixture product isn't declared there."""
+    # The tmp fixture product isn't declared in the repo's real tach.toml/pyproject.toml,
+    # so force compute_isolation_status to see an externally sealed, internally clean product.
     import hogli_commands.product.isolation as isolation_module
 
     monkeypatch.setattr(isolation_module, "has_tach_interface", lambda *_a, **_k: True)
@@ -277,55 +283,46 @@ def _seal_externally(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestIsolationChainTurnOn:
-    def test_eligible_without_narrowed_turbo_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A fully sealed, eligible product with the script but no turbo narrowing has an
-        inert skip — lint must force the narrowing so it lands on ON, not READY."""
+    def test_eligible_with_script_but_no_narrowed_turbo_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _seal_externally(monkeypatch)
-        ctx = _make_product(
-            tmp_path,
-            scripts={
-                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
-                "backend:contract-check": "echo 'Contract files unchanged'",
-            },
-            isolated=True,
-            extra_dirs=["backend"],
-        )
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
         result = chain_check.run(ctx)
         assert any("inert" in i for i in result.issues)
         assert result.file == "products/my_product/turbo.json"
 
     def test_eligible_with_narrowed_turbo_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _seal_externally(monkeypatch)
-        ctx = _make_product(
-            tmp_path,
-            scripts={
-                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
-                "backend:contract-check": "echo 'Contract files unchanged'",
-            },
-            isolated=True,
-            extra_dirs=["backend"],
-        )
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
         (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
         result = chain_check.run(ctx)
         assert not result.issues
 
+    def test_eligible_without_script_is_not_nagged_to_narrow_turbo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Eligible + sealed but the contract-check script isn't added yet: PackageJsonScriptsCheck
+        # owns nagging for the script, so IsolationChainCheck must not raise the turn-on issue
+        # (which would falsely claim the product "carries 'backend:contract-check'").
+        _seal_externally(monkeypatch)
+        ctx = _make_product(
+            tmp_path,
+            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
+            isolated=True,
+        )
+        result = chain_check.run(ctx)
+        assert not any("inert" in i for i in result.issues)
+
     def test_not_externally_sealed_does_not_demand_turbo(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Without the tach interface the product isn't externally sealed — TachCheck owns
-        that failure, so the chain check must not pile on a turbo-narrowing demand."""
+        # Without the tach interface the product isn't externally sealed — TachCheck owns that
+        # failure, so the chain check must not pile on a turbo-narrowing demand.
         import hogli_commands.product.isolation as isolation_module
 
         monkeypatch.setattr(isolation_module, "has_tach_interface", lambda *_a, **_k: False)
         monkeypatch.setattr(isolation_module, "has_legacy_interface_leaks", lambda *_a, **_k: False)
         monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: [])
-        ctx = _make_product(
-            tmp_path,
-            scripts={
-                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
-                "backend:contract-check": "echo 'Contract files unchanged'",
-            },
-            isolated=True,
-            extra_dirs=["backend"],
-        )
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
         result = chain_check.run(ctx)
         assert not any("inert" in i for i in result.issues)
 
