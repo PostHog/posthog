@@ -25,6 +25,11 @@ MemoryFileNotFoundError = logic.MemoryFileNotFoundError
 MemoryVersionConflictError = logic.MemoryVersionConflictError
 MemoryContentTooLargeError = logic.MemoryContentTooLargeError
 
+# Re-export the size/length limits so the presentation layer can bound its input
+# fields without reaching into the internal logic module.
+MAX_FILE_BYTES = logic.MAX_FILE_BYTES
+MAX_PATH_LENGTH = logic.MAX_PATH_LENGTH
+
 
 def _to_file(row: AgentMemoryFile) -> contracts.MemoryFile:
     return contracts.MemoryFile(

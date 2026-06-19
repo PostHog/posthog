@@ -9,7 +9,7 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade import contracts
-from ..logic import MAX_FILE_BYTES, MAX_PATH_LENGTH
+from ..facade.api import MAX_FILE_BYTES, MAX_PATH_LENGTH
 
 
 class MemoryFileSerializer(DataclassSerializer):
