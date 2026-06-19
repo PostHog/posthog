@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "description": "Full markdown body to store. Replaces the file's content entirely — prefer the append endpoint to add a section without clobbering concurrent edits.",
+            "maxLength": 1000000,
+            "type": "string"
+        },
+        "expected_version": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Compare-and-set token. Omit (or null) to create a new file; pass the version you last read to update an existing one. A mismatch returns 409 — re-read and merge before retrying."
+        },
+        "path": {
+            "description": "Relative path of the file to write, e.g. 'project.md' or 'users/jane-doe.md'. Must end in '.md', may not contain '..' or absolute segments.",
+            "maxLength": 1024,
+            "type": "string"
+        }
+    },
+    "required": ["path", "content"],
+    "type": "object"
+}

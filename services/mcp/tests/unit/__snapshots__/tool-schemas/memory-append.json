@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "body": {
+            "description": "Markdown body for the section. Never clobbers other sections of the file.",
+            "maxLength": 1000000,
+            "type": "string"
+        },
+        "heading": {
+            "description": "Section title (without leading '#'). If a section with this title already exists, its body is replaced; otherwise a new '## {heading}' section is appended.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "path": {
+            "description": "Relative path of the file to append to, e.g. 'project.md'. Created if it does not exist.",
+            "maxLength": 1024,
+            "type": "string"
+        }
+    },
+    "required": ["path", "heading", "body"],
+    "type": "object"
+}

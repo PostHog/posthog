@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "path": {
+            "description": "Relative path of the file to read, e.g. 'project.md'.",
+            "type": "string"
+        }
+    },
+    "required": ["path"],
+    "type": "object"
+}
