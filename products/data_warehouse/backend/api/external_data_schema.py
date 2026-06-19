@@ -180,6 +180,32 @@ def unsupported_row_filter_reason(*, is_direct_postgres: bool, is_cdc: bool) -> 
     return None
 
 
+def _apply_primary_key_columns(
+    data: dict[str, Any],
+    payload: dict[str, Any],
+    instance: Any,
+    label: str,
+) -> None:
+    """Apply primary_key_columns from request data to the sync_type_config payload.
+
+    Raises ValidationError if the PK changed after data has been synced, or if no PK is set.
+    """
+    new_pk = data.get("primary_key_columns")
+    if new_pk:
+        old_pk = payload.get("primary_key_columns")
+        if new_pk != old_pk and instance.table is not None:
+            raise ValidationError(
+                "Primary key cannot be changed after data has been synced. "
+                "Delete the synced data first, then change the primary key."
+            )
+        payload["primary_key_columns"] = new_pk
+    elif not payload.get("primary_key_columns"):
+        raise ValidationError(
+            f"{label} requires a primary key on table '{instance.name}'. "
+            "Provide primary_key_columns or refresh schema discovery to pick one up."
+        )
+
+
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
@@ -581,22 +607,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
             # discovery already stored; refuse the switch when neither is set.
-            new_pk = data.get("primary_key_columns")
-            if new_pk:
-                old_pk = payload.get("primary_key_columns")
-                # Same rule as incremental: the PK is the merge key, so it can't change once data
-                # has synced (`instance.table` exists). Delete the synced data to change it.
-                if new_pk != old_pk and instance.table is not None:
-                    raise ValidationError(
-                        "Primary key cannot be changed after data has been synced. "
-                        "Delete the synced data first, then change the primary key."
-                    )
-                payload["primary_key_columns"] = new_pk
-            elif not payload.get("primary_key_columns"):
-                raise ValidationError(
-                    f"CDC requires a primary key on table '{instance.name}'. "
-                    "Provide primary_key_columns or refresh schema discovery to pick one up."
-                )
+            _apply_primary_key_columns(data, payload, instance, "CDC")
 
             validated_data["sync_type_config"] = payload
         elif sync_type == ExternalDataSchema.SyncType.XMIN:
@@ -604,20 +615,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             # xmin requires a primary key for clean upsert dedup, mirroring CDC. Accept the caller's
             # PK or reuse what discovery already stored; refuse the switch when neither is set.
-            new_pk = data.get("primary_key_columns")
-            if new_pk:
-                old_pk = payload.get("primary_key_columns")
-                if new_pk != old_pk and instance.table is not None:
-                    raise ValidationError(
-                        "Primary key cannot be changed after data has been synced. "
-                        "Delete the synced data first, then change the primary key."
-                    )
-                payload["primary_key_columns"] = new_pk
-            elif not payload.get("primary_key_columns"):
-                raise ValidationError(
-                    f"xmin replication requires a primary key on table '{instance.name}'. "
-                    "Provide primary_key_columns or refresh schema discovery to pick one up."
-                )
+            _apply_primary_key_columns(data, payload, instance, "xmin replication")
 
             validated_data["sync_type_config"] = payload
         else:
