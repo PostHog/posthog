@@ -1,13 +1,13 @@
 import clsx from 'clsx'
 import { useCallback } from 'react'
 
-import { ChartLegend, DefaultTooltip, TimeSeriesLineChart, type TooltipContext } from '@posthog/quill-charts'
+import { DefaultTooltip, TimeSeriesLineChart, type TooltipContext } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { LineGraphProps } from './LineGraph'
-import { SqlLineSeriesMeta, formatSqlSeriesValue } from './sqlLineGraphAdapter'
-import { useSqlLineGraph } from './useSqlLineGraph'
+import { SqlLineSeriesMeta, buildLineChartConfig, formatSqlSeriesValue } from './sqlLineGraphAdapter'
+import { useSqlChartModel } from './useSqlChartModel'
 
 const handleChartError = makeChartErrorHandler('sql-line-chart')
 
@@ -18,7 +18,7 @@ const handleChartError = makeChartErrorHandler('sql-line-chart')
  * DefaultTooltip extended to format each row with its column's own settings and to show a total row.
  */
 export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
-    const model = useSqlLineGraph(props)
+    const model = useSqlChartModel(props, buildLineChartConfig)
     const { chartSettings } = props
     const totalSettings = model?.totalFormatterSettings
 
@@ -36,7 +36,6 @@ export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
         [showTotalRow, totalSettings]
     )
 
-    // Keep the styled container even with no data, matching the legacy path's background shell.
     return (
         <div
             className={clsx(
@@ -46,22 +45,14 @@ export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
             )}
         >
             {model && (
-                <ChartLegend
-                    show={model.legendItems.length > 0}
-                    items={model.legendItems}
-                    hiddenKeys={model.hiddenKeys}
-                    onItemClick={model.toggleSeries}
-                    position="top"
-                >
-                    <TimeSeriesLineChart<SqlLineSeriesMeta>
-                        series={model.series}
-                        labels={model.labels}
-                        theme={model.theme}
-                        config={model.config}
-                        tooltip={renderTooltip}
-                        onError={handleChartError}
-                    />
-                </ChartLegend>
+                <TimeSeriesLineChart<SqlLineSeriesMeta>
+                    series={model.series}
+                    labels={model.labels}
+                    theme={model.theme}
+                    config={model.config}
+                    tooltip={renderTooltip}
+                    onError={handleChartError}
+                />
             )}
         </div>
     )
