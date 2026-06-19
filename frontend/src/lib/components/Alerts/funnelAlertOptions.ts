@@ -13,8 +13,10 @@ import { FunnelsAlertConfig } from '~/queries/schema/schema-general'
  *   - `prev:<i>`  → step-over-step conversion into step i (1-based index)   {conversion_from_previous, i}
  *   - `start:<i>` → cumulative conversion from entry to step i              {conversion_from_start, i}
  *
- * Two coincidences are deduped so no rate appears twice: `start:1` equals `prev:1` (both are step1/step0),
- * and `start:<last>` equals `overall`. `start` is therefore only emitted for intermediate steps.
+ * Two groups: "Step-over-step" (every adjacent transition) and "From entry" (cumulative reach from the
+ * first step). `start:1` is omitted because it equals `prev:1` (both are step1/step0) — it's covered by
+ * the step-over-step group. The overall conversion is the final, full-funnel member of the From-entry
+ * group (rather than its own section), so that group always reads as a complete set.
  */
 
 const OVERALL = 'overall'
@@ -32,16 +34,19 @@ export function funnelConversionOptions(stepLabels: string[]): LemonSelectSectio
         return [{ options: [{ label: `${first} → ${last}`, value: OVERALL }] }]
     }
 
-    const sections: LemonSelectSection<string>[] = [
-        {
-            options: [
-                {
-                    label: `Overall · ${first} → ${last}`,
-                    value: OVERALL,
-                    tooltip: 'Whole-funnel conversion: entrants who reached the final step.',
-                },
-            ],
-        },
+    // Cumulative reach from entry to each intermediate step (step 1 is the first step-over-step), then
+    // the overall conversion as the full-funnel member so the group reads as a complete set.
+    const fromEntry = []
+    for (let step = 2; step <= n - 2; step++) {
+        fromEntry.push({ label: `${first} → ${stepLabels[step]}`, value: `start:${step}` })
+    }
+    fromEntry.push({
+        label: `Overall · ${first} → ${last}`,
+        value: OVERALL,
+        tooltip: 'Whole-funnel conversion: entrants who reached the final step.',
+    })
+
+    return [
         {
             title: 'Step-over-step',
             options: Array.from({ length: n - 1 }, (_, k) => {
@@ -49,18 +54,8 @@ export function funnelConversionOptions(stepLabels: string[]): LemonSelectSectio
                 return { label: `${stepLabels[step - 1]} → ${stepLabels[step]}`, value: `prev:${step}` }
             }),
         },
+        { title: 'From entry', options: fromEntry },
     ]
-
-    // Cumulative-from-entry only for intermediate steps: step 1 coincides with the first step-over-step
-    // option, and the last step coincides with "overall".
-    const fromEntry = []
-    for (let step = 2; step <= n - 2; step++) {
-        fromEntry.push({ label: `${first} → ${stepLabels[step]}`, value: `start:${step}` })
-    }
-    if (fromEntry.length) {
-        sections.push({ title: 'From entry', options: fromEntry })
-    }
-    return sections
 }
 
 /** Resolve the current config to the option key whose rate it computes, normalizing the equivalences

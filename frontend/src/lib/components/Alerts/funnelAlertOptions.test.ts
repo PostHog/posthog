@@ -17,18 +17,19 @@ describe('funnelAlertOptions', () => {
         expect(sections[0].options).toEqual([{ label: 'Visited → Signed up', value: 'overall' }])
     })
 
-    it('enumerates overall + step-over-step for a 3-step funnel (no cumulative group)', () => {
+    it('groups a 3-step funnel into step-over-step + a From-entry group holding just the overall', () => {
         const sections = funnelConversionOptions(['A', 'B', 'C'])
-        expect(sections.map((s) => s.title)).toEqual([undefined, 'Step-over-step'])
-        expect(flatValues(['A', 'B', 'C'])).toEqual(['overall', 'prev:1', 'prev:2'])
+        expect(sections.map((s) => s.title)).toEqual(['Step-over-step', 'From entry'])
+        // No intermediate cumulative step (start:2..N-2 is empty), so From entry holds only the overall.
+        expect(flatValues(['A', 'B', 'C'])).toEqual(['prev:1', 'prev:2', 'overall'])
     })
 
-    it('adds a cumulative-from-entry group only for intermediate steps (5-step funnel)', () => {
+    it('puts cumulative intermediates and the overall together in From entry (5-step funnel)', () => {
         const labels = ['Home', 'Product', 'Cart', 'Checkout', 'Order']
         const sections = funnelConversionOptions(labels)
-        expect(sections.map((s) => s.title)).toEqual([undefined, 'Step-over-step', 'From entry'])
-        // start:1 (== prev:1) and start:4 (== overall) are deduped out.
-        expect(flatValues(labels)).toEqual(['overall', 'prev:1', 'prev:2', 'prev:3', 'prev:4', 'start:2', 'start:3'])
+        expect(sections.map((s) => s.title)).toEqual(['Step-over-step', 'From entry'])
+        // start:1 (== prev:1) stays in step-over-step; the overall is the final From-entry member.
+        expect(flatValues(labels)).toEqual(['prev:1', 'prev:2', 'prev:3', 'prev:4', 'start:2', 'start:3', 'overall'])
     })
 
     it('uses the real step labels in the option text', () => {
