@@ -9,8 +9,8 @@ class BackfillDirectQueryEnabledMigrationTest(TestMigrations):
     keep True.
     """
 
-    migrate_from = "0026_externaldatasource_direct_query_enabled"
-    migrate_to = "0027_backfill_externaldatasource_direct_query_enabled"
+    migrate_from = "0027_externaldatasource_direct_query_enabled"
+    migrate_to = "0028_backfill_externaldatasource_direct_query_enabled"
 
     @property
     def app(self) -> str:

@@ -24,7 +24,7 @@ def forwards(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0026_externaldatasource_direct_query_enabled"),
+        ("warehouse_sources", "0027_externaldatasource_direct_query_enabled"),
     ]
 
     operations = [
