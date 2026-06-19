@@ -6620,6 +6620,18 @@ snapshots:
         hash: v1.k794b7964.b2210eb784cb5147f6f15bc8f440f17e66a062363ef45d0ae4f94857ea08dfea.XMKNym0xY2ewM4NRdUqwBUIay9GNgMCVKCyaV_Ec6yE
     scenes-app-web-analytics--web-analytics-dashboard-metric-cards--light:
         hash: v1.k794b7964.9bf4b15241d6ad9dd5ff8351d0e406eae90ed3b90bf0d27898ad71fcac75c3cf.JHdneVs_9-GeN4mCAGsHiqOOb54zrfYevPNJ-Hf-DQs
+    scenes-app-web-analytics-achievements--daily-only-arm--dark:
+        hash: v1.k794b7964.73e18858d1a5de93983ccd8b738f9b70f126069bb09ecbb188a9bc0784c373c4.pXT4H7R1ZdfROEjLryP2-dOjPW83uCpojPL_Fj-U1Ls
+    scenes-app-web-analytics-achievements--daily-only-arm--light:
+        hash: v1.k794b7964.1ba2f3e9791b3f843eceeb7514879edbbba4d1fc9a9d288148adf6eb0a374ffc.W9QlEhHuxrDyTqwgVPqeGkorXbDTCiDR8ObHN5ngpZM
+    scenes-app-web-analytics-achievements--hybrid-arm--dark:
+        hash: v1.k794b7964.73e18858d1a5de93983ccd8b738f9b70f126069bb09ecbb188a9bc0784c373c4.A3A5_MPOWtzl_GjyI-JHt_nOieUW2MO9cBPsHQULOTA
+    scenes-app-web-analytics-achievements--hybrid-arm--light:
+        hash: v1.k794b7964.e02d9670105506f1bbb785b61b8f08ab7d0e4ce716d1dd2e0a7ad6a5434fdfc2.2HBa8qPj1bALZj6Ru-JxU2E9rTI-gr8gKCR9WXWEGh8
+    scenes-app-web-analytics-achievements--weekly-only-arm--dark:
+        hash: v1.k794b7964.072e6d056abc16f2fed63917ec63ff2f7519306564cdc276d8d744e0a850b7f8.3NtxEX4Z6LEhbuBeiOB9yl9u9ecNLYkdl6GTHML4a_0
+    scenes-app-web-analytics-achievements--weekly-only-arm--light:
+        hash: v1.k794b7964.5b9ffad1cb994297cb04ddabb2a6e601e0ad6af1e7799702c367543b77285f16.ru6g16uxJnbxxtiHohOfZDieTmdzwCgQx6CSIq395uU
     scenes-other-account-connected--github-integration-connected--dark:
         hash: v1.k794b7964.2db4cfed52e63c42b2f38f5b2c03f5a1c4229b916c32f0bd1ca6144f9cc3b88b._Q3jfpO6l_D6KZCh8fuoqhxFI6589TxijWK93C2uPyI
     scenes-other-account-connected--github-integration-connected--light:
