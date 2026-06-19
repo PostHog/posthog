@@ -174,6 +174,29 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertNotIn("6.", result_text)
         self.assertIsNone(artifact)
 
+    async def test_reports_truncation_when_more_recordings_exist(self):
+        # The query is capped at SESSION_RECORDINGS_DEFAULT_LIMIT (50); produce more than that so
+        # the result is a truncated page and Max must not report the page size as the total.
+        base_time = datetime(2025, 1, 15, 3, 0, 0)
+        for i in range(55):
+            self._produce_replay(
+                distinct_id=f"user_{i}",
+                first_timestamp=base_time + timedelta(minutes=i),
+                last_timestamp=base_time + timedelta(minutes=i, seconds=30),
+            )
+
+        tool = await self._create_tool()
+        filters = self._create_empty_filters()
+
+        result_text, artifact = await tool._arun_impl(recordings_filters=filters)
+
+        self.assertIn("Showing the first 50 recordings", result_text)
+        self.assertIn("truncated page", result_text)
+        self.assertNotIn("Found 50 recordings", result_text)
+        # Must not claim a fixed total when results were truncated
+        self.assertNotIn("...and", result_text)
+        self.assertIsNone(artifact)
+
     async def test_filters_by_duration(self):
         base_time = datetime(2025, 1, 15, 10, 0, 0)
         self._produce_replay(

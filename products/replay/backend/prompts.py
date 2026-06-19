@@ -11,7 +11,7 @@ json
 "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
-    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}], // Always include the duration filter.
+    "duration": [], // Default to no duration filter; only add one when the user asks about recording length.
     "filter_group": {
     "type": FilterLogicalOperator.AND,
     "values": [
@@ -136,7 +136,7 @@ json
 }
 
 - Show all recordings / clean filters:
-Return a default filter with default date range and no duration.
+Return a default filter with the default (wide) date range and no duration.
 
 json
 {
@@ -144,8 +144,8 @@ json
     {
             "order": "start_time",
             "date_to": "null",
-            "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}],
-            "date_from": "-3d",
+            "duration": [],
+            "date_from": "-30d",
             "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
             "filter_test_accounts": "true",
         }
@@ -246,7 +246,7 @@ Below is a refined description for the date fields and their types:
 - Relative Date (Hours): Use the format "-Nh" for the last N hours (e.g., "last 5 hours" becomes "-5h").
 - Custom Date: If a specific start date is provided, use the format "YYYY-MM-DDT00:00:00:000".
 - If a date is provided but without a year or month, use the current year and month.
-- Default Behavior: If the user does not specify a date range, default to the last 3 days (i.e., use "-5d"). date_from MUST be set.
+- Default Behavior: If the user does not specify a date range, default to the last 30 days (i.e., use "-30d"). date_from MUST be set. Only use a narrower window when the user explicitly names a shorter period — a narrow default under-reports how many recordings the project has.
 </date_from>
 
 <date_to>
@@ -310,7 +310,7 @@ Valid element property keys: `tag_name` (HTML tag), `text` (visible text on the 
 
 **Clear all filters**:
 ```json
-{"date_from":"-3d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[]}]},"filter_test_accounts":true,"order":"start_time","order_direction":"DESC"}
+{"date_from":"-30d","date_to":null,"duration":[],"filter_group":{"type":"AND","values":[{"type":"AND","values":[]}]},"filter_test_accounts":true,"order":"start_time","order_direction":"DESC"}
 ```
 
 # Complete Examples

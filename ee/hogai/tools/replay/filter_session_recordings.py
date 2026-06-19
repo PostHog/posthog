@@ -100,8 +100,9 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         ```
 
         ## Date Range
-        - **date_from**: "-7d" (relative), "2025-01-15" (absolute). Default: "-3d"
+        - **date_from**: "-7d" (relative), "2025-01-15" (absolute). Default: "-30d"
         - **date_to**: null (current time, default) or "2025-01-20" (absolute)
+        - **CRITICAL**: Only narrow the date range below the default when the user explicitly asks for a specific period (e.g. "last 3 days", "yesterday"). When the user asks how many recordings exist, or to find/summarize recordings without naming a time period, keep the wide default — a narrow window under-reports the project's recordings.
 
         ## Ordering
         - **order**: "start_time" (default), "duration", "console_error_count", "activity_score", etc.
@@ -129,7 +130,7 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         1. **Property discovery**: ALWAYS use read_taxonomy to discover ALL properties and events before creating filters - never assume they exist
         2. **Don't repeat tool calls**: If a property isn't found, try the next best option
         3. **Minimalism**: Only include essential filters
-        4. **Defaults**: date_from="-3d", duration=[], filter_test_accounts=true
+        4. **Defaults**: date_from="-30d", duration=[], filter_test_accounts=true
         5. **Duration placement**: Duration filters go in `duration` array, NOT filter_group
         6. **Value types**: Arrays for "exact"/"is_not", single values for comparisons
         7. **Output format**: Valid JSON object only, no markdown or explanatory text
@@ -173,19 +174,34 @@ class FilterSessionRecordingsTool(MaxTool):
             capture_exception(e)
             content = f"⚠️ Updated session recordings filters, but encountered an issue fetching results: {e}"
         else:
-            total_count = len(query_results.results)
-            if total_count == 0:
+            shown_count = len(query_results.results)
+            # `shown_count` is capped at the query's page limit, so it is NOT the total number of
+            # matching recordings. `has_more_recording` tells us whether the project has more beyond
+            # this page — surface that so Max never reports a capped page as the project's total.
+            has_more = query_results.has_more_recording
+            if shown_count == 0:
                 content = "✅ Filtered session recordings. No recordings found matching these criteria."
-            elif total_count == 1:
-                content = "✅ Filtered session recordings. Found 1 recording matching these criteria:\n\n"
-                content += self._format_recording_metadata(query_results.results[0])
             else:
-                content = f"✅ Filtered session recordings. Found {total_count} recordings matching these criteria:\n\n"
-                # Include metadata for up to first 5 recordings
-                for i, recording in enumerate(query_results.results[:5]):
-                    content += f"{i + 1}. {self._format_recording_metadata(recording)}\n"
-                if total_count > 5:
-                    content += f"\n...and {total_count - 5} more recordings"
+                if has_more:
+                    header = (
+                        f"Showing the first {shown_count} recordings matching these criteria. "
+                        f"There are MORE than {shown_count} — this is a truncated page, not the total count. "
+                        f"Do not state {shown_count} as the total number of recordings; if the user wants the full "
+                        f"count or more results, widen the date range, narrow the filters, or paginate."
+                    )
+                elif shown_count == 1:
+                    header = "Found 1 recording matching these criteria"
+                else:
+                    header = f"Found {shown_count} recordings matching these criteria"
+                content = f"✅ Filtered session recordings. {header}:\n\n"
+                if shown_count == 1:
+                    content += self._format_recording_metadata(query_results.results[0])
+                else:
+                    # Include metadata for up to first 5 recordings
+                    for i, recording in enumerate(query_results.results[:5]):
+                        content += f"{i + 1}. {self._format_recording_metadata(recording)}\n"
+                    if not has_more and shown_count > 5:
+                        content += f"\n...and {shown_count - 5} more recordings"
         return content, None
 
     def _get_recordings_with_filters(self, recordings_query: RecordingsQuery) -> SessionRecordingQueryResult:
