@@ -317,6 +317,29 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         assert response.json()["allow_dev_login"] is True
         assert is_dev_login_allowed()
 
+    def test_preflight_kafka_reflects_probe_on_self_hosted(self):
+        # Regression for #54702: the kafka probe was removed, hardcoding the
+        # response to False off-cloud and blocking self-hosted Live-mode setup.
+        # Override TEST so the `or settings.TEST` short-circuit doesn't mask
+        # the probe's result.
+        self.client.logout()
+        with self.is_cloud(False):
+            with (
+                self.settings(TEST=False, OBJECT_STORAGE_ENABLED=False),
+                patch("posthog.views.is_kafka_connected", return_value=False),
+            ):
+                response = self.client.get("/_preflight/")
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["kafka"] is False
+
+            with (
+                self.settings(TEST=False, OBJECT_STORAGE_ENABLED=False),
+                patch("posthog.views.is_kafka_connected", return_value=True),
+            ):
+                response = self.client.get("/_preflight/")
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["kafka"] is True
+
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_preflight_omits_allow_dev_login_when_disabled(self):
         with self.is_cloud(False):

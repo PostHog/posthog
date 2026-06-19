@@ -24,7 +24,7 @@ import kombu.connection
 import kombu.exceptions
 import django_redis.exceptions
 
-from posthog.health import logger
+from posthog.health import is_kafka_connected, logger
 
 
 @pytest.mark.django_db
@@ -370,6 +370,36 @@ def test_readyz_skips_prestop_check_when_setting_is_empty(client: Client):
 
     assert isinstance(resp, JsonResponse)
     assert resp.status_code == 200
+
+
+def test_is_kafka_connected_short_circuits_under_debug_or_test():
+    # Both DEBUG and TEST instances avoid the live probe — keeps local dev and
+    # the test suite from needing a real broker.
+    with patch("posthog.health.settings.DEBUG", False), patch("posthog.health.settings.TEST", True):
+        assert is_kafka_connected() is True
+    with patch("posthog.health.settings.DEBUG", True), patch("posthog.health.settings.TEST", False):
+        assert is_kafka_connected() is True
+
+
+def test_is_kafka_connected_returns_false_when_probe_raises():
+    with (
+        patch("posthog.health.settings.DEBUG", False),
+        patch("posthog.health.settings.TEST", False),
+        patch("posthog.health.get_producer") as get_producer_mock,
+    ):
+        get_producer_mock.side_effect = Exception("broker unreachable")
+        assert is_kafka_connected() is False
+
+
+def test_is_kafka_connected_returns_true_when_metadata_succeeds():
+    with (
+        patch("posthog.health.settings.DEBUG", False),
+        patch("posthog.health.settings.TEST", False),
+        patch("posthog.health.get_producer") as get_producer_mock,
+    ):
+        get_producer_mock.return_value.producer.list_topics.return_value = mock.Mock()
+        assert is_kafka_connected() is True
+        get_producer_mock.return_value.producer.list_topics.assert_called_once_with(timeout=3)
 
 
 @pytest.fixture(autouse=True)

@@ -32,6 +32,8 @@ from structlog import get_logger
 
 from posthog.celery import app
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
+from posthog.kafka_client.profiles import KafkaClusterProfile
+from posthog.kafka_client.routing import get_producer
 from posthog.security.outbound_proxy import internal_requests
 
 logger = get_logger(__name__)
@@ -234,6 +236,26 @@ def is_clickhouse_connected() -> bool:
         logger.debug("clickhouse_connection_failure", exc_info=True)
         return False
 
+    return True
+
+
+def is_kafka_connected() -> bool:
+    """
+    Probe Kafka connectivity for the preflight check on self-hosted instances.
+
+    Constructs a producer for the DEFAULT cluster profile (routing-aware) and
+    asks for cluster metadata with a short timeout. If either step fails, the
+    cluster is treated as unreachable.
+    """
+    if settings.DEBUG or settings.TEST:
+        return True
+
+    try:
+        producer = get_producer(profile=KafkaClusterProfile.DEFAULT)
+        producer.producer.list_topics(timeout=3)
+    except Exception:
+        logger.debug("kafka_connection_failure", exc_info=True)
+        return False
     return True
 
 
