@@ -424,6 +424,12 @@ export function getComponentToolbarTitle(
     definition: NotebookComponentDefinition | null,
     label: string
 ): string | null {
+    if (
+        node.tagName === 'Query' &&
+        getNotebookStringProp(getNotebookObjectProp(node.props.query)?.kind) === 'SavedInsightNode'
+    ) {
+        return null
+    }
     const title = definition?.getTitle?.(node) ?? getNotebookStringProp(node.props.title)
     const trimmedTitle = title?.trim()
     return trimmedTitle && trimmedTitle !== label ? trimmedTitle : null
