@@ -7,7 +7,7 @@ use posthog_symbol_data::{read_symbol_data_with_byte_count, ProguardMapping};
 use crate::{
     error::{ProguardError, ResolveError, UnhandledError},
     metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
-    symbol_store::{caching::Countable, Fetcher, Parser},
+    symbolication::symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
 pub struct FetchedMapping {
@@ -101,7 +101,7 @@ mod tests {
 
     use super::*;
 
-    const PROGUARD_MAP: &str = include_str!("../../tests/static/proguard/mapping_example.txt");
+    const PROGUARD_MAP: &str = include_str!("../../../tests/static/proguard/mapping_example.txt");
 
     #[test]
     fn fetched_mapping_uses_proguard_cache_for_lookups() {

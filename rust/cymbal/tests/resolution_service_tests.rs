@@ -8,8 +8,10 @@ use async_trait::async_trait;
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
-use cymbal::stages::resolution::symbol::SymbolResolver;
-use cymbal::symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef};
+use cymbal::modes::resolution::load_monitor::LoadMonitor;
+use cymbal::modes::resolution::service::{CymbalResolutionService, ServiceConfig};
+use cymbal::symbolication::symbol::SymbolResolver;
+use cymbal::symbolication::symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef};
 use cymbal::types::operator::TeamId;
 use cymbal::types::{Exception, Stacktrace};
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_client::CymbalResolutionClient;
@@ -18,8 +20,6 @@ use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolu
 use cymbal_proto::cymbal::resolution::v1::{
     resolve_outcome, ErrorKind, ResolveItem, ResolveOutcome, SubscribeRequest,
 };
-use cymbal_resolution::load_monitor::LoadMonitor;
-use cymbal_resolution::service::{CymbalResolutionService, ServiceConfig};
 use futures::StreamExt;
 use tokio::sync::Semaphore;
 use tonic::transport::{Channel, Server};

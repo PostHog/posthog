@@ -8,7 +8,7 @@ use posthog_symbol_data::{read_symbol_data_with_byte_count, AppleDsym};
 use crate::{
     error::{AppleError, ResolveError, UnhandledError},
     metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
-    symbol_store::{native::ParsedNativeSymbols, Fetcher, Parser},
+    symbolication::symbol_store::{native::ParsedNativeSymbols, Fetcher, Parser},
 };
 
 pub struct AppleProvider {}

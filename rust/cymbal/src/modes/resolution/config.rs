@@ -2,6 +2,10 @@ use std::net::SocketAddr;
 
 use envconfig::Envconfig;
 
+/// Resolution-mode config, nested into [`crate::config::Config`] via
+/// `#[envconfig(nested = true)]`. Two knobs shared with processing mode live on
+/// the parent config instead and are read from there: `INTERNAL_API_SECRET` and
+/// `SYMBOL_RESOLUTION_CONCURRENCY`.
 #[derive(Envconfig, Clone)]
 pub struct Config {
     /// gRPC bind address for the cymbal.resolution.v1 server.
@@ -12,10 +16,6 @@ pub struct Config {
     #[envconfig(from = "METRICS_PORT", default = "9101")]
     pub metrics_port: u16,
 
-    /// Shared secret required on every gRPC request via X-Internal-Api-Secret.
-    #[envconfig(from = "INTERNAL_API_SECRET", default = "")]
-    pub internal_api_secret: String,
-
     /// Cap on concurrent gRPC requests accepted by the server before fast
     /// load shedding kicks in. Beyond this, callers receive `UNAVAILABLE`
     /// and retry against another pod — preferred over hidden queue growth
@@ -24,20 +24,9 @@ pub struct Config {
     #[envconfig(from = "MAX_CONCURRENT_REQUESTS", default = "256")]
     pub max_concurrent_requests: usize,
 
-    /// Cap on concurrent symbol-resolution operations across all in-flight
-    /// requests. Reuses the same semantic as cymbal's
-    /// `SYMBOL_RESOLUTION_CONCURRENCY` knob. Items beyond this wait on the
-    /// internal semaphore until the request deadline; sustained pressure
-    /// surfaces as per-item `ErrorKind::Overloaded` outcomes when the limiter
-    /// is closed.
-    #[envconfig(from = "SYMBOL_RESOLUTION_CONCURRENCY", default = "64")]
-    pub symbol_resolution_concurrency: usize,
-
     /// Process-wide cap on concurrent item (exception) processing across all
-    /// in-flight `Resolve` requests. Replaces the previous per-request
-    /// `REQUEST_ITEM_CONCURRENCY` so total item parallelism stays bounded
-    /// regardless of how many concurrent RPCs are open. Symbol work is
-    /// governed separately by `SYMBOL_RESOLUTION_CONCURRENCY`.
+    /// in-flight `Resolve` requests. Symbol work is governed separately by the
+    /// shared `SYMBOL_RESOLUTION_CONCURRENCY` knob on the parent config.
     #[envconfig(from = "MAX_ITEM_CONCURRENCY", default = "64")]
     pub max_item_concurrency: usize,
 

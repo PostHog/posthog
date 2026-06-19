@@ -1,7 +1,9 @@
-# cymbal-resolution
+# Resolution mode (`CYMBAL_MODE=resolution`)
 
 gRPC service that owns exception-level symbol resolution for PostHog error tracking.
-It speaks `cymbal.resolution.v1` and is used by the [`cymbal`](../cymbal) ingestion binary when remote resolution is enabled.
+It is a run mode of the `cymbal` binary, selected with `CYMBAL_MODE=resolution`.
+It speaks `cymbal.resolution.v1` and is used by cymbal's processing mode (the client lives in
+[`stages/resolution/remote`](../../stages/resolution/remote)) when remote resolution is enabled.
 
 ## Architecture
 
@@ -54,7 +56,7 @@ The contract is intentionally split across two streams:
 - `ERROR_KIND_UNHANDLED` is an unexpected resolver failure.
 - `ERROR_KIND_OVERLOADED` is result-only backpressure. Callers reroute the item with overload-specific backoff.
 
-The proto lives at [`proto/cymbal/resolution/v1/resolution.proto`](../../proto/cymbal/resolution/v1/resolution.proto).
+The proto lives at [`proto/cymbal/resolution/v1/resolution.proto`](../../../../../proto/cymbal/resolution/v1/resolution.proto).
 
 ## Rollout model
 
@@ -119,7 +121,7 @@ All variables are prefixed `CYMBAL_REMOTE_RESOLUTION_` and live on `cymbal::conf
 | `CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_TICK_HINT_MS` | `1000` | Cadence hint sent on `SubscribeRequest`; snapshots are considered fresh for two ticks. |
 | `CYMBAL_REMOTE_RESOLUTION_SUBSCRIBE_RECONNECT_BACKOFF_MS` | `500` | Backoff between subscription reconnect attempts when a stream terminates. |
 
-### Cymbal-resolution server (`cymbal-resolution` binary)
+### Resolution-mode server (`CYMBAL_MODE=resolution`)
 
 | Env var | Default | Purpose |
 | ------- | ------- | ------- |
@@ -197,11 +199,11 @@ Logs intentionally do not include raw routing keys as metric labels. Routing key
 
 ## Code organization
 
-- **Service (`cymbal-resolution`)**
-  - [`src/main.rs`](src/main.rs) — process bootstrap, gRPC + metrics servers, layer stack (`GrpcMetricsLayer`, `GrpcLoadShedLayer`).
-  - [`src/config.rs`](src/config.rs) — server `Config` (env-driven).
-  - [`src/app_context.rs`](src/app_context.rs) — constructs an `AppContext` by reusing cymbal's `AppContext::from_config` to materialize a `SymbolResolver`, then dedicates a semaphore for symbol-resolution concurrency.
-  - [`src/service.rs`](src/service.rs) and [`src/service/resolve.rs`](src/service/resolve.rs) — gRPC handlers and `ErrorKind` mapping.
+- **Service (resolution mode, `cymbal/src/modes/resolution/`)**
+  - [`mod.rs`](mod.rs) — `serve()`: gRPC + metrics servers, drain listener, layer stack (`GrpcMetricsLayer`, `GrpcLoadShedLayer`). Invoked from `cymbal`'s `main.rs` when `CYMBAL_MODE=resolution`.
+  - [`config.rs`](config.rs) — resolution-mode `Config`, nested into `cymbal::config::Config`.
+  - [`app_context.rs`](app_context.rs) — `ResolutionAppContext`: reuses cymbal's `build_symbol_resolver` to materialize a `SymbolResolver`, then dedicates a semaphore for symbol-resolution concurrency.
+  - [`service.rs`](service.rs) and [`service/resolve.rs`](service/resolve.rs) — gRPC handlers and `ErrorKind` mapping.
 - **Client (`cymbal/src/stages/resolution/remote/`)**
   - `config.rs` — `RemoteResolutionConfig`.
   - `dns.rs` — `DnsResolver` trait + tokio-backed default.
@@ -209,10 +211,9 @@ Logs intentionally do not include raw routing keys as metric labels. Routing key
   - `mux.rs` — per-endpoint bidirectional Resolve stream, waiter demux, local admission, and stream-break cleanup.
   - `subscription.rs` — long-lived per-endpoint Subscribe task.
   - `resolver.rs` — event partitioning, work-item construction, per-exception reroute, and response reassembly.
-- **Proto contract** — [`proto/cymbal/resolution/v1/resolution.proto`](../../proto/cymbal/resolution/v1/resolution.proto).
+- **Proto contract** — [`proto/cymbal/resolution/v1/resolution.proto`](../../../../../proto/cymbal/resolution/v1/resolution.proto).
 
 ## Tests
 
 - `cargo test -p cymbal-proto` — proto contract round-trips for `ResolveItem`, `ResolveOutcome`, `ErrorKind`, `Retry`, and `LoadEvent`.
-- `cargo test -p cymbal-resolution` — service-level bidirectional streaming, accounting, overload behavior, invalid payload handling, unhandled errors, and Subscribe freshness/draining coverage.
-- `cargo test -p cymbal` — client-side endpoint pool, mux, integration tests against in-process tonic stubs, end-to-end Subscribe routing, and parity vs local mode.
+- `cargo test -p cymbal` — resolution-mode service tests (`tests/resolution_service_tests.rs`: bidirectional streaming, accounting, overload, invalid payload, unhandled errors, Subscribe freshness/draining) plus client-side endpoint pool, mux, end-to-end Subscribe routing, and parity vs local mode.

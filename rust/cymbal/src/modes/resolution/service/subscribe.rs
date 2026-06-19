@@ -5,7 +5,7 @@ use futures::Stream;
 use tonic::Status;
 use tracing::info;
 
-use crate::load_monitor::LoadMonitor;
+use crate::modes::resolution::load_monitor::LoadMonitor;
 use cymbal_proto::cymbal::resolution::v1::LoadEvent;
 
 pub(super) struct SubscribeRuntime {

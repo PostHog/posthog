@@ -26,8 +26,8 @@ use crate::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
         SUSPICIOUS_FRAMES_DETECTED,
     },
-    stages::resolution::symbol::SymbolResolver,
-    symbol_store::{
+    symbolication::symbol::SymbolResolver,
+    symbolication::symbol_store::{
         chunk_id::OrChunkId,
         dart_minified_names::lookup_minified_type,
         proguard::{FetchedMapping, ProguardRef},
@@ -253,8 +253,8 @@ mod test {
     use crate::{
         config::Config,
         frames::{records::ErrorTrackingStackFrame, RawFrame},
-        stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
-        symbol_store::{
+        symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver},
+        symbolication::symbol_store::{
             apple::AppleProvider,
             chunk_id::ChunkIdFetcher,
             hermesmap::HermesMapProvider,
@@ -267,10 +267,10 @@ mod test {
     };
 
     const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
-    const MINIFIED: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js");
-    const MAP: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js.map");
+    const MINIFIED: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js");
+    const MAP: &[u8] = include_bytes!("../../../tests/static/chunk-PGUQKT6S.js.map");
     const EXAMPLE_EXCEPTION: &str =
-        include_str!("../../../../tests/static/raw_ch_exception_list.json");
+        include_str!("../../../tests/static/raw_ch_exception_list.json");
 
     async fn setup_test_context<S>(pool: PgPool, s3_init: S) -> (Config, Catalog, MockServer)
     where

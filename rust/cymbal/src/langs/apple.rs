@@ -15,7 +15,7 @@ use crate::{
     langs::native::{self, DebugImage},
     langs::utils::{add_raw_to_junk, get_context_lines},
     langs::CommonFrameMetadata,
-    symbol_store::{
+    symbolication::symbol_store::{
         apple::AppleRef,
         chunk_id::OrChunkId,
         native::{ParsedNativeSymbols, SymbolInfo},
@@ -443,7 +443,7 @@ mod test {
         use crate::{
             config::Config,
             frames::RawFrame,
-            symbol_store::{
+            symbolication::symbol_store::{
                 apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
                 proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
                 Catalog, MockS3Client,
@@ -606,7 +606,7 @@ mod test {
         use crate::{
             config::Config,
             frames::RawFrame,
-            symbol_store::{
+            symbolication::symbol_store::{
                 apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
                 proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
                 Catalog, MockS3Client,
