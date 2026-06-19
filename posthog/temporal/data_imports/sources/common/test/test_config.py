@@ -1,4 +1,5 @@
 import typing
+import dataclasses
 
 import pytest
 
@@ -484,6 +485,96 @@ def test_from_dict_with_non_mapping_raises_clear_error(bad_input):
 
     with pytest.raises(TypeError, match="Cannot build 'SourceConfig'"):
         SourceConfig.from_dict(bad_input)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "password",
+        "passphrase",
+        "secret_key",
+        "client_secret",
+        "api_key",
+        "access_token",
+        "refresh_token",
+        "private_key",
+        "connection_string",
+        "manifest_json",
+        "authorization",
+    ],
+)
+def test_repr_redacts_secret_fields(field_name):
+    cls = config.config(dataclasses.make_dataclass("Secretful", [(field_name, str)], bases=(config.Config,)))
+    cfg = cls(**{field_name: "super-secret-value"})
+
+    rendered = repr(cfg)
+    assert "super-secret-value" not in rendered
+    assert f"{field_name}='***'" in rendered
+
+
+def test_repr_keeps_non_secret_fields_visible():
+    @config.config
+    class TestConfig(config.Config):
+        host: str
+        database: str
+        user: str
+        password: str
+
+    cfg = TestConfig(host="db.example.com", database="prod", user="reader", password="hunter2")
+
+    rendered = repr(cfg)
+    assert "host='db.example.com'" in rendered
+    assert "database='prod'" in rendered
+    assert "user='reader'" in rendered
+    # The credential is the only field redacted.
+    assert "hunter2" not in rendered
+    assert "password='***'" in rendered
+
+
+def test_repr_shows_none_secret_as_none():
+    @config.config
+    class TestConfig(config.Config):
+        password: str | None = None
+
+    # An unset secret has nothing to leak, so it stays visible to aid debugging.
+    assert "password=None" in repr(TestConfig())
+
+
+def test_repr_redacts_nested_config_secrets():
+    @config.config
+    class AuthConfig:
+        username: str
+        password: str | None = None
+
+    @config.config
+    class TestConfig(config.Config):
+        host: str
+        auth: AuthConfig
+
+    cfg = TestConfig(host="db.example.com", auth=AuthConfig(username="reader", password="hunter2"))
+
+    rendered = repr(cfg)
+    assert "hunter2" not in rendered
+    assert "password='***'" in rendered
+    assert "username='reader'" in rendered
+
+
+def test_repr_redacts_real_postgres_source_config():
+    from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+
+    cfg = PostgresSourceConfig(
+        host="fadevpn-11499.example.cloud",
+        database="defaultdb",
+        user="datawarehouse",
+        password="hunter2",
+        port=26257,
+    )
+
+    rendered = repr(cfg)
+    assert "hunter2" not in rendered
+    assert "password='***'" in rendered
+    # Connection metadata stays visible for debugging.
+    assert "host='fadevpn-11499.example.cloud'" in rendered
 
 
 def test_validate_dict():
