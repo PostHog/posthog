@@ -559,7 +559,7 @@ mod test {
     fn get_dsym_bytes() -> Vec<u8> {
         use posthog_symbol_data::write_symbol_data;
 
-        const DSYM_ZIP: &[u8] = include_bytes!("../../../tests/static/apple/test_binary.dSYM.zip");
+        const DSYM_ZIP: &[u8] = include_bytes!("../../../../tests/static/apple/test_binary.dSYM.zip");
         write_symbol_data(posthog_symbol_data::AppleDsym {
             data: DSYM_ZIP.to_vec(),
         })
@@ -575,7 +575,7 @@ mod test {
         // The ZIP includes __source/manifest.json and the source file content,
         // enabling source-context tests without requiring the file to exist on disk.
         const DSYM_ZIP: &[u8] =
-            include_bytes!("../../../tests/static/apple/test_binary_inline.dSYM.zip");
+            include_bytes!("../../../../tests/static/apple/test_binary_inline.dSYM.zip");
         write_symbol_data(posthog_symbol_data::AppleDsym {
             data: DSYM_ZIP.to_vec(),
         })
