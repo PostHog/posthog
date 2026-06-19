@@ -464,7 +464,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 placement="bottom-end"
                                 showArrow
                                 ignoreDismissal
-                                onApprove={() => askMax(pendingPrompt || question)}
+                                onApprove={() => submit(pendingPrompt || inputValue)}
                                 onDismiss={() => completeThreadGeneration()}
                                 middleware={[
                                     offset((state) => ({
@@ -483,7 +483,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                     textAreaRef?.current?.focus()
                                                     return
                                                 }
-                                                askMax(question)
+                                                submit(inputValue)
                                                 return
                                             }
                                             stopGeneration()
@@ -493,7 +493,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             textAreaRef?.current?.focus()
                                             return
                                         }
-                                        askMax(question)
+                                        submit(inputValue)
                                     }}
                                     tooltip={
                                         // If there's a disabled reason tooltip shown below, don't show a tooltip here
@@ -520,7 +520,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         showStopButton ? (
                                             <IconStopFilled />
                                         ) : (
-                                            MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
+                                            MAX_SLASH_COMMANDS.find((cmd) => cmd.name === inputValue.split(' ', 1)[0])
                                                 ?.icon || <IconArrowRight />
                                         )
                                     }
