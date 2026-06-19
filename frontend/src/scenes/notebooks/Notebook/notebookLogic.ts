@@ -90,11 +90,7 @@ import {
     TableOfContentData,
 } from '../types'
 import { updateContentHeading } from '../utils'
-import {
-    NotebookArtifactApplyMode,
-    insertMarkdownAfterNotebookAIChatMarker,
-    preserveNotebookAIChatMarker,
-} from './markdownNotebookRuntime'
+import { NotebookArtifactApplyMode } from './markdownNotebookRuntime'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
@@ -303,9 +299,9 @@ export const notebookLogic = kea<notebookLogicType>([
         setMarkdownEditorBuffer: (buffered: string | null) => ({ buffered }),
         applyNotebookArtifactMarkdown: (
             content: NotebookArtifactContent,
-            chatId?: string,
+            conversationId?: string,
             mode: NotebookArtifactApplyMode = 'replace'
-        ) => ({ content, chatId, mode }),
+        ) => ({ content, conversationId, mode }),
         setLocalContent: (jsonContent: JSONContent, updateEditor = false, skipCapture = false) => ({
             jsonContent,
             updateEditor,
@@ -1675,7 +1671,7 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setAutosavePaused(false)
         },
 
-        applyNotebookArtifactMarkdown: ({ content, chatId, mode }) => {
+        applyNotebookArtifactMarkdown: ({ content, mode }) => {
             const artifactMarkdown = notebookArtifactContentToMarkdown(content)
             if (!artifactMarkdown.trim()) {
                 return
@@ -1683,9 +1679,9 @@ export const notebookLogic = kea<notebookLogicType>([
 
             const currentMarkdown = values.markdownEditorValue
             const nextMarkdown =
-                mode === 'insert-after-chat'
-                    ? insertMarkdownAfterNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
-                    : preserveNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
+                mode === 'insert-after-response'
+                    ? [currentMarkdown, artifactMarkdown].filter((block) => block.trim()).join('\n\n')
+                    : artifactMarkdown
             if (nextMarkdown === currentMarkdown) {
                 return
             }

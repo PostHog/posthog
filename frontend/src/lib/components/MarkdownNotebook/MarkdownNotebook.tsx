@@ -219,7 +219,7 @@ export type MarkdownNotebookProps = {
     onChange?: (value: string) => void
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
     isAskAIDisabled?: boolean
-    createAIChatId?: () => string
+    createAIConversationId?: () => string
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
     /** Caller-supplied insert-menu commands. Receives an API for inserting blocks so the command's
@@ -248,7 +248,7 @@ export type MarkdownNotebookProps = {
 }
 
 export type MarkdownNotebookAskAIRequest = {
-    chatId: string
+    conversationId: string
     query: string
     source: 'slash' | 'selection'
     responseNodeId: string
@@ -298,11 +298,11 @@ const UNDO_TYPING_GROUP_MS = 1000
  * cover the keystrokes that can land between a save being sent and its response echoing back. */
 const MAX_TRACKED_LOCAL_SNAPSHOTS = 100
 
-function createDefaultAIChatId(): string {
+function createDefaultAIConversationId(): string {
     if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
         return window.crypto.randomUUID()
     }
-    return makeEmptyParagraph('ai-chat').id
+    return makeEmptyParagraph('ai-conversation').id
 }
 
 /** Below this container width, comment threads render inline instead of in the margin. */
@@ -395,7 +395,7 @@ export function MarkdownNotebook({
     onChange,
     onAskAI,
     isAskAIDisabled = false,
-    createAIChatId = createDefaultAIChatId,
+    createAIConversationId = createDefaultAIConversationId,
     mode = 'edit',
     registry,
     extraInsertCommands,
@@ -4743,7 +4743,7 @@ export function MarkdownNotebook({
             return false
         }
 
-        const chatId = createAIChatId()
+        const conversationId = createAIConversationId()
         const nextDocument: NotebookDocument = { ...currentDocument, nodes: nodesWithResponse }
         commitDocument(nextDocument)
         clearInsertMenu()
@@ -4754,7 +4754,7 @@ export function MarkdownNotebook({
             activeAIPromptMenu?.selectedMarkdown ?? getNotebookStringProp(currentPromptNode?.props.selectedMarkdown)
         const selectedRefId = activeAIPromptMenu?.selectedRefId ?? getNotebookStringProp(currentPromptNode?.props.ref)
         onAskAI({
-            chatId,
+            conversationId,
             query:
                 source === 'selection' && selectedMarkdown
                     ? getAskAISelectionQuery(

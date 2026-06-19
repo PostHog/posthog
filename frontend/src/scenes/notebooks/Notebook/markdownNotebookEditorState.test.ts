@@ -117,12 +117,8 @@ describe('notebookLogic markdown editor state', () => {
         expect(logic.values.autosavePaused).toBe(false)
     })
 
-    it('applies notebook artifact markdown while preserving the chat marker', () => {
-        const chatId = '10000000-1000-4000-8000-100000000001'
-        const withChatMarkdown = `${BASE_MARKDOWN}
-
-<Chat id="${chatId}" />`
-        logic.actions.handleMarkdownEditorChange(withChatMarkdown)
+    it('appends artifact markdown in insert-after-response mode', () => {
+        logic.actions.handleMarkdownEditorChange(BASE_MARKDOWN)
 
         logic.actions.applyNotebookArtifactMarkdown(
             {
@@ -130,12 +126,12 @@ describe('notebookLogic markdown editor state', () => {
                 title: 'Generated',
                 blocks: [{ type: 'markdown', content: 'Artifact paragraph' } as any],
             } as any,
-            chatId
+            'inline-conversation-id',
+            'insert-after-response'
         )
 
         const appliedMarkdown = (logic.values.localContent as any).content[0].attrs.markdown as string
-        expect(appliedMarkdown).toContain('Artifact paragraph')
-        expect(appliedMarkdown).toContain(`<Chat id="${chatId}" />`)
+        expect(appliedMarkdown).toEqual(`${BASE_MARKDOWN}\n\n# Generated\n\nArtifact paragraph`)
         expect(logic.values.markdownEditorDraft).toBeNull()
         expect(logic.values.autosavePaused).toBe(false)
     })
@@ -151,7 +147,7 @@ Thinking...`)
                 title: 'Cleaned notebook',
                 blocks: [{ type: 'markdown', content: '# Cleaned notebook\n\nUseful content.' } as any],
             } as any,
-            'inline-chat-id',
+            'inline-conversation-id',
             'replace'
         )
 

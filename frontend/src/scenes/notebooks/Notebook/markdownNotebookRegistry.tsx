@@ -34,7 +34,7 @@ import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef } from 'react'
 
-import { IconComment, IconSparkles } from '@posthog/icons'
+import { IconComment } from '@posthog/icons'
 import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
@@ -55,7 +55,6 @@ import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { CreatePostHogWidgetNodeOptions, NotebookNodeAttributes, NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
-import { NotebookAIChat, getNotebookAIChatTitle } from './MarkdownNotebookAIChat'
 import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
 import { notebookLogic } from './notebookLogic'
 
@@ -199,18 +198,6 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
                 getMarkdownNotebookNodeTitle(node, nodeType, options, label),
         }
     }),
-    {
-        tagName: 'Chat',
-        label: 'AI chat',
-        category: 'AI',
-        icon: <IconSparkles />,
-        defaultProps: { id: '' },
-        ViewComponent: NotebookAIChat,
-        EditComponent: NotebookAIChat,
-        exclusiveEditPanel: true,
-        hideModeActions: true,
-        getTitle: getNotebookAIChatTitle,
-    },
     {
         // Overrides the default registry's authorial-note definition: the note flavor
         // (`text`, stored as `<!-- … -->`) renders through CommentBlock before the registry
