@@ -562,6 +562,13 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"], [])
 
+        # a null entry in raw_ids is rejected with a 400, not a 500
+        data = {"raw_ids": ["raw_id", None]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_assigning_issues(self):
         issue = self.create_issue()
 

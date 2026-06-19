@@ -1533,8 +1533,8 @@ export interface PaginatedErrorTrackingStackFrameListApi {
 }
 
 export interface ErrorTrackingStackFrameBatchGetRequestApi {
-    /** Raw frame IDs in 'hash/part' format to resolve in a single request. */
-    raw_ids: string[]
+    /** Raw frame IDs in 'hash/part' format to resolve in a single request. When omitted, all stack frames for the team are returned. */
+    raw_ids?: string[]
     /**
      * Optional symbol set reference to scope the lookup to a single symbol set.
      * @nullable
