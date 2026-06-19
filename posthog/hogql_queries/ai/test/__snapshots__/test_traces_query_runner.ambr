@@ -1417,7 +1417,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_ts,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_ts
      FROM events_json AS events
-     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), and(ifNull(equals(if(isNull(events.properties.foo), NULL, toString(events.properties.foo)), 'baz'), 0), isNotNull(events.properties.foo))))
+     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), ifNull(equals(if(isNull(events.properties.foo), NULL, toString(events.properties.foo)), 'baz'), 0)))
      GROUP BY trace_id
      HAVING and(lessOrEquals(min(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:10:00', 'UTC'))), greaterOrEquals(max(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))))
      ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
@@ -1487,7 +1487,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_ts,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_ts
      FROM events_json AS events
-     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), and(ifNull(equals(if(isNull(events.properties.foo), NULL, toString(events.properties.foo)), 'barz'), 0), isNotNull(events.properties.foo))))
+     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), ifNull(equals(if(isNull(events.properties.foo), NULL, toString(events.properties.foo)), 'barz'), 0)))
      GROUP BY trace_id
      HAVING and(lessOrEquals(min(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:10:00', 'UTC'))), greaterOrEquals(max(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))))
      ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
@@ -1516,7 +1516,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_ts,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_ts
      FROM events_json AS events
-     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), and(ifNull(equals(if(isNull(events.properties.foo), NULL, toString(events.properties.foo)), 'bar'), 0), isNotNull(events.properties.foo))))
+     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), ifNull(equals(if(isNull(events.properties.foo), NULL, toString(events.properties.foo)), 'bar'), 0)))
      GROUP BY trace_id
      HAVING and(lessOrEquals(min(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:10:00', 'UTC'))), greaterOrEquals(max(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))))
      ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
@@ -1759,7 +1759,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_ts,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_ts
      FROM events_json AS events
-     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), and(ifNull(equals(if(isNull(events.properties.foo), NULL, toString(events.properties.foo)), 'bar'), 0), isNotNull(events.properties.foo))))
+     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), ifNull(equals(if(isNull(events.properties.foo), NULL, toString(events.properties.foo)), 'bar'), 0)))
      GROUP BY trace_id
      HAVING and(lessOrEquals(min(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:10:00', 'UTC'))), greaterOrEquals(max(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))))
      ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
@@ -1829,7 +1829,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_ts,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_ts
      FROM events_json AS events
-     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), and(and(ifNull(equals(if(isNull(events.properties.`$ai_span_name`), NULL, toString(events.properties.`$ai_span_name`)), 'runnable'), 0), isNotNull(events.properties.`$ai_span_name`)), and(ifNull(equals(if(isNull(events.properties.foo), NULL, toString(events.properties.foo)), 'bar'), 0), isNotNull(events.properties.foo)))))
+     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), and(ifNull(equals(if(isNull(events.properties.`$ai_span_name`), NULL, toString(events.properties.`$ai_span_name`)), 'runnable'), 0), ifNull(equals(if(isNull(events.properties.foo), NULL, toString(events.properties.foo)), 'bar'), 0))))
      GROUP BY trace_id
      HAVING and(lessOrEquals(min(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:10:00', 'UTC'))), greaterOrEquals(max(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))))
      ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
@@ -1858,7 +1858,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_ts,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_ts
      FROM events_json AS events
-     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), and(ifNull(equals(if(isNull(events.properties.`$ai_span_name`), NULL, toString(events.properties.`$ai_span_name`)), 'runnable'), 0), isNotNull(events.properties.`$ai_span_name`))))
+     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(isNotNull(events.properties.`$ai_trace_id`), notEquals(events.properties.`$ai_trace_id`, ''), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))), ifNull(equals(if(isNull(events.properties.`$ai_span_name`), NULL, toString(events.properties.`$ai_span_name`)), 'runnable'), 0)))
      GROUP BY trace_id
      HAVING and(lessOrEquals(min(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:10:00', 'UTC'))), greaterOrEquals(max(toTimeZone(events.timestamp, 'UTC')), assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))))
      ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
