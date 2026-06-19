@@ -54,7 +54,7 @@ export function buildSignalReportListOrdering(field: InboxSortField, direction: 
 }
 
 /** The subset of filter state we mirror into sessionStorage. `searchQuery` is intentionally excluded. */
-interface InboxStoredFilters {
+export interface InboxStoredFilters {
     scope: InboxScope
     sortField: InboxSortField
     sortDirection: InboxSortDirection
