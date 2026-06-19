@@ -1701,6 +1701,8 @@ export interface ExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method: AccessMethodEnumApi
+    /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -2394,6 +2396,8 @@ export interface ExternalDataSourceCreateApi {
      * * `api` - api
      * * `mcp` - mcp */
     created_via?: CreatedViaEnumApi
+    /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
 }
 
 export type PatchedExternalDataSourceSerializersApiSchemasItem = { [key: string]: unknown }
@@ -2429,6 +2433,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     description?: string | null
     readonly access_method?: AccessMethodEnumApi
+    /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
@@ -3855,6 +3861,8 @@ export interface SourceSetupApi {
      * @nullable
      */
     description?: string | null
+    /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+    direct_query_enabled?: boolean
 }
 
 export interface SourceSetupWebhookApi {

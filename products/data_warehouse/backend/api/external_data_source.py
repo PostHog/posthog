@@ -664,6 +664,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "Ignored on update."
         ),
     )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether this synced source is also live-queryable via direct connection. "
+            "Defaults to true for new sources; ignored for pure direct-query sources."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -680,6 +687,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "prefix",
             "description",
             "access_method",
+            "direct_query_enabled",
             "engine",
             "last_run_at",
             "schemas",
@@ -1078,6 +1086,14 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         default=ExternalDataSource.CreatedVia.API,
         help_text="Where the request came from",
     )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether a synced source should also be live-queryable via direct connection. "
+            "Defaults to true; ignored for pure direct-query sources."
+        ),
+    )
 
 
 class SourceSetupSerializer(serializers.Serializer):
@@ -1106,6 +1122,14 @@ class SourceSetupSerializer(serializers.Serializer):
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
+    )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether a synced source should also be live-queryable via direct connection. "
+            "Defaults to true; ignored for pure direct-query sources."
+        ),
     )
 
 
@@ -1335,6 +1359,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
         )
 
     def _create_external_data_source(
@@ -1347,6 +1372,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description: str | None,
         access_method: str,
         created_via: str,
+        direct_query_enabled: bool = True,
         skip_credential_validation: bool = False,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
@@ -1430,6 +1456,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             prefix=prefix,
             description=description,
             access_method=access_method,
+            direct_query_enabled=direct_query_enabled,
         )
 
         # CDC: gate per-source-type adapter availability up front so downstream blocks
@@ -2346,6 +2373,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             created_via=ExternalDataSource.CreatedVia.MCP,
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
             skip_credential_validation=True,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
