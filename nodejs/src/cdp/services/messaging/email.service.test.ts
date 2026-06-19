@@ -13,6 +13,7 @@ import { Hub, Team } from '../../../types'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
+import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 
 class ThrottlingException extends Error {
     constructor(message: string) {
@@ -92,7 +93,8 @@ describe('EmailService', () => {
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            hub.SITE_URL,
+            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
         )
         mockFetch.mockClear()
     })
@@ -106,7 +108,8 @@ describe('EmailService', () => {
                 hub.integrationManager,
                 new TeamWorkflowsConfigService(hub.postgres),
                 hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
+                hub.SITE_URL,
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
             )
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 

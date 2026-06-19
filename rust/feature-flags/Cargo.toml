@@ -44,6 +44,7 @@ hex = "0.4.3"
 regex.workspace = true
 fancy-regex.workspace = true
 base64.workspace = true
+fernet = { workspace = true }
 sqlx = { workspace = true, features = ["rust_decimal"] }
 uuid = { workspace = true }
 common-cache = { path = "../common/cache" }

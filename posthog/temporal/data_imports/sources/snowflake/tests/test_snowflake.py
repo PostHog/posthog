@@ -702,6 +702,20 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "JWT token is invalid",
+            # The real shape from production: codes, host, and request id vary, but the substring is stable.
+            "250001 (08001): None: Failed to connect to DB: novjltn-acme.snowflakecomputing.com:443. "
+            "JWT token is invalid. [daf5b833-38d8-4aa9-9971-9d6bd736d978]",
+        ],
+    )
+    def test_invalid_jwt_token_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid-JWT error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Table dropped/renamed or grant revoked (002003 / 42S02). Object name and query id vary.
             "002003 (42S02): 01c511e7-0307-1937-0000-7c994379a9c2: SQL compilation error:\n"
             "Table 'PRODUCTION.DBTNOVA.SCOPE_CATEGORIZATION' does not exist or not authorized.",
@@ -729,6 +743,20 @@ class TestSnowflakeSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Broken-view error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Incorrect username or password was specified",
+            # The real shape from production: codes + host vary, but the substring is stable.
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Incorrect username or password was specified.",
+        ],
+    )
+    def test_incorrect_credentials_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Incorrect-credentials error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

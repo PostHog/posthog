@@ -47,7 +47,11 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
-from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
+from products.feature_flags.backend.encrypted_flag_payloads import (
+    REDACTED_PAYLOAD_VALUE,
+    flag_payload_codec,
+    get_decrypted_flag_payload,
+)
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import (
     FeatureFlag,
@@ -2096,6 +2100,39 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
+
+    # Encrypted remote config payloads are decrypted only for personal API keys; project
+    # secret keys get the redacted marker. This is the parity oracle for the Rust port,
+    # which must replicate both.
+    @parameterized.expand(
+        [
+            ("project_secret_key", False),
+            ("personal_api_key", True),
+        ]
+    )
+    def test_remote_config_encrypted_payload_auth_dependent(self, _name: str, should_decrypt: bool):
+        plaintext = '{"secret": "value"}'
+        token = flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
+        self._create_encrypted_flag(stored_payload=token)
+
+        if should_decrypt:
+            auth_token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
+            )
+        else:
+            self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+            secret_token = self.team.secret_api_token
+            assert secret_token is not None
+            auth_token = secret_token
+
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-encrypted-flag/remote_config",
+            headers={"authorization": f"Bearer {auth_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE)
 
     @parameterized.expand([("plaintext_payloads", False), ("encrypted_payloads", True)])
     def test_remote_config_increments_remote_config_bucket_by_one_per_request(

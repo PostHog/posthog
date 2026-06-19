@@ -16,6 +16,7 @@ from rest_framework.request import Request
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.printer.utils import print_prepared_ast
@@ -148,6 +149,10 @@ class EndpointMaterializationService:
         except ValidationError:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
             raise
+        except ExposedHogQLError as e:
+            # A bad user query, not a system fault — surface as a 400.
+            ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
+            raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")
         except Exception:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="error").inc()
             # Not a request-validation problem — surface as a server error, not a 400.

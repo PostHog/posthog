@@ -67,6 +67,9 @@ jobs:
                         - 'products/**/*.{ts,tsx}'
                         - 'products/**/frontend/**'
                         - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
+                        # quill is consumed app-wide via `workspace:*`, so a change here
+                        # alters rendering across the main-app stories — run the suite.
+                        - 'packages/quill/**'
                         - 'ee/frontend/**'
                         - 'services/mcp/src/ui-apps/**'
                         - '.storybook/**'
