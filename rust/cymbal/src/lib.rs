@@ -10,7 +10,7 @@ pub mod test_utils;
 pub use core::sanitize::{
     needs_sanitization, recursively_sanitize_properties, sanitize_source_line, sanitize_string,
 };
-pub use core::symbolication::langs;
+pub use core::types::langs;
 pub use core::types::frames;
 pub use core::{error, metric_consts, symbolication};
 
