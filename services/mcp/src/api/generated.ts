@@ -27303,7 +27303,7 @@ export namespace Schemas {
       readonly intent_count: number;
       /** Number of MCP sessions whose summarised intent belongs to this cluster. */
       readonly session_count: number;
-      /** Total number of mcp_tool_call events represented by this cluster. */
+      /** Total number of $mcp_tool_call events represented by this cluster. */
       readonly call_count: number;
       /** Total number of error responses observed across the cluster. */
       readonly error_count: number;
@@ -27505,13 +27505,13 @@ export namespace Schemas {
     }
 
     export interface MCPSession {
-      /** $mcp_session_id grouping all mcp_tool_call events in the session. */
+      /** $mcp_session_id grouping all $mcp_tool_call events in the session. */
       readonly session_id: string;
-      /** Total number of mcp_tool_call events in the session. */
+      /** Total number of $mcp_tool_call events in the session. */
       readonly tool_calls: number;
-      /** Timestamp of the first mcp_tool_call event in the session. */
+      /** Timestamp of the first $mcp_tool_call event in the session. */
       readonly session_start: string;
-      /** Timestamp of the most recent mcp_tool_call event in the session. */
+      /** Timestamp of the most recent $mcp_tool_call event in the session. */
       readonly session_end: string;
       /** Number of distinct PostHog distinct_ids that produced events in the session. */
       readonly distinct_id_count: number;
@@ -27537,7 +27537,7 @@ export namespace Schemas {
     }
 
     export interface MCPToolCall {
-      /** ClickHouse uuid of the mcp_tool_call event. */
+      /** ClickHouse uuid of the $mcp_tool_call event. */
       readonly event_id: string;
       /** When the tool call was captured. */
       readonly timestamp: string;
