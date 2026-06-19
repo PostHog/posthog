@@ -19,6 +19,7 @@ from products.conversations.backend.support_teams import (
 from products.conversations.backend.tasks import poll_team_shared_channels, poll_teams_shared_channels
 from products.conversations.backend.teams import (
     graph_message_to_activity,
+    graph_reply_to_activity,
     parse_teams_root_message_id,
     post_teams_channel_message_via_graph,
     resolve_shared_channel_team_id,
@@ -38,11 +39,12 @@ def _graph_message(
     user_id: str | None = "aad-user-1",
     deleted: bool = False,
     reply_to_id: str | None = None,
+    created_at: str = "2024-01-01T12:00:00Z",
 ) -> dict[str, Any]:
     msg: dict[str, Any] = {
         "id": msg_id,
         "messageType": message_type,
-        "createdDateTime": "2024-01-01T12:00:00Z",
+        "createdDateTime": created_at,
         "body": {"contentType": "html", "content": content},
     }
     if deleted:
@@ -91,6 +93,27 @@ class TestGraphMessageToActivity(BaseTest):
         self.assertEqual(activity["channelData"]["channel"]["id"], CHANNEL_ID)
 
 
+class TestGraphReplyToActivity(BaseTest):
+    @parameterized.expand(
+        [
+            ("normal_reply", _graph_message(reply_to_id="root-1"), True),
+            ("deleted_reply", _graph_message(reply_to_id="root-1", deleted=True), False),
+            ("app_authored", _graph_message(reply_to_id="root-1", user_id=None), False),
+            ("wrong_root", _graph_message(reply_to_id="other-root"), False),
+            ("empty_body", _graph_message(reply_to_id="root-1", content="   "), False),
+        ]
+    )
+    def test_mapping(self, _name: str, msg: dict, should_map: bool) -> None:
+        activity = graph_reply_to_activity(msg, CHANNEL_ID, "root-1", TRUSTED_SERVICE_URL)
+        if not should_map:
+            self.assertIsNone(activity)
+            return
+        assert activity is not None
+        self.assertEqual(activity["id"], msg["id"])
+        self.assertEqual(activity["conversation"]["id"], f"{CHANNEL_ID};messageid=root-1")
+
+
+@patch("products.conversations.backend.tasks._sync_shared_channel_thread_replies")
 @patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=201))
 @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "Alice", "email": None})
 @patch("products.conversations.backend.tasks.get_graph_token", return_value="graph-token")
@@ -250,7 +273,7 @@ class TestPollSharedChannel(BaseTest):
 
     @patch("products.conversations.backend.tasks.requests.get")
     def test_confirmation_card_posted_via_graph_for_polled_ticket(
-        self, mock_get: MagicMock, _token: MagicMock, _resolve: MagicMock, mock_post: MagicMock
+        self, mock_get: MagicMock, _token: MagicMock, _resolve: MagicMock, mock_post: MagicMock, *_: Any
     ) -> None:
         mock_get.side_effect = [
             _channel_verify_resp(),
@@ -267,6 +290,83 @@ class TestPollSharedChannel(BaseTest):
         mock_post.assert_called_once()
         url = mock_post.call_args.args[0] if mock_post.call_args.args else mock_post.call_args.kwargs["url"]
         self.assertIn(f"/teams/{TEAMS_TEAM_ID}/channels/{CHANNEL_ID}/messages/m2/replies", url)
+
+
+@patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=201))
+@patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "Alice", "email": None})
+@patch("products.conversations.backend.tasks.get_graph_token", return_value="graph-token")
+class TestPollSharedChannelThreadReplies(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team.conversations_settings = {
+            "teams_enabled": True,
+            "teams_channels": [
+                {
+                    "team_id": TEAMS_TEAM_ID,
+                    "team_name": "Group",
+                    "channel_id": CHANNEL_ID,
+                    "channel_name": "shared",
+                    "membership_type": "shared",
+                },
+            ],
+        }
+        self.team.save()
+        TeamConversationsTeamsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "teams_tenant_id": "tenant-abc",
+                "teams_graph_access_token": "graph-tok",
+                "teams_graph_refresh_token": "graph-ref",
+            },
+        )
+
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_thread_reply_ingested_from_graph_replies(self, mock_get: MagicMock, *_: Any) -> None:
+        from datetime import UTC, datetime
+
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        mock_get.side_effect = [
+            _resp(json_data={"value": [_graph_message(msg_id="root-1")], "@odata.deltaLink": "DELTA2"}),
+            _resp(json_data={"value": []}),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        ticket = Ticket.objects.filter(team=self.team).get()
+        self.assertEqual(ticket.teams_conversation_id, f"{CHANNEL_ID};messageid=root-1")
+        ticket.created_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+        ticket.teams_thread_replies_synced_at = None
+        ticket.save(update_fields=["created_at", "teams_thread_replies_synced_at"])
+
+        mock_get.side_effect = [
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA3"}),
+            _resp(
+                json_data={
+                    "value": [
+                        _graph_message(
+                            msg_id="reply-1",
+                            reply_to_id="root-1",
+                            content="<p>follow up question</p>",
+                            created_at="2024-06-01T12:00:00Z",
+                        )
+                    ]
+                }
+            ),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        from posthog.models.comment import Comment
+
+        self.assertEqual(Comment.objects.filter(team=self.team, item_id=str(ticket.id)).count(), 2)
+        reply_comment = Comment.objects.filter(team=self.team, item_id=str(ticket.id)).order_by("created_at").last()
+        assert isinstance(reply_comment.item_context, dict)
+        self.assertEqual(reply_comment.item_context.get("teams_graph_message_id"), "reply-1")
+        ticket.refresh_from_db()
+        self.assertIsNotNone(ticket.teams_thread_replies_synced_at)
 
 
 class TestStoreTeamsServiceUrl(BaseTest):
@@ -380,7 +480,7 @@ class TestSharedChannelGraphSend(BaseTest):
 
     @patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=201))
     def test_graph_send_posts_reply_to_thread(self, mock_post: MagicMock) -> None:
-        status = post_teams_channel_message_via_graph(
+        status, _message_id = post_teams_channel_message_via_graph(
             team=self.team,
             teams_team_id=TEAMS_TEAM_ID,
             channel_id=CHANNEL_ID,
@@ -394,7 +494,7 @@ class TestSharedChannelGraphSend(BaseTest):
 
     @patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=403))
     def test_graph_send_returns_status_on_error(self, _mock_post: MagicMock) -> None:
-        status = post_teams_channel_message_via_graph(
+        status, message_id = post_teams_channel_message_via_graph(
             team=self.team,
             teams_team_id=TEAMS_TEAM_ID,
             channel_id=CHANNEL_ID,
@@ -402,6 +502,7 @@ class TestSharedChannelGraphSend(BaseTest):
             token="tok",
         )
         self.assertEqual(status, 403)
+        self.assertIsNone(message_id)
 
 
 class TestPollFanout(BaseTest):

@@ -28,11 +28,13 @@ from .cache import get_cached_teams_user, set_cached_teams_user
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
 from .support_teams import (
+    claim_teams_graph_message,
     get_bot_framework_token,
     get_bot_from_id,
     get_graph_token,
     invalidate_bot_framework_token,
     is_trusted_teams_service_url,
+    mark_teams_graph_message_seen,
 )
 from .teams_formatting import teams_html_to_content_and_rich_content
 
@@ -474,14 +476,14 @@ def post_teams_channel_message_via_graph(
     reply_to_message_id: str | None = None,
     token: str | None = None,
     log_context: dict | None = None,
-) -> int:
+) -> tuple[int, str | None]:
     """Post an HTML channel message (or thread reply) via Graph as the connecting admin.
 
     The bot connector can't write to shared channels (the bot isn't a member), so
     confirmation cards and agent replies for shared-channel tickets go through Graph
-    with the same delegated token the poller uses to read. Returns the HTTP status
-    code (``0`` for a missing token or network error) so callers can distinguish
-    transient failures from permanent ones (e.g. 403 when Send isn't consented yet).
+    with the same delegated token the poller uses to read. Returns ``(status, message_id)``
+    where status is the HTTP status code (``0`` for a missing token or network error)
+    and ``message_id`` is the created chatMessage id on success.
     """
     ctx = log_context or {}
     if token is None:
@@ -489,7 +491,7 @@ def post_teams_channel_message_via_graph(
             token = get_graph_token(team)
         except ValueError:
             logger.warning("teams_graph_post_no_token", **ctx)
-            return 0
+            return 0, None
 
     base = f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages"
     url = f"{base}/{reply_to_message_id}/replies" if reply_to_message_id else base
@@ -502,11 +504,20 @@ def post_teams_channel_message_via_graph(
         )
     except requests.RequestException:
         logger.warning("teams_graph_post_error", url=url, **ctx)
-        return 0
+        return 0, None
 
-    if resp.status_code not in (200, 201):
+    message_id: str | None = None
+    if resp.status_code in (200, 201):
+        try:
+            raw_id = resp.json().get("id")
+            message_id = str(raw_id) if raw_id else None
+        except (ValueError, AttributeError, TypeError):
+            message_id = None
+        if message_id:
+            mark_teams_graph_message_seen(message_id)
+    else:
         logger.warning("teams_graph_post_failed", status=resp.status_code, body=resp.text[:500], url=url, **ctx)
-    return resp.status_code
+    return resp.status_code, message_id
 
 
 def create_or_update_teams_ticket(
@@ -577,6 +588,26 @@ def create_or_update_teams_ticket(
             )
             return None
 
+        if activity_id and claim_teams_graph_message(activity_id):
+            logger.debug(
+                "teams_thread_reply_duplicate_skipped",
+                team_id=team_id,
+                activity_id=activity_id,
+                ticket_id=str(ticket.id),
+            )
+            return ticket
+
+        if (
+            activity_id
+            and Comment.objects.filter(
+                team=team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                item_context__teams_graph_message_id=activity_id,
+            ).exists()
+        ):
+            return ticket
+
         Comment.objects.create(
             team=team,
             scope="conversations_ticket",
@@ -591,6 +622,7 @@ def create_or_update_teams_ticket(
                 "teams_user_id": teams_user_id,
                 "teams_author_name": user_info["name"],
                 "teams_author_email": user_info.get("email"),
+                "teams_graph_message_id": activity_id,
             },
         )
 
@@ -660,8 +692,12 @@ def create_or_update_teams_ticket(
             "teams_user_id": teams_user_id,
             "teams_author_name": user_info["name"],
             "teams_author_email": user_info.get("email"),
+            "teams_graph_message_id": activity_id,
         },
     )
+
+    if activity_id:
+        mark_teams_graph_message_seen(activity_id)
 
     # Post confirmation card in the Teams thread. Shared-channel tickets (polled)
     # can't be confirmed over the bot connector, so go through Graph instead.
@@ -826,7 +862,7 @@ def graph_message_to_activity(msg: dict, channel_id: str, service_url: str) -> d
     if msg.get("deletedDateTime"):
         return None
     # Channel messages/delta returns root messages only; guard defensively in case
-    # a reply ever shows up (reply sync is out of v1 scope).
+    # a reply ever shows up (thread replies are ingested via the reply poller).
     if msg.get("replyToId"):
         return None
 
@@ -857,6 +893,58 @@ def graph_message_to_activity(msg: dict, channel_id: str, service_url: str) -> d
             "name": user.get("displayName") or "",
         },
         "conversation": {"id": f"{channel_id};messageid={msg_id}"},
+        "channelData": {"channel": {"id": channel_id}},
+        "serviceUrl": service_url,
+    }
+
+
+def graph_reply_to_activity(
+    msg: dict,
+    channel_id: str,
+    root_message_id: str,
+    service_url: str,
+) -> dict | None:
+    """Map a Graph thread ``chatMessage`` reply to a Bot Framework activity shape.
+
+    Used by the shared-channel reply poller. The activity uses the ticket's canonical
+    ``"<channelId>;messageid=<rootId>"`` conversation id so ``create_or_update_teams_ticket``
+    finds the existing ticket with ``is_thread_reply=True``.
+    """
+    if msg.get("messageType") != "message":
+        return None
+    if msg.get("deletedDateTime"):
+        return None
+
+    body = msg.get("body") or {}
+    content = body.get("content") or ""
+    if not content.strip():
+        return None
+
+    from_field = msg.get("from") or {}
+    user = from_field.get("user") or {}
+    aad_object_id = user.get("id")
+    if not aad_object_id:
+        return None
+
+    msg_id = msg.get("id")
+    if not msg_id:
+        return None
+
+    reply_to_id = msg.get("replyToId")
+    if reply_to_id and str(reply_to_id) != str(root_message_id):
+        return None
+
+    return {
+        "id": msg_id,
+        "type": "message",
+        "text": content,
+        "replyToId": reply_to_id or root_message_id,
+        "from": {
+            "id": aad_object_id,
+            "aadObjectId": aad_object_id,
+            "name": user.get("displayName") or "",
+        },
+        "conversation": {"id": f"{channel_id};messageid={root_message_id}"},
         "channelData": {"channel": {"id": channel_id}},
         "serviceUrl": service_url,
     }

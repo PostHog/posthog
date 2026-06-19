@@ -89,6 +89,27 @@ GRAPH_REFRESH_SCOPES_READONLY = (
     "Team.ReadBasic.All Channel.ReadBasic.All User.ReadBasic.All ChannelMessage.Read.All offline_access openid profile"
 )
 
+SUPPORTHOG_TEAMS_GRAPH_MESSAGE_KEY_PREFIX = "supporthog:teams:graph-msg:"
+# Long TTL: polled thread replies and outbound Graph posts must stay deduped across
+# the every-minute sweep (and Bot Framework-style retries on transient failures).
+SUPPORTHOG_TEAMS_GRAPH_MESSAGE_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+def mark_teams_graph_message_seen(message_id: str) -> None:
+    """Record a Graph chatMessage id so the shared-channel reply poller won't re-ingest it."""
+    if not message_id:
+        return
+    key = f"{SUPPORTHOG_TEAMS_GRAPH_MESSAGE_KEY_PREFIX}{message_id}"
+    cache.set(key, True, timeout=SUPPORTHOG_TEAMS_GRAPH_MESSAGE_TTL_SECONDS)
+
+
+def claim_teams_graph_message(message_id: str) -> bool:
+    """Return True if this Graph message id was already claimed (duplicate)."""
+    if not message_id:
+        return True
+    key = f"{SUPPORTHOG_TEAMS_GRAPH_MESSAGE_KEY_PREFIX}{message_id}"
+    return not cache.add(key, True, timeout=SUPPORTHOG_TEAMS_GRAPH_MESSAGE_TTL_SECONDS)
+
 
 def get_teams_instance_settings() -> dict:
     return get_instance_settings(
