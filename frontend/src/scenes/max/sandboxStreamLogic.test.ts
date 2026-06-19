@@ -10,7 +10,6 @@ import { initKeaTests } from '~/test/init'
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
 import {
-    liveEventSourcesByStreamKey,
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
     MAX_SSE_RECONNECT_ATTEMPTS,
@@ -36,55 +35,125 @@ function sessionUpdate(update: Record<string, unknown>): StoredLogEntry {
     return notification('session/update', { update })
 }
 
-/** Minimal `EventSource` stand-in so the logic can open/drop a connection under test control. */
-class MockEventSource {
-    static instances: MockEventSource[] = []
-    url: string
-    onopen: (() => void) | null = null
-    onmessage: ((event: MessageEvent<string>) => void) | null = null
-    closed = false
-    private errorListeners: ((event: MessageEvent<string>) => void)[] = []
+function sessionPrompt(text: string, sessionId: string = 'session-1'): StoredLogEntry {
+    return notification('session/prompt', {
+        sessionId,
+        prompt: [{ type: 'text', text }],
+    })
+}
 
-    constructor(url: string) {
-        this.url = url
-        MockEventSource.instances.push(this)
+function legacyNotification(method: string, params: Record<string, unknown>): Record<string, unknown> {
+    return { notification: { method, params } }
+}
+
+type ReaderResult = { done: false; value: Uint8Array } | { done: true; value: undefined }
+
+/**
+ * Stand-in for one `api.tasks.runs.openStream` connection. Backs a fetch-style streaming `Response`
+ * whose `body.getReader()` the logic pumps through `eventsource-parser`. Tests drive it by emitting
+ * SSE-encoded frames; each `emit*` resolves the logic's pending `reader.read()` and drains the
+ * microtask queue so the dispatched actions have settled before the test asserts.
+ */
+class MockStreamConnection {
+    readonly options: { signal: AbortSignal; lastEventId?: string; startLatest?: boolean }
+    private pendingRead: ((r: ReaderResult) => void) | null = null
+    private queued: ReaderResult[] = []
+    private encoder = new TextEncoder()
+
+    constructor(options: { signal: AbortSignal; lastEventId?: string; startLatest?: boolean }) {
+        this.options = options
+        // Teardown (dispose 'event-source') aborts the signal — unblock any pending read so the
+        // logic's loop sees `done`/`aborted` and exits without scheduling a reconnect.
+        options.signal.addEventListener('abort', () => this.deliver({ done: true, value: undefined }))
     }
 
-    addEventListener(type: string, listener: (event: MessageEvent<string>) => void): void {
-        if (type === 'error') {
-            this.errorListeners.push(listener)
+    /** Mirrors `MockEventSource.closed`: the logic aborted the fetch (teardown / terminal / close). */
+    get closed(): boolean {
+        return this.options.signal.aborted
+    }
+
+    response(): Response {
+        const reader = {
+            read: (): Promise<ReaderResult> => {
+                const next = this.queued.shift()
+                if (next) {
+                    return Promise.resolve(next)
+                }
+                if (this.options.signal.aborted) {
+                    return Promise.resolve({ done: true, value: undefined })
+                }
+                return new Promise<ReaderResult>((resolve) => {
+                    this.pendingRead = resolve
+                })
+            },
+        }
+        return { body: { getReader: () => reader } } as unknown as Response
+    }
+
+    private deliver(result: ReaderResult): void {
+        if (this.pendingRead) {
+            const resolve = this.pendingRead
+            this.pendingRead = null
+            resolve(result)
+        } else {
+            this.queued.push(result)
         }
     }
 
-    close(): void {
-        this.closed = true
+    private encodeFrame(fields: { data: string; event?: string; id?: string }): Uint8Array {
+        const parts: string[] = []
+        if (fields.event) {
+            parts.push(`event: ${fields.event}`)
+        }
+        if (fields.id) {
+            parts.push(`id: ${fields.id}`)
+        }
+        parts.push(`data: ${fields.data}`)
+        return this.encoder.encode(parts.join('\n') + '\n\n')
     }
 
-    emitOpen(): void {
-        this.onopen?.()
+    /** The connection opens automatically once `openStream` resolves; this just drains the queue. */
+    async emitOpen(): Promise<void> {
+        await flushPromises()
     }
 
-    /** Simulate a default-channel `event: message` data frame. */
-    emitMessage(data: Record<string, unknown>): void {
-        this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent<string>)
+    /** Emit a default-channel data frame (optionally with the SSE `id:` = Redis stream id). */
+    async emitMessage(data: object, id?: string): Promise<void> {
+        this.deliver({ done: false, value: this.encodeFrame({ data: JSON.stringify(data), id }) })
+        await flushPromises()
     }
 
-    /** Simulate a transient connection drop (no `data`). */
-    emitDrop(): void {
-        this.errorListeners.forEach((l) => l({ data: '' } as MessageEvent<string>))
+    /** Emit a named `event: error` envelope frame. */
+    async emitErrorFrame(envelope: Record<string, unknown>): Promise<void> {
+        this.deliver({ done: false, value: this.encodeFrame({ data: JSON.stringify(envelope), event: 'error' }) })
+        await flushPromises()
     }
 
-    /** Simulate a named `event: error` envelope frame. */
-    emitErrorFrame(envelope: Record<string, unknown>): void {
-        this.errorListeners.forEach((l) => l({ data: JSON.stringify(envelope) } as MessageEvent<string>))
+    /** Server cleanly closes the stream body → the logic treats it as a drop. */
+    async emitClose(): Promise<void> {
+        this.deliver({ done: true, value: undefined })
+        await flushPromises()
     }
+}
 
-    static latest(): MockEventSource {
-        return MockEventSource.instances[MockEventSource.instances.length - 1]
+class MockStream {
+    static connections: MockStreamConnection[] = []
+
+    static latest(): MockStreamConnection {
+        return MockStream.connections[MockStream.connections.length - 1]
     }
 
     static reset(): void {
-        MockEventSource.instances = []
+        MockStream.connections = []
+    }
+
+    /** Install the `api.tasks.runs.openStream` spy that records and backs each connection. */
+    static install(): void {
+        jest.spyOn(api.tasks.runs, 'openStream').mockImplementation((_taskId, _runId, options) => {
+            const connection = new MockStreamConnection(options)
+            MockStream.connections.push(connection)
+            return Promise.resolve(connection.response())
+        })
     }
 }
 
@@ -93,10 +162,8 @@ describe('sandboxStreamLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        MockEventSource.reset()
-        // The live-connection registry is a module global (survives HMR), so clear it between tests.
-        liveEventSourcesByStreamKey.clear()
-        ;(global as any).EventSource = MockEventSource
+        MockStream.reset()
+        MockStream.install()
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
         ;(tasksRunsCommandCreate as jest.Mock).mockReset().mockResolvedValue({ jsonrpc: '2.0' })
@@ -267,6 +334,80 @@ describe('sandboxStreamLogic', () => {
             expect(assistantItems[1].text).toEqual('More')
             expect(assistantItems[1].complete).toEqual(false)
             expect(assistantItems[0].id).not.toEqual(assistantItems[1].id)
+        })
+
+        it('finalizes the streamed message when chunks carry a messageId but the finalize omits it', async () => {
+            // The live wire often streams `agent_message_chunk`s with a messageId but closes the turn
+            // with an `agent_message` that has none. The finalize must close the in-flight bubble, not
+            // append a second one with the same text.
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({
+                    sessionUpdate: 'agent_message_chunk',
+                    messageId: 'm1',
+                    content: { text: "I'll query. " },
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'agent_message_chunk',
+                    messageId: 'm1',
+                    content: { text: 'Loading tools.' },
+                }),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: "I'll query. Loading tools." } }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistantItems).toHaveLength(1)
+            expect(assistantItems[0].text).toEqual("I'll query. Loading tools.")
+            expect(assistantItems[0].complete).toEqual(true)
+        })
+
+        it('finalizes the streamed message when chunks omit the messageId but the finalize carries it', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: "I'll query. " } }),
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'Loading tools.' } }),
+                sessionUpdate({
+                    sessionUpdate: 'agent_message',
+                    messageId: 'm1',
+                    content: { text: "I'll query. Loading tools." },
+                }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistantItems).toHaveLength(1)
+            expect(assistantItems[0].text).toEqual("I'll query. Loading tools.")
+            expect(assistantItems[0].complete).toEqual(true)
+        })
+
+        it('does not let an id-less finalize reach back across a turn separator', async () => {
+            // A finalize with no matching buffer falls back to the in-flight message, but must not
+            // close a still-open bubble from a previous turn.
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({
+                    sessionUpdate: 'agent_message_chunk',
+                    messageId: 'm1',
+                    content: { text: 'First turn' },
+                }),
+                notification('_posthog/turn_complete', {}),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Second turn' } }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistantItems.map((item) => item.text)).toEqual(['First turn', 'Second turn'])
+            // The first turn's bubble stayed open (never finalized); the second turn's finalize made
+            // its own complete bubble rather than closing the first.
+            expect(assistantItems[0].complete).toEqual(false)
+            expect(assistantItems[1].complete).toEqual(true)
         })
     })
 
@@ -560,6 +701,112 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
         })
 
+        it('renders a legacy notification-only user message and suppresses resume prompt echoes', async () => {
+            const resumePrompt =
+                'You are resuming a previous conversation. Here is the conversation history. Continue from where you left off.'
+            const frames: unknown[] = [
+                notification('session/update', {
+                    sessionId: 'ancestor-session',
+                    update: {
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: "what's my pageview count" },
+                    },
+                }),
+                notification('_posthog/console', { sessionId: 'run-1', level: 'debug', message: 'Starting resume' }),
+                legacyNotification('_posthog/user_message', {
+                    content: 'break down by a country',
+                    _meta: { attached_context: [] },
+                }),
+                notification('_posthog/sdk_session', {
+                    taskRunId: 'run-1',
+                    sessionId: 'acp-session-1',
+                    adapter: 'claude',
+                }),
+                notification('_posthog/run_started', {
+                    runId: 'run-1',
+                    taskId: 'task-1',
+                    sessionId: 'acp-session-1',
+                }),
+                sessionPrompt(resumePrompt, 'acp-session-1'),
+                notification('session/update', {
+                    sessionId: 'acp-session-1',
+                    update: {
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: resumePrompt },
+                    },
+                }),
+                sessionPrompt('break down by a country', 'acp-session-1'),
+                notification('session/update', {
+                    sessionId: 'acp-session-1',
+                    update: {
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'break down by a country' },
+                    },
+                }),
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Here you go.' } }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                status: 'completed',
+                state: { resume_from_run_id: 'ancestor-run' },
+            } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'human_message').map((item) => item.text)
+            ).toEqual(["what's my pageview count", 'break down by a country'])
+            expect(
+                logic.values.threadItems.some((item) => item.type === 'human_message' && item.text === resumePrompt)
+            ).toBe(false)
+            expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toEqual(
+                'Here you go.'
+            )
+        })
+
+        it('hides a resume prompt with no canonical user message on bootstrap replay', async () => {
+            const resumePrompt =
+                'You are resuming a previous conversation. Here is the conversation history. Continue from where you left off.'
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/console', { sessionId: 'run-1', level: 'debug', message: 'Starting resume' }),
+                notification('_posthog/sdk_session', {
+                    taskRunId: 'run-1',
+                    sessionId: 'acp-session-1',
+                    adapter: 'claude',
+                }),
+                notification('_posthog/run_started', {
+                    runId: 'run-1',
+                    taskId: 'task-1',
+                    sessionId: 'acp-session-1',
+                }),
+                sessionPrompt(resumePrompt, 'acp-session-1'),
+                notification('session/update', {
+                    sessionId: 'acp-session-1',
+                    update: {
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: resumePrompt },
+                    },
+                }),
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Continuing.' } }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                status: 'completed',
+                state: { resume_from_run_id: 'ancestor-run' },
+            } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.some((item) => item.type === 'human_message')).toBe(false)
+            expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toEqual(
+                'Continuing.'
+            )
+        })
+
         it('places replayed setup progress below the human turn it belongs to', async () => {
             const frames: StoredLogEntry[] = [
                 notification('_posthog/progress', {
@@ -764,22 +1011,8 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
-    describe('content dedup', () => {
-        it('folds an entry once and drops an identical replay', async () => {
-            const frame = sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hi' } })
-
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(frame)
-                logic.actions.ingestAcpFrame(frame)
-            }).toFinishAllListeners()
-
-            const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
-            expect(assistantItems).toHaveLength(1)
-            expect(assistantItems[0].text).toEqual('Hi')
-            expect(logic.values.ingestedFrameHashes.size).toEqual(1)
-        })
-
-        it('does not dedup distinct chunks of the same message', async () => {
+    describe('chunk folding', () => {
+        it('folds distinct chunks of the same message into one growing buffer', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
                     sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'A' } })
@@ -793,29 +1026,115 @@ describe('sandboxStreamLogic', () => {
             expect(assistantItem?.text).toEqual('AB')
         })
 
-        it('drops a full replay against preserved thread state without doubling it', async () => {
-            // The dedup set lives in Redux alongside `threadItems`, so a state-preserving reload (HMR)
-            // keeps the two in sync: re-ingesting the whole corpus — as a reconnect's full re-broadcast
-            // does — must be a no-op rather than re-folding every frame into the surviving thread.
-            const corpus: StoredLogEntry[] = [
-                notification('_posthog/run_started', { runId: 'run-1' }),
-                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hello' } }),
-                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm2', content: { text: 'World' } }),
+        it('keeps two chunks with identical text instead of collapsing them', async () => {
+            // A repeated identical token is real content, not a duplicate — the append-only log keeps
+            // both and they fold into one growing buffer (no per-frame content dedup at ingest).
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'tok ' } })
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'tok ' } })
+                )
+            }).toFinishAllListeners()
+
+            const assistant = logic.values.threadItems.find((item) => item.type === 'assistant_message')
+            expect(assistant?.text).toEqual('tok tok ')
+            expect(logic.values.log.entries).toHaveLength(2)
+        })
+    })
+
+    describe('assistant message id uniqueness', () => {
+        it('assigns unique ids to no-messageId finalized messages across turns (no React key collision)', async () => {
+            // S3 replay drops `agent_message_chunk`, so each prior turn arrives as a bare finalized
+            // `agent_message` with no `messageId` — they all fall back to the same id base. Each must
+            // still get a unique thread-item id, or they collide as React keys and render duplicated.
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'first answer' } }),
+                notification('_posthog/turn_complete', {}),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'second answer' } }),
+                notification('_posthog/turn_complete', {}),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'third answer' } }),
             ]
 
             await expectLogic(logic, () => {
-                corpus.forEach((entry) => logic.actions.ingestAcpFrame(entry))
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame, 'replay'))
             }).toFinishAllListeners()
 
-            const before = logic.values.threadItems
-            expect(before.filter((item) => item.type === 'assistant_message')).toHaveLength(2)
+            const assistants = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistants.map((item) => item.text)).toEqual(['first answer', 'second answer', 'third answer'])
+            const ids = assistants.map((item) => item.id)
+            expect(new Set(ids).size).toEqual(ids.length)
+        })
+
+        it('assigns unique ids to no-messageId chunked messages across turns', async () => {
+            // The live path: each turn streams chunks with no `messageId` (so the same `current` base),
+            // closed by a finalize. Distinct turns must still produce distinct bubble ids.
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'one' } }),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'one' } }),
+                notification('_posthog/turn_complete', {}),
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'two' } }),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'two' } }),
+            ]
 
             await expectLogic(logic, () => {
-                corpus.forEach((entry) => logic.actions.ingestAcpFrame(entry))
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame, 'live'))
             }).toFinishAllListeners()
 
-            expect(logic.values.threadItems).toEqual(before)
-            expect(logic.values.ingestedFrameHashes.size).toEqual(corpus.length)
+            const assistants = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
+            expect(assistants.map((item) => item.text)).toEqual(['one', 'two'])
+            const ids = assistants.map((item) => item.id)
+            expect(new Set(ids).size).toEqual(ids.length)
+        })
+    })
+
+    describe('resume-context filter (§6)', () => {
+        it('drops the synthetic resume-context prompt on a resume run but keeps the genuine turn (§6)', async () => {
+            const resumePrompt =
+                'You are resuming a previous conversation. Here is the conversation history. Continue from where you left off.'
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/run_started', { runId: 'run-1', sessionId: 'acp-1' }),
+                sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: resumePrompt } }),
+                sessionUpdate({
+                    sessionUpdate: 'user_message_chunk',
+                    content: { type: 'text', text: 'break it down by country' },
+                }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                status: 'completed',
+                state: { resume_from_run_id: 'run-0' },
+            } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'human_message').map((item) => item.text)
+            ).toEqual(['break it down by country'])
+        })
+
+        it('keeps a "You are resuming…" message when the run is NOT a resume run (gate is resume-only)', async () => {
+            const looksLikeResume = 'You are resuming a previous conversation. (but the user actually typed this)'
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/run_started', { runId: 'run-1' }),
+                sessionUpdate({
+                    sessionUpdate: 'user_message_chunk',
+                    content: { type: 'text', text: looksLikeResume },
+                }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'human_message').map((item) => item.text)
+            ).toEqual([looksLikeResume])
         })
     })
 
@@ -847,17 +1166,15 @@ describe('sandboxStreamLogic', () => {
         })
 
         it('surfaces a named event:error frame verbatim', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            }).toFinishAllListeners()
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
 
-            await expectLogic(logic, () => {
-                MockEventSource.latest().emitErrorFrame({
-                    errorTitle: 'Sandbox crashed',
-                    errorMessage: 'boom',
-                    retryable: false,
-                })
-            }).toMatchValues({ sseStatus: 'error' })
+            await MockStream.latest().emitErrorFrame({
+                errorTitle: 'Sandbox crashed',
+                errorMessage: 'boom',
+                retryable: false,
+            })
+
+            expect(logic.values.sseStatus).toEqual('error')
         })
     })
 
@@ -909,11 +1226,9 @@ describe('sandboxStreamLogic', () => {
 
     describe('terminal-status handling', () => {
         it('closes the SSE and stops reconnects on a terminal task_run_state', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            }).toFinishAllListeners()
-            const source = MockEventSource.latest()
-            source.emitOpen()
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockStream.latest()
+            await source.emitOpen()
 
             await expectLogic(logic, () => {
                 logic.actions.handleTerminalStatus({ status: 'completed' })
@@ -924,11 +1239,9 @@ describe('sandboxStreamLogic', () => {
         })
 
         it('keeps the stream open on a non-terminal task_run_state', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            }).toFinishAllListeners()
-            const source = MockEventSource.latest()
-            source.emitOpen()
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockStream.latest()
+            await source.emitOpen()
 
             await expectLogic(logic, () => {
                 logic.actions.handleTerminalStatus({ status: 'in_progress' })
@@ -944,24 +1257,24 @@ describe('sandboxStreamLogic', () => {
             const getSpy = jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            MockEventSource.latest().emitOpen()
+            await MockStream.latest().emitOpen()
 
-            const beforeDrop = MockEventSource.instances.length
+            const beforeDrop = MockStream.connections.length
             logic.actions.sseDropped()
             await flushPromises()
 
             expect(getSpy).toHaveBeenCalledWith('task-1', 'run-1')
             expect(logic.values.currentRunStatus).toEqual('completed')
-            // No new EventSource was created (terminal → no reconnect).
-            expect(MockEventSource.instances.length).toEqual(beforeDrop)
+            // No new connection was opened (terminal → no reconnect).
+            expect(MockStream.connections.length).toEqual(beforeDrop)
         })
 
         it('backs off and reopens on a drop while the run is non-terminal', async () => {
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            MockEventSource.latest().emitOpen()
-            const beforeDrop = MockEventSource.instances.length
+            await MockStream.latest().emitOpen()
+            const beforeDrop = MockStream.connections.length
 
             jest.useFakeTimers()
             logic.actions.sseDropped()
@@ -971,10 +1284,28 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.reconnectAttempt).toEqual(1)
 
             jest.advanceTimersByTime(2000)
-            expect(MockEventSource.instances.length).toEqual(beforeDrop + 1)
-            // The reconnect replays the full stream (no start=latest) so the content-dedup can
-            // fill in frames emitted while disconnected instead of skipping past them.
-            expect(MockEventSource.latest().url).not.toContain('start=latest')
+            expect(MockStream.connections.length).toEqual(beforeDrop + 1)
+            // No frame carried an id before the drop, so there's nothing to resume from — the reopen
+            // requests start=latest (only new frames) rather than re-broadcasting the whole stream.
+            expect(MockStream.latest().options.startLatest).toEqual(true)
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            jest.useRealTimers()
+        })
+
+        it('resumes from the last-seen event id via the Last-Event-ID header on reconnect', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            // A live frame stamps its Redis stream id as the resume cursor.
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+
+            jest.useFakeTimers()
+            logic.actions.sseDropped()
+            await flushPromises()
+            jest.advanceTimersByTime(2000)
+
+            // The reconnect resumes exactly after the last-seen frame — header set, no start=latest.
+            expect(MockStream.latest().options.lastEventId).toEqual('1700-0')
             jest.useRealTimers()
         })
 
@@ -1025,64 +1356,26 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
-    describe('hot-reload connection survival', () => {
-        // Simulates the orphaned connection a hot reload leaves behind: the prior build registered an
-        // EventSource but its `cache` (and the disposable that would close it) was discarded before the
-        // connection was closed. The registry survives module re-evaluation so the new build can find it.
-        function seedOrphanedConnection(): MockEventSource {
-            const orphan = new MockEventSource('orphaned-by-hot-reload')
-            liveEventSourcesByStreamKey.set('test-conversation', orphan as unknown as EventSource)
-            return orphan
-        }
-
-        it('registers the live EventSource under the stream key on open', () => {
+    describe('connection teardown', () => {
+        // The keyed log store makes duplicate ingestion idempotent, so correctness no longer depends
+        // on closing the exact connection a hot reload orphaned (the old EventSource registry is
+        // gone). Teardown still aborts the active fetch so it stops streaming.
+        it('aborts the active stream on closeSse', () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-
-            expect(liveEventSourcesByStreamKey.get('test-conversation')).toBe(
-                MockEventSource.latest() as unknown as EventSource
-            )
-        })
-
-        it('closes a connection orphaned by a prior build before opening a new one', () => {
-            const orphan = seedOrphanedConnection()
-
-            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-
-            // The orphan that would otherwise keep streaming (and race the replay, doubling the
-            // thread) is closed, and the registry now points at the single new connection.
-            expect(orphan.closed).toEqual(true)
-            expect(liveEventSourcesByStreamKey.get('test-conversation')).toBe(
-                MockEventSource.latest() as unknown as EventSource
-            )
-        })
-
-        it('reset closes an orphaned connection so the replay bootstrap is not raced', () => {
-            const orphan = seedOrphanedConnection()
-
-            logic.actions.reset()
-
-            expect(orphan.closed).toEqual(true)
-            expect(liveEventSourcesByStreamKey.has('test-conversation')).toEqual(false)
-        })
-
-        it('closeSse closes an orphaned connection', () => {
-            const orphan = seedOrphanedConnection()
-
-            logic.actions.closeSse()
-
-            expect(orphan.closed).toEqual(true)
-            expect(liveEventSourcesByStreamKey.has('test-conversation')).toEqual(false)
-        })
-
-        it('unregisters on disposable cleanup so the registry never points at a dead connection', () => {
-            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            const source = MockEventSource.latest()
-            expect(liveEventSourcesByStreamKey.get('test-conversation')).toBe(source as unknown as EventSource)
+            const source = MockStream.latest()
 
             logic.actions.closeSse()
 
             expect(source.closed).toEqual(true)
-            expect(liveEventSourcesByStreamKey.has('test-conversation')).toEqual(false)
+        })
+
+        it('aborts the active stream on reset', () => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockStream.latest()
+
+            logic.actions.reset()
+
+            expect(source.closed).toEqual(true)
         })
     })
 
@@ -1094,11 +1387,11 @@ describe('sandboxStreamLogic', () => {
             await flushPromises()
 
             expect(logsSpy).not.toHaveBeenCalled()
-            expect(MockEventSource.instances.length).toEqual(1)
-            expect(MockEventSource.latest().url).not.toContain('start=latest')
+            expect(MockStream.connections.length).toEqual(1)
+            expect(MockStream.latest().options.startLatest).toEqual(false)
         })
 
-        it('replays logs/ then opens SSE with start=latest for a non-terminal run', async () => {
+        it('opens SSE with start=latest and replays history for a non-terminal run', async () => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
                 notification('_posthog/run_started', {}) as any,
                 sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'history' } }) as any,
@@ -1111,7 +1404,9 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.runStarted).toEqual(true)
             const assistantItem = logic.values.threadItems.find((item) => item.type === 'assistant_message')
             expect(assistantItem?.text).toEqual('history')
-            expect(MockEventSource.latest().url).toContain('start=latest')
+            // No live frame carried an id, so the connect opens from latest (no resume cursor).
+            expect(MockStream.latest().options.startLatest).toEqual(true)
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
         })
 
         it('replays logs/ and stays read-only for a terminal run', async () => {
@@ -1122,69 +1417,152 @@ describe('sandboxStreamLogic', () => {
             await flushPromises()
 
             expect(logic.values.currentRunStatus).toEqual('completed')
-            expect(MockEventSource.instances.length).toEqual(0)
+            expect(MockStream.connections.length).toEqual(0)
+        })
+
+        it('fetches history exactly once for a terminal run (no terminal reconcile pass)', async () => {
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            expect(logsSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('connects the SSE before reading history and buffers live frames until the snapshot drains', async () => {
+            // Connect-first is what closes the seam: a frame the agent emits while the history fetch
+            // is in flight is captured by the (already-open) live stream and buffered, not gapped.
+            let resolveLogs: (value: unknown) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise((resolve) => (resolveLogs = resolve)) as any
+            )
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            // The SSE is open before the (still-pending) history fetch resolves.
+            expect(MockStream.connections.length).toEqual(1)
+            expect(MockStream.latest().options.startLatest).toEqual(true)
+
+            // A live frame arriving now is buffered, not yet rendered.
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm-live', content: { text: 'live tail' } }),
+                '5-0'
+            )
+            expect(logic.values.threadItems.filter((item) => item.type === 'assistant_message')).toHaveLength(0)
+
+            // Snapshot lands → history renders, then the buffered live tail drains in after it.
+            resolveLogs([
+                notification('_posthog/run_started', {}) as any,
+                sessionUpdate({
+                    sessionUpdate: 'agent_message',
+                    messageId: 'm-hist',
+                    content: { text: 'history' },
+                }) as any,
+            ])
+            await flushPromises()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
+            ).toEqual(['history', 'live tail'])
+        })
+
+        it('drains the seam by content: a frame in both history and the buffered live tail renders once', async () => {
+            // The exact keyless-`agent_message` duplication: the same finalized message is delivered
+            // live during the fetch AND persisted in the snapshot. The multiset absorbs the live copy.
+            let resolveLogs: (value: unknown) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise((resolve) => (resolveLogs = resolve)) as any
+            )
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await MockStream.latest().emitOpen()
+
+            const overlap = sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'overlap' } })
+            await MockStream.latest().emitMessage(overlap, '9-0')
+
+            resolveLogs([overlap as any])
+            await flushPromises()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
+            ).toEqual(['overlap'])
+        })
+
+        it('keeps a genuinely repeated payload when the buffer holds more copies than history (multiset)', async () => {
+            // The agent legitimately emitted the same message twice live; the snapshot captured only
+            // one (the second landed after the snapshot read). One historical copy absorbs one buffered
+            // copy; the surplus survives — counts, not a set.
+            let resolveLogs: (value: unknown) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise((resolve) => (resolveLogs = resolve)) as any
+            )
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await MockStream.latest().emitOpen()
+
+            const repeated = sessionUpdate({
+                sessionUpdate: 'agent_message',
+                messageId: 'm1',
+                content: { text: 'ping' },
+            })
+            await MockStream.latest().emitMessage(repeated, '1-0')
+            await MockStream.latest().emitMessage(repeated, '2-0')
+
+            resolveLogs([repeated as any])
+            await flushPromises()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
+            ).toEqual(['ping', 'ping'])
         })
     })
 
-    describe('wire frame parsing through onmessage', () => {
+    describe('wire frame parsing through the SSE reader', () => {
         it('reads the snake_case error_message off task_run_state frames', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            }).toFinishAllListeners()
-            const source = MockEventSource.latest()
-            source.emitOpen()
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockStream.latest()
+            await source.emitOpen()
 
-            await expectLogic(logic, () => {
-                source.onmessage?.({
-                    data: JSON.stringify({
-                        type: 'task_run_state',
-                        run_id: 'run-1',
-                        task_id: 'task-1',
-                        status: 'failed',
-                        error_message: 'sandbox exploded',
-                    }),
-                } as MessageEvent<string>)
-            }).toDispatchActions([
-                (action) =>
-                    action.type === logic.actionTypes.handleTerminalStatus &&
-                    action.payload.status === 'failed' &&
-                    action.payload.errorMessage === 'sandbox exploded',
-            ])
+            await source.emitMessage({
+                type: 'task_run_state',
+                run_id: 'run-1',
+                task_id: 'task-1',
+                status: 'failed',
+                error_message: 'sandbox exploded',
+            })
 
             expect(logic.values.currentRunStatus).toEqual('failed')
             expect(source.closed).toEqual(true)
         })
 
         it('keeps the stream open for non-terminal task_run_state frames', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            }).toFinishAllListeners()
-            const source = MockEventSource.latest()
-            source.emitOpen()
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockStream.latest()
+            await source.emitOpen()
 
-            await expectLogic(logic, () => {
-                source.onmessage?.({
-                    data: JSON.stringify({ type: 'task_run_state', status: 'in_progress', error_message: null }),
-                } as MessageEvent<string>)
-            }).toFinishAllListeners()
+            await source.emitMessage({ type: 'task_run_state', status: 'in_progress', error_message: null })
 
             expect(logic.values.currentRunStatus).toEqual('in_progress')
             expect(source.closed).toEqual(false)
         })
 
         it('ignores unrecognized frame types', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            }).toFinishAllListeners()
-            const source = MockEventSource.latest()
-            source.emitOpen()
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockStream.latest()
+            await source.emitOpen()
 
-            source.onmessage?.({
-                data: JSON.stringify({ type: 'telemetry_v2', payload: { value: 1 } }),
-            } as MessageEvent<string>)
+            await source.emitMessage({ type: 'telemetry_v2', payload: { value: 1 } })
 
             expect(logic.values.threadItems).toEqual([])
-            expect(logic.values.ingestedFrameHashes.size).toEqual(0)
+            expect(logic.values.log.entries).toHaveLength(0)
         })
     })
 
@@ -1553,7 +1931,7 @@ describe('sandboxStreamLogic', () => {
     })
 
     describe('mixed notification replay', () => {
-        it('ingests known, unknown, and degenerate notifications without throwing, hashing each once', async () => {
+        it('ingests known, unknown, and degenerate notifications without throwing, appending each once', async () => {
             const corpus: StoredLogEntry[] = [
                 notification('_posthog/run_started', { runId: 'run-1' }),
                 notification('_posthog/usage_update', { used: { inputTokens: 1 }, cost: null }),
@@ -1568,8 +1946,8 @@ describe('sandboxStreamLogic', () => {
                 corpus.forEach((entry) => logic.actions.ingestAcpFrame(entry))
             }).toFinishAllListeners()
 
-            // Dedup hashing operates on the notification body — every distinct frame hashes once.
-            expect(logic.values.ingestedFrameHashes.size).toEqual(corpus.length)
+            // The log is append-only — every frame lands once, in order.
+            expect(logic.values.log.entries).toHaveLength(corpus.length)
         })
     })
 
@@ -1834,13 +2212,16 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.threadItems.some((item) => item.type === 'error')).toEqual(true)
         })
 
-        it('reports was_bootstrapping=true when the run never connected before erroring', async () => {
+        it('reports was_bootstrapping=true when the snapshot fails before the agent starts', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
 
+            // The history fetch failed during bootstrap and no `_posthog/run_started` ever arrived, so
+            // the provisioning flag is still set even though the SSE briefly opened (connect-first).
             const disconnect = captureSpy.mock.calls.find((c) => c[0] === 'sandbox_stream_disconnected')
             expect(disconnect?.[1]).toEqual(expect.objectContaining({ was_bootstrapping: true }))
         })
@@ -1850,10 +2231,8 @@ describe('sandboxStreamLogic', () => {
         it('is provisioning while the stream is open before run_started, then flips to thinking', async () => {
             expect(logic.values.streamPhase).toEqual('idle')
 
-            await expectLogic(logic, () => {
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            }).toFinishAllListeners()
-            MockEventSource.latest().emitOpen()
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await MockStream.latest().emitOpen()
 
             // SSE open, agent not started yet — provisioning, surfacing _posthog/progress.
             logic.actions.ingestAcpFrame(notification('_posthog/progress', { label: 'Setting up sandbox' }))
@@ -1870,17 +2249,11 @@ describe('sandboxStreamLogic', () => {
         })
 
         it('tracks the optional task_run_state stage off the wire', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            }).toFinishAllListeners()
-            const source = MockEventSource.latest()
-            source.emitOpen()
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            const source = MockStream.latest()
+            await source.emitOpen()
 
-            await expectLogic(logic, () => {
-                source.onmessage?.({
-                    data: JSON.stringify({ type: 'task_run_state', status: 'in_progress', stage: 'build' }),
-                } as MessageEvent<string>)
-            }).toFinishAllListeners()
+            await source.emitMessage({ type: 'task_run_state', status: 'in_progress', stage: 'build' })
 
             expect(logic.values.currentStage).toEqual('build')
         })
@@ -1891,12 +2264,13 @@ describe('sandboxStreamLogic', () => {
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            const source = MockEventSource.latest()
+            const source = MockStream.latest()
 
             jest.useFakeTimers()
-            // sseOpened stamps cache.sseConnectedAtMs; advance past the healthy threshold before dropping.
-            source.emitOpen()
-            const beforeDrop = MockEventSource.instances.length
+            // sseOpened stamps cache.sseConnectedAtMs in fake-time; drain the open then advance past
+            // the healthy threshold before dropping.
+            await source.emitOpen()
+            const beforeDrop = MockStream.connections.length
             jest.advanceTimersByTime(SSE_HEALTHY_CONNECTION_MS + 1_000)
 
             logic.actions.sseDropped()
@@ -1908,7 +2282,7 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.sseStatus).toEqual('reconnecting')
 
             jest.advanceTimersByTime(SSE_RECONNECT_BASE_DELAY_MS)
-            expect(MockEventSource.instances.length).toEqual(beforeDrop + 1)
+            expect(MockStream.connections.length).toEqual(beforeDrop + 1)
             jest.useRealTimers()
         })
 
@@ -1916,7 +2290,7 @@ describe('sandboxStreamLogic', () => {
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            MockEventSource.latest().emitOpen()
+            await MockStream.latest().emitOpen()
             // Drive the cumulative counter to the cap without growing the per-drop counter, as a
             // clean-EOF reopen loop would (every reopen resets reconnectAttempt to 0).
             for (let i = 0; i < MAX_CUMULATIVE_RECONNECT_ATTEMPTS; i++) {
@@ -2017,9 +2391,7 @@ describe('sandboxStreamLogic', () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
 
-            await expectLogic(logic, () => {
-                MockEventSource.latest().emitMessage({ ...permissionFrame })
-            }).toFinishAllListeners()
+            await MockStream.latest().emitMessage({ ...permissionFrame })
 
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
             expect(logic.values.pendingPermissionRequest?.toolCallId).toEqual('t1')
@@ -2032,18 +2404,16 @@ describe('sandboxStreamLogic', () => {
         it('auto-approves a non-destructive PostHog exec without showing a card', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            const source = MockEventSource.latest()
+            const source = MockStream.latest()
 
-            await expectLogic(logic, () => {
-                source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-auto',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        rawInput: { command: 'call insight-create {"name":"x"}' },
-                    },
-                })
-            }).toFinishAllListeners()
+            await source.emitMessage({
+                ...permissionFrame,
+                requestId: 'req-auto',
+                toolCall: {
+                    ...permissionFrame.toolCall,
+                    rawInput: { command: 'call insight-create {"name":"x"}' },
+                },
+            })
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
             expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
@@ -2059,21 +2429,19 @@ describe('sandboxStreamLogic', () => {
 
         it('auto-approves a built-in tool without showing a card', async () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            const source = MockEventSource.latest()
+            const source = MockStream.latest()
 
-            await expectLogic(logic, () => {
-                source.emitMessage({
-                    type: 'permission_request',
-                    requestId: 'req-bash',
-                    toolCall: {
-                        toolCallId: 't-bash',
-                        _meta: { claudeCode: { toolName: 'Bash' } },
-                        title: 'Bash',
-                        rawInput: { command: 'ls -la' },
-                    },
-                    options: [{ optionId: 'allow', name: 'Yes', kind: 'allow_once' }],
-                })
-            }).toFinishAllListeners()
+            await source.emitMessage({
+                type: 'permission_request',
+                requestId: 'req-bash',
+                toolCall: {
+                    toolCallId: 't-bash',
+                    _meta: { claudeCode: { toolName: 'Bash' } },
+                    title: 'Bash',
+                    rawInput: { command: 'ls -la' },
+                },
+                options: [{ optionId: 'allow', name: 'Yes', kind: 'allow_once' }],
+            })
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
             expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
@@ -2087,18 +2455,16 @@ describe('sandboxStreamLogic', () => {
             ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue({ status: 502 })
             jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            const source = MockEventSource.latest()
+            const source = MockStream.latest()
 
-            await expectLogic(logic, () => {
-                source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-fail',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        rawInput: { command: 'call insight-create {"name":"x"}' },
-                    },
-                })
-            }).toFinishAllListeners()
+            await source.emitMessage({
+                ...permissionFrame,
+                requestId: 'req-fail',
+                toolCall: {
+                    ...permissionFrame.toolCall,
+                    rawInput: { command: 'call insight-create {"name":"x"}' },
+                },
+            })
 
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-fail')
         })
@@ -2176,11 +2542,9 @@ describe('sandboxStreamLogic', () => {
         it('ignores a replayed permission_request envelope once the request is resolved', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            const source = MockEventSource.latest()
+            const source = MockStream.latest()
 
-            await expectLogic(logic, () => {
-                source.emitMessage({ ...permissionFrame })
-            }).toFinishAllListeners()
+            await source.emitMessage({ ...permissionFrame })
             await expectLogic(logic, () => {
                 logic.actions.respondToPermission({
                     requestId: 'req-1',
@@ -2189,10 +2553,8 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
             expect(logic.values.pendingPermissionRequest).toBeNull()
 
-            // A reconnect's full replay re-delivers the envelope verbatim.
-            await expectLogic(logic, () => {
-                source.emitMessage({ ...permissionFrame })
-            }).toFinishAllListeners()
+            // A reconnect's resume re-delivers the envelope verbatim.
+            await source.emitMessage({ ...permissionFrame })
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
             expect(captureSpy).toHaveBeenCalledTimes(1)
@@ -2201,12 +2563,10 @@ describe('sandboxStreamLogic', () => {
         it('does not double-capture telemetry when the same envelope arrives twice while pending', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            const source = MockEventSource.latest()
+            const source = MockStream.latest()
 
-            await expectLogic(logic, () => {
-                source.emitMessage({ ...permissionFrame })
-                source.emitMessage({ ...permissionFrame })
-            }).toFinishAllListeners()
+            await source.emitMessage({ ...permissionFrame })
+            await source.emitMessage({ ...permissionFrame })
 
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
             expect(captureSpy).toHaveBeenCalledTimes(1)

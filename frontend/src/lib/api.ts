@@ -5320,6 +5320,29 @@ const api = {
                 }
                 return entries
             },
+            /**
+             * Open the live SSE stream for a run as a `fetch` response (the caller reads it with
+             * `response.body.getReader()` + an `eventsource-parser`). Unlike a native `EventSource`,
+             * a `fetch` lets us set request headers — so a reconnect resumes exactly after the
+             * last-seen frame via `Last-Event-ID` (the Redis stream id) instead of re-broadcasting
+             * the whole stream. `startLatest` (the first connect after replaying S3 history) streams
+             * only frames newer than the connect cutoff; it is ignored once a `lastEventId` is
+             * present, since the header resume is exact.
+             */
+            async openStream(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: { signal: AbortSignal; lastEventId?: string; startLatest?: boolean }
+            ): Promise<Response> {
+                const headers: Record<string, string> = {}
+                let request = new ApiRequest().taskRun(taskId, runId).withAction('stream')
+                if (options.lastEventId) {
+                    headers['Last-Event-ID'] = options.lastEventId
+                } else if (options.startLatest) {
+                    request = request.withQueryString({ start: 'latest' })
+                }
+                return request.getResponse({ signal: options.signal, headers })
+            },
         },
     },
 
