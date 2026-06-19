@@ -23,6 +23,9 @@ interface SingleStepBarProps {
     onSegmentClick: (meta: FunnelBarHorizontalSegmentMeta) => void
     renderTooltip: (ctx: TooltipContext<FunnelBarHorizontalSegmentMeta>) => JSX.Element | null
     onError: (error: Error, info: ErrorInfo) => void
+    /** Tailwind height of the bar track. Compare mode stacks two bars per step, so it passes a
+     *  shorter height to keep the step row close to a single bar's footprint. */
+    heightClassName?: string
 }
 
 const CHART_CONFIG: BarChartConfig = {
@@ -50,6 +53,7 @@ export function SingleStepBar({
     onSegmentClick,
     renderTooltip,
     onError,
+    heightClassName = 'h-8',
 }: SingleStepBarProps): JSX.Element {
     const onPointClick = useMemo(
         () =>
@@ -65,7 +69,7 @@ export function SingleStepBar({
     )
 
     return (
-        <div className="flex flex-col h-8 my-1">
+        <div className={`flex flex-col ${heightClassName} my-1`}>
             <BarChart<FunnelBarHorizontalSegmentMeta>
                 series={stepData.series}
                 labels={[stepData.label]}

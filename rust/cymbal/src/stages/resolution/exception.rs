@@ -88,8 +88,8 @@ mod test {
         config::Config,
         frames::RawFrame,
         langs::{java::RawJavaFrame, CommonFrameMetadata},
-        stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
-        symbol_store::{
+        symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver},
+        symbolication::symbol_store::{
             apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
             proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
             Catalog, MockS3Client,

@@ -247,6 +247,21 @@ export interface SignalScoutEmission {
     emitted_at: string
 }
 
+/** Minimal projection of the inbox report a scout finding grouped into (for the linked chip). */
+export interface LinkedSignalReport {
+    id: string
+    title: string | null
+}
+
+/** One finding a run emitted, paired with the inbox report (if any) its signal grouped into. */
+export interface SignalScoutEmissionReportLink {
+    finding_id: string
+    /** Deterministic `run:<run_id>:finding:<finding_id>` join key — the stable key into the emission set. */
+    source_id: string
+    /** The inbox report this finding linked to, or null if none could be resolved (not yet grouped, deduped, deleted). */
+    report: LinkedSignalReport | null
+}
+
 // ── Report state transitions (backend `state` action: dismiss / snooze) ──────
 
 export interface SignalReportStateRequest {

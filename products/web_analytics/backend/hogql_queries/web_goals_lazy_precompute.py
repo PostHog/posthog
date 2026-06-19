@@ -37,7 +37,6 @@ from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
@@ -49,6 +48,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     host_filter_expr,
     log_eligibility_outcome,
     test_account_filter_expr,
+    web_ensure_precomputed,
 )
 
 if TYPE_CHECKING:
@@ -297,7 +297,7 @@ def ensure_web_goals_precomputed(
         placeholders[f"action_{n}_expr"] = action_to_expr(action)
         placeholders[f"action_{n}_id"] = ast.Constant(value=int(action.id))
 
-    return ensure_precomputed(
+    return web_ensure_precomputed(
         team=runner.team,
         insert_query=_build_insert_query(actions),
         time_range_start=time_range_start,
