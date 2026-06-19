@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { formatDateRange } from 'lib/utils/datetime'
 
 import { EventsNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -13,7 +14,9 @@ import {
 
 import {
     aggregateBreakdownResult,
+    dimPreviousPeriodColor,
     EMPTY_BREAKDOWN_VALUES,
+    funnelComparePeriodDateRange,
     getBreakdownStepValues,
     getClampedFunnelStepRange,
     getIncompleteConversionWindowStartDate,
@@ -576,6 +579,70 @@ describe('stepsWithConversionMetrics', () => {
         expect(result[1].nested_breakdown![1].conversionRates.total).toBe(10 / 80)
     })
 
+    it('compare mode — bars share one baseline so the previous bar reflects its volume', () => {
+        // current 200->100, previous 150->60; nested_breakdown is [current, previous] per step.
+        const makeCompareStep = (order: number, current: number, previous: number): FunnelStepWithNestedBreakdown =>
+            makeNestedStep({
+                count: current,
+                order,
+                nested_breakdown: [
+                    makeStep({ count: current, order, compare_label: 'current' }),
+                    makeStep({ count: previous, order, compare_label: 'previous' }),
+                ],
+            })
+        const steps = [makeCompareStep(0, 200, 150), makeCompareStep(1, 100, 60)]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // Baseline is the larger period's first step (200) — the previous first bar is no longer full height.
+        expect(result[0].nested_breakdown![0].conversionRates.fromBasisStep).toBe(1) // 200/200
+        expect(result[0].nested_breakdown![1].conversionRates.fromBasisStep).toBe(150 / 200)
+        expect(result[1].nested_breakdown![0].conversionRates.fromBasisStep).toBe(100 / 200)
+        expect(result[1].nested_breakdown![1].conversionRates.fromBasisStep).toBe(60 / 200)
+
+        // Tooltip rates stay per-period.
+        expect(result[0].nested_breakdown![1].conversionRates.total).toBe(1)
+        expect(result[1].nested_breakdown![1].conversionRates.total).toBe(60 / 150)
+    })
+
+    it('compare mode — a larger previous period caps at full height while the current bar shrinks', () => {
+        const steps = [
+            makeNestedStep({
+                count: 200,
+                order: 0,
+                nested_breakdown: [
+                    makeStep({ count: 200, order: 0, compare_label: 'current' }),
+                    makeStep({ count: 300, order: 0, compare_label: 'previous' }),
+                ],
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // Baseline is max(200, 300) = 300, so the tallest bar is 100% and nothing overflows.
+        expect(result[0].nested_breakdown![0].conversionRates.fromBasisStep).toBe(200 / 300)
+        expect(result[0].nested_breakdown![1].conversionRates.fromBasisStep).toBe(1)
+    })
+
+    it('compare mode — empty previous period → nested total is 0, not NaN', () => {
+        // The previous period is zeroed (backend skeleton), so its first-step count is 0.
+        const makeCompareStep = (order: number, current: number, previous: number): FunnelStepWithNestedBreakdown =>
+            makeNestedStep({
+                count: current,
+                order,
+                nested_breakdown: [
+                    makeStep({ count: current, order, compare_label: 'current' }),
+                    makeStep({ count: previous, order, compare_label: 'previous' }),
+                ],
+            })
+        const steps = [makeCompareStep(0, 200, 0), makeCompareStep(1, 100, 0)]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // The empty previous series divides 0/0 — guarded to 0 so the tooltip shows 0%, not NaN%.
+        expect(result[0].nested_breakdown![1].conversionRates.total).toBe(0)
+        expect(result[1].nested_breakdown![1].conversionRates.total).toBe(0)
+        expect(Number.isNaN(result[0].nested_breakdown![1].conversionRates.total)).toBe(false)
+        expect(Number.isNaN(result[1].nested_breakdown![1].conversionRates.total)).toBe(false)
+    })
+
     it('nested breakdowns with outlier detection — divergent breakdown gets significant: true', () => {
         // Create 5 breakdowns where one is an outlier
         const breakdownCounts = [
@@ -858,5 +925,43 @@ describe('hasBreakdown', () => {
         { scenario: 'null', breakdownValue: null, expected: true },
     ])('returns $expected for $scenario', ({ breakdownValue, expected }) => {
         expect(hasBreakdown(breakdownValue as Parameters<typeof hasBreakdown>[0])).toBe(expected)
+    })
+})
+
+describe('funnelComparePeriodDateRange', () => {
+    const resolved = { date_from: '2021-06-07', date_to: '2021-06-13' }
+
+    it('returns the current window for the current period', () => {
+        expect(funnelComparePeriodDateRange('current', resolved)).toBe(
+            formatDateRange(dayjs('2021-06-07'), dayjs('2021-06-13'))
+        )
+    })
+
+    it('returns the preceding equal-length window for the default previous period', () => {
+        expect(funnelComparePeriodDateRange('previous', resolved)).toBe(
+            formatDateRange(dayjs('2021-05-31'), dayjs('2021-06-06'))
+        )
+    })
+
+    it('shifts the previous window by a custom compare_to offset', () => {
+        expect(funnelComparePeriodDateRange('previous', resolved, '-30d')).toBe(
+            formatDateRange(dayjs('2021-05-08'), dayjs('2021-05-14'))
+        )
+    })
+
+    it('returns null when the resolved range is missing', () => {
+        expect(funnelComparePeriodDateRange('current', null)).toBeNull()
+        expect(funnelComparePeriodDateRange('previous', { date_from: null, date_to: null })).toBeNull()
+    })
+})
+
+describe('dimPreviousPeriodColor', () => {
+    it('dims a 6-digit hex to 50% opacity (matching the trends previous-period treatment)', () => {
+        expect(dimPreviousPeriodColor('#1d4aff')).toBe('#1d4aff80')
+    })
+
+    it('leaves colors that already carry alpha or a non-hex format unchanged', () => {
+        expect(dimPreviousPeriodColor('#1d4aff80')).toBe('#1d4aff80')
+        expect(dimPreviousPeriodColor('rgba(29, 74, 255, 0.5)')).toBe('rgba(29, 74, 255, 0.5)')
     })
 })

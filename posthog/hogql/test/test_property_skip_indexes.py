@@ -752,7 +752,8 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         with patch("posthog.hogql.printer.utils.create_hogql_type_observability", return_value=stats):
             self._filter_to_sql(self._filter(PropertyOperator.LT, "5"))
 
-        assert stats.materialized_range_rewrite["fired_compare"] >= 1
+        # The column is nullable, so the bare comparison is guarded by isNotNull(col): a "fired_if_null" outcome.
+        assert stats.materialized_range_rewrite["fired_if_null"] >= 1
         assert stats.materialized_property_usage["materialized_column"] >= 1
 
     def test_observability_records_json_property_usage(self) -> None:

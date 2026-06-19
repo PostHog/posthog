@@ -1,6 +1,7 @@
 import { EntityTypes, FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
+    buildFunnelBarHorizontalCompareData,
     buildFunnelBarHorizontalData,
     type FunnelBarHorizontalStepData,
     FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
@@ -271,6 +272,116 @@ describe('buildFunnelBarHorizontalData', () => {
                 [0, 0],
                 [100, 100],
             ])
+        })
+    })
+
+    describe('compare funnel', () => {
+        // Shared baseline: the larger period's first step (100) is the basis, so the previous bar
+        // shows its real volume (0.8) rather than always filling the track.
+        const compareSteps: FunnelStepWithConversionMetrics[] = [
+            makeStep({
+                count: 100,
+                fromBasisStep: 1,
+                name: 'Viewed',
+                compare_label: 'current',
+                nested_breakdown: [
+                    makeStep({ count: 100, fromBasisStep: 1, name: 'Viewed', compare_label: 'current' }),
+                    makeStep({ count: 80, fromBasisStep: 0.8, name: 'Viewed', compare_label: 'previous' }),
+                ],
+            }),
+            makeStep({
+                count: 50,
+                fromBasisStep: 0.5,
+                name: 'Signed up',
+                compare_label: 'current',
+                nested_breakdown: [
+                    makeStep({ count: 50, fromBasisStep: 0.5, name: 'Signed up', compare_label: 'current' }),
+                    makeStep({ count: 40, fromBasisStep: 0.4, name: 'Signed up', compare_label: 'previous' }),
+                ],
+            }),
+        ]
+
+        it('gives each step two bars (current then previous), each its own segment + filler', () => {
+            const result = buildFunnelBarHorizontalCompareData(compareSteps, options)
+
+            expect(result).toHaveLength(2)
+            expect(result.every((step) => step.bars.length === 2)).toBe(true)
+            expect(result.every((step) => step.bars.every((bar) => bar.series.length === 2))).toBe(true)
+        })
+
+        it('scales each bar to the shared baseline via fromBasisStep, each track summing segment + filler to 100', () => {
+            const result = buildFunnelBarHorizontalCompareData(compareSteps, options)
+
+            // current: 100% then 50%; previous: 80% then 40% — each on its own 0–100 track
+            expect(result.map((s) => s.bars[0].series[0].data[0])).toEqual([100, 50])
+            expect(result.map((s) => s.bars[0].series[1].data[0])).toEqual([0, 50])
+            expect(result.map((s) => s.bars[1].series[0].data[0])).toEqual([80, 40])
+            expect(result.map((s) => s.bars[1].series[1].data[0])).toEqual([20, 60])
+        })
+
+        it.each([
+            {
+                description: 'does not force the current step-0 bar to 100 when the previous period is larger',
+                nested_breakdown: [
+                    makeStep({ count: 80, fromBasisStep: 0.8, compare_label: 'current' }),
+                    makeStep({ count: 100, fromBasisStep: 1, compare_label: 'previous' }),
+                ],
+                // current sits below the shared baseline; previous fills the track
+                expectedBars: [
+                    { segment: [80], filler: [20], breakdownIndex: 0 },
+                    { segment: [100], filler: [0], breakdownIndex: 1 },
+                ],
+            },
+            {
+                description: 'renders a zeroed previous period as an empty track without error',
+                nested_breakdown: [
+                    makeStep({ count: 100, fromBasisStep: 1, compare_label: 'current' }),
+                    makeStep({ count: 0, fromBasisStep: 0, compare_label: 'previous' }),
+                ],
+                expectedBars: [
+                    { segment: [100], filler: [0], breakdownIndex: 0 },
+                    { segment: [0], filler: [100], breakdownIndex: 1 },
+                ],
+            },
+            {
+                description: 'renders a single bar when the step has no previous-period series',
+                nested_breakdown: [makeStep({ count: 100, fromBasisStep: 1, compare_label: 'current' })],
+                expectedBars: [{ segment: [100], filler: [0], breakdownIndex: 0 }],
+            },
+        ])('$description', ({ nested_breakdown, expectedBars }) => {
+            const steps: FunnelStepWithConversionMetrics[] = [
+                makeStep({ count: 100, fromBasisStep: 1, compare_label: 'current', nested_breakdown }),
+            ]
+            const [step] = buildFunnelBarHorizontalCompareData(steps, options)
+
+            expect(step.bars).toHaveLength(expectedBars.length)
+            expectedBars.forEach((expected, barIndex) => {
+                expect(step.bars[barIndex].series[0].data).toEqual(expected.segment)
+                expect(step.bars[barIndex].series[1].data).toEqual(expected.filler)
+                expect(step.bars[barIndex].series[0].meta?.breakdownIndex).toBe(expected.breakdownIndex)
+            })
+        })
+
+        it('colors each bar from the current step’s own variant, dimming the previous period', () => {
+            const getColor = jest.fn((v: FunnelStepWithConversionMetrics) =>
+                v.compare_label === 'previous' ? '#dimmed' : '#solid'
+            )
+            const result = buildFunnelBarHorizontalCompareData(compareSteps, { ...options, getColor })
+
+            expect(result[1].bars[0].series[0].color).toBe('#solid')
+            expect(result[1].bars[1].series[0].color).toBe('#dimmed')
+            // representative is step 1's own variant (per-step color), not step 0's
+            expect(getColor).toHaveBeenCalledWith(compareSteps[1].nested_breakdown![0])
+            expect(getColor).toHaveBeenCalledWith(compareSteps[1].nested_breakdown![1])
+        })
+
+        it('tags both the segment and filler of each bar with its period breakdownIndex', () => {
+            const [step] = buildFunnelBarHorizontalCompareData(compareSteps, options)
+
+            expect(step.bars[0].series[0].meta).toEqual({ isDropOff: false, breakdownIndex: 0 })
+            expect(step.bars[0].series[1].meta).toEqual({ isDropOff: true, breakdownIndex: 0 })
+            expect(step.bars[1].series[0].meta).toEqual({ isDropOff: false, breakdownIndex: 1 })
+            expect(step.bars[1].series[1].meta).toEqual({ isDropOff: true, breakdownIndex: 1 })
         })
     })
 
