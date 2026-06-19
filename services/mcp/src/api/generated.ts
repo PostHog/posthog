@@ -17758,6 +17758,18 @@ export namespace Schemas {
       skipped_reason: string | null;
     }
 
+    export interface EnableWarehouseBackfillRequest {
+      /** Name for this environment's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix and must be unique across the organization's environments. */
+      table_name: string;
+    }
+
+    export interface EnableWarehouseBackfillResponse {
+      /** Whether warehouse backfill is now enabled */
+      enabled: boolean;
+      /** Suffix used for this environment's tables (events_<suffix>, persons_<suffix>) */
+      table_suffix: string;
+    }
+
     export interface EndExperiment {
       /** The conclusion of the experiment.
        *
@@ -42139,6 +42151,8 @@ export namespace Schemas {
     export interface ProvisionWarehouseRequest {
       /** Name for the new database */
       database_name: string;
+      /** Name for the provisioning project's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix. Required so the first project gets its own per-environment tables. */
+      table_name: string;
     }
 
     export interface ProvisionWarehouseResponse {
@@ -49653,6 +49667,13 @@ export namespace Schemas {
          */
       failed_at: string | null;
       connection?: WarehouseConnection | null;
+      /** Whether this project already has a warehouse backfill configured. When true, its table name is fixed and the enable form should not be shown. */
+      has_backfill: boolean;
+      /**
+         * This project's per-environment table suffix (events_<suffix>). Null when the project still writes to the shared tables.
+         * @nullable
+         */
+      table_suffix: string | null;
     }
 
     export interface WeeklyDigestResponse {

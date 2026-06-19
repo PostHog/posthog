@@ -18,6 +18,8 @@ import type {
     DataWarehouseSavedQueryDraftApi,
     DataWarehouseSavedQueryFolderApi,
     DeprovisionWarehouseResponseApi,
+    EnableWarehouseBackfillRequestApi,
+    EnableWarehouseBackfillResponseApi,
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
@@ -255,6 +257,29 @@ export const dataWarehouseDeprovisionCreate = async (
     })
 }
 
+export const getDataWarehouseEnableBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/enable_backfill/`
+}
+
+/**
+ * Enable warehouse backfill for this environment with a dedicated set of tables.
+ *
+ * Requires a table name and records the environment's membership in the
+ * organization's managed warehouse. Restricted to organization admins.
+ */
+export const dataWarehouseEnableBackfillCreate = async (
+    projectId: string,
+    enableWarehouseBackfillRequestApi: EnableWarehouseBackfillRequestApi,
+    options?: RequestInit
+): Promise<EnableWarehouseBackfillResponseApi> => {
+    return apiMutator<EnableWarehouseBackfillResponseApi>(getDataWarehouseEnableBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(enableWarehouseBackfillRequestApi),
+    })
+}
+
 export const getDataWarehouseJobStatsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_warehouse/job_stats/`
 }
@@ -356,7 +381,7 @@ export const getDataWarehouseWarehouseStatusRetrieveUrl = (projectId: string) =>
 }
 
 /**
- * Get the current provisioning status of the managed warehouse.
+ * Get the current provisioning status of the managed warehouse, with this project's backfill state.
  */
 export const dataWarehouseWarehouseStatusRetrieve = async (
     projectId: string,
