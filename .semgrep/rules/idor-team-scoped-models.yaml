@@ -59,6 +59,7 @@ rules:
                               |Action
                               |AgentApplication
                               |AgentArtifact
+                              |AgentMemoryFile
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -319,6 +320,7 @@ rules:
                         |Action
                         |AgentApplication
                         |AgentArtifact
+                        |AgentMemoryFile
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
