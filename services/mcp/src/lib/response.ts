@@ -1,4 +1,5 @@
 import { encode } from '@toon-format/toon'
+import { encodeGeneric } from '@blackwell-systems/gcf'
 
 const QUERY_PLACEHOLDER_PREFIX = '__QUERY_PLACEHOLDER_'
 
@@ -36,6 +37,22 @@ export function formatResponse(data: any): string {
     const placeholderMap = new Map<string, string>()
     const processed = preprocessKeys(data, placeholderMap)
     let result = encode(processed)
+
+    for (const [placeholder, jsonValue] of placeholderMap.entries()) {
+        result = result.replace(`${placeholder}`, jsonValue)
+    }
+
+    return result
+}
+
+export function formatResponseGcf(data: any): string {
+    if (typeof data === 'string') {
+        return data
+    }
+
+    const placeholderMap = new Map<string, string>()
+    const processed = preprocessKeys(data, placeholderMap)
+    let result = encodeGeneric(processed)
 
     for (const [placeholder, jsonValue] of placeholderMap.entries()) {
         result = result.replace(`${placeholder}`, jsonValue)

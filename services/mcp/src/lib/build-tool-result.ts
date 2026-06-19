@@ -1,13 +1,13 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
 import { estimateTokens } from '@/lib/estimate-tokens'
-import { formatResponse } from '@/lib/response'
+import { formatResponse, formatResponseGcf } from '@/lib/response'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
 export interface ToolResultMeta {
     ui?: { resourceUri?: string }
-    [POSTHOG_META_KEY]?: { outputFormat?: 'optimized' | 'json' }
+    [POSTHOG_META_KEY]?: { outputFormat?: 'optimized' | 'json' | 'gcf' }
 }
 
 export interface BuildToolResultOptions {
@@ -123,9 +123,10 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const resourceUri = toolMeta?.ui?.resourceUri
     const hasUiResource = !!resourceUri
     // Caller's per-call `output_format` wins over the tool's YAML default in `_meta`.
-    const callerOutputFormat = (params as { output_format?: 'optimized' | 'json' } | undefined)?.output_format
+    const callerOutputFormat = (params as { output_format?: 'optimized' | 'json' | 'gcf' } | undefined)?.output_format
     const effectiveOutputFormat = callerOutputFormat ?? toolMeta?.[POSTHOG_META_KEY]?.outputFormat
     const useJson = effectiveOutputFormat === 'json'
+    const useGcf = effectiveOutputFormat === 'gcf'
     const callerWantsJson = callerOutputFormat === 'json'
 
     let structuredContent: WithAnalytics<typeof rawResult> | typeof rawResult = rawResult
@@ -140,7 +141,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         }
     }
 
-    const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
+    const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : useGcf ? formatResponseGcf(rawResult) : formatResponse(rawResult))
 
     const suppressStructuredContent =
         formattedResults !== undefined && !callerWantsJson && !!suppressStructuredContentForFormattedResults

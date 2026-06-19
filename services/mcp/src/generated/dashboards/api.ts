@@ -773,7 +773,7 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
         ),
     format: zod.enum(['json', 'txt']).optional(),
     output_format: zod
-        .enum(['json', 'optimized'])
+        .enum(['json', 'optimized', 'gcf'])
         .optional()
         .describe(
             "'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects."

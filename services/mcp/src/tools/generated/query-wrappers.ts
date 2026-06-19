@@ -1298,7 +1298,7 @@ const AssistantRetentionActorsQuery = z.object({
 
 const QueryTrendsSchema = AssistantTrendsQuery.extend({
     output_format: z
-        .enum(['optimized', 'json'])
+        .enum(['optimized', 'json', 'gcf'])
         .default('optimized')
         .optional()
         .describe(
@@ -1308,7 +1308,7 @@ const QueryTrendsSchema = AssistantTrendsQuery.extend({
 
 const QueryFunnelSchema = AssistantFunnelsQuery.extend({
     output_format: z
-        .enum(['optimized', 'json'])
+        .enum(['optimized', 'json', 'gcf'])
         .default('optimized')
         .optional()
         .describe(
@@ -1318,7 +1318,7 @@ const QueryFunnelSchema = AssistantFunnelsQuery.extend({
 
 const QueryRetentionSchema = AssistantRetentionQuery.extend({
     output_format: z
-        .enum(['optimized', 'json'])
+        .enum(['optimized', 'json', 'gcf'])
         .default('optimized')
         .optional()
         .describe(
@@ -1328,7 +1328,7 @@ const QueryRetentionSchema = AssistantRetentionQuery.extend({
 
 const QueryStickinessSchema = AssistantStickinessQuery.extend({
     output_format: z
-        .enum(['optimized', 'json'])
+        .enum(['optimized', 'json', 'gcf'])
         .default('optimized')
         .optional()
         .describe(
@@ -1338,7 +1338,7 @@ const QueryStickinessSchema = AssistantStickinessQuery.extend({
 
 const QueryPathsSchema = AssistantPathsQuery.extend({
     output_format: z
-        .enum(['optimized', 'json'])
+        .enum(['optimized', 'json', 'gcf'])
         .default('optimized')
         .optional()
         .describe(
@@ -1348,7 +1348,7 @@ const QueryPathsSchema = AssistantPathsQuery.extend({
 
 const QueryLifecycleSchema = AssistantLifecycleQuery.extend({
     output_format: z
-        .enum(['optimized', 'json'])
+        .enum(['optimized', 'json', 'gcf'])
         .default('optimized')
         .optional()
         .describe(
@@ -1358,7 +1358,7 @@ const QueryLifecycleSchema = AssistantLifecycleQuery.extend({
 
 const QueryTrendsActorsSchema = AssistantTrendsActorsQuery.extend({
     output_format: z
-        .enum(['optimized', 'json'])
+        .enum(['optimized', 'json', 'gcf'])
         .default('optimized')
         .optional()
         .describe(
@@ -1368,7 +1368,7 @@ const QueryTrendsActorsSchema = AssistantTrendsActorsQuery.extend({
 
 const QueryLifecycleActorsSchema = AssistantLifecycleActorsQuery.extend({
     output_format: z
-        .enum(['optimized', 'json'])
+        .enum(['optimized', 'json', 'gcf'])
         .default('optimized')
         .optional()
         .describe(
@@ -1378,7 +1378,7 @@ const QueryLifecycleActorsSchema = AssistantLifecycleActorsQuery.extend({
 
 const QueryPathsActorsSchema = AssistantPathsActorsQuery.extend({
     output_format: z
-        .enum(['optimized', 'json'])
+        .enum(['optimized', 'json', 'gcf'])
         .default('optimized')
         .optional()
         .describe(
@@ -1388,7 +1388,7 @@ const QueryPathsActorsSchema = AssistantPathsActorsQuery.extend({
 
 const QueryRetentionActorsSchema = AssistantRetentionActorsQuery.extend({
     output_format: z
-        .enum(['optimized', 'json'])
+        .enum(['optimized', 'json', 'gcf'])
         .default('optimized')
         .optional()
         .describe(

@@ -79,7 +79,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             }
 
             const data = await context.api.query({ projectId }).runQuery({ query })
-            const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
+            const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && effectiveOutputFormat !== 'gcf' && data.formatted_results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.
