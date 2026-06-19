@@ -4,8 +4,6 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
-import { prefetchPersonsStep } from '~/ingestion/common/event-pipeline/prefetchPersonsStep'
-import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/common/event-pipeline/processPersonlessDistinctIdsBatchStep'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { createApplyEventFiltersStep } from '~/ingestion/common/steps/event-filters-steps'
 import {
@@ -20,6 +18,8 @@ import {
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
 import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
+import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
+import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
