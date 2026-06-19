@@ -11,7 +11,7 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import transaction
 from django.db.models import F, OuterRef, Q, Subquery
 from django.db.models.functions import JSONObject
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
@@ -51,6 +51,7 @@ from products.tasks.backend.automation_service import (
     sync_automation_schedule,
     update_automation_run_result,
 )
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.staged_artifacts import (
@@ -99,6 +100,7 @@ from products.tasks.backend.presentation.serializers import (
     RepositoryReadinessResponseSerializer,
     SandboxEnvironmentListSerializer,
     SandboxEnvironmentSerializer,
+    SandboxEnvironmentWriteSerializer,
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
     TaskAutomationSerializer,
@@ -2966,10 +2968,9 @@ class CodeInviteViewSet(viewsets.ViewSet):
 
 
 @extend_schema(tags=["sandbox-environments"])
-class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """API for managing sandbox environments that control network access for task runs."""
 
-    serializer_class = SandboxEnvironmentSerializer
     authentication_classes = [
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
@@ -2977,24 +2978,41 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    queryset = SandboxEnvironment.objects.all()
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    filter_rewrite_rules = {"team_id": "team_id"}
 
-    def get_serializer_class(self):
-        if self.action == "list":
-            return SandboxEnvironmentListSerializer
-        return SandboxEnvironmentSerializer
+    @extend_schema(responses={200: SandboxEnvironmentListSerializer(many=True)})
+    def list(self, request, **kwargs):
+        envs = tasks_facade.list_sandbox_environments(self.team_id, request.user.id)
+        page = self.paginate_queryset(envs)
+        if page is not None:
+            return self.get_paginated_response(SandboxEnvironmentListSerializer(page, many=True).data)
+        return Response(SandboxEnvironmentListSerializer(envs, many=True).data)
 
-    def safely_get_queryset(self, queryset):
-        user = self.request.user
-        qs = queryset.filter(models.Q(private=False) | models.Q(created_by=user))
-        # Exclude internal environments from list views by default
-        if self.action == "list":
-            qs = qs.filter(internal=False)
-        return qs
+    @extend_schema(responses={200: SandboxEnvironmentSerializer})
+    def retrieve(self, request, pk=None, **kwargs):
+        env = tasks_facade.get_sandbox_environment(pk, self.team_id, request.user.id)
+        if env is None:
+            raise NotFound()
+        return Response(SandboxEnvironmentSerializer(env).data)
 
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context["team"] = self.team
-        return context
+    @extend_schema(request=SandboxEnvironmentWriteSerializer, responses={201: SandboxEnvironmentSerializer})
+    def create(self, request, **kwargs):
+        serializer = SandboxEnvironmentWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        env = tasks_facade.create_sandbox_environment(self.team_id, request.user.id, **serializer.validated_data)
+        return Response(SandboxEnvironmentSerializer(env).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=SandboxEnvironmentWriteSerializer, responses={200: SandboxEnvironmentSerializer})
+    def partial_update(self, request, pk=None, **kwargs):
+        serializer = SandboxEnvironmentWriteSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        env = tasks_facade.update_sandbox_environment(pk, self.team_id, request.user.id, **serializer.validated_data)
+        if env is None:
+            raise NotFound()
+        return Response(SandboxEnvironmentSerializer(env).data)
+
+    @extend_schema(responses={204: None})
+    def destroy(self, request, pk=None, **kwargs):
+        if not tasks_facade.delete_sandbox_environment(pk, self.team_id, request.user.id):
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -8,6 +8,7 @@ from django.utils import timezone
 from croniter import croniter
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
@@ -21,8 +22,10 @@ from products.tasks.backend.constants import (
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
 )
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import SandboxEnvironmentDTO, UserBasicInfo
 from products.tasks.backend.logic.services.title_generator import generate_task_title
-from products.tasks.backend.models import SandboxEnvironment, Task, TaskAutomation, TaskRun
+from products.tasks.backend.models import Task, TaskAutomation, TaskRun
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
@@ -35,6 +38,14 @@ from products.tasks.backend.temporal.process_task.utils import (
     parse_run_state,
     resolve_user_github_integration_for_task,
 )
+
+
+class UserBasicInfoSerializer(DataclassSerializer):
+    """Response shape for a `created_by` user — mirrors core `UserBasicSerializer` output."""
+
+    class Meta:
+        dataclass = UserBasicInfo
+
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
 TASK_RUN_ARTIFACT_MAX_SIZE_BYTES = 30 * 1024 * 1024
@@ -1628,23 +1639,13 @@ class TaskAutomationSerializer(serializers.ModelSerializer):
         return automation
 
 
-class SandboxEnvironmentSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
-    effective_domains = serializers.SerializerMethodField(
-        help_text="Computed domain allowlist based on network_access_level and allowed_domains"
-    )
-    environment_variables = serializers.JSONField(
-        write_only=True,
-        required=False,
-        default=dict,
-        help_text="Encrypted environment variables (write-only, never returned in responses)",
-    )
-    has_environment_variables = serializers.SerializerMethodField(
-        help_text="Whether this environment has any environment variables set"
-    )
+class SandboxEnvironmentSerializer(DataclassSerializer):
+    """Detail/create/update response for a sandbox environment."""
+
+    created_by = UserBasicInfoSerializer(allow_null=True, required=False)
 
     class Meta:
-        model = SandboxEnvironment
+        dataclass = SandboxEnvironmentDTO
         fields = [
             "id",
             "name",
@@ -1652,7 +1653,6 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
             "allowed_domains",
             "include_default_domains",
             "repositories",
-            "environment_variables",
             "has_environment_variables",
             "private",
             "internal",
@@ -1661,43 +1661,15 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = [
-            "id",
-            "internal",
-            "created_by",
-            "created_at",
-            "updated_at",
-            "effective_domains",
-            "has_environment_variables",
-        ]
-
-    def get_effective_domains(self, obj: SandboxEnvironment) -> list[str]:
-        return obj.get_effective_domains()
-
-    def get_has_environment_variables(self, obj: SandboxEnvironment) -> bool:
-        return bool(obj.environment_variables)
-
-    def validate_environment_variables(self, value):
-        if value:
-            for key in value:
-                if not SandboxEnvironment.is_valid_env_var_key(key):
-                    raise serializers.ValidationError(
-                        f"Invalid environment variable key: {key!r}. Must match [A-Za-z_][A-Za-z0-9_]*"
-                    )
-        return value
-
-    def create(self, validated_data):
-        validated_data["team"] = self.context["team"]
-        if "request" in self.context and hasattr(self.context["request"], "user"):
-            validated_data["created_by"] = self.context["request"].user
-        return super().create(validated_data)
 
 
-class SandboxEnvironmentListSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+class SandboxEnvironmentListSerializer(DataclassSerializer):
+    """List response for sandbox environments (subset of fields)."""
+
+    created_by = UserBasicInfoSerializer(allow_null=True, required=False)
 
     class Meta:
-        model = SandboxEnvironment
+        dataclass = SandboxEnvironmentDTO
         fields = [
             "id",
             "name",
@@ -1710,6 +1682,55 @@ class SandboxEnvironmentListSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+class SandboxEnvironmentWriteSerializer(serializers.Serializer):
+    """Request body for creating or updating a sandbox environment."""
+
+    name = serializers.CharField(max_length=255, help_text="Display name for the environment.")
+    network_access_level = serializers.ChoiceField(
+        choices=tasks_facade.SandboxNetworkAccessLevel.choices,
+        required=False,
+        default=tasks_facade.SandboxNetworkAccessLevel.FULL,
+        help_text="Network access policy: trusted (default allowlist), full (unrestricted), or custom.",
+    )
+    allowed_domains = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        default=list,
+        help_text="Allowed domains for custom network access.",
+    )
+    include_default_domains = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to include default trusted domains (GitHub, npm, PyPI).",
+    )
+    repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        default=list,
+        help_text="Repositories this environment applies to (format: org/repo).",
+    )
+    environment_variables = serializers.JSONField(
+        write_only=True,
+        required=False,
+        default=dict,
+        help_text="Encrypted environment variables (write-only, never returned in responses).",
+    )
+    private = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="If true, only the creator can see this environment; otherwise the whole team can.",
+    )
+
+    def validate_environment_variables(self, value):
+        if value:
+            for key in value:
+                if not tasks_facade.is_valid_sandbox_env_var_key(key):
+                    raise serializers.ValidationError(
+                        f"Invalid environment variable key: {key!r}. Must match [A-Za-z_][A-Za-z0-9_]*"
+                    )
+        return value
 
 
 class TaskPresenceBeaconRequestSerializer(serializers.Serializer):

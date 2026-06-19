@@ -17,9 +17,10 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 
 from collections.abc import Iterable, Sequence
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import CharField, Count, Exists, Min, Subquery
+from django.db.models import CharField, Count, Exists, Min, Q, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 
@@ -27,6 +28,9 @@ from products.tasks.backend.models import SandboxEnvironment, SandboxSnapshot, T
 from products.tasks.backend.visibility import task_visibility_q
 
 from . import contracts
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 # --- Enum re-exports ---
 # Value types (not ORM models), safe to expose. External callers compare against the
@@ -48,18 +52,24 @@ __all__ = [
     "collect_task_run_state_metrics",
     "create_run",
     "create_sandbox_connection_token",
+    "create_sandbox_environment",
+    "delete_sandbox_environment",
     "fail_task_run",
     "get_latest_pr_url_by_task",
     "get_latest_run_by_task",
+    "get_sandbox_environment",
     "get_sandbox_snapshot",
     "get_stale_queued_task_run_ids",
     "get_task_run",
     "is_task_visible_to_user",
+    "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_url_subquery",
+    "list_sandbox_environments",
     "send_cancel",
     "send_user_message",
     "task_exists",
     "task_run_pr_url_exists_subquery",
+    "update_sandbox_environment",
     "update_task_run_state",
     "upsert_internal_sandbox_env",
 ]
@@ -119,6 +129,44 @@ def _task_run_to_dto(run: TaskRun, *, task: Task | None = None) -> contracts.Tas
     )
 
 
+def _hedgehog_config(user: "User") -> dict | None:
+    """Mirror core ``UserBasicSerializer.get_hedgehog_config`` so ``created_by`` output is identical."""
+    config = user.hedgehog_config
+    if not config:
+        return None
+    if config.get("version") == 2:
+        actor_options = config.get("actor_options", {})
+        return {
+            "use_as_profile": config.get("use_as_profile"),
+            "color": actor_options.get("color"),
+            "accessories": actor_options.get("accessories"),
+            "skin": actor_options.get("skin"),
+        }
+    return {
+        "use_as_profile": config.get("use_as_profile"),
+        "color": config.get("color"),
+        "accessories": config.get("accessories"),
+        "skin": config.get("skin"),
+    }
+
+
+def _user_basic_info(user: "User | None") -> contracts.UserBasicInfo | None:
+    """Map a core ``User`` to the display DTO (matches ``UserBasicSerializer`` fields)."""
+    if user is None:
+        return None
+    return contracts.UserBasicInfo(
+        id=user.id,
+        uuid=user.uuid,
+        distinct_id=str(user.distinct_id),
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        is_email_verified=user.is_email_verified,
+        hedgehog_config=_hedgehog_config(user),
+        role_at_organization=user.role_at_organization,
+    )
+
+
 def _sandbox_env_to_dto(env: SandboxEnvironment) -> contracts.SandboxEnvironmentDTO:
     return contracts.SandboxEnvironmentDTO(
         id=env.id,
@@ -130,6 +178,9 @@ def _sandbox_env_to_dto(env: SandboxEnvironment) -> contracts.SandboxEnvironment
         include_default_domains=env.include_default_domains,
         allowed_domains=list(env.allowed_domains or []),
         repositories=list(env.repositories or []),
+        effective_domains=env.get_effective_domains(),
+        has_environment_variables=bool(env.environment_variables),
+        created_by=_user_basic_info(env.created_by if env.created_by_id else None),
         created_at=env.created_at,
         updated_at=env.updated_at,
     )
@@ -442,6 +493,84 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
     """Record a completed sandbox snapshot for an externally-built image; return its id."""
     snapshot = SandboxSnapshot.objects.create(external_id=external_id, status=SandboxSnapshot.Status.COMPLETE)
     return snapshot.id
+
+
+# --- Sandbox environments (presentation CRUD) ---
+# Visibility: an environment is reachable by a team member if it is non-private, or it is
+# theirs (``created_by``). ``list`` additionally hides ``internal`` environments.
+
+
+def is_valid_sandbox_env_var_key(key: str) -> bool:
+    """Whether ``key`` is a valid environment-variable name (``[A-Za-z_][A-Za-z0-9_]*``)."""
+    return SandboxEnvironment.is_valid_env_var_key(key)
+
+
+def _accessible_sandbox_envs(team_id: int, user_id: int):
+    return (
+        SandboxEnvironment.objects.filter(team_id=team_id)
+        .filter(Q(private=False) | Q(created_by_id=user_id))
+        .select_related("created_by")
+    )
+
+
+def list_sandbox_environments(team_id: int, user_id: int) -> list[contracts.SandboxEnvironmentDTO]:
+    """Non-internal environments visible to the user, for the list view."""
+    return [_sandbox_env_to_dto(env) for env in _accessible_sandbox_envs(team_id, user_id).filter(internal=False)]
+
+
+def get_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -> contracts.SandboxEnvironmentDTO | None:
+    """A single environment visible to the user (internal ones are retrievable by id)."""
+    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
+    return _sandbox_env_to_dto(env) if env is not None else None
+
+
+def create_sandbox_environment(
+    team_id: int,
+    user_id: int,
+    *,
+    name: str,
+    network_access_level: str,
+    allowed_domains: list[str],
+    include_default_domains: bool,
+    repositories: list[str],
+    environment_variables: dict,
+    private: bool,
+) -> contracts.SandboxEnvironmentDTO:
+    """Create a team environment owned by the user and return it as a DTO."""
+    env = SandboxEnvironment.objects.create(
+        team_id=team_id,
+        created_by_id=user_id,
+        name=name,
+        network_access_level=network_access_level,
+        allowed_domains=allowed_domains,
+        include_default_domains=include_default_domains,
+        repositories=repositories,
+        environment_variables=environment_variables,
+        private=private,
+    )
+    return _sandbox_env_to_dto(SandboxEnvironment.objects.select_related("created_by").get(pk=env.pk))
+
+
+def update_sandbox_environment(
+    env_id: str | UUID, team_id: int, user_id: int, **fields
+) -> contracts.SandboxEnvironmentDTO | None:
+    """Partially update a visible environment. Returns ``None`` if not found/visible."""
+    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
+    if env is None:
+        return None
+    for key, value in fields.items():
+        setattr(env, key, value)
+    env.save()
+    return _sandbox_env_to_dto(SandboxEnvironment.objects.select_related("created_by").get(pk=env.pk))
+
+
+def delete_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -> bool:
+    """Delete a visible environment. Returns whether a row was deleted."""
+    env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
+    if env is None:
+        return False
+    env.delete()
+    return True
 
 
 # --- Id-based bridges to the sandbox/agent-command surface ---

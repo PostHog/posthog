@@ -88,6 +88,25 @@ class CreatedTaskDTO:
 
 
 @dataclass(frozen=True)
+class UserBasicInfo:
+    """Lightweight user info for display, mirroring core ``UserBasicSerializer`` output.
+
+    Carries exactly the fields that serializer emits so presentation responses stay
+    byte-identical when a task/run/environment exposes its ``created_by``.
+    """
+
+    id: int
+    uuid: UUID
+    distinct_id: str
+    first_name: str
+    last_name: str
+    email: str
+    is_email_verified: bool | None = None
+    hedgehog_config: dict | None = None
+    role_at_organization: str | None = None
+
+
+@dataclass(frozen=True)
 class SandboxEnvironmentDTO:
     """A sandbox execution environment."""
 
@@ -100,6 +119,9 @@ class SandboxEnvironmentDTO:
     include_default_domains: bool
     allowed_domains: list[str] = Field(default_factory=list)
     repositories: list[str] = Field(default_factory=list)
+    effective_domains: list[str] = Field(default_factory=list)
+    has_environment_variables: bool = False
+    created_by: UserBasicInfo | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
