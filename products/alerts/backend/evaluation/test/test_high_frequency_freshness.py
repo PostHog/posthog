@@ -95,6 +95,8 @@ def test_is_high_frequency_interval_property(interval, expected):
         (NodeKind.TRENDS_QUERY, "hour", False, ALWAYS),
         (NodeKind.TRENDS_QUERY, "day", False, IF_STALE),
         (NodeKind.TRENDS_QUERY, "day", True, ALWAYS),
+        (NodeKind.TRENDS_QUERY, None, False, IF_STALE),  # missing interval reads as None → same as the DAY default
+        (NodeKind.TRENDS_QUERY, None, True, ALWAYS),
         (NodeKind.FUNNELS_QUERY, None, False, IF_STALE),
         (NodeKind.FUNNELS_QUERY, None, True, ALWAYS),
         (NodeKind.HOG_QL_QUERY, None, False, IF_STALE),
