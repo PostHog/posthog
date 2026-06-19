@@ -83,7 +83,7 @@ export function compareTableCells(a: TableDataCell<any> | undefined, b: TableDat
     }
     // Parse dates to epoch ms so values with different formats or timezones sort
     // chronologically rather than lexicographically.
-    if (isDateColumn(a.type) && isDateColumn(b.type)) {
+    if (isDateColumn(a?.type) && isDateColumn(b?.type)) {
         const aTime = dayjs(aValue as string | number | Date).valueOf()
         const bTime = dayjs(bValue as string | number | Date).valueOf()
         if (!Number.isNaN(aTime) && !Number.isNaN(bTime)) {
