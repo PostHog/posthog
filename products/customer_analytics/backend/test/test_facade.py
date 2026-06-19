@@ -307,7 +307,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
         assert view.external_id == "acme-1"
         assert view.properties == {"stripe_customer_id": "cus_1"}
         assert view.created_by == self.user.id
-        stored = Account.objects.unscoped().get(id=view.id)
+        stored = Account.objects.unscoped().get(id=str(view.id))
         assert stored.team_id == self.team.id
         assert stored.created_by_id == self.user.id
 
@@ -317,7 +317,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
 
     def test_create_account_sets_tags(self):
         view = self._create(name="Tagged", tags=["enterprise", "priority"])
-        account = Account.objects.unscoped().get(id=view.id)
+        account = Account.objects.unscoped().get(id=str(view.id))
         assert sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)) == [
             "enterprise",
             "priority",
@@ -377,7 +377,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
             user=self.user,
             was_impersonated=False,
         )
-        assert not Account.objects.unscoped().filter(id=view.id).exists()
+        assert not Account.objects.unscoped().filter(id=str(view.id)).exists()
 
     def test_get_account_for_view_unknown_raises(self):
         with self.assertRaises(facade.Account_DoesNotExist):

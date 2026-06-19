@@ -293,6 +293,19 @@ def _journey_write_fields(validated, raw_data: dict) -> dict:
     return fields
 
 
+def _parse_tags_param(request: Request) -> list[str] | None:
+    tags_param = request.query_params.get("tags")
+    if not tags_param:
+        return None
+    try:
+        tags_list = json.loads(tags_param)
+    except json.JSONDecodeError:
+        raise ValidationError({"tags": "Must be a JSON-encoded list of strings."})
+    if not isinstance(tags_list, list) or not all(isinstance(t, str) for t in tags_list):
+        raise ValidationError({"tags": "Must be a JSON-encoded list of strings."})
+    return tags_list
+
+
 class AccountViewSet(
     TaggedItemViewSetMixin,
     TeamAndOrgViewSetMixin,
@@ -373,7 +386,7 @@ class AccountViewSet(
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        tags = self._parse_tags_param()
+        tags = _parse_tags_param(self.request)
         ordering = request.query_params.get("ordering")
         ordering = ordering if ordering in self.ALLOWED_ORDERING else None
         return self._paginate_via_facade(
@@ -393,18 +406,6 @@ class AccountViewSet(
             ),
             AccountSerializer,
         )
-
-    def _parse_tags_param(self) -> list[str] | None:
-        tags_param = self.request.query_params.get("tags")
-        if not tags_param:
-            return None
-        try:
-            tags_list = json.loads(tags_param)
-        except json.JSONDecodeError:
-            raise ValidationError({"tags": "Must be a JSON-encoded list of strings."})
-        if not isinstance(tags_list, list) or not all(isinstance(t, str) for t in tags_list):
-            raise ValidationError({"tags": "Must be a JSON-encoded list of strings."})
-        return tags_list
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM])
     def retrieve(self, request: Request, *args, **kwargs) -> Response:

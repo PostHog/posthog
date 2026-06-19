@@ -15,7 +15,7 @@ Do NOT:
 - Import DRF, serializers, or HTTP concerns
 """
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -26,7 +26,7 @@ from pydantic import ValidationError as PydanticValidationError
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership, Tag
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import AuditableScope, Detail, changes_between, log_activity
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 
@@ -430,7 +430,7 @@ def _log_activity_swallowing(
     try:
         detail_kwargs: dict[str, Any] = {"name": name}
         if previous is not None:
-            detail_kwargs["changes"] = changes_between(scope, previous=previous, current=instance)
+            detail_kwargs["changes"] = changes_between(cast(AuditableScope, scope), previous=previous, current=instance)
         log_activity(
             organization_id=organization_id,
             team_id=team_id,
@@ -794,27 +794,36 @@ def list_accounts_for_view(
             _properties__account_owner__id__isnull=True,
         )
 
-    queryset = _apply_role_filter(queryset, "_properties__csm__id", csm)
-    queryset = _apply_role_filter(queryset, "_properties__account_executive__id", account_executive)
-    queryset = _apply_role_filter(queryset, "_properties__account_owner__id", account_owner)
+    if csm == "unassigned":
+        queryset = queryset.filter(_properties__csm__id__isnull=True)
+    elif csm:
+        try:
+            queryset = queryset.filter(_properties__csm__id=int(csm))
+        except ValueError:
+            # Malformed user id is a no-op (return all), not "match nothing" — old behavior.
+            pass
+
+    if account_executive == "unassigned":
+        queryset = queryset.filter(_properties__account_executive__id__isnull=True)
+    elif account_executive:
+        try:
+            queryset = queryset.filter(_properties__account_executive__id=int(account_executive))
+        except ValueError:
+            pass
+
+    if account_owner == "unassigned":
+        queryset = queryset.filter(_properties__account_owner__id__isnull=True)
+    elif account_owner:
+        try:
+            queryset = queryset.filter(_properties__account_owner__id=int(account_owner))
+        except ValueError:
+            pass
 
     queryset = queryset.order_by(ordering) if ordering else queryset.order_by("-created_at")
 
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     return [_to_account_view(a) for a in page], total_count
-
-
-def _apply_role_filter(queryset, id_lookup: str, value: str | None):
-    if value == "unassigned":
-        return queryset.filter(**{f"{id_lookup}__isnull": True})
-    if value:
-        try:
-            return queryset.filter(**{id_lookup: int(value)})
-        except ValueError:
-            # Malformed user id is a no-op (return all), not "match nothing" — old behavior.
-            return queryset
-    return queryset
 
 
 def get_account_for_view(
