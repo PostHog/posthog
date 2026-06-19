@@ -997,8 +997,9 @@ def _sync_one_ticket_thread_replies(
 
         url = data.get("@odata.nextLink")
 
-    if latest_synced_at and latest_synced_at != ticket.teams_thread_replies_synced_at:
-        Ticket.objects.filter(id=ticket.id, team=team).update(teams_thread_replies_synced_at=latest_synced_at)
+    new_watermark = latest_synced_at or timezone.now()
+    if new_watermark != ticket.teams_thread_replies_synced_at:
+        Ticket.objects.filter(id=ticket.id, team=team).update(teams_thread_replies_synced_at=new_watermark)
 
 
 def _sync_shared_channel_thread_replies(
