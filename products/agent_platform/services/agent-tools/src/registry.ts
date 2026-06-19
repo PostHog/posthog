@@ -12,6 +12,7 @@
 import { defineNativeTool, NativeTool, NativeToolSchema, Type } from '@posthog/agent-shared'
 
 import { httpRequestV1 } from './tools/http-request.v1'
+import { identityFetchV1 } from './tools/identity-fetch.v1'
 import { loadSkill } from './tools/load-skill'
 import {
     memoryDeleteV1,
@@ -155,6 +156,7 @@ export const ALL_TOOLS: NativeTool[] = [
     slackReadThreadV1,
     slackReactV1,
     httpRequestV1,
+    identityFetchV1,
     endTurnTool,
     endSessionTool,
     emitEventTool,

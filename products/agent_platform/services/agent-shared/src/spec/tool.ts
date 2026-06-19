@@ -113,6 +113,15 @@ export interface ToolContext {
         resolve(target: string): Promise<Credential | null>
     }
     /**
+     * Resolve the current asker's linked credential for an identity provider,
+     * or a one-time authorize link if they haven't linked it. The asker is the
+     * live last-user-turn sender (per-run — honours the per-author rule).
+     * Wired from spec.identity_providers; absent when none are configured.
+     */
+    identity?: {
+        resolve(provider: string, scopes?: string[]): Promise<IdentityResolution>
+    }
+    /**
      * Outbound HTTP client. In prod this routes through smokescreen via
      * an undici ProxyAgent; in dev/test it's a direct fetch. **All tool
      * outbound HTTP must go through this** — Node's `fetch` does not
@@ -135,6 +144,13 @@ export interface IntegrationCredentials {
     refresh_token?: string
     metadata?: Record<string, unknown>
 }
+
+/** Outcome of `ctx.identity.resolve`: a usable credential, a link to send, or no-go.
+ *  `allowedHosts` bounds where the bearer may be sent (SSRF guard). */
+export type IdentityResolution =
+    | { kind: 'ok'; credential: Credential; allowedHosts: string[] }
+    | { kind: 'link_required'; provider: string; authorizeUrl: string }
+    | { kind: 'unavailable'; provider: string; reason: string }
 
 export interface NativeTool<TArgs = unknown, TReturn = unknown> {
     id: string

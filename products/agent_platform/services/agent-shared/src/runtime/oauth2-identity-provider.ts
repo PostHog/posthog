@@ -66,6 +66,16 @@ export class Oauth2AuthProvider implements IdentityProvider {
         return this.deps.config.credentialTarget ?? this.deps.config.id
     }
 
+    allowedHosts(): string[] {
+        const hosts = new Set<string>()
+        for (const u of [this.deps.config.authorizeUrl, this.deps.config.tokenUrl, this.deps.config.userinfoUrl]) {
+            if (u) {
+                hosts.add(new URL(u).host)
+            }
+        }
+        return [...hosts]
+    }
+
     async initiate(input: IdentityInitiateInput): Promise<IdentityInitiateResult> {
         const verifier = b64url(randomBytes(32))
         const challenge = b64url(createHash('sha256').update(verifier).digest())

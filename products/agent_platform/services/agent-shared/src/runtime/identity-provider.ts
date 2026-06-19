@@ -56,6 +56,8 @@ export interface IdentityProvider {
     complete(input: IdentityCompleteInput): Promise<IdentityCompleteResult>
     /** Usable credential for a linked principal, refreshed if stale; null if unlinked. */
     resolve(input: IdentityResolveInput): Promise<Credential | null>
+    /** Hosts the resolved bearer may be sent to (SSRF guard). Empty = none allowed. */
+    allowedHosts(): string[]
 }
 
 export interface IdentityProviderRegistry {

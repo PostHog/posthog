@@ -132,6 +132,11 @@ export interface AgentToolDeps {
      */
     credentialBroker?: CredentialBroker
     /**
+     * Per-asker identity resolver (spec.identity_providers). Built once per run
+     * in the driver, keyed to the run's asker; forwarded to `ToolContext.identity`.
+     */
+    identity?: ToolContext['identity']
+    /**
      * Opened MCP clients from `loop/mcp-clients.ts` — one per entry in
      * `spec.mcps[]`. `buildAgentTools` walks `client.listTools()` on each
      * and emits one `AgentTool` per remote tool, name-prefixed
@@ -463,6 +468,7 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
                   resolve: (target) => credentialBroker.resolve(sessionId, target),
               }
             : undefined,
+        identity: deps.identity,
         http: deps.http,
         posthogApiBaseUrl: deps.posthogApiBaseUrl,
     }

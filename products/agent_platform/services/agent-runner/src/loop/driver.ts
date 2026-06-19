@@ -49,13 +49,20 @@ import {
     AssistantMessageRecord,
     BundleStore,
     buildSystemPrompt,
+    agentUserIdForPrincipal,
+    buildIdentityRegistry,
     ConversationMessage,
     CredentialBroker,
     createLogger,
+    createToolIdentity,
     FRAMEWORK_PROMPT_VERSION,
     GatewayClient,
     generationSpanId,
     HttpFetcher,
+    IdentityCredentialStore,
+    IdentityLinkStateStore,
+    IdentityProvider,
+    IdentityStore,
     IntegrationCredentials,
     isDeltaEventKind,
     isSlackTriggerMetadata,
@@ -71,10 +78,12 @@ import {
     SessionEventBus,
     SessionEventKind,
     SessionInputsStore,
+    SessionPrincipal,
     SLACK_BOT_TOKEN_KEY,
     SlackStatusReporter,
     slackTextFromContent,
     TabularStore,
+    ToolContext,
     toolSpanId,
 } from '@posthog/agent-shared'
 
@@ -83,7 +92,7 @@ import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResul
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
 import { lookupMcpToolApproval } from './mcp-tool-lookup'
-import type { IsAskerInApproverScope } from './per-asker-auth'
+import { findLastUserSender, type IsAskerInApproverScope } from './per-asker-auth'
 import { providerSafeName } from './provider-safe-names'
 
 export interface RunSessionDeps {
@@ -217,6 +226,19 @@ export interface RunSessionDeps {
     posthogApiBaseUrl: string
     /** Operator override (AGENT_MAX_OUTPUT_TOKENS); clamps below model.maxTokens. */
     maxOutputTokensOverride?: number
+    /**
+     * Per-asker identity linking (spec.identity_providers). When both stores are
+     * wired and the spec declares providers, `ctx.identity` resolves the run's
+     * asker's linked credential (or a link). Omit to disable identity tools.
+     */
+    identityCredentials?: IdentityCredentialStore
+    identityLinks?: IdentityLinkStateStore
+    /** Resolves a non-slack principal to its AgentUser id for linking. */
+    identities?: IdentityStore
+    /** OAuth callback base; `/link/<provider>/callback` is appended. */
+    linkRedirectBaseUrl?: string
+    /** Builds the managed posthog identity provider (M6). */
+    posthogIdentityProviderFactory?: (cfg: { id: string; scopes: string[] }) => IdentityProvider
 }
 
 export type RunOutcome =
@@ -393,6 +415,33 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // the function exits through. Intentionally left at +0 indent to
     // keep the diff small; the contents are unchanged.
     try {
+        // Per-asker identity resolver. Author = the live asker for this run
+        // (last user-turn sender), so a resolved credential is always "act as
+        // THIS asker", never the session owner's.
+        let identity: ToolContext['identity']
+        if (deps.identityCredentials && deps.identityLinks && rev.spec.identity_providers.length > 0) {
+            const registry = buildIdentityRegistry(rev.spec.identity_providers, {
+                links: deps.identityLinks,
+                credentials: deps.identityCredentials,
+                http: deps.http,
+                secret: (name) => deps.secrets[name],
+                posthogProviderFactory: deps.posthogIdentityProviderFactory,
+            })
+            const asker: SessionPrincipal | null = findLastUserSender(session.conversation) ?? session.principal
+            const agentUserId = await agentUserIdForPrincipal(asker, {
+                identities: deps.identities,
+                applicationId: rev.application_id,
+                teamId: session.team_id,
+            })
+            const base = deps.linkRedirectBaseUrl ?? 'https://agents.posthog.com'
+            identity = createToolIdentity({
+                registry,
+                agentUserId,
+                teamId: session.team_id,
+                applicationId: rev.application_id,
+                redirectUriFor: (p) => `${base}/link/${p}/callback`,
+            })
+        }
         const toolDeps: AgentToolDeps = {
             rev,
             session,
@@ -408,6 +457,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 await emit('client_tool_call', { call_id: callId, tool_id: toolId, args })
             },
             credentialBroker: deps.credentialBroker,
+            identity,
             mcpClients: deps.mcpClients,
             http: deps.http,
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
