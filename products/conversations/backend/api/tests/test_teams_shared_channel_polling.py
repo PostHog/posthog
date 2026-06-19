@@ -10,9 +10,19 @@ from products.conversations.backend.models import (
     TeamConversationsTeamsConfig,
     Ticket,
 )
-from products.conversations.backend.support_teams import store_teams_service_url
+from products.conversations.backend.support_teams import (
+    GRAPH_REFRESH_SCOPES,
+    GRAPH_REFRESH_SCOPES_READONLY,
+    refresh_graph_token,
+    store_teams_service_url,
+)
 from products.conversations.backend.tasks import poll_team_shared_channels, poll_teams_shared_channels
-from products.conversations.backend.teams import graph_message_to_activity
+from products.conversations.backend.teams import (
+    graph_message_to_activity,
+    parse_teams_root_message_id,
+    post_teams_channel_message_via_graph,
+    resolve_shared_channel_team_id,
+)
 
 TRUSTED_SERVICE_URL = "https://smba.trafficmanager.net/teams"
 
@@ -81,6 +91,7 @@ class TestGraphMessageToActivity(BaseTest):
         self.assertEqual(activity["channelData"]["channel"]["id"], CHANNEL_ID)
 
 
+@patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=201))
 @patch("products.conversations.backend.teams.resolve_teams_user", return_value={"name": "Alice", "email": None})
 @patch("products.conversations.backend.tasks.get_graph_token", return_value="graph-token")
 class TestPollSharedChannel(BaseTest):
@@ -237,6 +248,26 @@ class TestPollSharedChannel(BaseTest):
             TeamConversationsTeamsChannelSync.objects.for_team(self.team.id).filter(channel_id=CHANNEL_ID).exists()
         )
 
+    @patch("products.conversations.backend.tasks.requests.get")
+    def test_confirmation_card_posted_via_graph_for_polled_ticket(
+        self, mock_get: MagicMock, _token: MagicMock, _resolve: MagicMock, mock_post: MagicMock
+    ) -> None:
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
+        poll_team_shared_channels(self.team.id)
+        mock_post.reset_mock()
+
+        mock_get.side_effect = None
+        mock_get.return_value = _resp(json_data={"value": [_graph_message(msg_id="m2")], "@odata.deltaLink": "DELTA2"})
+        poll_team_shared_channels(self.team.id)
+
+        self.assertEqual(Ticket.objects.filter(team=self.team).count(), 1)
+        mock_post.assert_called_once()
+        url = mock_post.call_args.args[0] if mock_post.call_args.args else mock_post.call_args.kwargs["url"]
+        self.assertIn(f"/teams/{TEAMS_TEAM_ID}/channels/{CHANNEL_ID}/messages/m2/replies", url)
+
 
 class TestStoreTeamsServiceUrl(BaseTest):
     def setUp(self) -> None:
@@ -262,6 +293,101 @@ class TestStoreTeamsServiceUrl(BaseTest):
         store_teams_service_url("tenant-zzz", TRUSTED_SERVICE_URL)
         self.config.refresh_from_db()
         self.assertIsNone(self.config.teams_service_url)
+
+
+@patch("products.conversations.backend.support_teams.get_teams_instance_settings")
+@patch("products.conversations.backend.support_teams.requests.post")
+class TestRefreshGraphTokenScopeFallback(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.config, _ = TeamConversationsTeamsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"teams_tenant_id": "tenant-abc", "teams_graph_refresh_token": "ref-1"},
+        )
+
+    def _ok(self) -> MagicMock:
+        return _resp(json_data={"access_token": "fresh", "refresh_token": "ref-2", "expires_in": 3600})
+
+    def test_falls_back_to_readonly_scopes_when_send_not_consented(
+        self, mock_post: MagicMock, mock_settings: MagicMock
+    ) -> None:
+        mock_settings.return_value = {"SUPPORT_TEAMS_APP_ID": "app", "SUPPORT_TEAMS_APP_SECRET": "secret"}
+        # First (full scopes) rejected as if Send isn't consented; readonly retry succeeds.
+        mock_post.side_effect = [_resp(status_code=400), self._ok()]
+
+        token = refresh_graph_token(self.config)
+
+        self.assertEqual(token, "fresh")
+        self.assertEqual(mock_post.call_count, 2)
+        self.assertEqual(mock_post.call_args_list[0].kwargs["data"]["scope"], GRAPH_REFRESH_SCOPES)
+        self.assertEqual(mock_post.call_args_list[1].kwargs["data"]["scope"], GRAPH_REFRESH_SCOPES_READONLY)
+
+    def test_no_fallback_when_full_scopes_succeed(self, mock_post: MagicMock, mock_settings: MagicMock) -> None:
+        mock_settings.return_value = {"SUPPORT_TEAMS_APP_ID": "app", "SUPPORT_TEAMS_APP_SECRET": "secret"}
+        mock_post.return_value = self._ok()
+
+        token = refresh_graph_token(self.config)
+
+        self.assertEqual(token, "fresh")
+        self.assertEqual(mock_post.call_count, 1)
+
+
+class TestSharedChannelGraphSend(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_marker", "19:plain@thread.tacv2", None),
+            ("with_marker", f"{CHANNEL_ID};messageid=root-9", "root-9"),
+            ("empty_id", f"{CHANNEL_ID};messageid=", None),
+            ("none", None, None),
+        ]
+    )
+    def test_parse_root_message_id(self, _name: str, conversation_id: str | None, expected: str | None) -> None:
+        self.assertEqual(parse_teams_root_message_id(conversation_id), expected)
+
+    @parameterized.expand(
+        [
+            ("shared", "shared", TEAMS_TEAM_ID),
+            ("unknown_future_value", "unknownFutureValue", TEAMS_TEAM_ID),
+            ("standard", "standard", None),
+            ("private", "private", None),
+        ]
+    )
+    def test_resolve_shared_channel_team_id(self, _name: str, membership_type: str, expected: str | None) -> None:
+        self.team.conversations_settings = {
+            "teams_channels": [
+                {"channel_id": CHANNEL_ID, "team_id": TEAMS_TEAM_ID, "membership_type": membership_type}
+            ],
+        }
+        self.assertEqual(resolve_shared_channel_team_id(self.team, CHANNEL_ID), expected)
+
+    def test_resolve_returns_none_for_unconfigured_channel(self) -> None:
+        self.team.conversations_settings = {"teams_channels": []}
+        self.assertIsNone(resolve_shared_channel_team_id(self.team, CHANNEL_ID))
+
+    @patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=201))
+    def test_graph_send_posts_reply_to_thread(self, mock_post: MagicMock) -> None:
+        status = post_teams_channel_message_via_graph(
+            team=self.team,
+            teams_team_id=TEAMS_TEAM_ID,
+            channel_id=CHANNEL_ID,
+            html="<p>reply</p>",
+            reply_to_message_id="root-1",
+            token="tok",
+        )
+        self.assertEqual(status, 201)
+        url = mock_post.call_args.args[0] if mock_post.call_args.args else mock_post.call_args.kwargs["url"]
+        self.assertIn(f"/teams/{TEAMS_TEAM_ID}/channels/{CHANNEL_ID}/messages/root-1/replies", url)
+
+    @patch("products.conversations.backend.teams.requests.post", return_value=_resp(status_code=403))
+    def test_graph_send_returns_status_on_error(self, _mock_post: MagicMock) -> None:
+        status = post_teams_channel_message_via_graph(
+            team=self.team,
+            teams_team_id=TEAMS_TEAM_ID,
+            channel_id=CHANNEL_ID,
+            html="<p>reply</p>",
+            token="tok",
+        )
+        self.assertEqual(status, 403)
 
 
 class TestPollFanout(BaseTest):

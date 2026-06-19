@@ -56,7 +56,9 @@ interface TeamsChannelRowProps {
 }
 
 function TeamsChannelRow({ pair, onRemove, isLoading, adminRestrictionReason }: TeamsChannelRowProps): JSX.Element {
-    const isShared = pair.membership_type === 'shared'
+    // Graph reports shared channels as "shared" or, in some tenants, "unknownFutureValue".
+    // Anything that isn't an explicit standard/private channel is polled.
+    const isShared = pair.membership_type != null && !['standard', 'private'].includes(pair.membership_type)
     return (
         <div className="flex items-center justify-between gap-2 py-2 px-3 border rounded">
             <div className="flex-1 min-w-0">
@@ -204,10 +206,15 @@ function AddTeamsChannelRow({ adminRestrictionReason }: AddTeamsChannelRowProps)
                             options={[
                                 { value: null, label: 'Select channel...' },
                                 ...selectedTeamChannels.map(
-                                    (c: { id: string; name: string; membership_type?: string | null }) => ({
-                                        value: c.id,
-                                        label: c.membership_type === 'shared' ? `#${c.name} (shared)` : `#${c.name}`,
-                                    })
+                                    (c: { id: string; name: string; membership_type?: string | null }) => {
+                                        const isShared =
+                                            c.membership_type != null &&
+                                            !['standard', 'private'].includes(c.membership_type)
+                                        return {
+                                            value: c.id,
+                                            label: isShared ? `#${c.name} (shared)` : `#${c.name}`,
+                                        }
+                                    }
                                 ),
                             ]}
                             onChange={handleChannelSelect}
