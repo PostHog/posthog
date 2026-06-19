@@ -12,9 +12,10 @@ use crate::app_context::AppContext;
 use crate::error::UnhandledError;
 use crate::issue_resolution::Issue;
 use crate::metric_consts::{
-    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_EMIT_EVENTS_TIME, SPIKE_GET_SPIKING_ISSUES_TIME,
-    SPIKE_INCREMENT_ISSUE_BUCKETS_TIME, SPIKE_INCREMENT_TEAM_BUCKETS_TIME,
-    SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
+    SPIKE_ACQUIRE_LOCKS_TIME, SPIKE_EMIT_EVENTS_TIME, SPIKE_GET_SPIKING_ISSUES_SKIPPED,
+    SPIKE_GET_SPIKING_ISSUES_TIME, SPIKE_INCREMENT_ISSUE_BUCKETS_TIME,
+    SPIKE_INCREMENT_TEAM_BUCKETS_TIME, SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED,
+    SPIKE_ISSUES_SPIKING,
 };
 use crate::spike_config::SpikeDetectionConfig;
 use crate::types::OutputErrProps;
@@ -25,6 +26,10 @@ const NUM_BUCKETS: usize = 12;
 
 const ISSUE_SPIKING_EVENT: &str = "$error_tracking_issue_spiking";
 const MIN_HISTORICAL_BUCKETS_FOR_ISSUE_BASELINE: usize = 1;
+
+// Bounds for retrying transient Redis failures when reading spike-detection buckets.
+const FETCH_BUCKET_MAX_ATTEMPTS: usize = 3;
+const FETCH_BUCKET_RETRY_DELAY_MS: u64 = 50;
 
 fn issue_bucket_key(issue_id: &Uuid, timestamp: &str) -> String {
     format!("issue-buckets:{issue_id}-{timestamp}")
@@ -226,7 +231,20 @@ pub async fn do_spike_detection(
     )
     .await;
     get_spiking_timer.fin();
-    let spiking = spiking?;
+
+    // Reading issue/team buckets is best-effort: a transient Redis blip (e.g. a timeout)
+    // should skip spike detection for this batch, not fail the whole pipeline. Failing here
+    // would surface cymbal's own recoverable Redis errors as error-tracking issues, matching
+    // the warn-and-continue pattern used by the bucket-write paths above.
+    let spiking = match spiking {
+        Ok(spiking) => spiking,
+        Err(UnhandledError::RedisError(err)) => {
+            metrics::counter!(SPIKE_GET_SPIKING_ISSUES_SKIPPED).increment(1);
+            warn!("Skipping spike detection for batch, failed to read buckets from Redis: {err}");
+            return Ok(());
+        }
+        Err(err) => return Err(err),
+    };
 
     metrics::counter!(SPIKE_ISSUES_SPIKING).increment(spiking.len() as u64);
     emit_spiking_events(&context, spiking, &team_configs).await;
@@ -463,7 +481,8 @@ async fn get_spiking_issues(
         .collect();
 
     let (issue_buckets, team_buckets) =
-        fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await?;
+        fetch_bucket_data_with_retry(redis, &issue_ids, &unique_team_ids, &bucket_timestamps)
+            .await?;
 
     let team_baselines: HashMap<i32, f64> = compute_team_baselines(&team_buckets);
 
@@ -498,6 +517,29 @@ async fn get_spiking_issues(
     }
 
     Ok(spiking)
+}
+
+/// Retry the bucket read a few times on transient (recoverable) Redis errors before giving up,
+/// so a brief blip doesn't needlessly skip spike detection for the batch.
+async fn fetch_bucket_data_with_retry(
+    redis: &(dyn Client + Send + Sync),
+    issue_ids: &[Uuid],
+    team_ids: &[i32],
+    timestamps: &[String],
+) -> Result<(Vec<IssueBuckets>, Vec<TeamBuckets>), common_redis::CustomRedisError> {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        match fetch_bucket_data(redis, issue_ids, team_ids, timestamps).await {
+            Ok(result) => return Ok(result),
+            Err(err) if !err.is_unrecoverable_error() && attempt < FETCH_BUCKET_MAX_ATTEMPTS => {
+                warn!("Transient Redis error reading spike-detection buckets (attempt {attempt}/{FETCH_BUCKET_MAX_ATTEMPTS}), retrying: {err}");
+                tokio::time::sleep(std::time::Duration::from_millis(FETCH_BUCKET_RETRY_DELAY_MS))
+                    .await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
 }
 
 async fn fetch_bucket_data(
@@ -589,7 +631,7 @@ fn compute_team_baselines(team_buckets: &[TeamBuckets]) -> HashMap<i32, f64> {
 mod tests {
     use super::*;
     use chrono::TimeZone;
-    use common_redis::MockRedisClient;
+    use common_redis::{CustomRedisError, MockRedisClient};
 
     fn bytes(v: i64) -> Vec<u8> {
         v.to_string().into_bytes()
@@ -1170,5 +1212,40 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].computed_baseline, 10.0);
         assert_eq!(result[0].current_bucket_value, 1000);
+    }
+
+    // A transient Redis timeout on the bucket read surfaces as a RedisError so the caller
+    // can warn-and-continue instead of failing the whole batch (and self-capturing the error).
+    #[tokio::test]
+    async fn test_get_spiking_issues_surfaces_redis_error() {
+        let mut ctx = TestContext::new();
+        ctx.redis.mget_error(CustomRedisError::Timeout);
+
+        let configs = HashMap::from([(ctx.team_id, SpikeDetectionConfig::default())]);
+        let empty_props = HashMap::new();
+        let err = get_spiking_issues(&ctx.redis, &ctx.issues_by_id(), &empty_props, &configs)
+            .await
+            .expect_err("a Redis timeout should propagate as an error");
+
+        assert!(matches!(err, UnhandledError::RedisError(CustomRedisError::Timeout)));
+    }
+
+    // Transient (recoverable) Redis errors are retried before giving up.
+    #[tokio::test]
+    async fn test_get_spiking_issues_retries_transient_errors() {
+        let mut ctx = TestContext::new();
+        ctx.redis.mget_error(CustomRedisError::Timeout);
+
+        let configs = HashMap::from([(ctx.team_id, SpikeDetectionConfig::default())]);
+        let empty_props = HashMap::new();
+        let _ = get_spiking_issues(&ctx.redis, &ctx.issues_by_id(), &empty_props, &configs).await;
+
+        let mget_calls = ctx
+            .redis
+            .get_calls()
+            .into_iter()
+            .filter(|c| c.op == "mget")
+            .count();
+        assert_eq!(mget_calls, FETCH_BUCKET_MAX_ATTEMPTS);
     }
 }
