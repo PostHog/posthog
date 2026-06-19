@@ -67,7 +67,11 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.ducklake.client import make_duckgres_conninfo
-from posthog.ducklake.common import _get_org_id_for_team, derive_duckling_bucket
+from posthog.ducklake.common import (
+    _get_org_id_for_team,
+    derive_duckling_bucket,
+    get_ducklake_catalog_for_organization,
+)
 from posthog.ducklake.models import DuckLakeBackfill
 
 logger = structlog.get_logger(__name__)
@@ -188,10 +192,19 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     """Resolve the per-org duckling target for a backfill partition.
 
     The organization id (team → org) drives both the connection (make_duckgres_conninfo
-    resolves the duckgres server itself) and the deterministically derived S3 bucket.
+    resolves the duckgres server itself) and the S3 bucket. The bucket name is read from
+    the org's stored DuckLakeCatalog — the source of truth written at provisioning time —
+    and only falls back to the deterministic derivation for orgs with no catalog row yet
+    (e.g. dev mode, where the catalog lookup returns None).
     """
     org_id = _get_org_id_for_team(team_id)
-    bucket, bucket_region = derive_duckling_bucket(org_id)
+
+    catalog = get_ducklake_catalog_for_organization(org_id)
+    if catalog is not None and catalog.bucket:
+        bucket, bucket_region = catalog.bucket, catalog.bucket_region
+    else:
+        bucket, bucket_region = derive_duckling_bucket(org_id)
+
     return DucklingTarget(team_id=team_id, organization_id=org_id, bucket=bucket, bucket_region=bucket_region)
 
 
