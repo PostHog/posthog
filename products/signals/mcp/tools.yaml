@@ -224,15 +224,15 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        requires_ai_consent: true
         list: true
         title: Sync scout configs
         description: >
             Materialize the Signals scout fleet for this project (idempotent): seeds the canonical `signals-scout-*`
-            skills and creates a default-schedule config for any scout lacking one, then returns all scout configs.
-            The Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable
-            fleet immediately instead of waiting for the tick. Pair with `signals-scout-config-update` to tune the
-            returned configs.
+            skills and creates a default-schedule config for any scout lacking one, then returns all scout configs. The
+            Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet
+            immediately instead of waiting for the tick. Pair with `signals-scout-config-update` to tune the returned
+            configs.
+        requires_ai_consent: true
     signals-scout-config-update:
         operation: signals_scout_config_update
         enabled: true

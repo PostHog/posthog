@@ -123,11 +123,11 @@ tools:
             idempotent: true
         title: List GitHub integration repositories
         description: >
-            List the repositories accessible to a GitHub integration (by integration ID). Serves the cached
-            repository list from the GitHub App installation. Supports `search` (case-insensitive name match),
-            `limit` (default 100, max 500), and `offset` query parameters. Returns repository id, name, and
-            full_name (owner/repo) plus a has_more flag. Use this to validate that a repository is accessible
-            to the integration before referencing it (e.g. when creating a GitHub data warehouse source).
+            List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository
+            list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default
+            100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo) plus a
+            has_more flag. Use this to validate that a repository is accessible to the integration before referencing it
+            (e.g. when creating a GitHub data warehouse source).
     integrations-github-teams-retrieve:
         operation: integrations_github_teams_retrieve
         enabled: false
