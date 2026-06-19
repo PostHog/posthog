@@ -24,6 +24,7 @@ from posthog.temporal.ai_observability.eval_reports.types import (
     UpdateNextDeliveryDateInput,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import run_with_db_resilience
 
 logger = get_logger(__name__)
 
@@ -120,7 +121,7 @@ async def fetch_count_triggered_eval_reports_activity(
             # by the team's offset.
             since = report.last_delivered_at or report.starts_at or report.created_at
 
-            team = Team.objects.get(id=report.team_id)
+            team = run_with_db_resilience(lambda team_id=report.team_id: Team.objects.get(id=team_id))
             query = parse_select(
                 """
                 SELECT count() as total
@@ -185,7 +186,7 @@ def _find_nth_eval_timestamp(
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.models import Team
 
-    team = Team.objects.get(id=team_id)
+    team = run_with_db_resilience(lambda: Team.objects.get(id=team_id))
     # Pass `before` as a datetime so HogQL serializes it as toDateTime64(..., 6, <team_tz>)
     # instead of a bare string that would be coerced in the team's timezone.
     query = parse_select(
@@ -390,7 +391,7 @@ async def store_report_run_activity(
         )
 
         # Emit $ai_evaluation_report event to ClickHouse
-        team = Team.objects.get(id=inputs.team_id)
+        team = run_with_db_resilience(lambda: Team.objects.get(id=inputs.team_id))
 
         # Collect citations from structured content (v2), not from per-section lists
         citations = content.get("citations", []) or []

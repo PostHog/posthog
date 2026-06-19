@@ -44,6 +44,7 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
     TraceSummary,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import run_with_db_resilience
 
 logger = structlog.get_logger(__name__)
 
@@ -69,7 +70,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         base_run_id = f"{base_run_id}_{inputs.job_id}"
     clustering_run_id = f"{base_run_id}_{inputs.run_label}" if inputs.run_label else base_run_id
 
-    team = Team.objects.get(id=inputs.team_id)
+    team = run_with_db_resilience(lambda: Team.objects.get(id=inputs.team_id))
 
     item_ids, embeddings_map, batch_run_ids_map = fetch_item_embeddings_for_clustering(
         team=team,
@@ -296,7 +297,7 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
     if window_start is None or window_end is None:
         raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
-    team = Team.objects.get(id=inputs.team_id)
+    team = run_with_db_resilience(lambda: Team.objects.get(id=inputs.team_id))
 
     cluster_labels = generate_cluster_labels(
         team=team,

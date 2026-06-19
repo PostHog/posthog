@@ -27,6 +27,7 @@ from posthog.temporal.ai_observability.trace_summarization.constants import (
 from posthog.temporal.ai_observability.trace_summarization.models import BatchSummarizationInputs, SampledItem
 from posthog.temporal.ai_observability.trace_summarization.utils import format_datetime_for_clickhouse
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import run_with_db_resilience
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -98,7 +99,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
         event_filters: list[dict[str, Any]] | None = None,
     ) -> list[SampledItem]:
         try:
-            team = Team.objects.get(id=team_id)
+            team = run_with_db_resilience(lambda: Team.objects.get(id=team_id))
         except Team.DoesNotExist:
             logger.info("Team not found in local database, skipping", team_id=team_id)
             return []

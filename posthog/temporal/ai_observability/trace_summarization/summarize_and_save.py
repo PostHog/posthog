@@ -19,6 +19,7 @@ from posthog.temporal.ai_observability.trace_summarization.models import (
 )
 from posthog.temporal.ai_observability.trace_summarization.state import delete_text_repr, load_text_repr
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import run_with_db_resilience
 
 from products.ai_observability.backend.summarization.llm import summarize
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
@@ -218,7 +219,9 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         )
 
         # Step 3: Save event to ClickHouse
-        team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=input.team_id)
+        team = await database_sync_to_async(run_with_db_resilience, thread_sensitive=False)(
+            lambda: Team.objects.get(id=input.team_id)
+        )
         t0 = time.monotonic()
         save_ctx = SaveSummaryEventContext(
             summary_result=summary_result,

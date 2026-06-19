@@ -146,6 +146,33 @@ def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
     return sync_wrapper
 
 
+def run_with_db_resilience(fn: Callable[[], T]) -> T:
+    """Run a sync Django ORM read, retrying once if a pooled Postgres connection
+    was dropped while a long-lived Temporal worker sat idle.
+
+    pgbouncer closes idle server connections, and a worker (which never goes
+    through Django's request cycle) can reach for a pooled connection that is
+    already dead, so the first query raises ``OperationalError`` ("server closed
+    the connection unexpectedly"). Evicting stale connections up front is not
+    enough on its own — the server-side connection can die in the window between
+    the health check and the query — so the failed query, which marks the
+    connection unusable, is followed by a connection eviction and a single retry
+    on a fresh connection. This keeps a transient, Temporal-retryable drop from
+    surfacing as error-tracking noise.
+
+    Eviction is skipped under ``settings.TEST`` to preserve the test DB
+    connection that ``transaction=True`` fixtures rely on.
+
+    `fn` must be an idempotent read — it can run twice.
+    """
+    try:
+        return fn()
+    except django.db.OperationalError:
+        if not settings.TEST:
+            _close_initialized_connections()
+        return fn()
+
+
 def get_scheduled_start_time():
     """Return the start time of a workflow.
 

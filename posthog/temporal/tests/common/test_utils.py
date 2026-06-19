@@ -3,7 +3,13 @@ import inspect
 import pytest
 from unittest.mock import patch
 
-from posthog.temporal.common.utils import close_db_connections, make_sync_retryable_with_exponential_backoff
+from django.db import OperationalError
+
+from posthog.temporal.common.utils import (
+    close_db_connections,
+    make_sync_retryable_with_exponential_backoff,
+    run_with_db_resilience,
+)
 
 
 def test_make_sync_retryable_with_exponential_backoff_called_max_attempts():
@@ -189,3 +195,91 @@ def test_close_db_connections_preserves_sync_signature_for_temporal():
     assert not inspect.iscoroutinefunction(wrapped)
     assert wrapped.__name__ == "fn"
     assert wrapped.__annotations__ == {"value": int, "return": str}
+
+
+def test_run_with_db_resilience_returns_value_without_retry():
+    calls = 0
+
+    def fn() -> str:
+        nonlocal calls
+        calls += 1
+        return "ok"
+
+    with patch(CLOSE_OLD_CONNECTIONS_TARGET) as mock_close:
+        assert run_with_db_resilience(fn) == "ok"
+
+    assert calls == 1
+    mock_close.assert_not_called()
+
+
+def test_run_with_db_resilience_retries_once_on_operational_error():
+    calls = 0
+
+    def fn() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OperationalError("server closed the connection unexpectedly")
+        return "ok"
+
+    with (
+        patch(CLOSE_OLD_CONNECTIONS_TARGET) as mock_close,
+        patch("posthog.temporal.common.utils.settings.TEST", False),
+    ):
+        assert run_with_db_resilience(fn) == "ok"
+
+    assert calls == 2
+    mock_close.assert_called_once()
+
+
+def test_run_with_db_resilience_reraises_if_retry_also_fails():
+    calls = 0
+
+    def fn() -> str:
+        nonlocal calls
+        calls += 1
+        raise OperationalError("server closed the connection unexpectedly")
+
+    with (
+        patch(CLOSE_OLD_CONNECTIONS_TARGET),
+        patch("posthog.temporal.common.utils.settings.TEST", False),
+        pytest.raises(OperationalError),
+    ):
+        run_with_db_resilience(fn)
+
+    assert calls == 2
+
+
+def test_run_with_db_resilience_does_not_retry_other_errors():
+    calls = 0
+
+    def fn() -> str:
+        nonlocal calls
+        calls += 1
+        raise ValueError("not a connection drop")
+
+    with patch(CLOSE_OLD_CONNECTIONS_TARGET) as mock_close, pytest.raises(ValueError):
+        run_with_db_resilience(fn)
+
+    assert calls == 1
+    mock_close.assert_not_called()
+
+
+def test_run_with_db_resilience_skips_eviction_under_test_settings():
+    calls = 0
+
+    def fn() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OperationalError("server closed the connection unexpectedly")
+        return "ok"
+
+    with (
+        patch(CLOSE_OLD_CONNECTIONS_TARGET) as mock_close,
+        patch("posthog.temporal.common.utils.settings.TEST", True),
+    ):
+        assert run_with_db_resilience(fn) == "ok"
+
+    assert calls == 2
+    mock_close.assert_not_called()
