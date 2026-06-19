@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import cast
 
 from unittest import TestCase, mock
 
@@ -6,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import RecordingOrder, RecordingsQuery
 
+from posthog.models import User
 from posthog.session_recordings.utils import gate_surfacing_score_order
 
 
@@ -13,8 +15,9 @@ def _query(order: RecordingOrder | None) -> RecordingsQuery:
     return RecordingsQuery(order=order)
 
 
-def _user() -> SimpleNamespace:
-    return SimpleNamespace(distinct_id="abc123", email="nicholas.w@posthog.com")
+def _user() -> User:
+    # The gate only reads `distinct_id` and `email`, so a lightweight stand-in avoids touching the DB.
+    return cast(User, SimpleNamespace(distinct_id="abc123", email="nicholas.w@posthog.com"))
 
 
 class TestGateSurfacingScoreOrder(TestCase):
