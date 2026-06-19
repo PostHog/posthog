@@ -142,9 +142,11 @@ def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None
         seed_enabled = in_allowlist and not at_cap
 
         defaults: dict = {} if seed_enabled else {"enabled": False}
-        # The launch cadence applies to scouts enabled via the allowlist; custom scouts keep
-        # the model default so a user's own scout isn't forced onto the fleet's schedule.
-        if seed_enabled and gated and enabled_interval is not None:
+        # The launch cadence is stamped on every canonical (gated) scout — whether it seeds
+        # enabled now or stays disabled for the user to switch on later — so a specialist a user
+        # toggles on runs at the daily launch cadence, not the 3h model default. Custom scouts
+        # keep the model default so a user's own scout isn't forced onto the fleet's schedule.
+        if gated and enabled_interval is not None:
             defaults["run_interval_minutes"] = enabled_interval
 
         # `team_id` must be passed as a kwarg: `get_or_create` builds the created row from
