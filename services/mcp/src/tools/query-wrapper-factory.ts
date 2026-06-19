@@ -18,7 +18,7 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
      * (`formatted_results`) as the text content when available; `'json'` skips the formatter
      * override entirely and returns raw JSON. Omit to fall back to the default TOON encoding.
      */
-    outputFormat?: 'optimized' | 'json'
+    outputFormat?: 'optimized' | 'json' | 'gcf'
     /** When set, `_posthogUrl` uses `{baseUrl}{urlPrefix}` instead of `/insights/new#q=...`. */
     urlPrefix?: string
 }
@@ -46,7 +46,7 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             // `output_format` is a tool-level control, not part of the query body. Strip it before
             // POSTing so it doesn't leak into the backend `kind: ...Query` payload.
             const { output_format: callerOutputFormat, ...queryParams } = params as typeof params & {
-                output_format?: 'optimized' | 'json'
+                output_format?: 'optimized' | 'json' | 'gcf'
             }
             const query: Record<string, unknown> = { ...queryParams, kind: config.kind }
             const baseUrl = context.api.getProjectBaseUrl(projectId)

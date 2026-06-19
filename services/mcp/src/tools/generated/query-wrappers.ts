@@ -1302,7 +1302,7 @@ const QueryTrendsSchema = AssistantTrendsQuery.extend({
         .default('optimized')
         .optional()
         .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON. "gcf" returns GCF-encoded output (compact, LLM-optimized).'
         ),
 })
 
@@ -1312,7 +1312,7 @@ const QueryFunnelSchema = AssistantFunnelsQuery.extend({
         .default('optimized')
         .optional()
         .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON. "gcf" returns GCF-encoded output (compact, LLM-optimized).'
         ),
 })
 
@@ -1322,7 +1322,7 @@ const QueryRetentionSchema = AssistantRetentionQuery.extend({
         .default('optimized')
         .optional()
         .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON. "gcf" returns GCF-encoded output (compact, LLM-optimized).'
         ),
 })
 
@@ -1332,7 +1332,7 @@ const QueryStickinessSchema = AssistantStickinessQuery.extend({
         .default('optimized')
         .optional()
         .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON. "gcf" returns GCF-encoded output (compact, LLM-optimized).'
         ),
 })
 
@@ -1342,7 +1342,7 @@ const QueryPathsSchema = AssistantPathsQuery.extend({
         .default('optimized')
         .optional()
         .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON. "gcf" returns GCF-encoded output (compact, LLM-optimized).'
         ),
 })
 
@@ -1352,7 +1352,7 @@ const QueryLifecycleSchema = AssistantLifecycleQuery.extend({
         .default('optimized')
         .optional()
         .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON. "gcf" returns GCF-encoded output (compact, LLM-optimized).'
         ),
 })
 
@@ -1362,7 +1362,7 @@ const QueryTrendsActorsSchema = AssistantTrendsActorsQuery.extend({
         .default('optimized')
         .optional()
         .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON. "gcf" returns GCF-encoded output (compact, LLM-optimized).'
         ),
 })
 
@@ -1372,7 +1372,7 @@ const QueryLifecycleActorsSchema = AssistantLifecycleActorsQuery.extend({
         .default('optimized')
         .optional()
         .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON. "gcf" returns GCF-encoded output (compact, LLM-optimized).'
         ),
 })
 
@@ -1382,7 +1382,7 @@ const QueryPathsActorsSchema = AssistantPathsActorsQuery.extend({
         .default('optimized')
         .optional()
         .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON. "gcf" returns GCF-encoded output (compact, LLM-optimized).'
         ),
 })
 
@@ -1392,7 +1392,7 @@ const QueryRetentionActorsSchema = AssistantRetentionActorsQuery.extend({
         .default('optimized')
         .optional()
         .describe(
-            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON. "gcf" returns GCF-encoded output (compact, LLM-optimized).'
         ),
 })
 

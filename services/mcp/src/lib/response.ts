@@ -29,14 +29,14 @@ function preprocessKeys(obj: any, placeholderMap: Map<string, string>, placehold
     return obj
 }
 
-export function formatResponse(data: any): string {
+function formatResponseWithEncoder(data: any, encoder: (data: any) => string): string {
     if (typeof data === 'string') {
         return data
     }
 
     const placeholderMap = new Map<string, string>()
     const processed = preprocessKeys(data, placeholderMap)
-    let result = encode(processed)
+    let result = encoder(processed)
 
     for (const [placeholder, jsonValue] of placeholderMap.entries()) {
         result = result.replace(`${placeholder}`, jsonValue)
@@ -45,18 +45,10 @@ export function formatResponse(data: any): string {
     return result
 }
 
+export function formatResponse(data: any): string {
+    return formatResponseWithEncoder(data, encode)
+}
+
 export function formatResponseGcf(data: any): string {
-    if (typeof data === 'string') {
-        return data
-    }
-
-    const placeholderMap = new Map<string, string>()
-    const processed = preprocessKeys(data, placeholderMap)
-    let result = encodeGeneric(processed)
-
-    for (const [placeholder, jsonValue] of placeholderMap.entries()) {
-        result = result.replace(`${placeholder}`, jsonValue)
-    }
-
-    return result
+    return formatResponseWithEncoder(data, encodeGeneric)
 }
