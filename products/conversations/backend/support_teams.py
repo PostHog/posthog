@@ -95,20 +95,28 @@ SUPPORTHOG_TEAMS_GRAPH_MESSAGE_KEY_PREFIX = "supporthog:teams:graph-msg:"
 SUPPORTHOG_TEAMS_GRAPH_MESSAGE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 
-def mark_teams_graph_message_seen(message_id: str) -> None:
+def _teams_graph_message_key(team_id: int, channel_id: str, message_id: str) -> str:
+    # Graph chatMessage ids are tick-based and only unique within a channel, so the
+    # dedup key must be scoped by team + channel to avoid cross-tenant collisions.
+    return f"{SUPPORTHOG_TEAMS_GRAPH_MESSAGE_KEY_PREFIX}{team_id}:{channel_id}:{message_id}"
+
+
+def mark_teams_graph_message_seen(team_id: int, channel_id: str, message_id: str) -> None:
     """Record a Graph chatMessage id so the shared-channel reply poller won't re-ingest it."""
-    if not message_id:
+    if not message_id or not channel_id:
         return
-    key = f"{SUPPORTHOG_TEAMS_GRAPH_MESSAGE_KEY_PREFIX}{message_id}"
-    cache.set(key, True, timeout=SUPPORTHOG_TEAMS_GRAPH_MESSAGE_TTL_SECONDS)
+    cache.set(
+        _teams_graph_message_key(team_id, channel_id, message_id),
+        True,
+        timeout=SUPPORTHOG_TEAMS_GRAPH_MESSAGE_TTL_SECONDS,
+    )
 
 
-def is_teams_graph_message_seen(message_id: str) -> bool:
+def is_teams_graph_message_seen(team_id: int, channel_id: str, message_id: str) -> bool:
     """Return True if this Graph message id was already processed (read-only check)."""
-    if not message_id:
-        return True
-    key = f"{SUPPORTHOG_TEAMS_GRAPH_MESSAGE_KEY_PREFIX}{message_id}"
-    return cache.get(key) is not None
+    if not message_id or not channel_id:
+        return False
+    return cache.get(_teams_graph_message_key(team_id, channel_id, message_id)) is not None
 
 
 def get_teams_instance_settings() -> dict:

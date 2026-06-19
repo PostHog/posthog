@@ -514,7 +514,7 @@ def post_teams_channel_message_via_graph(
         except (ValueError, AttributeError, TypeError):
             message_id = None
         if message_id:
-            mark_teams_graph_message_seen(message_id)
+            mark_teams_graph_message_seen(_get_team_id(team), channel_id, message_id)
     else:
         logger.warning("teams_graph_post_failed", status=resp.status_code, body=resp.text[:500], url=url, **ctx)
     return resp.status_code, message_id
@@ -588,7 +588,7 @@ def create_or_update_teams_ticket(
             )
             return None
 
-        if activity_id and is_teams_graph_message_seen(activity_id):
+        if activity_id and is_teams_graph_message_seen(team_id, channel_id, activity_id):
             logger.debug(
                 "teams_thread_reply_duplicate_skipped",
                 team_id=team_id,
@@ -606,7 +606,7 @@ def create_or_update_teams_ticket(
                 item_context__teams_graph_message_id=activity_id,
             ).exists()
         ):
-            mark_teams_graph_message_seen(activity_id)
+            mark_teams_graph_message_seen(team_id, channel_id, activity_id)
             return ticket
 
         Comment.objects.create(
@@ -626,7 +626,7 @@ def create_or_update_teams_ticket(
                 "teams_graph_message_id": activity_id,
             },
         )
-        mark_teams_graph_message_seen(activity_id)
+        mark_teams_graph_message_seen(team_id, channel_id, activity_id)
 
         if not is_team_member:
             Ticket.objects.filter(id=ticket.id, team=team).update(
@@ -699,7 +699,7 @@ def create_or_update_teams_ticket(
     )
 
     if activity_id:
-        mark_teams_graph_message_seen(activity_id)
+        mark_teams_graph_message_seen(team_id, channel_id, activity_id)
 
     # Post confirmation card in the Teams thread. Shared-channel tickets (polled)
     # can't be confirmed over the bot connector, so go through Graph instead.
