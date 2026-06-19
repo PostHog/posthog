@@ -291,7 +291,7 @@ export class PlaywrightSetup {
                         if (res.ok) {
                             return
                         }
-                        if (attempt === maxAttempts) {
+                        if (attempt === maxAttempts || res.status < 500) {
                             throw new Error(`Login failed with status ${res.status}`)
                         }
                     } catch (e) {
