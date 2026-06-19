@@ -201,7 +201,38 @@ Respond at end_turn with a single JSON object matching this schema:
 """
 
 
-def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_at: datetime) -> str:
+def _render_memory_block(memory_context: str | None) -> str:
+    """Render the shared-memory section, or a one-liner pointing at the tools when empty."""
+    if memory_context:
+        return f"""# Project memory (shared across all agents)
+
+The team keeps a shared, editable file-tree memory that every PostHog agent reads
+and writes. Below is the slice relevant to you right now — the top-level
+`project.md` and your own `scouts/{{skill}}/scratchpad.md`. Treat it as durable
+context. When you learn something worth keeping for future runs, write it back
+with the `memory-append` MCP tool (one section at a time — it never clobbers
+concurrent edits). Use `memory-read` / `memory-write` for whole-file edits and
+`memory-list` to see the rest of the tree.
+
+{memory_context}
+"""
+    return """# Project memory (shared across all agents)
+
+The team has a shared, editable file-tree memory every PostHog agent reads and
+writes (`project.md`, `users/<slug>.md`, `scouts/<skill>/scratchpad.md`). Nothing
+is recorded for you yet. As you learn durable facts about this project, record
+them with `memory-append` so future runs — and other agents — start with them.
+"""
+
+
+def build_run_prompt(
+    skill: LoadedSkill,
+    *,
+    run_id: str,
+    team_id: int,
+    started_at: datetime,
+    memory_context: str | None = None,
+) -> str:
     """Render the opening prompt for one scout run.
 
     `run_id` is the UUID of the `SignalScoutRun` row the harness inserted before
@@ -214,6 +245,11 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
     current clock time in tool queries — runs can take minutes, and fresh data
     that lands during the run is exactly what we want the agent to see.
 
+    `memory_context` is the rendered slice of the shared agent-memory tree
+    (`project.md` + this scout's `scouts/<skill>/scratchpad.md`) injected at run
+    start. It's a read-time snapshot; the scout edits memory live via the
+    `memory-*` MCP tools.
+
     The skill body and file manifest are NOT inlined. The agent reads them at
     run time via `skill-get` / `skill-file-get` over the PostHog MCP
     — the bootstrap step makes that the first move. `LoadedSkill` is still
@@ -222,6 +258,7 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
     started_at_iso = started_at.replace(microsecond=0).isoformat()
     schema_json = json.dumps(SignalScoutRunSummary.model_json_schema(), indent=2)
     tail = _BASE_PROMPT_TAIL.format(schema_json=schema_json)
+    memory_block = _render_memory_block(memory_context)
     return f"""{_BASE_PROMPT_INTRO}
 # Your run identity
 
@@ -231,6 +268,8 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
 - **skill**: `{skill.name}` (v{skill.version}) — your steering layer.
 - **started_at**: `{started_at_iso}` — when this run began (UTC). Informational;
   use current clock time for queries about "now".
+
+{memory_block}
 
 # First: read your skill
 

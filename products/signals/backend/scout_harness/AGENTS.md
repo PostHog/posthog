@@ -29,6 +29,15 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
 - `skill_loader.py`
   Resolves `signals-scout-*` skills from the team's `LLMSkill` rows. Defines
   `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools).
+- `memory_bridge.py`
+  Bridge to the shared `agent_memory` product (the file-tree project memory every
+  PostHog agent reads/writes). `render_run_memory()` injects `project.md` + this
+  scout's `scouts/<skill>/scratchpad.md` into the run prompt at start;
+  `mirror_scratchpad_to_memory()` write-through-mirrors `SignalScratchpad` `remember`
+  calls into that scratchpad file. `SignalScratchpad` stays the authoritative store
+  for the harness tools — the mirror is purely additive and best-effort. All access
+  goes through `products.agent_memory.backend.facade.api`, never that product's
+  models/storage directly.
 - `lazy_seed.py`
   Canonical skill sync. Reads `products/signals/skills/signals-scout-*/` from disk and
   reconciles them against the team's `LLMSkill` rows: creates missing rows, updates

@@ -18,6 +18,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S
+from products.signals.backend.scout_harness.memory_bridge import render_run_memory
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.temporal.agentic import (
@@ -298,7 +299,10 @@ async def _spawn_and_run(
         # right scope to call them.
         posthog_mcp_scopes="signals_scout",
     )
-    prompt = build_run_prompt(skill, run_id=str(run_id), team_id=team.id, started_at=started_at)
+    memory_context = await render_run_memory(team_id=team.id, skill_name=skill.name)
+    prompt = build_run_prompt(
+        skill, run_id=str(run_id), team_id=team.id, started_at=started_at, memory_context=memory_context
+    )
     logger.info(
         "signals_scout: spawning sandbox",
         extra={

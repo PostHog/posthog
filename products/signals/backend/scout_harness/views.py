@@ -52,6 +52,7 @@ from products.signals.backend.models import (
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, canonical_skill_names
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.memory_bridge import mirror_scratchpad_to_memory
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
@@ -540,15 +541,24 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             and not SignalScoutRun.objects.filter(id=run_id, team_id=_canonical_team_id(self)).exists()
         ):
             raise exceptions.ValidationError({"run_id": "run_id does not reference a run on this project"})
+        team_id = _canonical_team_id(self)
         try:
             entry = remember(
-                team_id=_canonical_team_id(self),
+                team_id=team_id,
                 key=data["key"],
                 content=data["content"],
                 run_id=str(run_id) if run_id is not None else None,
             )
         except InvalidScratchpadError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
+        # Write-through into the shared agent-memory tree so the scratchpad lives inside
+        # the file-tree memory other agents can read. SignalScratchpad stays authoritative.
+        mirror_scratchpad_to_memory(
+            team_id=team_id,
+            run_id=str(run_id) if run_id is not None else None,
+            key=data["key"],
+            content=data["content"],
+        )
         return Response(ScratchpadEntrySerializer(entry.as_dict()).data, status=status.HTTP_200_OK)
 
     @validated_request(
