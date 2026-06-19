@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 import type RE2 from 're2'
 
-import type { LogRecord } from '~/ingestion/pipelines/logs/log-record-avro'
+import type { LogRecord } from '~/logs/log-record-avro'
 
 import { type FilterGroupNode, matchFilterGroup } from './filter-group-match'
 

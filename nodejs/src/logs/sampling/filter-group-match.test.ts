@@ -1,4 +1,4 @@
-import type { LogRecord } from '~/ingestion/pipelines/logs/log-record-avro'
+import type { LogRecord } from '~/logs/log-record-avro'
 
 import { type FilterGroupNode, MAX_FILTER_GROUP_DEPTH, matchFilterGroup } from './filter-group-match'
 

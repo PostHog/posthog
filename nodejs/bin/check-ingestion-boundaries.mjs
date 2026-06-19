@@ -37,7 +37,6 @@ const PIPELINES = new Set([
     'ai',
     'errortracking',
     'sessionreplay',
-    'logs',
     'metrics',
 ])
 

@@ -9,9 +9,9 @@ import { PersonRepository } from '~/common/persons/repositories/person-repositor
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import type { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
-import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/ingestion/pipelines/logs/config'
 import type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
+import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/logs/config'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { AIObservabilityConfig } from './ai-observability/config'
@@ -47,7 +47,7 @@ export type {
     PersonBatchWritingMode,
 } from './ingestion/config'
 export type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
-export type { LogsIngestionConsumerConfig } from '~/ingestion/pipelines/logs/config'
+export type { LogsIngestionConsumerConfig } from '~/logs/config'
 export type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
 export type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 

@@ -4,13 +4,13 @@ import { Counter } from 'prom-client'
 import { type RedisV2 } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumented } from '~/common/tracing/tracing-utils'
-import { type PiiScrubStats } from '~/ingestion/pipelines/logs/log-pii-scrub'
+import { type PiiScrubStats } from '~/logs/log-pii-scrub'
 import {
     type LogRecord,
     decodeLogRecords,
     encodeLogRecords,
     transformDecodedLogRecordsInPlace,
-} from '~/ingestion/pipelines/logs/log-record-avro'
+} from '~/logs/log-record-avro'
 import type { LogsSettings } from '~/types'
 import { logger } from '~/utils/logger'
 

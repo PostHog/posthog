@@ -2,8 +2,8 @@ import { Histogram } from 'prom-client'
 
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
-import { LogsIngestionConsumerConfig } from '~/ingestion/pipelines/logs/config'
-import { LogsIngestionMessage } from '~/ingestion/pipelines/logs/types'
+import { LogsIngestionConsumerConfig } from '~/logs/config'
+import { LogsIngestionMessage } from '~/logs/types'
 
 /** Convert milliseconds to seconds */
 const msToSeconds = (ms: number): number => Math.round(ms / 1000)

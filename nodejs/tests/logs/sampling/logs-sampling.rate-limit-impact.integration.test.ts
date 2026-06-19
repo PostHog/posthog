@@ -2,9 +2,9 @@ import avro from 'avsc'
 
 import { deleteKeysWithPrefix } from '~/cdp/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/ingestion/pipelines/logs/log-record-avro'
-import { compileRuleSet } from '~/ingestion/pipelines/logs/sampling/compile-rules'
-import { LogsSamplingService } from '~/ingestion/pipelines/logs/sampling/logs-sampling.service'
+import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/logs/log-record-avro'
+import { compileRuleSet } from '~/logs/sampling/compile-rules'
+import { LogsSamplingService } from '~/logs/sampling/logs-sampling.service'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
