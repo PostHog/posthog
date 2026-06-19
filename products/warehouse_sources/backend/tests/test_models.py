@@ -1,4 +1,5 @@
 import uuid
+from datetime import date, datetime
 
 import pytest
 from posthog.test.base import BaseTest
@@ -9,7 +10,11 @@ from django.db.models import Model
 from products.data_warehouse.backend.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    apply_incremental_lookback,
+    process_incremental_value,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
@@ -159,3 +164,25 @@ def test_reset_pipeline_clears_xmin_state() -> None:
 def test_process_incremental_value_xid_returns_value_as_is() -> None:
     assert process_incremental_value(4294967396, IncrementalFieldType.XID) == 4294967396
     assert process_incremental_value(None, IncrementalFieldType.XID) is None
+
+
+@pytest.mark.parametrize(
+    "value,field_type,lookback_seconds,expected",
+    [
+        (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, 3600, datetime(2026, 6, 14, 14, 33, 31)),
+        (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.DateTime, 86400, datetime(2026, 6, 13, 15, 33, 31)),
+        (date(2026, 6, 14), IncrementalFieldType.Date, 86400, date(2026, 6, 13)),
+        # Date arithmetic ignores the sub-day part of the delta, so a <1-day lookback is a no-op for date fields.
+        (date(2026, 6, 14), IncrementalFieldType.Date, 3600, date(2026, 6, 14)),
+        (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, None, datetime(2026, 6, 14, 15, 33, 31)),
+        (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, 0, datetime(2026, 6, 14, 15, 33, 31)),
+        (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, -5, datetime(2026, 6, 14, 15, 33, 31)),
+        (100, IncrementalFieldType.Integer, 3600, 100),
+        (100, IncrementalFieldType.Numeric, 3600, 100),
+        ("abc123", IncrementalFieldType.ObjectID, 3600, "abc123"),
+        (None, IncrementalFieldType.Timestamp, 3600, None),
+        (datetime(2026, 6, 14, 15, 33, 31), None, 3600, datetime(2026, 6, 14, 15, 33, 31)),
+    ],
+)
+def test_apply_incremental_lookback(value, field_type, lookback_seconds, expected) -> None:
+    assert apply_incremental_lookback(value, field_type, lookback_seconds) == expected

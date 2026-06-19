@@ -143,6 +143,9 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
         }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -209,6 +212,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         }
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
         }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
@@ -285,6 +291,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
         }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -334,6 +343,9 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
         }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -382,6 +394,9 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         }
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
         }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
