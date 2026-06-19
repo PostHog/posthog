@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
 
@@ -69,6 +70,18 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
     })
 
     const onRestoreClick = async (): Promise<void> => {
+        // Prefer the mounted Archived list logic so it optimistically drops the row and fixes its
+        // count + tab badge synchronously (it also fires the API call + toast). Navigate straight back.
+        const archivedList = reportListLogic.findMounted({
+            tabKey: 'archived',
+            listParams: INBOX_FLAT_TAB_LIST_PARAMS.archived,
+        })
+        if (archivedList) {
+            archivedList.actions.restoreReport(report.id)
+            router.actions.push(urls.inbox(activeTab))
+            return
+        }
+        // Fallback for a deep-linked detail with no mounted Archived list (e.g. cold load).
         setIsRestoring(true)
         try {
             await api.signalReports.setState(report.id, { state: 'potential' })
