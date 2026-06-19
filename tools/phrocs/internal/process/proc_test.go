@@ -941,6 +941,54 @@ func TestProcess_autorestartAfterCrash(t *testing.T) {
 	p.Stop()
 }
 
+func TestProcess_autorestartGivesUpAfterCap(t *testing.T) {
+	// Shrink the timings and cap so the full give-up flow runs in milliseconds.
+	origBase, origMax, origCap := restartBackoffBase, restartBackoffMax, maxRestartAttempts
+	restartBackoffBase = 2 * time.Millisecond
+	restartBackoffMax = 5 * time.Millisecond
+	maxRestartAttempts = 3
+	t.Cleanup(func() {
+		restartBackoffBase, restartBackoffMax, maxRestartAttempts = origBase, origMax, origCap
+	})
+
+	dir := t.TempDir()
+	mark := dir + "/runs"
+	p := NewProcess("crasher", config.ProcConfig{
+		Shell:       `echo run >> "$MARK"; exit 1`,
+		Autorestart: true,
+		Env:         map[string]string{"MARK": mark},
+	}, 100, "")
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+
+	// Wait for the give-up notice, which is only written once the cap is hit.
+	deadline := time.After(5 * time.Second)
+	for {
+		if strings.Contains(strings.Join(p.Lines(), "\n"), "gave up") {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("expected give-up notice after %d restarts", maxRestartAttempts)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	// Give any erroneous further restart a chance to fire, then assert the proc
+	// stayed dead and ran exactly maxRestartAttempts+1 times (initial + cap).
+	time.Sleep(50 * time.Millisecond)
+	if p.Status() != StatusCrashed {
+		t.Errorf("expected status crashed after giving up, got %s", p.Status())
+	}
+	data, _ := os.ReadFile(mark)
+	if got, want := strings.Count(string(data), "run"), maxRestartAttempts+1; got != want {
+		t.Errorf("expected %d runs before giving up, got %d", want, got)
+	}
+}
+
 func TestProcess_noAutorestartWhenDisabled(t *testing.T) {
 	dir := t.TempDir()
 	mark := dir + "/runs"

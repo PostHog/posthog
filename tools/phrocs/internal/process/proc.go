@@ -33,11 +33,13 @@ const defaultShell = "/bin/bash"
 // consecutive crashes the proc is left dead and must be restarted manually. A
 // proc that stays up longer than restartStableRunTime is considered healthy, so
 // its next crash starts the count (and backoff) over from scratch.
-const (
-	restartBackoffBase   = 1 * time.Second
-	restartBackoffMax    = 30 * time.Second
-	maxRestartAttempts   = 10
-	restartStableRunTime = 60 * time.Second
+const restartStableRunTime = 60 * time.Second
+
+// Effectively constants, but var so tests can shrink the timings and cap.
+var (
+	restartBackoffBase = 1 * time.Second
+	restartBackoffMax  = 30 * time.Second
+	maxRestartAttempts = 10
 )
 
 type Status int
@@ -149,8 +151,7 @@ type Process struct {
 	metrics        *Metrics
 	metricsEnabled atomic.Bool
 
-	restartCount   int  // consecutive rapid autorestarts since the last healthy run
-	autoRestarting bool // set when the next Start is an autorestart, so it keeps restartCount
+	restartCount int // consecutive rapid autorestarts since the last healthy run
 }
 
 // SetLogDir enables per-process log file teeing. When non-empty, Start opens
@@ -438,17 +439,23 @@ func (p *Process) buildCmd() *exec.Cmd {
 
 // It's safe to call Start concurrently as running process is a no-op
 func (p *Process) Start(send func(tea.Msg)) error {
+	return p.startInternal(send, false)
+}
+
+// startInternal starts the process. isAutoRestart distinguishes a backoff-driven
+// restart (which keeps the running crash count) from a manual start (which
+// resets it — the user has presumably fixed whatever was crashing). Passing it
+// as a parameter keeps the decision inside the same lock acquisition, avoiding a
+// race with a concurrent manual start.
+func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 	p.mu.Lock()
 	if p.status == StatusRunning {
 		p.mu.Unlock()
 		return nil
 	}
-	// A manual start (anything that isn't an autorestart) grants a fresh
-	// restart budget — the user has presumably fixed whatever was crashing.
-	if !p.autoRestarting {
+	if !isAutoRestart {
 		p.restartCount = 0
 	}
-	p.autoRestarting = false
 	p.status = StatusPending
 	// Preserve the current emulator dimensions (set by Resize) so the
 	// child process sees the correct terminal size from the start.
@@ -714,14 +721,13 @@ func (p *Process) scheduleRestart(cmd *exec.Cmd, attempt int, send func(tea.Msg)
 	// Bail if the process was stopped or already replaced (e.g. a manual
 	// restart) while we were backing off.
 	p.mu.Lock()
-	if p.cmd != cmd || p.status == StatusStopped {
-		p.mu.Unlock()
+	canRestart := p.cmd == cmd && p.status != StatusStopped
+	p.mu.Unlock()
+	if !canRestart {
 		return
 	}
-	p.autoRestarting = true
-	p.mu.Unlock()
 
-	_ = p.Start(send)
+	_ = p.startInternal(send, true)
 }
 
 // restartBackoffFor returns the exponential backoff delay for a given 1-based
