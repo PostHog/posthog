@@ -252,6 +252,8 @@ rules:
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
+                              |VisionAction
+                              |VisionActionRun
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
@@ -506,6 +508,8 @@ rules:
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
+                        |VisionAction
+                        |VisionActionRun
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
