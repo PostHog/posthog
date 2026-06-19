@@ -24,13 +24,21 @@ async function slackCall(
     method: string,
     body: Record<string, unknown>
 ): Promise<unknown> {
+    // Slack's read methods (conversations.*) reject JSON — they read
+    // form-encoded params. Form works for every method, so use it throughout.
+    const form = new URLSearchParams()
+    for (const [k, v] of Object.entries(body)) {
+        if (v !== undefined && v !== null) {
+            form.append(k, String(v))
+        }
+    }
     const res = await http.fetch(`https://slack.com/api/${method}`, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Type': 'application/x-www-form-urlencoded',
             Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(body),
+        body: form.toString(),
     })
     if (!res.ok) {
         throw new Error(`slack.${method} HTTP ${res.status}`)
