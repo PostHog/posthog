@@ -21,10 +21,9 @@ from products.signals.backend.models import (
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.skills.backend.models.skills import LLMSkill
 
-# The only reliable canonical-vs-custom discriminator. Canonical scouts (and the
-# `authoring-signals-scouts` companion) are stamped with this by the seeding
-# harness; scouts the self-driving wizard creates via `llma-skill-create` are not.
-# See `lazy_seed.py` (sync_canonical_skills guard) for the authoritative usage.
+# Seed tag stamped on canonical scouts + the `authoring-signals-scouts` companion; this DEBUG
+# reset preserves tagged rows. Not a perfect canonical marker (`_scout_origin` also checks the
+# name ships on disk), but wizard customs (`llma-skill-create`) carry no tag, so tag-only suffices.
 SEEDED_BY_HARNESS = "signals_scout_harness"
 
 # Basename the wizard's agent writes into its `--install-dir` after a self-driving run.
