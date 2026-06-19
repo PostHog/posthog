@@ -25,7 +25,11 @@ import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/Edi
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
-import { MetricColorFilter, MetricShowChangeFilter } from 'scenes/insights/EditorFilters/MetricFilters'
+import {
+    MetricColorFilter,
+    MetricShowChangeFilter,
+    MetricSummaryFilter,
+} from 'scenes/insights/EditorFilters/MetricFilters'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
@@ -234,6 +238,7 @@ export function InsightDisplayConfig(): JSX.Element {
                             : [
                                   ...(isMetric
                                       ? [
+                                            { label: () => <MetricSummaryFilter /> },
                                             { label: () => <MetricShowChangeFilter /> },
                                             { label: () => <MetricColorFilter /> },
                                         ]
@@ -435,7 +440,8 @@ export function InsightDisplayConfig(): JSX.Element {
         (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
         (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
-        (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0)
+        (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +
+        (isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total' ? 1 : 0)
 
     return (
         <div

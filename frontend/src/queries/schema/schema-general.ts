@@ -1507,6 +1507,12 @@ export type TrendsFilter = {
     metricLineIncreaseColor?: string
     /** Metric display: line color when the metric decreased. Defaults to red. */
     metricLineDecreaseColor?: string
+    /** Metric display: which summary the resting headline shows — the period total, the average,
+     * or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives
+     * the change pill: total/average compare against the previous period when "compare to previous"
+     * is on; latest compares first→last of the series.
+     * @default total */
+    metricSummary?: 'total' | 'average' | 'latest'
 }
 
 export type CalendarHeatmapFilter = {
@@ -1545,6 +1551,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'metricColorByDirection',
     'metricLineIncreaseColor',
     'metricLineDecreaseColor',
+    'metricSummary',
 ])
 
 export interface BoxPlotDatum {
@@ -6856,6 +6863,7 @@ export const externalDataSources = [
     'Streamlabs',
     'Datorama',
     'Ahrefs',
+    'Lightfield',
     'Custom',
 ] as const
 

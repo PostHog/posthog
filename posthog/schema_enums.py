@@ -441,6 +441,12 @@ class Display(StrEnum):
     SLOPE_GRAPH = "SlopeGraph"
 
 
+class MetricSummary(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    LATEST = "latest"
+
+
 class YAxisScaleType(StrEnum):
     LOG10 = "log10"
     LINEAR = "linear"
@@ -1782,6 +1788,7 @@ class ExternalDataSourceType(StrEnum):
     STREAMLABS = "Streamlabs"
     DATORAMA = "Datorama"
     AHREFS = "Ahrefs"
+    LIGHTFIELD = "Lightfield"
     CUSTOM = "Custom"
 
 
@@ -2169,6 +2176,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_APP = "customerio-app"
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
+    POSTGRESQL = "postgresql"
 
 
 class IntervalType(StrEnum):
