@@ -37,12 +37,6 @@ def _user_id(request: Request) -> int | None:
     return cast(int, user.id) if getattr(user, "is_authenticated", False) else None
 
 
-def _run_id(request: Request) -> str | None:
-    """Optional agent-run attribution passed by non-human callers."""
-    run = request.data.get("updated_by_run") if isinstance(request.data, dict) else None
-    return str(run) if run else None
-
-
 class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """A team's shared, file-tree-based agent memory.
 
@@ -122,7 +116,7 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 content=data["content"],
                 expected_version=data.get("expected_version"),
                 updated_by_id=_user_id(request),
-                updated_by_run=_run_id(request),
+                updated_by_run=data.get("updated_by_run"),
             )
         except api.InvalidMemoryPathError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -161,7 +155,7 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 heading=data["heading"],
                 body=data["body"],
                 updated_by_id=_user_id(request),
-                updated_by_run=_run_id(request),
+                updated_by_run=data.get("updated_by_run"),
             )
         except api.InvalidMemoryPathError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)

@@ -49,6 +49,15 @@ class TestAgentMemoryViewSet(APIBaseTest):
         assert body["expected_version"] == 1
         assert body["actual_version"] == 2
 
+    def test_write_records_updated_by_run(self) -> None:
+        response = self.client.post(
+            f"{self._base()}/write/",
+            {"path": "project.md", "content": "x", "updated_by_run": "run-123"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["updated_by_run"] == "run-123"
+
     def test_append_section(self) -> None:
         response = self.client.post(
             f"{self._base()}/append/",

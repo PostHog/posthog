@@ -63,6 +63,13 @@ class MemoryWriteInputSerializer(serializers.Serializer):
         help_text="Compare-and-set token. Omit (or null) to create a new file; pass the version you last read to "
         "update an existing one. A mismatch returns 409 — re-read and merge before retrying.",
     )
+    updated_by_run = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=255,
+        help_text="Optional identifier of the agent run performing this write (e.g. a scout run UUID), recorded for "
+        "attribution. Omit for human/API writes; the writer's user is attributed automatically.",
+    )
 
 
 class MemoryAppendInputSerializer(serializers.Serializer):
@@ -80,6 +87,13 @@ class MemoryAppendInputSerializer(serializers.Serializer):
         trim_whitespace=False,
         max_length=MAX_FILE_BYTES,
         help_text="Markdown body for the section. Never clobbers other sections of the file.",
+    )
+    updated_by_run = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=255,
+        help_text="Optional identifier of the agent run performing this write (e.g. a scout run UUID), recorded for "
+        "attribution. Omit for human/API writes; the writer's user is attributed automatically.",
     )
 
 

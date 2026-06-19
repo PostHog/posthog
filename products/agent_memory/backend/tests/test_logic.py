@@ -170,6 +170,14 @@ class TestListMemory(BaseTest):
         rows = logic.list_memory(team_id=self.team.id, prefix=prefix)
         assert sorted(r.path for r in rows) == sorted(expected)
 
+    def test_directory_prefix_does_not_match_sibling_paths(self) -> None:
+        # A trailing-slash prefix must scope to the directory, not match siblings
+        # whose path merely starts with the same characters.
+        logic.write_memory(team_id=self.team.id, path="users/jane.md", content="x", expected_version=None)
+        logic.write_memory(team_id=self.team.id, path="users_archive/old.md", content="x", expected_version=None)
+        rows = logic.list_memory(team_id=self.team.id, prefix="users/")
+        assert [r.path for r in rows] == ["users/jane.md"]
+
 
 class TestTeamIsolation(BaseTest):
     def setUp(self) -> None:

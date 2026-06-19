@@ -153,7 +153,9 @@ def list_memory(*, team_id: int, prefix: str | None = None) -> list[AgentMemoryF
     with team_scope(team_id):
         qs = AgentMemoryFile.objects.all()
         if prefix:
-            clean = prefix.strip().strip("/")
+            # Keep a trailing slash so a directory prefix like "users/" matches only
+            # files under that directory, not siblings like "users_archive/old.md".
+            clean = prefix.strip().lstrip("/")
             if clean:
                 qs = qs.filter(path__startswith=clean)
         return list(qs.order_by("path"))
@@ -249,14 +251,19 @@ def append_section(
 
         if existing is None:
             try:
-                row = AgentMemoryFile.objects.create(
-                    team_id=team_id,
-                    path=normalized,
-                    content=new_content,
-                    version=1,
-                    updated_by_id=updated_by_id,
-                    updated_by_run=updated_by_run,
-                )
+                # Nested atomic() = savepoint: on a lost create race the IntegrityError
+                # rolls back only this savepoint, leaving the outer transaction usable
+                # for the re-fetch below. Without it, Postgres aborts the whole
+                # transaction and the re-fetch raises TransactionManagementError.
+                with transaction.atomic():
+                    row = AgentMemoryFile.objects.create(
+                        team_id=team_id,
+                        path=normalized,
+                        content=new_content,
+                        version=1,
+                        updated_by_id=updated_by_id,
+                        updated_by_run=updated_by_run,
+                    )
             except IntegrityError:
                 # A concurrent create won; re-fetch and merge onto its content.
                 existing = AgentMemoryFile.objects.select_for_update().get(path=normalized)
