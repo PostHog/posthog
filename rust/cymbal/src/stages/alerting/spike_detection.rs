@@ -534,8 +534,10 @@ async fn fetch_bucket_data_with_retry(
             Ok(result) => return Ok(result),
             Err(err) if !err.is_unrecoverable_error() && attempt < FETCH_BUCKET_MAX_ATTEMPTS => {
                 warn!("Transient Redis error reading spike-detection buckets (attempt {attempt}/{FETCH_BUCKET_MAX_ATTEMPTS}), retrying: {err}");
-                tokio::time::sleep(std::time::Duration::from_millis(FETCH_BUCKET_RETRY_DELAY_MS))
-                    .await;
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    FETCH_BUCKET_RETRY_DELAY_MS,
+                ))
+                .await;
             }
             Err(err) => return Err(err),
         }
@@ -1214,9 +1216,18 @@ mod tests {
         assert_eq!(result[0].current_bucket_value, 1000);
     }
 
+    fn count_mget_calls(redis: &MockRedisClient) -> usize {
+        redis
+            .get_calls()
+            .into_iter()
+            .filter(|c| c.op == "mget")
+            .count()
+    }
+
     // A transient Redis timeout on the bucket read surfaces as a RedisError so the caller
     // can warn-and-continue instead of failing the whole batch (and self-capturing the error).
-    #[tokio::test]
+    // `start_paused` makes the retry backoff sleeps complete instantly.
+    #[tokio::test(start_paused = true)]
     async fn test_get_spiking_issues_surfaces_redis_error() {
         let mut ctx = TestContext::new();
         ctx.redis.mget_error(CustomRedisError::Timeout);
@@ -1227,25 +1238,56 @@ mod tests {
             .await
             .expect_err("a Redis timeout should propagate as an error");
 
-        assert!(matches!(err, UnhandledError::RedisError(CustomRedisError::Timeout)));
+        assert!(matches!(
+            err,
+            UnhandledError::RedisError(CustomRedisError::Timeout)
+        ));
     }
 
-    // Transient (recoverable) Redis errors are retried before giving up.
-    #[tokio::test]
-    async fn test_get_spiking_issues_retries_transient_errors() {
+    // A sticky transient error exhausts all retry attempts before giving up.
+    #[tokio::test(start_paused = true)]
+    async fn test_get_spiking_issues_retries_until_exhausted() {
         let mut ctx = TestContext::new();
         ctx.redis.mget_error(CustomRedisError::Timeout);
 
         let configs = HashMap::from([(ctx.team_id, SpikeDetectionConfig::default())]);
         let empty_props = HashMap::new();
-        let _ = get_spiking_issues(&ctx.redis, &ctx.issues_by_id(), &empty_props, &configs).await;
+        let result =
+            get_spiking_issues(&ctx.redis, &ctx.issues_by_id(), &empty_props, &configs).await;
 
-        let mget_calls = ctx
-            .redis
-            .get_calls()
-            .into_iter()
-            .filter(|c| c.op == "mget")
-            .count();
-        assert_eq!(mget_calls, FETCH_BUCKET_MAX_ATTEMPTS);
+        assert!(result.is_err());
+        assert_eq!(count_mget_calls(&ctx.redis), FETCH_BUCKET_MAX_ATTEMPTS);
+    }
+
+    // A transient error that clears on a later attempt recovers, rather than failing the batch.
+    #[tokio::test(start_paused = true)]
+    async fn test_get_spiking_issues_recovers_after_transient_error() {
+        let mut ctx = TestContext::new();
+        // Fail only the first read; the retry succeeds (no buckets set -> no spike).
+        ctx.redis.mget_error_at_call(0, CustomRedisError::Timeout);
+
+        let configs = HashMap::from([(ctx.team_id, SpikeDetectionConfig::default())]);
+        let empty_props = HashMap::new();
+        let result = get_spiking_issues(&ctx.redis, &ctx.issues_by_id(), &empty_props, &configs)
+            .await
+            .expect("retry should recover from a transient error");
+
+        assert!(result.is_empty());
+        assert_eq!(count_mget_calls(&ctx.redis), 2);
+    }
+
+    // An unrecoverable error is not retried.
+    #[tokio::test(start_paused = true)]
+    async fn test_get_spiking_issues_does_not_retry_unrecoverable_error() {
+        let mut ctx = TestContext::new();
+        ctx.redis.mget_error(CustomRedisError::InvalidConfiguration("bad".to_string()));
+
+        let configs = HashMap::from([(ctx.team_id, SpikeDetectionConfig::default())]);
+        let empty_props = HashMap::new();
+        let result =
+            get_spiking_issues(&ctx.redis, &ctx.issues_by_id(), &empty_props, &configs).await;
+
+        assert!(result.is_err());
+        assert_eq!(count_mget_calls(&ctx.redis), 1);
     }
 }

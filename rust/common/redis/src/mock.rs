@@ -24,6 +24,9 @@ pub struct MockRedisClient {
     expire_ret: HashMap<String, Result<bool, CustomRedisError>>,
     mget_ret: HashMap<String, Option<Vec<u8>>>,
     mget_error: Option<CustomRedisError>,
+    mget_errors_by_call: HashMap<usize, CustomRedisError>,
+    /// Shared via `Arc` so clones of the mock agree on call sequencing.
+    mget_call_counter: Arc<AtomicUsize>,
     pipeline_error: Option<CustomRedisError>,
     pipeline_block: Option<Duration>,
     pipeline_errors_by_call: HashMap<usize, CustomRedisError>,
@@ -50,6 +53,8 @@ impl Default for MockRedisClient {
             expire_ret: HashMap::new(),
             mget_ret: HashMap::new(),
             mget_error: None,
+            mget_errors_by_call: HashMap::new(),
+            mget_call_counter: Arc::new(AtomicUsize::new(0)),
             pipeline_error: None,
             pipeline_block: None,
             pipeline_errors_by_call: HashMap::new(),
@@ -176,6 +181,14 @@ impl MockRedisClient {
 
     pub fn mget_error(&mut self, err: CustomRedisError) -> Self {
         self.mget_error = Some(err);
+        self.clone()
+    }
+
+    /// Fail the Nth `mget` call (0-indexed across the lifetime of this mock)
+    /// with the given error. Other calls proceed normally. Takes precedence
+    /// over `mget_error`. Use to exercise transient-failure-then-recovery paths.
+    pub fn mget_error_at_call(&mut self, call_index: usize, err: CustomRedisError) -> Self {
+        self.mget_errors_by_call.insert(call_index, err);
         self.clone()
     }
 
@@ -528,8 +541,15 @@ impl Client for MockRedisClient {
             value: MockRedisValue::VecString(keys.clone()),
         });
 
-        if let Some(err) = &self.mget_error {
-            return Err(err.clone());
+        let call_index = self.mget_call_counter.fetch_add(1, Ordering::SeqCst);
+        // Per-call error takes precedence so tests can mix success and failure.
+        let injected_error = self
+            .mget_errors_by_call
+            .get(&call_index)
+            .cloned()
+            .or_else(|| self.mget_error.clone());
+        if let Some(err) = injected_error {
+            return Err(err);
         }
 
         let results: Vec<Option<Vec<u8>>> = keys
