@@ -196,7 +196,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     @property
     def is_high_frequency_interval(self) -> bool:
-        """Alert checks every 15 minutes — too fast to trust the recent-results cache."""
         return self.calculation_interval == AlertCalculationInterval.EVERY_15_MINUTES
 
     def get_subscribed_users_emails(self) -> list[str]:
