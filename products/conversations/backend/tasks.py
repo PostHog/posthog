@@ -1019,7 +1019,7 @@ def _sync_one_ticket_thread_replies(
 
         url = data.get("@odata.nextLink")
 
-    if replies_fetched or replies_matched:
+    if replies_fetched:
         logger.info(
             "poll_teams_shared_channel_replies_synced",
             team_id=team.id,

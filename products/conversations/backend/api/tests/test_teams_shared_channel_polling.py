@@ -483,6 +483,7 @@ class TestPollSharedChannelThreadReplies(BaseTest):
 
         ticket = self._prime_and_create_root_ticket(mock_get)
         conversation_id = ticket.teams_conversation_id
+        assert conversation_id is not None
 
         reply_page = _resp(
             json_data={
