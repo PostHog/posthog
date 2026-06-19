@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -17,6 +18,8 @@ from posthog.ducklake.common import (
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQuery
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -89,7 +92,10 @@ def _coerce_lossy_columns(cur: psycopg.Cursor[Any], sql: str, values: dict[str, 
     try:
         cur.execute(psql.SQL("DESCRIBE {}").format(psql.SQL(sql)), values or None)
         described = cur.fetchall()
-    except Exception:
+    except Exception as exc:
+        # Best-effort: skip coercion rather than block materialization, but log so a
+        # silent fallback to lossy DuckLake storage (HUGEINT -> DOUBLE) stays detectable.
+        logger.warning("DuckLake lossy-column probe failed, skipping coercion: %s", exc)
         return psql.SQL(sql)
     replacements = []
     for name, col_type, *_ in described:

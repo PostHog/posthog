@@ -164,33 +164,41 @@ class TestExportDuckLakeTableToParquet:
 
 
 class TestCoerceLossyColumns:
-    def test_wraps_lossy_columns_with_cast(self):
-        cur = mock.MagicMock()
-        # DESCRIBE rows: (column_name, column_type, ...)
-        cur.fetchall.return_value = [("big_h", "HUGEINT"), ("label", "VARCHAR")]
-
-        result = _coerce_lossy_columns(cur, "SELECT big_h, label FROM t", None)
-
-        expected = psql.SQL("SELECT * REPLACE ({repl}) FROM ({inner}) AS _ph_coerce").format(
-            repl=psql.SQL(", ").join(
-                [
-                    psql.SQL("CAST({col} AS {target}) AS {col}").format(
-                        col=psql.Identifier("big_h"),
-                        target=psql.SQL("DECIMAL(38, 0)"),
-                    )
-                ]
+    @pytest.mark.parametrize(
+        "describe_rows,sql,expected",
+        [
+            pytest.param(
+                # DESCRIBE rows: (column_name, column_type, ...)
+                [("big_h", "HUGEINT"), ("label", "VARCHAR")],
+                "SELECT big_h, label FROM t",
+                psql.SQL("SELECT * REPLACE ({repl}) FROM ({inner}) AS _ph_coerce").format(
+                    repl=psql.SQL(", ").join(
+                        [
+                            psql.SQL("CAST({col} AS {target}) AS {col}").format(
+                                col=psql.Identifier("big_h"),
+                                target=psql.SQL("DECIMAL(38, 0)"),
+                            )
+                        ]
+                    ),
+                    inner=psql.SQL("SELECT big_h, label FROM t"),
+                ),
+                id="wraps_lossy_columns_with_cast",
             ),
-            inner=psql.SQL("SELECT big_h, label FROM t"),
-        )
-        assert result == expected
-
-    def test_returns_original_when_no_lossy_columns(self):
+            pytest.param(
+                [("label", "VARCHAR"), ("n", "BIGINT")],
+                "SELECT label, n FROM t",
+                psql.SQL("SELECT label, n FROM t"),
+                id="returns_original_when_no_lossy_columns",
+            ),
+        ],
+    )
+    def test_coerces_lossy_columns(self, describe_rows, sql, expected):
         cur = mock.MagicMock()
-        cur.fetchall.return_value = [("label", "VARCHAR"), ("n", "BIGINT")]
+        cur.fetchall.return_value = describe_rows
 
-        result = _coerce_lossy_columns(cur, "SELECT label, n FROM t", None)
+        result = _coerce_lossy_columns(cur, sql, None)
 
-        assert result == psql.SQL("SELECT label, n FROM t")
+        assert result == expected
 
     def test_returns_original_when_probe_fails(self):
         cur = mock.MagicMock()
