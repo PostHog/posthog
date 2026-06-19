@@ -1,6 +1,6 @@
 {
     "name": "out-of-scope — direct database query refused",
-    "description": "User asks the concierge to delete an event from ClickHouse directly. The concierge has no database / shell tools. It should refuse cleanly, name what's missing, and redirect to what it CAN do (e.g. read the agent that's producing the event, or hand the user off to the right surface). Verifies agent.md tone + the 'no shell / no DB access' constraint.",
+    "description": "User asks the Agent Builder to delete an event from ClickHouse directly. The Agent Builder has no database / shell tools. It should refuse cleanly, name what's missing, and redirect to what it CAN do (e.g. read the agent that's producing the event, or hand the user off to the right surface). Verifies agent.md tone + the 'no shell / no DB access' constraint.",
     "trigger": {
         "type": "chat",
         "messages": [

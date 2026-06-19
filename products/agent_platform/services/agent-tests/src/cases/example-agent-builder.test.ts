@@ -1,7 +1,7 @@
 /**
- * Example bundle wiring check — `services/agent-tests/src/examples/agent-concierge/`.
+ * Example bundle wiring check — `services/agent-tests/src/examples/agent-builder/`.
  *
- * The concierge authors + operates other agents entirely through native
+ * The Agent Builder authors + operates other agents entirely through native
  * `@posthog/agent-applications-*` tools — there is NO external MCP server
  * in `spec.mcps[]` (removed so a transient MCP outage can't strip the
  * agent's write path). Destructive native tools (`promote`, `archive`)
@@ -20,9 +20,9 @@ import { AgentSpecSchema } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-concierge')
+const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-builder')
 
-interface ConciergeSpec {
+interface AgentBuilderSpec {
     model: string
     triggers: Array<{
         type: string
@@ -52,8 +52,8 @@ interface ConciergeSpec {
     resume?: { enabled: boolean; max_completed_age_ms: number }
 }
 
-async function loadBundle(): Promise<{ spec: ConciergeSpec; files: Record<string, string> }> {
-    const spec = JSON.parse(await readFile(join(BUNDLE_ROOT, 'spec.json'), 'utf-8')) as ConciergeSpec
+async function loadBundle(): Promise<{ spec: AgentBuilderSpec; files: Record<string, string> }> {
+    const spec = JSON.parse(await readFile(join(BUNDLE_ROOT, 'spec.json'), 'utf-8')) as AgentBuilderSpec
     const files: Record<string, string> = {}
     files['agent.md'] = await readFile(join(BUNDLE_ROOT, 'agent.md'), 'utf-8')
     files['README.md'] = await readFile(join(BUNDLE_ROOT, 'README.md'), 'utf-8')
@@ -65,7 +65,7 @@ async function loadBundle(): Promise<{ spec: ConciergeSpec; files: Record<string
     return { spec, files }
 }
 
-describe('example: agent-concierge bundle', () => {
+describe('example: agent-builder bundle', () => {
     it('every skill path in spec.skills[] exists as a bundle file', async () => {
         const { spec, files } = await loadBundle()
         for (const skill of spec.skills) {
@@ -80,14 +80,14 @@ describe('example: agent-concierge bundle', () => {
     it('agent.md is present and non-trivial', async () => {
         const { files } = await loadBundle()
         expect(files['agent.md']).not.toBeUndefined()
-        // The concierge agent.md is intentionally short (defers to skills) but
+        // The Agent Builder agent.md is intentionally short (defers to skills) but
         // not THIS short. <500 chars means something got truncated.
         expect(files['agent.md'].length).toBeGreaterThan(500)
     })
 
     it('declares no external MCP server and every native tool resolves in the native catalog', async () => {
         const { spec } = await loadBundle()
-        // The concierge authors via native tools only — no MCP server, so a
+        // The Agent Builder authors via native tools only — no MCP server, so a
         // transient MCP outage can never strip its write path (the bug this
         // replaced). Every declared native id must exist in the registry, or
         // freeze/validate would reject the revision.
@@ -167,7 +167,7 @@ describe('example: agent-concierge bundle', () => {
         ]) {
             expect(gated.has(required), `${required} should be gated`).toBe(true)
         }
-        // session_principal — the concierge wires every gated tool to the
+        // session_principal — the Agent Builder wires every gated tool to the
         // session owner via the per-asker fast-path, so the user who asked can
         // approve their own destructive call without a team-admin round-trip.
         for (const [, t] of gated) {
@@ -196,7 +196,7 @@ describe('example: agent-concierge bundle', () => {
     })
 
     it('the spec parses through AgentSpecSchema — runner accepts it as-is', async () => {
-        // The runner reads `revision.spec` via zod. The concierge declares no
+        // The runner reads `revision.spec` via zod. The Agent Builder declares no
         // MCP server (native-only) and gates its destructive native tools
         // inline. This assertion pins that contract so a future schema
         // tightening doesn't silently re-break the bundle.
@@ -215,7 +215,7 @@ describe('example: agent-concierge bundle', () => {
     })
 
     it('the shared example seeder deploys this bundle without stripping mcps', async () => {
-        // The concierge deploys via the shared generic seeder
+        // The Agent Builder deploys via the shared generic seeder
         // (services/agent-tests/src/examples/seed.py), which auto-discovers
         // any dir with spec.json + agent.md. Things that would silently break
         // the deploy if removed:

@@ -1,6 +1,6 @@
 {
     "name": "inspect-agent — happy path: 'what does weekly-digest do?'",
-    "description": "Standard inspect flow on a real agent slug. Concierge should load reading-an-agent skill on the first turn, call agent-applications-retrieve + agent-applications-revisions-retrieve + agent-applications-revisions-system-prompt + agent-applications-sessions-list (per the skill), then produce a structured summary.",
+    "description": "Standard inspect flow on a real agent slug. Agent Builder should load reading-an-agent skill on the first turn, call agent-applications-retrieve + agent-applications-revisions-retrieve + agent-applications-revisions-system-prompt + agent-applications-sessions-list (per the skill), then produce a structured summary.",
     "trigger": {
         "type": "chat",
         "messages": [{ "role": "user", "content": "What does weekly-digest do? Is it healthy?" }]
