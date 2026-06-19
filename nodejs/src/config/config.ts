@@ -1,13 +1,13 @@
-import { getDefaultErrorTrackingConsumerConfig } from '~/ingestion/lanes/error-tracking/config'
+import { getDefaultErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
 import {
     getDefaultLogsIngestionConsumerConfig,
     getDefaultTracesIngestionConsumerConfig,
-} from '~/ingestion/lanes/logs/config'
-import { getDefaultMetricsIngestionConsumerConfig } from '~/ingestion/lanes/metrics/config'
+} from '~/ingestion/pipelines/logs/config'
+import { getDefaultMetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
 import {
     getDefaultSessionRecordingApiConfig,
     getDefaultSessionRecordingConfig,
-} from '~/ingestion/lanes/session-replay/config'
+} from '~/ingestion/pipelines/sessionreplay/config'
 
 import { getDefaultAIObservabilityConfig } from '../ai-observability/config'
 import { getDefaultCdpConfig } from '../cdp/config'

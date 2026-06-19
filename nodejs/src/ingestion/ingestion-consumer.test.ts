@@ -16,7 +16,7 @@ import {
     COOKIELESS_SENTINEL_VALUE,
 } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
-import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
+import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { createPrepareEventStep } from '~/ingestion/steps/event-processing/prepare-event-step'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { forSnapshot } from '~/tests/helpers/snapshots'

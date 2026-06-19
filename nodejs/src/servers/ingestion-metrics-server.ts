@@ -4,17 +4,17 @@ import {
     MetricsIngestionConsumerConfig,
     MetricsIngestionOutputsConfig,
     getDefaultMetricsIngestionOutputsConfig,
-} from '~/ingestion/lanes/metrics/config'
-import { MetricsIngestionConsumer } from '~/ingestion/lanes/metrics/metrics-ingestion-consumer'
-import { createProducerRegistry } from '~/ingestion/lanes/metrics/outputs/producer-registry'
+} from '~/ingestion/pipelines/metrics/config'
+import { MetricsIngestionConsumer } from '~/ingestion/pipelines/metrics/metrics-ingestion-consumer'
+import { createProducerRegistry } from '~/ingestion/pipelines/metrics/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
     KafkaWarpstreamMetricsProducerEnvConfig,
     MetricsProducerName,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamMetricsProducerEnvConfig,
-} from '~/ingestion/lanes/metrics/outputs/producers'
-import { createMetricsOutputsRegistry } from '~/ingestion/lanes/metrics/outputs/registry'
+} from '~/ingestion/pipelines/metrics/outputs/producers'
+import { createMetricsOutputsRegistry } from '~/ingestion/pipelines/metrics/outputs/registry'
 
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'

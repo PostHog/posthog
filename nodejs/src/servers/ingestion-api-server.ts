@@ -16,15 +16,15 @@ import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writi
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
-import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
+import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
     JoinedIngestionPipelineDeps,
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
-} from '~/ingestion/lanes/analytics/joined-ingestion-pipeline'
-import { createOutputsRegistry } from '~/ingestion/lanes/analytics/outputs/registry'
+} from '~/ingestion/pipelines/analytics/joined-ingestion-pipeline'
+import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { parseSplitAiEventsConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
 
 import { initializePrometheusLabels } from '../api/router'

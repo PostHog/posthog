@@ -8,10 +8,10 @@ import { GroupRepository } from '~/common/groups/repositories/group-repository.i
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import type { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import type { ErrorTrackingConsumerConfig } from '~/ingestion/lanes/error-tracking/config'
-import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/ingestion/lanes/logs/config'
-import type { MetricsIngestionConsumerConfig } from '~/ingestion/lanes/metrics/config'
-import type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/lanes/session-replay/config'
+import type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
+import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/ingestion/pipelines/logs/config'
+import type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
+import type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { AIObservabilityConfig } from './ai-observability/config'
@@ -46,10 +46,10 @@ export type {
     PersonBatchWritingDbWriteMode,
     PersonBatchWritingMode,
 } from './ingestion/config'
-export type { ErrorTrackingConsumerConfig } from '~/ingestion/lanes/error-tracking/config'
-export type { LogsIngestionConsumerConfig } from '~/ingestion/lanes/logs/config'
-export type { MetricsIngestionConsumerConfig } from '~/ingestion/lanes/metrics/config'
-export type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/lanes/session-replay/config'
+export type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
+export type { LogsIngestionConsumerConfig } from '~/ingestion/pipelines/logs/config'
+export type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
+export type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 
 interface HealthCheckResultResponse {
     service: string

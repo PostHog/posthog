@@ -1,17 +1,17 @@
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { createProducerRegistry } from '~/ingestion/lanes/session-replay/recording-api/outputs/producer-registry'
-import { createOutputsRegistry } from '~/ingestion/lanes/session-replay/recording-api/outputs/registry'
-import { RecordingApi } from '~/ingestion/lanes/session-replay/recording-api/recording-api'
+import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/recording-api/outputs/producer-registry'
+import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/recording-api/outputs/registry'
+import { RecordingApi } from '~/ingestion/pipelines/sessionreplay/recording-api/recording-api'
 import {
     RecordingApiConfig,
     RecordingApiOutputsConfig,
     type RecordingApiProducerName,
     getDefaultRecordingApiOutputsConfig,
-} from '~/ingestion/lanes/session-replay/recording-api/types'
+} from '~/ingestion/pipelines/sessionreplay/recording-api/types'
 import {
     KafkaSessionreplayProducerEnvConfig,
     getDefaultKafkaSessionreplayProducerEnvConfig,
-} from '~/ingestion/lanes/session-replay/shared/outputs/producer-config'
+} from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'

@@ -4,7 +4,7 @@ import { createHogTransformerService } from '~/cdp/hog-transformations/hog-trans
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
-import { createAiEventSubpipeline } from '~/ingestion/lanes/ai'
+import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import {

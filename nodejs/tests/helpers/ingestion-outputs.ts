@@ -16,7 +16,7 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { HEATMAPS_OUTPUT } from '~/ingestion/lanes/heatmaps/outputs'
+import { HEATMAPS_OUTPUT } from '~/ingestion/pipelines/heatmaps/outputs'
 
 import {
     KAFKA_APP_METRICS_2,

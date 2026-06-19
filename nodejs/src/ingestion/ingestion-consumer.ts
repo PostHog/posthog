@@ -30,7 +30,7 @@ import {
     JoinedIngestionPipelineDeps,
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
-} from '~/ingestion/lanes/analytics'
+} from '~/ingestion/pipelines/analytics'
 import { parseSplitAiEventsConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/kafka/consumer'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'

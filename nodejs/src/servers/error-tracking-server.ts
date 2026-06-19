@@ -11,9 +11,9 @@ import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,
     getDefaultErrorTrackingOutputsConfig,
-} from '~/ingestion/lanes/error-tracking/config'
-import { ErrorTrackingConsumer } from '~/ingestion/lanes/error-tracking/error-tracking-consumer'
-import { createOutputsRegistry } from '~/ingestion/lanes/error-tracking/outputs/registry'
+} from '~/ingestion/pipelines/errortracking/config'
+import { ErrorTrackingConsumer } from '~/ingestion/pipelines/errortracking/error-tracking-consumer'
+import { createOutputsRegistry } from '~/ingestion/pipelines/errortracking/outputs/registry'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
