@@ -28,7 +28,7 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 # Companion canonical skills seeded per-team alongside the scout fleet. Not scouts — their
 # names don't carry the `signals-scout-` prefix, so the harness glob, `register_missing_configs`,
 # and the prune pass all ignore their rows — but agents that work on a team's fleet through the
-# skills store (e.g. the wizard's product-autonomy tailoring step reading the authoring guide
+# skills store (e.g. the wizard's self-driving tailoring step reading the authoring guide
 # via `llma-skill-get`) can only see per-team rows, so the guide has to be mirrored like the
 # fleet is. Same divergence-aware sync; one caveat: removing a name from this tuple strands its
 # existing per-team rows (prune only reaps `signals-scout-*` rows), so retiring a companion

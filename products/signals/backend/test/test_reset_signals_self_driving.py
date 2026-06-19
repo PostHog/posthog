@@ -13,7 +13,7 @@ _SERVICE = "products.data_warehouse.backend.data_load.service"
 @override_settings(DEBUG=True)
 @mock.patch(f"{_SERVICE}.delete_discover_schemas_schedule")
 @mock.patch(f"{_SERVICE}.delete_external_data_schedule")
-class TestResetSignalsAutonomyDWHTeardown(BaseTest):
+class TestResetSignalsSelfDrivingDWHTeardown(BaseTest):
     """The reset command must tear down the DWH pipelines the wizard creates, since nothing
     FK-links them to the signals-owned models it already deletes. Scoped to created_via=MCP.
 
@@ -40,7 +40,7 @@ class TestResetSignalsAutonomyDWHTeardown(BaseTest):
 
     def _run_reset(self) -> None:
         call_command(
-            "reset_signals_autonomy",
+            "reset_signals_self_driving",
             team_id=self.team.id,
             yes=True,
             keep_findings=True,

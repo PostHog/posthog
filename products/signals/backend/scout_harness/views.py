@@ -904,7 +904,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "canonical `signals-scout-*` skills, create a default-schedule config for any scout "
             "lacking one, and return all scout configs. Normally the Temporal coordinator does "
             "this on its next tick; this action exists so setup flows (e.g. the wizard's "
-            "product-autonomy program) can hand the user a tunable fleet immediately."
+            "self-driving program) can hand the user a tunable fleet immediately."
         ),
         operation_id="signals_scout_config_sync",
     )

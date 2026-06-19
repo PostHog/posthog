@@ -23,17 +23,17 @@ from products.skills.backend.models.skills import LLMSkill
 
 # The only reliable canonical-vs-custom discriminator. Canonical scouts (and the
 # `authoring-signals-scouts` companion) are stamped with this by the seeding
-# harness; scouts the autonomy wizard creates via `llma-skill-create` are not.
+# harness; scouts the self-driving wizard creates via `llma-skill-create` are not.
 # See `lazy_seed.py` (sync_canonical_skills guard) for the authoritative usage.
 SEEDED_BY_HARNESS = "signals_scout_harness"
 
-# Basename the wizard's agent writes into its `--install-dir` after an autonomy run.
-AUTONOMY_REPORT_FILE = "posthog-product-autonomy-report.md"
+# Basename the wizard's agent writes into its `--install-dir` after a self-driving run.
+SELF_DRIVING_REPORT_FILE = "posthog-self-driving-report.md"
 
 
 class Command(BaseCommand):
     help = (
-        "Reset a team to its pre-autonomy state so the product-autonomy wizard can be "
+        "Reset a team to its pre-self-driving state so the self-driving wizard can be "
         "re-tested from scratch. Deletes signal sources, the scout fleet config, custom "
         "scouts, scout run-state (and, unless --keep-findings, emitted findings via "
         "cleanup_signals); optionally removes the wizard's report file and cycles its log. "
@@ -45,7 +45,7 @@ class Command(BaseCommand):
             "--team-id",
             type=int,
             required=True,
-            help="Team ID to reset autonomy state for",
+            help="Team ID to reset self-driving state for",
         )
         parser.add_argument(
             "--yes",
@@ -58,7 +58,7 @@ class Command(BaseCommand):
             default=None,
             help=(
                 "The wizard's --install-dir (the test project). When given, removes "
-                f"<install-dir>/{AUTONOMY_REPORT_FILE}."
+                f"<install-dir>/{SELF_DRIVING_REPORT_FILE}."
             ),
         )
         parser.add_argument(
@@ -90,7 +90,7 @@ class Command(BaseCommand):
         if not options["yes"]:
             self.stdout.write(
                 self.style.WARNING(
-                    f"This will DELETE all Signals autonomy state for team {team.id} "
+                    f"This will DELETE all Signals self-driving state for team {team.id} "
                     f"(sources, scout fleet config, custom scouts, scout run-state"
                     f"{'' if options['keep_findings'] else ', emitted findings'}). "
                     f"Canonical scouts are preserved."
@@ -108,7 +108,7 @@ class Command(BaseCommand):
             self.stdout.write("Clearing emitted findings via cleanup_signals...")
             call_command("cleanup_signals", team_id=team.id, yes=True)
 
-        # 2. Postgres autonomy state, atomically.
+        # 2. Postgres self-driving state, atomically.
         with transaction.atomic():
             # Custom scouts: every version of each `signals-scout-*` skill NOT stamped by the
             # seeding harness. We partition by SET DIFFERENCE (all scout names minus seeded
@@ -166,11 +166,13 @@ class Command(BaseCommand):
             self._cycle_log(options["wizard_log"])
 
         self.stdout.write(
-            self.style.SUCCESS(f"Done. Team {team.id} reset to pre-autonomy state — re-run the wizard to start clean.")
+            self.style.SUCCESS(
+                f"Done. Team {team.id} reset to pre-self-driving state — re-run the wizard to start clean."
+            )
         )
 
     def _soft_delete_dwh_sources(self, team):
-        """Soft-delete the autonomy-created data-warehouse pipelines (the Github / Linear /
+        """Soft-delete the self-driving-created data-warehouse pipelines (the Github / Linear /
         Zendesk / PgAnalyze issue/ticket sources) so a re-run starts clean.
 
         `SignalSourceConfig` (deleted above) has NO foreign key to these warehouse sources —
@@ -232,7 +234,7 @@ class Command(BaseCommand):
     def _remove_report(self, install_dir):
         if not install_dir:
             return
-        report_path = os.path.join(install_dir, AUTONOMY_REPORT_FILE)
+        report_path = os.path.join(install_dir, SELF_DRIVING_REPORT_FILE)
         if os.path.exists(report_path):
             os.remove(report_path)
             self.stdout.write(f"  ✓ removed report: {report_path}")
