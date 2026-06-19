@@ -425,6 +425,60 @@ async def test_transient_timeout_reraises_for_retry(ateam, aerrors_skill, timeou
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_transient_timeout_swallowed_when_raise_transient_false(ateam, aerrors_skill):
+    # The synchronous CLI path (`run_signals_scout`) passes `raise_transient=False`: with no
+    # retry harness around it, a transient timeout must surface as a FAILED RunResult rather
+    # than an unhandled raise that aborts the management command with a traceback.
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("API Error: The operation timed out."),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(
+            team_id=ateam.id, skill_name="signals-scout-errors", raise_transient=False
+        )
+
+    assert run_result.status == TaskRun.Status.FAILED.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_bare_operation_timed_out_is_not_classified_transient(ateam, aerrors_skill):
+    # A driver-level "operation timed out" (e.g. psycopg2 OperationalError) is a persistent
+    # outage, not a retryable agent timeout — it lacks the "API Error:" prefix, so it must
+    # stay on the swallow-into-FAILED path and never re-raise into the RetryPolicy.
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("OperationalError: connection failed: operation timed out"),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == TaskRun.Status.FAILED.value
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_non_timeout_failure_does_not_reraise(ateam, aerrors_skill):
     # A genuine (non-timeout) failure stays on the swallow-into-FAILED path — it must not
     # raise, so the workflow's RetryPolicy never spins a bad skill / prompt in a retry loop.

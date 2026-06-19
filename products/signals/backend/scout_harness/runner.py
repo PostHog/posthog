@@ -49,9 +49,13 @@ class TransientScoutTimeoutError(Exception):
 
 
 # Substrings that mark a transient timeout worth retrying. The agent poll-budget exhaustion
-# raises `RuntimeError("custom_prompt - poll_for_turn: timed out after {n}s")`; the Temporal
-# activity start_to_close / heartbeat expiry surfaces as "The operation timed out."
-_TRANSIENT_TIMEOUT_MARKERS = ("poll_for_turn: timed out", "operation timed out")
+# raises `RuntimeError("custom_prompt - poll_for_turn: timed out after {n}s")`; a timed-out
+# LLM API call surfaces as "API Error: The operation timed out." The second marker keeps the
+# "api error:" prefix so a bare "operation timed out" from a DB / network driver (e.g.
+# psycopg2 OperationalError) is not mistaken for a retryable agent timeout. Temporal's own
+# activity start_to_close / heartbeat expiry is retried natively by the RetryPolicy and never
+# reaches this classifier.
+_TRANSIENT_TIMEOUT_MARKERS = ("poll_for_turn: timed out", "api error: the operation timed out")
 
 
 def _is_transient_timeout(exc: BaseException) -> bool:
@@ -91,6 +95,9 @@ def run_signals_scout(
 
     Wraps the async core for callers that aren't inside an event loop (management
     command, direct script). Temporal activities call `arun_signals_scout` directly.
+
+    `raise_transient=False`: there is no retry harness around a one-shot CLI run, so a
+    transient timeout is reported as a FAILED RunResult rather than an unhandled raise.
     """
     return asyncio.run(
         arun_signals_scout(
@@ -99,6 +106,7 @@ def run_signals_scout(
             skill_version=skill_version,
             repository=repository,
             verbose=verbose,
+            raise_transient=False,
         )
     )
 
@@ -110,8 +118,15 @@ async def arun_signals_scout(
     skill_version: int | None = None,
     repository: str | None = None,
     verbose: bool = False,
+    raise_transient: bool = True,
 ) -> RunResult:
-    """Async core. Safe to call from inside a running event loop (Temporal activity)."""
+    """Async core. Safe to call from inside a running event loop (Temporal activity).
+
+    `raise_transient` controls whether a transient timeout re-raises as a retryable
+    `TransientScoutTimeoutError` (the Temporal activity path, so the workflow's RetryPolicy
+    reruns the sweep) or is swallowed into a `status='failed'` RunResult like any other
+    failure (the synchronous CLI path, which has no retry harness around it).
+    """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
     # Sync canonical signals-scout-* skills before we resolve the skill the run asked for.
     # Creates rows for newly-shipped specialists, updates harness-seeded rows the team
@@ -238,7 +253,7 @@ async def arun_signals_scout(
             runtime_s=runtime_s,
             emitted_count=emitted_count,
         )
-        if _is_transient_timeout(exc):
+        if raise_transient and _is_transient_timeout(exc):
             # Transient timeout: re-raise a stage-tagged, retryable error so the activity's
             # bounded RetryPolicy reruns the whole scout rather than silently dropping the
             # scheduled run until the next interval. The FAILED capture above still records
