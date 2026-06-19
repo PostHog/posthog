@@ -41,7 +41,7 @@ pub struct RawHermesFrame {
 pub enum HermesRef {}
 
 impl RawHermesFrame {
-    pub async fn resolve<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, UnhandledError>
+    pub async fn resolve_frame<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, UnhandledError>
     where
         C: SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap>,
     {
@@ -226,6 +226,7 @@ impl From<&RawHermesFrame> for Frame {
 
 #[cfg(test)]
 mod test {
+    use crate::core::symbolication::resolve::Resolve;
     use std::sync::Arc;
 
     use chrono::Utc;

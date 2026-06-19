@@ -3,7 +3,6 @@ pub mod core;
 pub mod modes;
 #[cfg(test)]
 pub mod test_utils;
-pub mod types;
 
 // Compat re-exports: the shared kernel physically lives under `core/`, but much
 // of the crate still imports it by the old crate-root paths. Prefer
@@ -18,5 +17,5 @@ pub use core::{error, frames, metric_consts, symbolication};
 // Prefer `crate::modes::processing::*` in new code.
 pub use modes::processing::{
     app_context, fingerprinting, issue_resolution, analytics, router, server,
-    signals, stages, teams, tokenizer,
+    signals, stages, teams, tokenizer, types,
 };

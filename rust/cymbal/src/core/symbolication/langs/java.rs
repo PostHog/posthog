@@ -53,7 +53,7 @@ impl RawJavaFrame {
         format!("{:x}", hasher.finalize())
     }
 
-    pub async fn resolve<C>(&self, team_id: i32, catalog: &C) -> Result<Vec<Frame>, UnhandledError>
+    pub async fn resolve_frame<C>(&self, team_id: i32, catalog: &C) -> Result<Vec<Frame>, UnhandledError>
     where
         C: SymbolCatalog<OrChunkId<ProguardRef>, FetchedMapping>,
     {

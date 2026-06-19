@@ -524,7 +524,7 @@ mod test {
         let mut frame = get_example_frame();
         frame.chunk_id = Some(chunk_id.clone());
 
-        let res = frame.resolve(1, &catalog).await.unwrap();
+        let res = frame.resolve_frame(1, &catalog).await.unwrap();
         assert!(res.resolved)
     }
 }

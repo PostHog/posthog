@@ -38,7 +38,7 @@ pub struct RawNodeFrame {
 }
 
 impl RawNodeFrame {
-    pub async fn resolve<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, UnhandledError>
+    pub async fn resolve_frame<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, UnhandledError>
     where
         C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
     {

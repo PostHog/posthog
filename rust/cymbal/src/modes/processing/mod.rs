@@ -21,6 +21,7 @@ pub mod signals;
 pub mod stages;
 pub mod teams;
 pub mod tokenizer;
+pub mod types;
 
 pub async fn run(config: Config) {
     let context = Arc::new(AppContext::from_config(&config).await.unwrap());

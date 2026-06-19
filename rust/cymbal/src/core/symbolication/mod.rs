@@ -5,6 +5,7 @@
 //! - [`symbol`] — the [`symbol::SymbolResolver`] trait and the local resolver.
 //! - [`symbol_store`] — symbol-set providers, caching, and the [`symbolication::symbol_store::Catalog`].
 
+pub mod langs;
+pub mod resolve;
 pub mod symbol;
 pub mod symbol_store;
-pub mod langs;

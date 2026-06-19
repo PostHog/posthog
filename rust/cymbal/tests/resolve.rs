@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use common_types::ClickHouseEvent;
+use cymbal::symbolication::resolve::Resolve;
 use cymbal::{
     config::Config,
     frames::{Frame, RawFrame},

@@ -533,7 +533,7 @@ mod test {
 
     #[test]
     fn it_deserialises_error_props() {
-        let raw: &'static str = include_str!("../../tests/static/raw_ch_exception_list.json");
+        let raw: &'static str = include_str!("../../../../tests/static/raw_ch_exception_list.json");
 
         let raw: ClickHouseEvent = serde_json::from_str(raw).unwrap();
 

@@ -22,6 +22,7 @@ use crate::{
         Frame, RawFrame,
     },
     langs::native::DebugImage,
+    symbolication::resolve::Resolve,
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
         SUSPICIOUS_FRAMES_DETECTED,

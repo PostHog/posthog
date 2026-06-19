@@ -16,6 +16,7 @@ use crate::{
     },
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED, LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_source_line,
+    symbolication::resolve::Resolve,
     symbolication::symbol_store::Catalog,
 };
 
@@ -76,39 +77,43 @@ pub enum RawFrame {
     LegacyJS(RawJSFrame),
 }
 
-impl RawFrame {
-    pub async fn resolve(
+impl Resolve<Catalog> for RawFrame {
+    async fn resolve(
         &self,
         team_id: i32,
         catalog: &Catalog,
         debug_images: &[DebugImage],
     ) -> Result<Vec<Frame>, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
-        let (res, lang_tag) = match self {
+        // Catalog-backed frames resolve via `Resolve`; catalog-free frames convert
+        // directly with `From<&RawX> for Frame` (no symbol resolution needed).
+        let (res, lang_tag): (Result<Vec<Frame>, UnhandledError>, &str) = match self {
             RawFrame::JavaScriptWeb(frame) => {
-                (to_vec(frame.resolve(team_id, catalog).await), "javascript")
+                (frame.resolve(team_id, catalog, debug_images).await, "javascript")
             }
             RawFrame::LegacyJS(frame) => {
                 // TODO: monitor this metric and remove the legacy frame type when it hits 0
                 metrics::counter!(LEGACY_JS_FRAME_RESOLVED).increment(1);
-                (to_vec(frame.resolve(team_id, catalog).await), "javascript")
+                (frame.resolve(team_id, catalog, debug_images).await, "javascript")
             }
             RawFrame::JavaScriptNode(frame) => {
-                (to_vec(frame.resolve(team_id, catalog).await), "javascript")
+                (frame.resolve(team_id, catalog, debug_images).await, "javascript")
             }
 
-            RawFrame::Dart(frame) => (to_vec(Ok(frame.into())), "dart"),
+            RawFrame::Dart(frame) => (Ok(vec![frame.into()]), "dart"),
             RawFrame::Apple(frame) => {
                 (frame.resolve(team_id, catalog, debug_images).await, "apple")
             }
-            RawFrame::Php(frame) => (to_vec(Ok(frame.into())), "php"),
-            RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
-            RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
-            RawFrame::Rust(frame) => (to_vec(Ok(frame.into())), "rust"),
-            RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),
-            RawFrame::Go(frame) => (to_vec(Ok(frame.into())), "go"),
-            RawFrame::Hermes(frame) => (to_vec(frame.resolve(team_id, catalog).await), "hermes"),
-            RawFrame::Java(frame) => (frame.resolve(team_id, catalog).await, "java"),
+            RawFrame::Php(frame) => (Ok(vec![frame.into()]), "php"),
+            RawFrame::Python(frame) => (Ok(vec![frame.into()]), "python"),
+            RawFrame::Ruby(frame) => (Ok(vec![frame.into()]), "ruby"),
+            RawFrame::Rust(frame) => (Ok(vec![frame.into()]), "rust"),
+            RawFrame::Custom(frame) => (Ok(vec![frame.into()]), "custom"),
+            RawFrame::Go(frame) => (Ok(vec![frame.into()]), "go"),
+            RawFrame::Hermes(frame) => {
+                (frame.resolve(team_id, catalog, debug_images).await, "hermes")
+            }
+            RawFrame::Java(frame) => (frame.resolve(team_id, catalog, debug_images).await, "java"),
         };
 
         // The raw id of the frame is set after it's resolved.
@@ -143,7 +148,9 @@ impl RawFrame {
 
         res
     }
+}
 
+impl RawFrame {
     pub fn symbol_set_ref(&self) -> Option<String> {
         match self {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
@@ -435,10 +442,6 @@ impl From<Frame> for FrameData {
             code_variables: frame.code_variables,
         }
     }
-}
-
-fn to_vec<T, E>(item: Result<T, E>) -> Result<Vec<T>, E> {
-    item.map(|t| vec![t])
 }
 
 #[cfg(test)]

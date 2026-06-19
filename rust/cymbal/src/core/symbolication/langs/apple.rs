@@ -87,7 +87,7 @@ pub struct RawAppleFrame {
 }
 
 impl RawAppleFrame {
-    pub async fn resolve<C>(
+    pub async fn resolve_frame<C>(
         &self,
         team_id: i32,
         catalog: &C,
@@ -432,6 +432,7 @@ impl From<&RawAppleFrame> for Frame {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::core::symbolication::resolve::Resolve;
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_apple_symbolication(db: sqlx::PgPool) {
