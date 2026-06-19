@@ -83,7 +83,7 @@ def _find_inbox_channel(slack: SlackIntegration) -> tuple[str, str] | None:
                 exclude_archived=True, types="public_channel", limit=200, cursor=cursor or None
             )
         except SlackApiError as e:
-            logger.warning("slack_inbox_channel_list_failed", error=e.response.get("error"))
+            logger.warning("slack_app_inbox_channel_list_failed", error=e.response.get("error"))
             return None
         channels: list[dict] = response.get("channels", [])
         for channel in channels:
@@ -92,7 +92,7 @@ def _find_inbox_channel(slack: SlackIntegration) -> tuple[str, str] | None:
         cursor = (response.get("response_metadata") or {}).get("next_cursor") or ""
         if not cursor:
             return None
-    logger.warning("slack_inbox_channel_scan_exhausted")
+    logger.warning("slack_app_inbox_channel_scan_exhausted")
     return None
 
 
@@ -118,12 +118,12 @@ def ensure_inbox_channel(integration: Integration) -> tuple[str, str] | None:
         if _channel_exists(slack, channel_id):
             return channel_id, channel_name_from_target(configured)
 
-    existing = _find_inbox_channel(slack)
-    if existing:
-        _set_team_channel(team_id, _channel_target(*existing))
-        return existing
-
+    # Without channels:manage we can't create, so the only option is to find an already-created channel.
     if slack.missing_scopes(INBOX_CHANNEL_REQUIRED_SCOPES):
+        existing = _find_inbox_channel(slack)
+        if existing:
+            _set_team_channel(team_id, _channel_target(*existing))
+            return existing
         return None
 
     if not _claim_channel_creation(integration.integration_id):
@@ -135,16 +135,19 @@ def ensure_inbox_channel(integration: Integration) -> tuple[str, str] | None:
             return existing
         return None
 
+    # Create straight away instead of scanning every channel first — a full conversations_list sweep is
+    # heavy and rate-limit-hungry, and on a fresh install (the common case) it finds nothing. If the
+    # channel already exists Slack answers name_taken; only then do we pay for a scan to resolve its id.
     try:
         channel: dict = slack.client.conversations_create(name=INBOX_CHANNEL_NAME, is_private=False)["channel"]
         result: tuple[str, str] = (channel["id"], f"#{INBOX_CHANNEL_NAME}")
     except SlackApiError as e:
         if e.response.get("error") != "name_taken":
-            logger.warning("slack_inbox_create_failed", integration_id=integration.id, error=str(e))
+            logger.warning("slack_app_inbox_create_failed", integration_id=integration.id, error=str(e))
             return None
         found = _find_inbox_channel(slack)
         if found is None:
-            logger.warning("slack_inbox_name_taken_but_not_found", integration_id=integration.id)
+            logger.warning("slack_app_inbox_name_taken_but_not_found", integration_id=integration.id)
             return None
         result = found
 
@@ -172,11 +175,13 @@ def invite_user_to_inbox(integration: Integration, channel_id: str, slack_user_i
                     slack.client.conversations_join(channel=channel_id)
                 except SlackApiError as join_error:
                     logger.warning(
-                        "slack_inbox_join_failed", integration_id=integration.id, error=join_error.response.get("error")
+                        "slack_app_inbox_join_failed",
+                        integration_id=integration.id,
+                        error=join_error.response.get("error"),
                     )
                     return False
                 continue
-            logger.warning("slack_inbox_invite_failed", integration_id=integration.id, error=error)
+            logger.warning("slack_app_inbox_invite_failed", integration_id=integration.id, error=error)
             return False
     return False
 

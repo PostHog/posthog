@@ -48,10 +48,10 @@ def _start_inbox_onboarding_workflow(integration_id: int) -> None:
     import structlog
     from temporalio.common import WorkflowIDReusePolicy
 
-    from posthog.temporal.ai.posthog_slack_inbox_onboarding import (  # noqa: PLC0415
-        PostHogSlackInboxOnboardingInputs,
+    from posthog.temporal.ai.slack_app.posthog_slack_inbox_onboarding import (  # noqa: PLC0415
         PostHogSlackInboxOnboardingWorkflow,
     )
+    from posthog.temporal.ai.slack_app.types import PostHogSlackInboxOnboardingInputs  # noqa: PLC0415
     from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
 
     log = structlog.get_logger(__name__)
@@ -62,9 +62,9 @@ def _start_inbox_onboarding_workflow(integration_id: int) -> None:
                 PostHogSlackInboxOnboardingWorkflow.run,
                 PostHogSlackInboxOnboardingInputs(integration_id=integration_id),
                 id=f"posthog-slack-inbox-onboarding-{integration_id}",
-                task_queue=settings.MAX_AI_TASK_QUEUE,
+                task_queue=settings.TASKS_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             )
         )
     except Exception:
-        log.warning("slack_inbox_onboarding_dispatch_failed", integration_id=integration_id, exc_info=True)
+        log.warning("slack_app_inbox_onboarding_dispatch_failed", integration_id=integration_id, exc_info=True)

@@ -321,11 +321,11 @@ class TestOnboarding:
         assert blocked == ["Session replay analysis"]  # surfaced so the handler can nudge the user
         assert has_enabled_source(self.team.id) is False
 
-    @patch("products.slack_app.backend.api._post_ephemeral_via_response_url")
+    @patch("products.slack_app.backend.services.inbox_interactivity._post_ephemeral_via_response_url")
     @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=None)
     @patch("posthog.models.integration.WebClient")
     def test_sources_handler_nudges_when_session_replay_blocked(self, mock_webclient_class, _resolve, mock_ephemeral):
-        from products.slack_app.backend import api
+        from products.slack_app.backend.services import inbox_interactivity
 
         self._client(mock_webclient_class)
         _resolve.return_value = self.user.id
@@ -344,7 +344,7 @@ class TestOnboarding:
             ],
         }
 
-        api._handle_inbox_sources(payload)
+        inbox_interactivity.handle_inbox_sources(payload)
 
         mock_ephemeral.assert_called_once()
         assert "Approve AI data processing" in mock_ephemeral.call_args.args[1]
@@ -559,7 +559,7 @@ class TestOnboarding:
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_runs_for_integration(self, mock_run):
-        from posthog.temporal.ai.posthog_slack_inbox_onboarding import run_posthog_slack_inbox_onboarding
+        from posthog.temporal.ai.slack_app.activities.onboarding import run_posthog_slack_inbox_onboarding
 
         run_posthog_slack_inbox_onboarding(self.integration.id)
 
@@ -568,7 +568,7 @@ class TestOnboarding:
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_noop_for_missing_integration(self, mock_run):
-        from posthog.temporal.ai.posthog_slack_inbox_onboarding import run_posthog_slack_inbox_onboarding
+        from posthog.temporal.ai.slack_app.activities.onboarding import run_posthog_slack_inbox_onboarding
 
         run_posthog_slack_inbox_onboarding(99999999)
 

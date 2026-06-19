@@ -5,10 +5,6 @@ from posthog.temporal.ai.chat_agent import (
     process_chat_agent_activity,
     process_conversation_activity,
 )
-from posthog.temporal.ai.posthog_slack_inbox_onboarding import (
-    PostHogSlackInboxOnboardingWorkflow,
-    run_posthog_slack_inbox_onboarding_activity,
-)
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
 from posthog.temporal.ai.slack_app import SLACK_APP_ACTIVITIES
 from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
@@ -17,6 +13,7 @@ from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
 )
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
+from posthog.temporal.ai.slack_app.posthog_slack_inbox_onboarding import PostHogSlackInboxOnboardingWorkflow
 from posthog.temporal.ai.slack_conversation import (
     SlackConversationRunnerWorkflow,
     SlackConversationRunnerWorkflowInputs,
@@ -44,6 +41,7 @@ POSTHOG_CODE_SLACK_WORKFLOWS = [
     PostHogCodeSlackMentionWorkflow,
     PostHogCodeSlackMentionCommandWorkflow,
     PostHogCodeSlackTerminateTaskWorkflow,
+    PostHogSlackInboxOnboardingWorkflow,
 ]
 
 POSTHOG_CODE_SLACK_ACTIVITIES = [
@@ -58,7 +56,6 @@ AI_WORKFLOWS = [
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
-    PostHogSlackInboxOnboardingWorkflow,
     AnomalyInvestigationWorkflow,
 ]
 
@@ -71,7 +68,6 @@ AI_ACTIVITIES = [
     process_research_agent_activity,
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
-    run_posthog_slack_inbox_onboarding_activity,
     investigate_anomaly_activity,
 ]
 

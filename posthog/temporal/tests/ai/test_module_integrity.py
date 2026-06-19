@@ -25,7 +25,6 @@ class TestAITemporalModuleIntegrity:
             "ResearchAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
             "SlackConversationRunnerWorkflow",
-            "PostHogSlackInboxOnboardingWorkflow",
             "AnomalyInvestigationWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS]
@@ -53,7 +52,6 @@ class TestAITemporalModuleIntegrity:
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "process_slack_conversation_activity",
-            "run_posthog_slack_inbox_onboarding_activity",
             "investigate_anomaly_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES]

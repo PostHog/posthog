@@ -64,8 +64,11 @@ class TestInboxChannel:
         client.conversations_list.assert_not_called()
 
     @patch("posthog.models.integration.WebClient")
-    def test_reuses_existing_channel_by_name(self, mock_webclient_class):
+    def test_reuses_existing_channel_by_name_without_manage_scope(self, mock_webclient_class):
+        # Without channels:manage we can't create, so the only path is to find an existing channel by name.
         client = self._client(mock_webclient_class)
+        self.integration.config = {"scope": "chat:write"}
+        self.integration.save()
         client.conversations_list.return_value = {
             "channels": [{"id": "C555", "name": "posthog-inbox"}],
             "response_metadata": {"next_cursor": ""},
@@ -79,11 +82,12 @@ class TestInboxChannel:
 
     @patch("posthog.models.integration.WebClient")
     def test_create_name_taken_falls_back_to_lookup(self, mock_webclient_class):
+        # Create-first: we attempt to create straight away; name_taken triggers the lookup to resolve the id.
         client = self._client(mock_webclient_class)
-        client.conversations_list.side_effect = [
-            {"channels": [], "response_metadata": {"next_cursor": ""}},
-            {"channels": [{"id": "C111", "name": "posthog-inbox"}], "response_metadata": {"next_cursor": ""}},
-        ]
+        client.conversations_list.return_value = {
+            "channels": [{"id": "C111", "name": "posthog-inbox"}],
+            "response_metadata": {"next_cursor": ""},
+        }
         client.conversations_create.side_effect = SlackApiError("name_taken", {"error": "name_taken"})
 
         result = inbox_channel.ensure_inbox_channel(self.integration)
@@ -217,13 +221,14 @@ class TestInboxChannel:
 
     @patch("posthog.models.integration.WebClient")
     def test_ensure_handles_conversations_list_error(self, mock_webclient_class):
+        # name_taken sends us to the lookup; a transient list error there must fail closed (None).
         client = self._client(mock_webclient_class)
+        client.conversations_create.side_effect = SlackApiError("name_taken", {"error": "name_taken"})
         client.conversations_list.side_effect = SlackApiError("ratelimited", {"error": "ratelimited"})
-        client.conversations_create.return_value = {"channel": {"id": "C_OK"}}
 
         result = inbox_channel.ensure_inbox_channel(self.integration)
 
-        assert result == ("C_OK", "#posthog-inbox")
+        assert result is None
 
     @patch("posthog.models.integration.WebClient")
     def test_is_channel_member(self, mock_webclient_class):
