@@ -1,3 +1,4 @@
+import { type EventSourceMessage, createParser } from 'eventsource-parser'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
@@ -27,7 +28,6 @@ import type {
 import {
     type PermissionOption,
     type PermissionRequestFrame,
-    type PosthogErrorParams,
     type PosthogPermissionRequestParams,
     type PosthogProgressParams,
     type PosthogUsageUpdateParams,
@@ -75,36 +75,6 @@ export const SANDBOX_INITIAL_PERMISSION_MODE: TaskRunBootstrapCreateRequestIniti
 /** The crash-error string the in-sandbox agent server writes on a fatal exception. */
 const AGENT_CRASH_PREFIX = 'Agent server crashed'
 
-/**
- * HMR-stable registry of the single live `EventSource` per stream key, hung off a global that
- * survives module re-evaluation.
- *
- * The connection normally lives in `cache.disposables` and is torn down when the logic unmounts.
- * But `cache` is recreated whenever this module is hot-reloaded, and a reload orphans the previous
- * build's `EventSource`: editing the logic cascades a rebuild up through `maxThreadLogic`, which
- * mounts the new build at the same keyed path *before* the old one unmounts — so the disposables
- * plugin's `isMounted()` guard is still true and the old connection is never closed. The orphan
- * keeps firing `onmessage` with a stale closure and races the new build's reset-then-replay
- * bootstrap, defeating the content-dedup and re-folding the whole thread once per reload, so
- * duplicates pile up across multiple reloads.
- *
- * Keying the handle to a global (instead of the per-build `cache`) lets each build close the
- * connection a prior build left open — before opening or resetting its own — guaranteeing exactly
- * one live stream per key no matter how many times the module reloads. Exported for tests.
- */
-export const liveEventSourcesByStreamKey: Map<string, EventSource> = ((
-    globalThis as unknown as { __sandboxLiveEventSources?: Map<string, EventSource> }
-).__sandboxLiveEventSources ??= new Map<string, EventSource>())
-
-/** Close and forget any `EventSource` a prior build (or an earlier open) registered for this key. */
-function closeLiveEventSource(streamKey: string): void {
-    const existing = liveEventSourcesByStreamKey.get(streamKey)
-    if (existing) {
-        existing.close()
-        liveEventSourcesByStreamKey.delete(streamKey)
-    }
-}
-
 const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled'])
 
 export function isTerminalRunStatus(status: string | null | undefined): boolean {
@@ -143,16 +113,6 @@ export function mapHttpStatusToStreamError(status: number | undefined): StreamEr
 }
 
 /**
- * Content-dedup identity for a StoredLogEntry. Hashes only the `notification` body and drops the
- * top-level `timestamp`: the `logs/` (S3) copy and the live re-broadcast are independent writes
- * that stamp their own per-write timestamps, so a timestamp-inclusive hash would miss the duplicate
- * and double-append the same logical frame on a reconnect replay.
- */
-function hashLogEntry(entry: StoredLogEntry): string {
-    return JSON.stringify(entry.notification)
-}
-
-/**
  * Recovers the raw text the user typed from a persisted `_posthog/user_message`. The backend
  * prepends a `<posthog_context>…</posthog_context>` block when attachments are present
  * (`context_wrapper.wrap_user_message`); stripping it keeps a replayed prompt identical to the one
@@ -188,6 +148,32 @@ function extractUserMessageText(content: string | unknown[] | undefined): string
             .join('')
     }
     return ''
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
+    if (isNotificationFrame(entry)) {
+        return entry
+    }
+
+    // Older append_log callers wrote `{ notification }` directly, without the stream envelope.
+    if (!isRecord(entry) || !isRecord(entry.notification)) {
+        return null
+    }
+
+    return {
+        type: 'notification',
+        ...(typeof entry.timestamp === 'string' ? { timestamp: entry.timestamp } : {}),
+        notification: entry.notification,
+    } as StoredLogEntry
+}
+
+function isResumeRun(run: { state?: unknown }): boolean {
+    const state = run.state
+    return isRecord(state) && typeof state.resume_from_run_id === 'string' && state.resume_from_run_id !== ''
 }
 
 /**
@@ -449,18 +435,415 @@ export function parsePermissionRequestFrame(
     }
 }
 
+/** Who ingested a frame: the `logs/` bootstrap, the live SSE, or a client-injected synthetic entry. */
+export type FrameSource = 'replay' | 'live' | 'client'
+
+/** One frame in the ordered log, tagged with its source so the projection can branch on it (§6 resume filter). */
+export interface StoredEntry {
+    entry: StoredLogEntry
+    source: FrameSource
+}
+
 /**
- * Owns the `EventSource` to the products/tasks stream endpoint, parses the ACP wire format, and
- * produces thread-shaped state the renderer consumes. Coexistence sibling to `maxThreadLogic`'s
- * SSE loop — the sandbox path never enters the LangGraph EventSource loop.
+ * Ordered, append-only raw-frame log, in render order — the single source of truth. `threadItems`
+ * and `toolInvocations` are pure projections of it (see `foldLogToThread`). Frames are appended,
+ * never keyed or per-entry deduped: the only place two independently-identified sources overlap is
+ * the bootstrap seam (the S3 history vs. the live SSE, which is connected *before* the history loads
+ * so no frame is gapped), and that one overlap is reconciled once by `dedupeBufferedAgainstHistory`
+ * before the live tail is appended. Steady-state live frames resume exactly after the last-seen
+ * Redis id (exclusive), so they never re-deliver — a plain append therefore cannot double the thread.
+ */
+export interface SandboxLog {
+    entries: StoredEntry[]
+}
+
+/**
+ * The fixed prefix the agent-server's resume builder prepends to the synthetic "resume context"
+ * prompt it injects between run start and the genuine human turn on a resume run. That prompt is
+ * persisted to the S3 log (it never arrives live), so on bootstrap replay it would otherwise render
+ * as a human bubble. The projection drops it when the bootstrapped run is a resume run (§6).
+ */
+const RESUME_CONTEXT_PREFIX = 'You are resuming a previous conversation.'
+function isResumeContextPrompt(text: string): boolean {
+    return text.startsWith(RESUME_CONTEXT_PREFIX)
+}
+
+/**
+ * One-shot multiset reconciliation of the bootstrap seam (port of the reference client's
+ * `drainBufferedLogBatches`). While the S3 history loads we connect the live SSE first and buffer
+ * its frames; some buffered frames are the same logical entries the history already contains (the
+ * live stream and the S3 log overlap around the connect cutoff). This drops each buffered frame a
+ * historical frame accounts for, keyed on the ACP `notification` payload — the only field identical
+ * across both copies. The SSE `id` is the Redis stream id (absent from S3), and the envelope
+ * `timestamp` is stamped independently on the persist and the live-publish paths, so neither can be
+ * part of the key. A *multiset* (counts, not a set) so N genuine repeats of an identical payload
+ * survive: each historical copy absorbs exactly one buffered copy, and any buffered surplus passes
+ * through. Steady-state live frames after the drain are appended directly and never deduped.
+ */
+function dedupeBufferedAgainstHistory(buffered: StoredLogEntry[], history: StoredLogEntry[]): StoredLogEntry[] {
+    const seamKey = (entry: StoredLogEntry): string => JSON.stringify(entry.notification)
+    const historicalCounts = new Map<string, number>()
+    for (const entry of history) {
+        const key = seamKey(entry)
+        historicalCounts.set(key, (historicalCounts.get(key) ?? 0) + 1)
+    }
+    const survivors: StoredLogEntry[] = []
+    for (const entry of buffered) {
+        const key = seamKey(entry)
+        const remaining = historicalCounts.get(key) ?? 0
+        if (remaining > 0) {
+            historicalCounts.set(key, remaining - 1)
+            continue
+        }
+        survivors.push(entry)
+    }
+    return survivors
+}
+
+export interface FoldedThread {
+    threadItems: ThreadItem[]
+    toolInvocations: Map<string, ToolInvocation>
+}
+
+/**
+ * Pure projection: fold the ordered log into the rendered thread (and the tool-invocation map the
+ * renderer looks up). The fold rules (chunk buffering with the tail rule, tool-update merge,
+ * human-turn hoisting) are computed deterministically from the ordered log so item ids are stable
+ * across re-folds. `isResumeRun` drives the §6 resume-context filter; per-entry `source` decides
+ * whether a wire user turn renders (replay) or is left to the live echo (live).
+ */
+export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: boolean }): FoldedThread {
+    let items: ThreadItem[] = []
+    const invocations = new Map<string, ToolInvocation>()
+    // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
+    // (resume chains persist the same turn in both forms) is consumed once rather than doubled.
+    const rememberedHumanTexts = new Map<string, number>()
+    let humanCount = 0
+    let bubbleSeq = 0
+    let separatorSeq = 0
+    let errorSeq = 0
+    let statusSeq = 0
+    let compactSeq = 0
+    let taskSeq = 0
+
+    const pushHuman = (text: string): void => {
+        items = insertHumanMessageAtTurnStart(items, {
+            id: `human-${humanCount++}`,
+            type: 'human_message',
+            text,
+            complete: true,
+        })
+    }
+
+    const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
+        const idx = findLastBufferIndex(items, id, type, false)
+        // Continue the matched buffer only while it's still the tail and incomplete; otherwise (no
+        // buffer, a finalized one, or one interrupted by a tool call/separator) start a fresh bubble
+        // so text resuming after an interruption renders in chronological order. Every fresh bubble
+        // gets a unique `${id}@<seq>` id — the wire often omits `messageId` (and the S3 replay always
+        // does, since the backend drops chunks), so the bare fallback id would collide as a React key
+        // across messages. The continuation lookup matches the `${id}@` prefix, so it still works.
+        if (idx === -1 || items[idx].complete || idx !== items.length - 1) {
+            items.push({ id: `${id}@${bubbleSeq++}`, type, text: delta, complete: false })
+            return
+        }
+        items[idx] = { ...items[idx], text: (items[idx].text ?? '') + delta }
+    }
+
+    const finalizeMessage = (id: string, text: string): void => {
+        let idx = findLastBufferIndex(items, id, 'assistant_message', true)
+        if (idx === -1) {
+            // The wire isn't consistent about carrying `messageId` across a message's chunks and its
+            // closing `agent_message` (the chunks often have one, the finalize doesn't, or vice
+            // versa), so an id-keyed lookup can miss the buffer the chunks opened. Fall back to the
+            // message still being streamed — the last open assistant buffer in the current turn —
+            // and close that, rather than appending a second bubble with the same text. Bounded at
+            // the turn separator so a finalize never reaches back into a prior turn.
+            for (let i = items.length - 1; i >= 0; i--) {
+                if (items[i].type === 'turn_separator') {
+                    break
+                }
+                if (items[i].type === 'assistant_message' && !items[i].complete) {
+                    idx = i
+                    break
+                }
+            }
+        }
+        if (idx === -1) {
+            // No buffer to close (the common replay case: S3 drops chunks, so a finalized message
+            // arrives alone). Push a fresh bubble with a unique id — a bare fallback id would collide
+            // as a React key with every other no-`messageId` message in the thread.
+            items.push({ id: `${id}@${bubbleSeq++}`, type: 'assistant_message', text, complete: true })
+            return
+        }
+        items[idx] = { ...items[idx], text, complete: true }
+    }
+
+    const upsertInvocationItem = (toolCallId: string): void => {
+        if (!items.some((item) => item.type === 'tool_invocation' && item.toolCallId === toolCallId)) {
+            items.push({ id: toolCallId, type: 'tool_invocation', toolCallId })
+        }
+    }
+
+    const renderReplayHuman = (rawText: string, remember: boolean): void => {
+        const text = unwrapUserMessageContent(rawText)
+        if (!text) {
+            return
+        }
+        if (options.isResumeRun && isResumeContextPrompt(text)) {
+            return
+        }
+        if (!remember) {
+            const seen = rememberedHumanTexts.get(text) ?? 0
+            if (seen > 0) {
+                rememberedHumanTexts.set(text, seen - 1)
+                return
+            }
+        }
+        pushHuman(text)
+        if (remember) {
+            rememberedHumanTexts.set(text, (rememberedHumanTexts.get(text) ?? 0) + 1)
+        }
+    }
+
+    const handleToolCallUpdate = (
+        update: Record<string, unknown>,
+        notification: StoredLogEntry['notification']
+    ): void => {
+        const toolCallId = String(update.toolCallId ?? '')
+        if (!toolCallId) {
+            return
+        }
+        const existing = invocations.get(toolCallId)
+        const status = mapAcpStatus(update.status ?? existing?.status)
+        const rawInput =
+            update.rawInput && typeof update.rawInput === 'object'
+                ? (update.rawInput as Record<string, unknown>)
+                : update.input && typeof update.input === 'object'
+                  ? (update.input as Record<string, unknown>)
+                  : undefined
+        const denialReason = status === 'failed' ? extractDenialReason(update._meta) : undefined
+        const errorMessage =
+            (update.error as { message?: string } | null)?.message ??
+            denialReason ??
+            (status === 'failed' ? notification.error?.message : undefined)
+        const updateContent = Array.isArray(update.content) ? update.content : []
+
+        if (!existing) {
+            // A reconnect can deliver a terminal update whose creating `tool_call` was lost — upsert a
+            // minimal invocation so the card still renders instead of vanishing.
+            invocations.set(toolCallId, {
+                toolCallId,
+                rawServerName: 'posthog',
+                rawToolName: '',
+                input: rawInput ?? {},
+                status,
+                title: update.title as string | undefined,
+                locations: update.locations as { path: string; line?: number }[] | undefined,
+                contentBlocks: updateContent,
+                meta: update._meta,
+                ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
+            })
+            upsertInvocationItem(toolCallId)
+            return
+        }
+
+        invocations.set(toolCallId, {
+            ...existing,
+            status,
+            title: (update.title as string | undefined) ?? existing.title,
+            progress: update.progress ?? existing.progress,
+            output: update.rawOutput ?? existing.output,
+            locations: (update.locations as { path: string; line?: number }[] | undefined) ?? existing.locations,
+            contentBlocks: [...existing.contentBlocks, ...updateContent],
+            error: errorMessage !== undefined ? { message: errorMessage } : existing.error,
+            ...(rawInput ? { input: rawInput } : {}),
+            ...(update._meta ? { meta: update._meta } : {}),
+        })
+    }
+
+    for (const { entry, source } of entries) {
+        const notification = entry.notification
+        const method = notification.method
+        const params = (notification.params ?? {}) as Record<string, unknown>
+
+        if (method === '_client/human_message') {
+            pushHuman(String(params.content ?? ''))
+            continue
+        }
+        if (method === '_client/error') {
+            items.push({
+                id: `error-${errorSeq++}`,
+                type: 'error',
+                errorMessage: String(params.message ?? ''),
+                variant: params.variant === 'crash' ? 'crash' : 'error',
+            })
+            continue
+        }
+        if (method === '_posthog/error') {
+            items.push({
+                id: `error-${errorSeq++}`,
+                type: 'error',
+                errorMessage: String(params.message ?? notification.error?.message ?? 'Agent error'),
+                variant: 'error',
+            })
+            continue
+        }
+        if (method === '_posthog/turn_complete') {
+            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator' })
+            continue
+        }
+        if (method === '_posthog/progress') {
+            const group = stringifyOptional(params.group)
+            const step = stringifyOptional(params.step)
+            const label = stringifyOptional(params.label)
+            if (group && step && label) {
+                const detail = stringifyOptional(params.detail)
+                const nextStep: SandboxProgressStep = {
+                    key: step,
+                    status: normalizeProgressStatus(params.status),
+                    label,
+                    ...(detail !== undefined ? { detail } : {}),
+                }
+                const idx = items.findIndex((item) => item.type === 'progress' && item.progressGroup === group)
+                if (idx === -1) {
+                    items.push({
+                        id: `progress-${group}`,
+                        type: 'progress',
+                        progressGroup: group,
+                        progressSteps: [nextStep],
+                    })
+                } else {
+                    const existingSteps = items[idx].progressSteps ?? []
+                    const stepIdx = existingSteps.findIndex((s) => s.key === step)
+                    items[idx] = {
+                        ...items[idx],
+                        progressSteps:
+                            stepIdx === -1
+                                ? [...existingSteps, nextStep]
+                                : existingSteps.map((s, i) => (i === stepIdx ? nextStep : s)),
+                    }
+                }
+            }
+            continue
+        }
+        if (method === '_posthog/status') {
+            const status = String(params.status ?? '')
+            const isComplete = params.isComplete === true
+            if (status === 'compacting' && isComplete) {
+                items = items.filter((item) => !isPendingCompactingStatus(item))
+            } else {
+                items.push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })
+            }
+            continue
+        }
+        if (method === '_posthog/compact_boundary') {
+            items = items.filter((item) => !isPendingCompactingStatus(item))
+            items.push({
+                id: `compact-${compactSeq++}`,
+                type: 'compact_boundary',
+                trigger: stringifyOptional(params.trigger),
+                preTokens: typeof params.preTokens === 'number' ? params.preTokens : undefined,
+                contextSize: typeof params.contextSize === 'number' ? params.contextSize : undefined,
+            })
+            continue
+        }
+        if (method === '_posthog/task_notification') {
+            items.push({
+                id: `task-${taskSeq++}`,
+                type: 'task_notification',
+                status: stringifyOptional(params.status),
+                summary: stringifyOptional(params.summary),
+            })
+            continue
+        }
+        if (method === '_posthog/user_message') {
+            if (source === 'replay') {
+                renderReplayHuman(extractUserMessageText(params.content as string | unknown[] | undefined), true)
+            }
+            continue
+        }
+        if (method?.startsWith('_posthog/')) {
+            // run_started, usage_update, resources_used, sdk_session, console, sandbox_output, … — no thread item.
+            continue
+        }
+        if (method !== 'session/update') {
+            // session/prompt and everything else never produces a thread item.
+            continue
+        }
+        const update = params.update
+        if (!isRecord(update)) {
+            continue
+        }
+        const sessionUpdate = update.sessionUpdate
+        if (sessionUpdate === 'user_message_chunk' || sessionUpdate === 'user_message') {
+            if (source === 'replay') {
+                const content = update.content as { text?: string } | undefined
+                renderReplayHuman(String(content?.text ?? update.text ?? ''), false)
+            }
+            continue
+        }
+        const content = update.content as { text?: string } | undefined
+        switch (sessionUpdate) {
+            case 'agent_message_chunk':
+                appendChunk(
+                    String(update.messageId ?? 'current'),
+                    'assistant_message',
+                    String(content?.text ?? update.text ?? '')
+                )
+                break
+            case 'agent_message':
+                finalizeMessage(String(update.messageId ?? 'current'), String(content?.text ?? update.text ?? ''))
+                break
+            case 'agent_thought_chunk':
+                appendChunk(
+                    String(update.messageId ?? 'current-thought'),
+                    'assistant_thought',
+                    String(content?.text ?? update.text ?? '')
+                )
+                break
+            case 'tool_call': {
+                const toolCallId = String(update.toolCallId ?? '')
+                if (!toolCallId) {
+                    break
+                }
+                invocations.set(toolCallId, {
+                    toolCallId,
+                    rawServerName: String(update.serverName ?? 'posthog'),
+                    rawToolName: String(update.toolName ?? ''),
+                    input: (update.rawInput ?? update.input ?? {}) as Record<string, unknown>,
+                    status: mapAcpStatus(update.status),
+                    title: update.title as string | undefined,
+                    kind: update.kind as string | undefined,
+                    locations: update.locations as { path: string; line?: number }[] | undefined,
+                    contentBlocks: Array.isArray(update.content) ? update.content : [],
+                    meta: update._meta,
+                })
+                upsertInvocationItem(toolCallId)
+                break
+            }
+            case 'tool_call_update':
+                handleToolCallUpdate(update, notification)
+                break
+        }
+    }
+
+    return { threadItems: items, toolInvocations: invocations }
+}
+
+/**
+ * Owns the SSE connection to the products/tasks stream endpoint (a `fetch` reader driven by
+ * `eventsource-parser`, so a reconnect can resume via a Last-Event-ID header), parses the ACP wire
+ * format, and produces thread-shaped state the renderer consumes. Coexistence sibling to
+ * `maxThreadLogic`'s streaming loop — the sandbox path never enters the LangGraph stream loop.
  *
  * Covers open/close, `data.type === 'notification'` → `ingestAcpFrame` dispatch, terminal status,
- * and stream-error capture, plus the reconnect/backoff loop on SSE drops, content-dedup against
- * the `logs/` replay, HTTP-status error mapping, and the `bootstrapRun` history-replay-then-SSE
- * helper.
+ * and stream-error capture, plus the reconnect/backoff loop on SSE drops, the ordered append-only
+ * log the projection folds, HTTP-status error mapping, and the `bootstrapRun`
+ * connect-first/buffer/snapshot/drain helper.
  *
  * Keyed by `streamKey` (the conversation id for PostHog AI, the task id for a generic task viewer)
- * so concurrent streams keep independent stream state and EventSource connections.
+ * so concurrent streams keep independent stream state and connections.
  */
 export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     props({} as SandboxStreamLogicProps),
@@ -471,9 +854,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     })),
     actions({
         /**
-         * Bootstrap an existing run on conversation open: replay history from the products/tasks
-         * `logs/` endpoint, then open SSE if the run is non-terminal. `justCreatedRun` skips the
-         * `logs/` round-trip (fresh-run fast path — nothing historical to assemble).
+         * Bootstrap an existing run on conversation open. Terminal run: replay the `logs/` history
+         * and stay read-only (no SSE). In-progress run: connect the SSE *first* (buffering live
+         * frames), then read the `logs/` snapshot, then drain the buffered tail against it
+         * (`dedupeBufferedAgainstHistory`) so the seam neither duplicates nor gaps. `justCreatedRun`
+         * skips the `logs/` round-trip (fresh-run fast path — nothing historical to assemble).
          */
         bootstrapRun: (payload: { taskId: string; runId: string; justCreatedRun?: boolean; traceId?: string }) =>
             payload,
@@ -484,8 +869,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         sseReconnecting: (attempt: number) => ({ attempt }),
         /** Internal: an SSE drop initiates the refetch + backoff loop. */
         sseDropped: true,
-        /** Frame ingestion — called by the SSE listener and by products/tasks `logs/` replay. */
-        ingestAcpFrame: (entry: StoredLogEntry) => ({ entry }),
+        /**
+         * Frame ingestion — appends one frame to the log and runs its one-shot side effects
+         * (telemetry, permission routing, value folds). Called by the live SSE listener
+         * (`source: 'live'`), the products/tasks `logs/` replay (`source: 'replay'`), and the
+         * bootstrap drain (the deduped live tail). Telemetry is suppressed for replay; the
+         * permission/run-started/tool-completion guards keep the side effects fired-once without a
+         * per-frame key. The resume cursor (`cache.lastEventId`) is stamped by the SSE reader, not here.
+         */
+        ingestAcpFrame: (entry: StoredLogEntry, source: FrameSource = 'live') => ({ entry, source }),
+        /** Append frames to the ordered log (the single source of truth). */
+        appendEntries: (entries: StoredEntry[]) => ({ entries }),
+        /** Records whether the bootstrapped run is a resume run, so the projection can drop its synthetic resume prompt. */
+        markBootstrapResumeRun: (value: boolean) => ({ value }),
         /**
          * Surface a permission request. `replayedFromHistory` marks requests re-derived from the
          * `logs/` bootstrap — they restore card state but don't re-fire telemetry (the event
@@ -545,46 +941,23 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             replayedFromHistory?: boolean
         }) => status,
         handleStreamError: (envelope: { errorTitle: string; errorMessage?: string; retryable: boolean }) => envelope,
-        // Internal state-folding actions emitted by ingestAcpFrame.
-        appendAssistantChunk: (id: string, delta: string) => ({ id, delta }),
-        finalizeAssistantMessage: (id: string, text: string) => ({ id, text }),
-        /** Appends a streamed reasoning chunk to the trailing thought buffer (or opens a new one). */
-        appendThoughtChunk: (id: string, delta: string) => ({ id, delta }),
-        upsertToolInvocation: (invocation: ToolInvocation) => ({ invocation }),
-        updateToolInvocation: (toolCallId: string, patch: Partial<ToolInvocation>) => ({ toolCallId, patch }),
+        // Value-fold side effects emitted by ingestAcpFrame (thread items are derived in the projection).
         setCurrentMode: (mode: string) => ({ mode }),
         setCurrentProgress: (progress: string) => ({ progress }),
         /** Optional `task_run_state.stage` — wired for a future richer status surface (G6). */
         setCurrentStage: (stage: string | null) => ({ stage }),
         markRunStarted: true,
         markTurnComplete: true,
-        /** Echoes the user's own message into the thread — the sandbox wire never replays it. */
+        /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
         pushHumanMessage: (content: string) => ({ content }),
+        /** Injects a client-side error (terminal failure / stream disconnect) into the log as a `client`-sourced entry. */
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
         /** Union the products an answer was grounded in — accumulates across the whole session. */
         mergeResourcesUsed: (products: { id?: string; label?: string }[]) => ({ products }),
         /** Latest-wins context-usage snapshot fold (token/cost/breakdown or numeric aggregate). */
         setContextUsage: (usage: ContextUsage) => ({ usage }),
-        /** Inline `_posthog/status` thread item (e.g. compaction in progress). */
-        pushStatusItem: (status: string, isComplete: boolean) => ({ status, isComplete }),
-        /** Removes the in-progress compaction spinner once compaction completes. */
-        clearCompactingStatus: true,
-        /** Inline `_posthog/compact_boundary` thread item — the post-compaction marker. */
-        pushCompactBoundaryItem: (payload: { trigger?: string; preTokens?: number; contextSize?: number }) => payload,
-        /** Inline `_posthog/task_notification` thread item — a task milestone. */
-        pushTaskNotificationItem: (payload: { status?: string; summary?: string }) => payload,
-        /** Inline `_posthog/progress` group — setup and runtime progress from the sandbox workflow. */
-        upsertProgressItem: (payload: {
-            group: string
-            step: string
-            status?: string
-            label: string
-            detail?: string
-        }) => payload,
         /** Diagnostic `_posthog/sdk_session` plumbing — no UI. */
         setSdkSession: (session: SdkSession) => ({ session }),
-        /** Pin a frame's content hash so a replay (bootstrap `logs/` or reconnect) can't re-fold it. */
-        markFrameIngested: (hash: string) => ({ hash }),
         reset: true,
     }),
     reducers({
@@ -642,153 +1015,27 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 reset: () => null,
             },
         ],
-        toolInvocations: [
-            new Map<string, ToolInvocation>(),
+        // The single source of truth: an ordered, append-only log of every ingested frame (plus
+        // client-injected synthetic entries). `threadItems` and `toolInvocations` are pure
+        // projections of it (see the selectors). The bootstrap seam is reconciled once before its
+        // live tail is appended (see `bootstrapRun` / `dedupeBufferedAgainstHistory`), and
+        // steady-state live frames resume exclusively after the last-seen Redis id, so a plain
+        // append never doubles the thread.
+        log: [
+            { entries: [] } as SandboxLog,
             {
-                upsertToolInvocation: (state, { invocation }) => {
-                    const next = new Map(state)
-                    next.set(invocation.toolCallId, invocation)
-                    return next
-                },
-                updateToolInvocation: (state, { toolCallId, patch }) => {
-                    const existing = state.get(toolCallId)
-                    if (!existing) {
-                        return state
-                    }
-                    const next = new Map(state)
-                    next.set(toolCallId, { ...existing, ...patch })
-                    return next
-                },
-                reset: () => new Map(),
+                appendEntries: (state, { entries }) =>
+                    entries.length === 0 ? state : { entries: [...state.entries, ...entries] },
+                reset: () => ({ entries: [] }),
             },
         ],
-        threadItems: [
-            [] as ThreadItem[],
+        // Whether the bootstrapped run is a resume run — drives the §6 resume-prompt filter in the
+        // projection. Set from `run.state.resume_from_run_id` when bootstrap fetches the run.
+        isBootstrapResumeRun: [
+            false,
             {
-                appendAssistantChunk: (state, { id, delta }) => {
-                    const idx = findLastBufferIndex(state, id, 'assistant_message', false)
-                    if (idx === -1) {
-                        return [...state, { id, type: 'assistant_message', text: delta, complete: false }]
-                    }
-                    // Continue the matched buffer only if it is still the thread tail. A finalized
-                    // buffer, or one with another item appended after it (a tool call, separator,
-                    // error), must not absorb the chunk — text resuming after a tool call is its own
-                    // message and has to render in chronological order. The wire often omits
-                    // messageId, so a fresh bubble gets a uniquified id.
-                    if (state[idx].complete || idx !== state.length - 1) {
-                        return [
-                            ...state,
-                            { id: `${id}@${state.length}`, type: 'assistant_message', text: delta, complete: false },
-                        ]
-                    }
-                    const next = [...state]
-                    next[idx] = { ...next[idx], text: (next[idx].text ?? '') + delta }
-                    return next
-                },
-                finalizeAssistantMessage: (state, { id, text }) => {
-                    const idx = findLastBufferIndex(state, id, 'assistant_message', true)
-                    if (idx === -1) {
-                        return [...state, { id, type: 'assistant_message', text, complete: true }]
-                    }
-                    const next = [...state]
-                    next[idx] = { ...next[idx], text, complete: true }
-                    return next
-                },
-                appendThoughtChunk: (state, { id, delta }) => {
-                    const idx = findLastBufferIndex(state, id, 'assistant_thought', false)
-                    if (idx === -1) {
-                        return [...state, { id, type: 'assistant_thought', text: delta, complete: false }]
-                    }
-                    // Same tail rule as assistant chunks: keep buffering only while the thought is
-                    // still the thread tail. Once a message or tool call lands after it, a fresh
-                    // chunk opens a new bubble so reasoning renders in chronological order. The wire
-                    // omits messageId, so every thought shares the fallback id — uniquify the bubble.
-                    if (state[idx].complete || idx !== state.length - 1) {
-                        return [
-                            ...state,
-                            { id: `${id}@${state.length}`, type: 'assistant_thought', text: delta, complete: false },
-                        ]
-                    }
-                    const next = [...state]
-                    next[idx] = { ...next[idx], text: (next[idx].text ?? '') + delta }
-                    return next
-                },
-                upsertToolInvocation: (state, { invocation }) => {
-                    if (
-                        state.some(
-                            (item) => item.type === 'tool_invocation' && item.toolCallId === invocation.toolCallId
-                        )
-                    ) {
-                        return state
-                    }
-                    return [
-                        ...state,
-                        { id: invocation.toolCallId, type: 'tool_invocation', toolCallId: invocation.toolCallId },
-                    ]
-                },
-                pushHumanMessage: (state, { content }) =>
-                    insertHumanMessageAtTurnStart(state, {
-                        id: `human-${state.length}`,
-                        type: 'human_message',
-                        text: content,
-                        complete: true,
-                    }),
-                markTurnComplete: (state) => [...state, { id: `turn-${state.length}`, type: 'turn_separator' }],
-                pushErrorItem: (state, { errorMessage, variant }) => [
-                    ...state,
-                    { id: `error-${state.length}`, type: 'error', errorMessage, variant },
-                ],
-                pushStatusItem: (state, { status, isComplete }) => [
-                    ...state,
-                    { id: `status-${state.length}`, type: 'status', status, isComplete },
-                ],
-                clearCompactingStatus: (state) => state.filter((item) => !isPendingCompactingStatus(item)),
-                // Drop the in-progress spinner before the divider lands, in case the completing
-                // status frame never arrived — the boundary itself signals compaction is done.
-                pushCompactBoundaryItem: (state, { trigger, preTokens, contextSize }) => [
-                    ...state.filter((item) => !isPendingCompactingStatus(item)),
-                    { id: `compact-${state.length}`, type: 'compact_boundary', trigger, preTokens, contextSize },
-                ],
-                pushTaskNotificationItem: (state, { status, summary }) => [
-                    ...state,
-                    { id: `task-${state.length}`, type: 'task_notification', status, summary },
-                ],
-                upsertProgressItem: (state, { group, step, status, label, detail }) => {
-                    const normalizedStatus = normalizeProgressStatus(status)
-                    const itemIndex = state.findIndex(
-                        (item) => item.type === 'progress' && item.progressGroup === group
-                    )
-                    const nextStep: SandboxProgressStep = {
-                        key: step,
-                        status: normalizedStatus,
-                        label,
-                        ...(detail !== undefined ? { detail } : {}),
-                    }
-
-                    if (itemIndex === -1) {
-                        return [
-                            ...state,
-                            {
-                                id: `progress-${group}`,
-                                type: 'progress',
-                                progressGroup: group,
-                                progressSteps: [nextStep],
-                            },
-                        ]
-                    }
-
-                    const next = [...state]
-                    const existing = next[itemIndex].progressSteps ?? []
-                    const stepIndex = existing.findIndex((progressStep) => progressStep.key === step)
-                    const progressSteps =
-                        stepIndex === -1
-                            ? [...existing, nextStep]
-                            : existing.map((progressStep, index) => (index === stepIndex ? nextStep : progressStep))
-
-                    next[itemIndex] = { ...next[itemIndex], progressSteps }
-                    return next
-                },
-                reset: () => [],
+                markBootstrapResumeRun: (_, { value }) => value,
+                reset: () => false,
             },
         ],
         pendingPermissionRequest: [
@@ -803,23 +1050,6 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 // A terminal run can't accept approvals — drop a card re-derived from its history.
                 handleTerminalStatus: (state, { status }) => (isTerminalRunStatus(status) ? null : state),
                 reset: () => null,
-            },
-        ],
-        // Content-dedup hashes of every folded frame — lives in Redux (not a cache ref) so it
-        // survives a state-preserving reload (HMR) in lockstep with `threadItems`. If the two
-        // desynced (the thread persisted but the dedup set reset to empty), the next replay —
-        // bootstrap `logs/` or a reconnect's full re-broadcast — would re-fold the whole thread and
-        // double it. Keyed off `markFrameIngested` (dispatched by `ingestAcpFrame` after its own
-        // membership check) so the live hot path stays a single O(1) `has` lookup.
-        ingestedFrameHashes: [
-            new Set<string>(),
-            {
-                markFrameIngested: (state, { hash }) => {
-                    const next = new Set(state)
-                    next.add(hash)
-                    return next
-                },
-                reset: () => new Set<string>(),
             },
         ],
         // requestIds ever surfaced, so a reconnect's full replay can't double-fire telemetry or
@@ -939,6 +1169,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     }),
     selectors({
         /**
+         * Pure projection of the ordered log into the rendered thread plus the tool-invocation map.
+         * Memoized on `log` identity, so it recomputes only when a frame is actually appended.
+         */
+        foldedThread: [
+            (s) => [s.log, s.isBootstrapResumeRun],
+            (log, isResumeRun): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
+        ],
+        threadItems: [(s) => [s.foldedThread], (foldedThread): ThreadItem[] => foldedThread.threadItems],
+        toolInvocations: [
+            (s) => [s.foldedThread],
+            (foldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,
+        ],
+        /**
          * Whether the agent is actively working a turn — drives the thread's thinking indicator.
          * Off once the turn completes, the run reaches a terminal status (a failed or cancelled
          * run may never emit `_posthog/turn_complete`), or the stream errors out.
@@ -987,50 +1230,79 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
 
             // Persistent provisioning flag for disconnect telemetry: stays true across the async
-            // gap between bootstrap and the first connection/run_started, unlike `cache.bootstrapReplay`
-            // (which is only true inside the synchronous history-replay forEach). Cleared on the first
+            // gap between bootstrap and the first connection/run_started. Cleared on the first
             // `sseOpened`/`_posthog/run_started`.
             cache.isBootstrapping = true
 
-            // Fresh-run fast path: nothing historical to assemble — go straight to SSE.
+            // Fresh-run fast path: nothing historical to assemble — stream from the top, with nothing
+            // to buffer or drain.
             if (justCreatedRun) {
                 actions.openSseForRun({ taskId, runId, startLatest: false })
                 return
             }
 
-            // Existing run: replay the assembled resume-chain log, then refetch the run to decide on SSE.
-            let entries: unknown[]
+            // Existing run: read the status first to branch terminal (read-only history) vs.
+            // in-progress (connect-first, then reconcile the seam).
+            let run: { status?: string; state?: unknown }
             try {
-                entries = await api.tasks.runs.getLogEntries(taskId, runId)
+                run = await api.tasks.runs.get(taskId, runId)
             } catch (error) {
                 actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
                 return
             }
             breakpoint()
-            // Flag history replay so re-derived permission requests restore card state without
-            // re-firing telemetry. The forEach dispatches synchronously, so the flag can't leak
-            // into live SSE ingestion.
-            cache.bootstrapReplay = true
-            try {
-                entries.filter(isNotificationFrame).forEach((entry) => actions.ingestAcpFrame(entry))
-            } finally {
-                cache.bootstrapReplay = false
+            // Flag the run's resume-ness so the projection can drop the synthetic resume-context
+            // prompt (§6) before any history frame folds.
+            actions.markBootstrapResumeRun(isResumeRun(run))
+            const terminal = isTerminalRunStatus(run.status ?? null)
+
+            // Connect the live SSE *before* reading the S3 snapshot for an in-progress run. Frames the
+            // agent emits while the history loads are then captured by the live stream and buffered
+            // (see `handleSseEvent`), not gapped between the snapshot read and the connect cutoff. The
+            // buffered tail is reconciled against the history once the snapshot lands (the drain below).
+            if (!terminal) {
+                cache.bufferingLiveFrames = true
+                cache.bufferedLiveFrames = []
+                actions.openSseForRun({ taskId, runId, startLatest: true })
             }
 
-            const result = await fetchRunStatus(taskId, runId)
-            breakpoint()
-            if ('error' in result) {
-                actions.handleStreamError(result.error)
+            let entries: unknown[]
+            try {
+                entries = await api.tasks.runs.getLogEntries(taskId, runId)
+            } catch (error) {
+                // The snapshot failed; for an in-progress run the SSE is already open, so tear it
+                // down too — a thread of live-only frames with no history is more confusing than a
+                // clean, retryable error.
+                cache.bufferingLiveFrames = false
+                cache.bufferedLiveFrames = undefined
+                cache.disposables.dispose('reconnect-backoff')
+                cache.disposables.dispose('event-source')
+                actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
                 return
             }
-            if (isTerminalRunStatus(result.status)) {
+            breakpoint()
+
+            // The full resume-chain S3 snapshot — replayed as `replay`, so the projection renders
+            // persisted human turns and side-effect telemetry stays suppressed for history.
+            const history = entries
+                .map(normalizeNotificationEntry)
+                .filter((entry): entry is StoredLogEntry => entry !== null)
+            history.forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+
+            if (terminal) {
                 // Read-only history — surface the terminal status, do not open SSE. Flag the replay
                 // so the listener records the status without re-emitting termination telemetry.
-                actions.handleTerminalStatus({ status: result.status as SandboxRunStatus, replayedFromHistory: true })
+                actions.handleTerminalStatus({ status: run.status as SandboxRunStatus, replayedFromHistory: true })
                 return
             }
-            // Non-terminal: open SSE from the latest point, deduping against the replayed history.
-            actions.openSseForRun({ taskId, runId, startLatest: true })
+
+            // Drain the seam: drop buffered-live frames the snapshot already accounts for (content
+            // multiset), then append the surviving tail as live. Stop buffering first so any frame
+            // arriving during the drain appends directly rather than landing in a buffer we've moved past.
+            const buffered = (cache.bufferedLiveFrames as StoredLogEntry[] | undefined) ?? []
+            cache.bufferingLiveFrames = false
+            cache.bufferedLiveFrames = undefined
+            dedupeBufferedAgainstHistory(buffered, history).forEach((entry) => actions.ingestAcpFrame(entry, 'live'))
         },
         openSseForRun: ({ taskId, runId, startLatest }) => {
             const projectId = values.currentProjectId
@@ -1045,94 +1317,164 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             actions.sseConnecting()
             cache.disposables.dispose('reconnect-backoff')
 
-            // Replace any prior connection — including one orphaned by a hot reload, whose `cache`
-            // (and thus this disposable) was discarded before the connection was ever closed.
+            // Route one parsed SSE event. `eventsource-parser` unifies the old `onmessage` (default
+            // data channel — `event` undefined) and `addEventListener('error')` (named `error`
+            // envelope) split into one callback keyed off the `event` field.
+            const handleSseEvent = ({ id, event, data }: EventSourceMessage): void => {
+                if (id) {
+                    // The Redis stream id. Stamped (even for a buffered frame) so a reconnect resumes
+                    // exactly after it via the Last-Event-ID header — an exclusive resume, so the
+                    // steady-state stream never re-delivers a frame we've already appended.
+                    cache.lastEventId = id
+                }
+                if (event === 'error') {
+                    // Named error envelope — surface verbatim. Real backend frames carry only `error`,
+                    // so the title/retryable fall back to the generic stream-failure defaults.
+                    try {
+                        const envelope: SseErrorFrameData = JSON.parse(data)
+                        actions.handleStreamError({
+                            errorTitle: envelope.errorTitle ?? 'Cloud stream failed',
+                            errorMessage: envelope.errorMessage,
+                            retryable: envelope.retryable ?? true,
+                        })
+                    } catch {
+                        actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
+                    }
+                    return
+                }
+                // keepalive (and any other named, non-data event) carries nothing to fold.
+                if (event && event !== 'message') {
+                    return
+                }
+                let parsed: unknown
+                try {
+                    parsed = JSON.parse(data)
+                } catch {
+                    return
+                }
+                if (isNotificationFrame(parsed)) {
+                    // During the bootstrap window the SSE is connected before the S3 snapshot lands,
+                    // so buffer live notification frames instead of appending them; the drain
+                    // reconciles them against the snapshot once it loads (see `bootstrapRun`). Steady
+                    // state (and every send/reconnect open, which never buffers) appends directly.
+                    if (cache.bufferingLiveFrames) {
+                        ;(cache.bufferedLiveFrames as StoredLogEntry[]).push(parsed)
+                    } else {
+                        actions.ingestAcpFrame(parsed, 'live')
+                    }
+                } else if (isPermissionRequestFrame(parsed)) {
+                    // requestId-keyed dedup: this top-level envelope isn't a notification, so a
+                    // reconnect's resume could re-deliver it verbatim.
+                    const record = parsePermissionRequestFrame(parsed)
+                    if (
+                        record &&
+                        !values.seenPermissionRequestIds.has(record.requestId) &&
+                        !values.resolvedPermissionRequestIds.has(record.requestId)
+                    ) {
+                        actions.routePermissionRequest(record)
+                    }
+                } else if (isTaskRunStateFrame(parsed)) {
+                    // `stage` is dropped by handleTerminalStatus's status-only path; track it
+                    // separately for a future richer status surface. Generally unset for PHAI.
+                    if (parsed.stage !== undefined) {
+                        actions.setCurrentStage(parsed.stage ?? null)
+                    }
+                    actions.handleTerminalStatus({
+                        status: parsed.status as SandboxRunStatus,
+                        errorMessage: parsed.error_message ?? null,
+                    })
+                }
+                // unknown frame types are ignored.
+            }
+
+            // Open the stream as a fetch response and pump its body through the parser. A native
+            // `EventSource` can't set request headers; a fetch can, so a reconnect resumes exactly
+            // after `cache.lastEventId` via the Last-Event-ID header instead of re-broadcasting the
+            // whole stream. A clean EOF or read error (not an abort) is a drop → run the recovery
+            // loop; an aborted signal (teardown) is silent.
+            const streamRun = async (signal: AbortSignal): Promise<void> => {
+                let response: Response
+                try {
+                    response = await api.tasks.runs.openStream(taskId, runId, {
+                        signal,
+                        lastEventId: cache.lastEventId as string | undefined,
+                        startLatest,
+                    })
+                } catch (error) {
+                    if (signal.aborted) {
+                        return
+                    }
+                    // A fetch (unlike a native EventSource) exposes the HTTP status. Surface a
+                    // permanently-failed open (e.g. 404 — the backing run is gone) as a terminal
+                    // stream error instead of looping the reconnect logic forever; treat a transient
+                    // status or a network-level reject as a drop and let the recovery loop retry.
+                    const status = (error as { status?: number })?.status
+                    const mapped = status !== undefined ? mapHttpStatusToStreamError(status) : undefined
+                    if (mapped && !mapped.retryable) {
+                        actions.handleStreamError(mapped)
+                    } else {
+                        actions.sseDropped()
+                    }
+                    return
+                }
+                if (signal.aborted) {
+                    return
+                }
+                const reader = response.body?.getReader()
+                if (!reader) {
+                    actions.sseDropped()
+                    return
+                }
+                // Headers received and a body to read → the connection is open.
+                actions.sseOpened()
+                const decoder = new TextDecoder()
+                const parser = createParser({ onEvent: handleSseEvent })
+                try {
+                    for (;;) {
+                        const { done, value } = await reader.read()
+                        if (value) {
+                            parser.feed(decoder.decode(value, { stream: true }))
+                        }
+                        if (done) {
+                            break
+                        }
+                    }
+                } catch {
+                    if (!signal.aborted) {
+                        actions.sseDropped()
+                    }
+                    return
+                }
+                // Clean EOF: the server closed the stream. A terminal frame would already have torn
+                // us down (dispose → abort); otherwise this is a drop, so refetch status and decide.
+                if (!signal.aborted) {
+                    actions.sseDropped()
+                }
+            }
+
+            // Replace any prior connection. A hot reload can orphan the previous build's reader (its
+            // `cache`, and thus this disposable, is discarded before teardown runs), but the keyed
+            // log store makes duplicate ingestion idempotent — a lingering orphan can no longer
+            // double the thread, so the old `EventSource` registry is gone.
             cache.disposables.dispose('event-source')
-            closeLiveEventSource(props.streamKey)
-            // pauseOnPageHidden: false — a live SSE connection must survive tab hides; re-running
-            // setup on show would replay the stream from the top and duplicate thread state.
+            // pauseOnPageHidden: false — a live stream must survive tab hides; re-running setup on
+            // show would reopen the stream and re-fold thread state.
             cache.disposables.add(
                 (): (() => void) => {
-                    const start = startLatest ? '?start=latest' : ''
-                    const url = `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/stream/${start}`
-                    const eventSource = new EventSource(url, { withCredentials: true })
-                    // Register as the live connection for this key so a later build (post-HMR) can
-                    // find and close it even after this build's `cache` is gone.
-                    liveEventSourcesByStreamKey.set(props.streamKey, eventSource)
-
-                    eventSource.onopen = (): void => actions.sseOpened()
-                    eventSource.onmessage = (event: MessageEvent<string>): void => {
-                        let data: unknown
-                        try {
-                            data = JSON.parse(event.data)
-                        } catch {
-                            return
-                        }
-                        if (isNotificationFrame(data)) {
-                            actions.ingestAcpFrame(data)
-                        } else if (isPermissionRequestFrame(data)) {
-                            // requestId-keyed dedup: the notification hash store doesn't cover this
-                            // envelope, so a reconnect's full replay re-delivers it verbatim.
-                            const record = parsePermissionRequestFrame(data)
-                            if (
-                                record &&
-                                !values.seenPermissionRequestIds.has(record.requestId) &&
-                                !values.resolvedPermissionRequestIds.has(record.requestId)
-                            ) {
-                                actions.routePermissionRequest(record)
-                            }
-                        } else if (isTaskRunStateFrame(data)) {
-                            // `stage` is dropped by handleTerminalStatus's status-only path; track it
-                            // separately for a future richer status surface. Generally unset for PHAI.
-                            if (data.stage !== undefined) {
-                                actions.setCurrentStage(data.stage ?? null)
-                            }
-                            actions.handleTerminalStatus({
-                                status: data.status as SandboxRunStatus,
-                                errorMessage: data.error_message ?? null,
-                            })
-                        }
-                        // keepalive arrives as a named event, never here; unknown frame types are ignored.
-                    }
-                    // `EventSource` fires `error` both for named `event: error` envelopes (carrying
-                    // `data`) and for transient connection drops (no `data`). Surface the former
-                    // verbatim; treat the latter as a drop and run the refetch + backoff loop.
-                    eventSource.addEventListener('error', (event: MessageEvent<string>): void => {
-                        if (typeof event.data === 'string' && event.data.length > 0) {
-                            try {
-                                const envelope: SseErrorFrameData = JSON.parse(event.data)
-                                actions.handleStreamError({
-                                    errorTitle: envelope.errorTitle ?? 'Cloud stream failed',
-                                    errorMessage: envelope.errorMessage,
-                                    retryable: envelope.retryable ?? true,
-                                })
-                            } catch {
-                                actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
-                            }
-                            return
-                        }
-                        // Connection drop — take over manual reconnection (the native auto-retry would
-                        // bypass our refetch + capped-backoff logic).
-                        actions.sseDropped()
-                    })
-
-                    return () => {
-                        eventSource.close()
-                        // Only clear the registry if we're still the registered connection — a newer
-                        // (post-HMR) build may have already replaced us.
-                        if (liveEventSourcesByStreamKey.get(props.streamKey) === eventSource) {
-                            liveEventSourcesByStreamKey.delete(props.streamKey)
-                        }
-                    }
+                    const controller = new AbortController()
+                    void streamRun(controller.signal)
+                    return () => controller.abort()
                 },
                 'event-source',
                 { pauseOnPageHidden: false }
             )
         },
         sseOpened: () => {
-            // Provisioning ends at the first successful connection; clear the flag the disconnect
-            // telemetry reads. Stamp the connection time for the healthy-connection rule in sseDropped.
-            cache.isBootstrapping = false
+            // Stamp the connection time for the healthy-connection rule in sseDropped. The
+            // provisioning flag (`isBootstrapping`, read by the disconnect telemetry) is NOT cleared
+            // here: connect-first opens the SSE before the history snapshot loads, so the bootstrap
+            // window (connect → snapshot → drain → first `run_started`) outlives the first connect.
+            // It clears when the agent actually starts (`_posthog/run_started`) or on reset.
             cache.sseConnectedAtMs = Date.now()
         },
         sseDropped: async (_, breakpoint) => {
@@ -1140,7 +1482,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             if (!activeRun) {
                 return
             }
-            // Stop the native EventSource so its built-in auto-retry doesn't race our loop.
+            // Abort the in-flight reader so its clean-EOF/error handler can't also schedule a
+            // reconnect while this loop owns recovery.
             cache.disposables.dispose('event-source')
 
             // First refetch the run to detect terminal state.
@@ -1189,10 +1532,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.disposables.add(
                 (): (() => void) => {
                     const timer = window.setTimeout(() => {
-                        // Reopen with a full replay (no start=latest): frames emitted while
-                        // disconnected are re-delivered and the content-dedup drops the
-                        // already-ingested ones, so the gap is filled losslessly.
-                        actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: false })
+                        // Resume from `cache.lastEventId` via the Last-Event-ID header (set inside
+                        // openSseForRun) — the backend replays exactly the frames after it, filling
+                        // the gap with no re-broadcast. `startLatest: true` only matters if no frame
+                        // was ever seen (dropped before the first one): then resume from the head
+                        // rather than re-streaming from `0`.
+                        actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: true })
                     }, delayMs)
                     return () => clearTimeout(timer)
                 },
@@ -1374,56 +1719,88 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         },
         closeSse: () => {
             cache.activeRun = undefined
+            cache.lastEventId = undefined
             cache.disposables.dispose('reconnect-backoff')
+            // Aborts the in-flight fetch reader (its signal); the reader loop sees `aborted` and
+            // exits without scheduling a reconnect.
             cache.disposables.dispose('event-source')
-            closeLiveEventSource(props.streamKey)
         },
         reset: () => {
-            // `ingestedFrameHashes` clears via its own reducer on `reset` — keep it Redux-only so the
-            // dedup set and `threadItems` always reset together.
+            // `log` clears via its own reducer on `reset`, so the projection empties with it.
             cache.activeRun = undefined
             cache.turnStartedAtMs = undefined
             cache.isBootstrapping = false
+            cache.bufferingLiveFrames = false
+            cache.bufferedLiveFrames = undefined
             cache.sseConnectedAtMs = undefined
+            // Drop the resume cursor so the next bootstrap opens fresh (start=latest) instead of
+            // resuming a prior run's stream.
+            cache.lastEventId = undefined
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
-            // Kill any connection a prior hot-reload build orphaned, before the caller's bootstrap
-            // replays history — otherwise the stale stream races the replay and doubles the thread.
-            closeLiveEventSource(props.streamKey)
         },
-        pushHumanMessage: () => {
-            // Stamp the start of the turn this message opens, so per-turn duration metrics on a
-            // follow-up aren't measured from the first turn's start. Skipped while replaying history
-            // (the stamp would be "now", not the historical turn time, and replay emits no telemetry).
-            if (cache.bootstrapReplay !== true) {
-                cache.turnStartedAtMs = Date.now()
-            }
+        pushHumanMessage: ({ content }) => {
+            // The echo is always a live turn (replayed human turns render straight from the log), so
+            // stamp the turn start for per-turn duration metrics and append it as a `client`-sourced
+            // log entry the projection renders in order.
+            cache.turnStartedAtMs = Date.now()
+            actions.appendEntries([
+                {
+                    entry: {
+                        type: 'notification',
+                        notification: { method: '_client/human_message', params: { content } },
+                    },
+                    source: 'client',
+                },
+            ])
         },
-        ingestAcpFrame: ({ entry }) => {
+        pushErrorItem: ({ errorMessage, variant }) => {
+            // Client-side errors (terminal failure, stream disconnect) aren't wire frames — append
+            // them as `client`-sourced log entries so the projection renders them in thread order.
+            actions.appendEntries([
+                {
+                    entry: {
+                        type: 'notification',
+                        notification: { method: '_client/error', params: { message: errorMessage, variant } },
+                    },
+                    source: 'client',
+                },
+            ])
+        },
+        ingestAcpFrame: ({ entry, source }) => {
             const notification = entry?.notification
             if (!notification) {
                 return
             }
-            // Content-dedup: a reconnect with `?start=latest` may replay frames already folded in from
-            // the `logs/` bootstrap (Redis-stream IDs aren't comparable to S3-log IDs). Match on the
-            // serialized notification body and drop repeats before they mutate thread state. The hash
-            // set is a reducer (see `ingestedFrameHashes`) so it survives a state-preserving reload in
-            // sync with `threadItems`; the live hot path is still a single O(1) `has` lookup here, with
-            // the Set copy deferred to the `markFrameIngested` reducer only on a genuinely new frame.
-            const hash = hashLogEntry(entry)
-            if (values.ingestedFrameHashes.has(hash)) {
-                return
-            }
-            actions.markFrameIngested(hash)
             const method = notification.method
+            const isReplay = source === 'replay'
 
-            // Custom `_posthog/*` notification namespace emitted by the agent-server.
+            // Pre-update tool status for the once-per-transition `tool_call_completed` telemetry,
+            // read from the projection BEFORE the append folds this update in. Live only — replay
+            // suppresses the telemetry, so the lookup (and its O(N) re-fold) is skipped for history.
+            let preToolStatus: ToolInvocationStatus | undefined
+            if (!isReplay && method === 'session/update') {
+                const u = notification.params?.update
+                if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
+                    preToolStatus = values.toolInvocations.get(String(u.toolCallId ?? ''))?.status
+                }
+            }
+
+            // Append to the ordered log — the single source of truth. The bootstrap seam was already
+            // deduped (see `bootstrapRun`) and steady-state live frames resume exclusively, so the
+            // side effects below run exactly once per frame without a per-frame key; the
+            // run-started/permission/tool-completion guards enforce fire-once on their own.
+            actions.appendEntries([{ entry, source }])
+
+            // Custom `_posthog/*` notification namespace emitted by the agent-server. Thread items
+            // (errors, status, compaction, task notifications, progress, human turns) are derived by
+            // the projection straight from the log — handled here only for their value-fold side
+            // effects (telemetry, usage/resources/mode folds, permission routing).
             if (method === '_posthog/run_started') {
                 // TASK_RUN_STARTED telemetry — emit once per run on the first `_posthog/run_started`
-                // frame. `cold_start` is true unless the run was pre-warmed. Suppressed while
-                // replaying history (the run started in a prior session) — `markRunStarted` below
-                // still runs so the thread's started/thinking state stays correct.
-                if (!values.runStarted && cache.bootstrapReplay !== true) {
+                // frame. Suppressed while replaying history (the run started in a prior session);
+                // `markRunStarted` still runs so started/thinking state stays correct.
+                if (!values.runStarted && !isReplay) {
                     const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
                     cache.turnStartedAtMs = Date.now()
                     posthog.capture('task_run_started', {
@@ -1437,7 +1814,6 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         cold_start: true,
                     })
                 }
-                // Provisioning is over once the agent has started — clear the disconnect-telemetry flag.
                 cache.isBootstrapping = false
                 actions.markRunStarted()
                 return
@@ -1448,31 +1824,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
             if (method === '_posthog/progress') {
                 const progress = (notification.params ?? {}) as PosthogProgressParams
-                const label = stringifyOptional(progress.label)
-                const detail = stringifyOptional(progress.detail)
-                actions.setCurrentProgress(label ?? detail ?? '')
-                const step = stringifyOptional(progress.step)
-                const group = stringifyOptional(progress.group)
-                if (step && group && label) {
-                    actions.upsertProgressItem({
-                        group,
-                        step,
-                        status: stringifyOptional(progress.status),
-                        label,
-                        ...(detail !== undefined ? { detail } : {}),
-                    })
-                }
+                actions.setCurrentProgress(
+                    stringifyOptional(progress.label) ?? stringifyOptional(progress.detail) ?? ''
+                )
                 return
             }
-            if (method === '_posthog/error') {
-                const error = (notification.params ?? {}) as PosthogErrorParams
-                actions.pushErrorItem(String(error.message ?? notification.error?.message ?? 'Agent error'))
-                return
-            }
-            // The agent-server persists the permission lifecycle to the run log as these two
-            // notifications — pending approvals are re-derived from them on bootstrap (a reload
-            // mid-approval would otherwise lose the card while the agent stays blocked), and a
-            // resolution observed here (e.g. answered in another tab) clears the local card.
+            // The agent-server persists the permission lifecycle to the run log — pending approvals
+            // are re-derived on bootstrap (a reload mid-approval would otherwise lose the card while
+            // the agent stays blocked), and a resolution observed here clears the local card.
             if (isPosthogNotification(notification, '_posthog/permission_request')) {
                 const record = parsePermissionRequestFrame(notification.params ?? {})
                 if (
@@ -1480,7 +1839,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     !values.seenPermissionRequestIds.has(record.requestId) &&
                     !values.resolvedPermissionRequestIds.has(record.requestId)
                 ) {
-                    actions.routePermissionRequest(record, cache.bootstrapReplay === true)
+                    actions.routePermissionRequest(record, isReplay)
                 }
                 return
             }
@@ -1491,63 +1850,15 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 }
                 return
             }
-            // Seeded / persisted user turns. Live messages are already echoed into the thread by
-            // maxThreadLogic (`pushSandboxHumanMessage`) the moment they're sent, so only render this
-            // frame on `logs/` bootstrap replay — otherwise a live turn would render the user's
-            // message twice (once on send, once when the relay echoes the command back). This is also
-            // the only path that surfaces a converted LangGraph thread's human turns.
-            if (isPosthogNotification(notification, '_posthog/user_message')) {
-                if (cache.bootstrapReplay === true) {
-                    const text = extractUserMessageText(notification.params?.content)
-                    // Persisted prompts may carry the `<posthog_context>…</posthog_context>` wrapper
-                    // added when attachments are present; strip it so a replayed prompt matches the
-                    // live one.
-                    const unwrapped = unwrapUserMessageContent(text)
-                    if (unwrapped) {
-                        actions.pushHumanMessage(unwrapped)
-                    }
-                }
-                return
-            }
-            // The agent reports, per turn, which PostHog products an answer was grounded in. Union
-            // them by id into the persistent resources bar — accumulates across the whole session.
+            // The agent reports, per turn, which PostHog products an answer was grounded in.
             if (isPosthogNotification(notification, '_posthog/resources_used')) {
                 actions.mergeResourcesUsed(notification.params?.products ?? [])
                 return
             }
-            // Token usage + cost + context-window breakdown. The Codex adapter sends two split
-            // frames; the Claude adapter sends a single combined frame (used + cost-as-number +
-            // breakdown). The permissive fold tolerates both. The numeric used/size aggregate that
+            // Token usage + cost + context-window breakdown. The numeric used/size aggregate that
             // drives the percentage ring arrives separately on a session/update (handled below).
             if (isPosthogNotification(notification, '_posthog/usage_update')) {
                 actions.setContextUsage(foldUsageNotification(values.contextUsage, notification.params ?? {}))
-                return
-            }
-            // Context-compaction start/end. The in-progress frame pushes a spinner item; the
-            // completed frame clears that spinner (Twig renders nothing for the completed case)
-            // rather than leaving it hanging beside the `compact_boundary` divider that follows.
-            if (isPosthogNotification(notification, '_posthog/status')) {
-                const status = String(notification.params?.status ?? '')
-                const isComplete = notification.params?.isComplete === true
-                if (status === 'compacting' && isComplete) {
-                    actions.clearCompactingStatus()
-                    return
-                }
-                actions.pushStatusItem(status, isComplete)
-                return
-            }
-            if (isPosthogNotification(notification, '_posthog/compact_boundary')) {
-                const params = notification.params
-                actions.pushCompactBoundaryItem({
-                    trigger: params?.trigger,
-                    preTokens: params?.preTokens,
-                    contextSize: params?.contextSize,
-                })
-                return
-            }
-            if (isPosthogNotification(notification, '_posthog/task_notification')) {
-                const params = notification.params
-                actions.pushTaskNotificationItem({ status: params?.status, summary: params?.summary })
                 return
             }
             // Diagnostic only — no UI; kept for resume telemetry / crash-affordance work.
@@ -1557,177 +1868,67 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
             if (method?.startsWith('_posthog/')) {
-                // _posthog/console, _posthog/sandbox_output, _posthog/git_checkpoint, ... — still dropped.
+                // _posthog/error, _posthog/status, _posthog/compact_boundary, _posthog/task_notification,
+                // _posthog/user_message → rendered by the projection. _posthog/console, _posthog/
+                // sandbox_output, _posthog/git_checkpoint, … → no UI. No side effect either way.
                 return
             }
-
+            // session/prompt never renders and the resume-context filter is handled in the projection.
+            if (method === 'session/prompt') {
+                return
+            }
             if (!isSessionUpdateNotification(notification)) {
                 return
             }
-
             const update = notification.params?.update
-            // The numeric used/size usage aggregate is session/update-framed but isn't in
-            // KNOWN_SESSION_UPDATES — special-case it before isKnownSessionUpdate to drive the ring
-            // without widening the tool-render switch below.
+            // The numeric used/size usage aggregate is session/update-framed — fold it into the ring.
             if (isSessionUpdateUsage(update)) {
                 actions.setContextUsage(foldUsageAggregate(values.contextUsage, update))
                 return
             }
-            // The user's own turn is persisted to the run log as a `session/update`
-            // (`user_message_chunk`), so this is what restores human turns when a thread loads from
-            // `logs/`. Render it only on bootstrap replay — a live turn is already echoed into the
-            // thread by maxThreadLogic (`pushSandboxHumanMessage`) on send, so rendering the wire echo
-            // too would duplicate it. (The legacy `_posthog/user_message` handler above covers an
-            // older frame shape the backend no longer emits.)
+            // Wire user turns render only on replay (the projection branches on source) — no side effect.
             if (isSessionUpdateUserMessage(update)) {
-                if (cache.bootstrapReplay === true) {
-                    const text = String(update.content?.text ?? update.text ?? '')
-                    const unwrapped = unwrapUserMessageContent(text)
-                    if (unwrapped) {
-                        actions.pushHumanMessage(unwrapped)
-                    }
-                }
                 return
             }
             if (!isKnownSessionUpdate(update)) {
                 return
             }
-
-            switch (update.sessionUpdate) {
-                case 'agent_message_chunk': {
-                    const id = String(update.messageId ?? 'current')
-                    actions.appendAssistantChunk(id, String(update.content?.text ?? update.text ?? ''))
-                    break
-                }
-                case 'agent_message': {
-                    const id = String(update.messageId ?? 'current')
-                    actions.finalizeAssistantMessage(id, String(update.content?.text ?? update.text ?? ''))
-                    break
-                }
-                case 'agent_thought_chunk': {
-                    // No messageId on the wire — all thought chunks share a fallback id distinct
-                    // from the assistant-message fallback so the two buffers never collide on a key.
-                    const id = String(update.messageId ?? 'current-thought')
-                    actions.appendThoughtChunk(id, String(update.content?.text ?? update.text ?? ''))
-                    break
-                }
-                case 'tool_call': {
-                    const toolCallId = String(update.toolCallId ?? '')
-                    if (!toolCallId) {
-                        break
-                    }
-                    const rawServerName = String(update.serverName ?? 'posthog')
-                    const rawToolName = String(update.toolName ?? '')
-                    const input = update.rawInput ?? update.input ?? {}
-                    actions.upsertToolInvocation({
-                        toolCallId,
-                        rawServerName,
-                        rawToolName,
-                        input,
-                        status: mapAcpStatus(update.status),
-                        title: update.title,
-                        kind: update.kind,
-                        locations: update.locations,
-                        contentBlocks: Array.isArray(update.content) ? update.content : [],
-                        meta: update._meta,
-                    })
-                    break
-                }
-                case 'tool_call_update': {
-                    const toolCallId = String(update.toolCallId ?? '')
-                    if (!toolCallId) {
-                        break
-                    }
-                    const existing = values.toolInvocations.get(toolCallId)
-                    const status = mapAcpStatus(update.status ?? existing?.status)
-                    // Keep the runtime object checks — the wire payload is typed, not validated.
-                    const rawInput =
-                        update.rawInput && typeof update.rawInput === 'object'
-                            ? update.rawInput
-                            : update.input && typeof update.input === 'object'
-                              ? update.input
-                              : undefined
-                    // On a permission denial Twig stamps the reason under `_meta.claudeCode.toolResponse`;
-                    // prefer it for the error when the update carries no explicit error, and fall back to
-                    // the notification-level error (and, for the inline `canUseTool` path that sends no
-                    // `_meta`, to the existing/content error) so neither path regresses.
-                    const denialReason = status === 'failed' ? extractDenialReason(update._meta) : undefined
-                    const errorMessage =
-                        update.error?.message ??
-                        denialReason ??
-                        (status === 'failed' ? notification.error?.message : undefined)
-                    const updateContent = Array.isArray(update.content) ? update.content : []
-
-                    if (!existing) {
-                        // A reconnect with `?start=latest` can deliver a terminal update whose creating
-                        // `tool_call` frame was lost. Upsert a minimal invocation from the update so the
-                        // tool card still renders instead of silently vanishing. No completion telemetry
-                        // here — without the creation frame there's no reliable start time or tool name.
-                        const rawServerName = 'posthog'
-                        const rawToolName = ''
-                        actions.upsertToolInvocation({
-                            toolCallId,
-                            rawServerName,
-                            rawToolName,
-                            input: rawInput ?? {},
-                            status,
-                            title: update.title,
-                            locations: update.locations,
-                            contentBlocks: updateContent,
-                            meta: update._meta,
-                            ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
-                        })
-                        break
-                    }
-
-                    const nextInput = rawInput ?? existing.input
-                    const nextMeta = update._meta ?? existing.meta
-                    const resolvedForTelemetry = resolveToolCall({
-                        ...existing,
-                        input: nextInput,
-                        meta: nextMeta,
-                    })
-                    actions.updateToolInvocation(toolCallId, {
-                        status,
-                        title: update.title ?? existing.title,
-                        progress: update.progress ?? existing.progress,
-                        output: update.rawOutput ?? existing.output,
-                        locations: update.locations ?? existing.locations,
-                        contentBlocks: [...existing.contentBlocks, ...updateContent],
-                        error: errorMessage !== undefined ? { message: errorMessage } : existing.error,
-                        ...(rawInput ? { input: rawInput } : {}),
-                        ...(update._meta ? { meta: update._meta } : {}),
-                    })
-                    // TOOL_CALL_COMPLETED telemetry (optional) — emit once when a tool call first
-                    // transitions to a terminal status. `duration_ms` is measured from the turn start
-                    // since per-tool start timing isn't carried on the wire. Suppressed while replaying
-                    // history so a reopen doesn't re-count prior-session tool calls; the missing-creation
-                    // case is handled above and never reaches here. Report the key resolved from the
-                    // latest raw input/meta without storing it in stream state.
-                    if (
-                        cache.bootstrapReplay !== true &&
-                        (status === 'completed' || status === 'failed') &&
-                        existing.status !== 'completed' &&
-                        existing.status !== 'failed'
-                    ) {
-                        const startedAt = cache.turnStartedAtMs as number | undefined
-                        posthog.capture('tool_call_completed', {
-                            conversation_id: props.conversationId,
-                            trace_id: values.traceId,
-                            tool_call_id: toolCallId,
-                            tool_qualified_name: resolvedForTelemetry.resolvedKey,
-                            status,
-                            duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
-                            execution_type: 'sandbox',
-                        })
-                    }
-                    break
-                }
-                case 'current_mode_update': {
-                    actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
-                    break
-                }
+            if (update.sessionUpdate === 'current_mode_update') {
+                actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
+                return
             }
+            if (update.sessionUpdate === 'tool_call_update') {
+                // TOOL_CALL_COMPLETED telemetry — emit once when a tool call first transitions to a
+                // terminal status. `preToolStatus` (read before the upsert) gates the once-only fire;
+                // the resolved key comes from the merged invocation in the projection. Suppressed on
+                // replay, and skipped when the creating `tool_call` was lost (no pre-status).
+                const toolCallId = String(update.toolCallId ?? '')
+                if (!toolCallId) {
+                    return
+                }
+                const status = mapAcpStatus(update.status ?? preToolStatus)
+                if (
+                    !isReplay &&
+                    preToolStatus !== undefined &&
+                    preToolStatus !== 'completed' &&
+                    preToolStatus !== 'failed' &&
+                    (status === 'completed' || status === 'failed')
+                ) {
+                    const invocation = values.toolInvocations.get(toolCallId)
+                    const startedAt = cache.turnStartedAtMs as number | undefined
+                    posthog.capture('tool_call_completed', {
+                        conversation_id: props.conversationId,
+                        trace_id: values.traceId,
+                        tool_call_id: toolCallId,
+                        tool_qualified_name: invocation ? resolveToolCall(invocation).resolvedKey : undefined,
+                        status,
+                        duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
+                        execution_type: 'sandbox',
+                    })
+                }
+                return
+            }
+            // agent_message_chunk / agent_message / agent_thought_chunk / tool_call → projection only.
         },
     })),
 ])
