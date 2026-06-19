@@ -253,7 +253,9 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
         }
 
-    def get_connection_metadata(self, config: SnowflakeSourceConfig, team_id: int) -> dict[str, str | None]:
+    def get_connection_metadata(
+        self, config: SnowflakeSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, str | None]:
         return get_connection_metadata_snowflake(config)
 
     def validate_credentials(

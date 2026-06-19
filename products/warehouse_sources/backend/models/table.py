@@ -35,14 +35,15 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 from products.data_warehouse.backend.direct_mysql import DIRECT_MYSQL_SCHEMA_OPTION, DIRECT_MYSQL_TABLE_OPTION
-from products.data_warehouse.backend.direct_snowflake import (
-    DIRECT_SNOWFLAKE_SCHEMA_OPTION,
-    DIRECT_SNOWFLAKE_TABLE_OPTION,
-)
 from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_CATALOG_OPTION,
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
+)
+from products.data_warehouse.backend.direct_snowflake import (
+    DIRECT_SNOWFLAKE_CATALOG_OPTION,
+    DIRECT_SNOWFLAKE_SCHEMA_OPTION,
+    DIRECT_SNOWFLAKE_TABLE_OPTION,
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
@@ -552,6 +553,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         if self.external_data_source and self.external_data_source.is_direct_snowflake:
             job_inputs = self.external_data_source.job_inputs or {}
+            snowflake_catalog = (
+                self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION), str)
+                else job_inputs.get("database")
+            )
             snowflake_schema = (
                 self.options.get(DIRECT_SNOWFLAKE_SCHEMA_OPTION)
                 if isinstance(self.options.get(DIRECT_SNOWFLAKE_SCHEMA_OPTION), str)
@@ -565,6 +571,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return DirectSnowflakeTable(
                 name=self.name,
                 fields=fields,
+                snowflake_catalog=snowflake_catalog if isinstance(snowflake_catalog, str) else None,
                 snowflake_schema=snowflake_schema,
                 snowflake_table_name=snowflake_table_name,
                 external_data_source_id=str(self.external_data_source_id),

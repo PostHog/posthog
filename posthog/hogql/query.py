@@ -5,12 +5,12 @@ from typing import ClassVar, Literal, Optional, TypedDict, Union, cast
 import psycopg
 import pymysql
 import sqlparse
+import snowflake.connector
 from opentelemetry import trace
 from psycopg.types.datetime import DateLoader
 from pymysql.constants import FIELD_TYPE as MYSQL_FIELD_TYPE
 from sqlparse import tokens as sqlparse_tokens
 from sqlparse.sql import Statement
-import snowflake.connector
 
 from posthog.schema import (
     HogLanguage,
@@ -79,6 +79,7 @@ DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 DIRECT_MYSQL_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 DIRECT_SNOWFLAKE_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 RAW_MYSQL_READ_ONLY_ERROR = "Raw MySQL queries must be read-only SELECT statements."
+RAW_SNOWFLAKE_READ_ONLY_ERROR = "Raw Snowflake queries must be read-only SELECT statements."
 
 POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
     16: "Bool",
@@ -187,10 +188,10 @@ def mysql_error_to_message(error: Exception) -> str:
     return message.splitlines()[0]
 
 
-def snowflake_field_type_to_clickhouse_type(type_code: str | None) -> str:
+def snowflake_field_type_to_clickhouse_type(type_code: object | None) -> str:
     if type_code is None:
         return "String"
-    return SNOWFLAKE_FIELD_TYPE_TO_CLICKHOUSE_TYPE.get(type_code.upper(), "String")
+    return SNOWFLAKE_FIELD_TYPE_TO_CLICKHOUSE_TYPE.get(str(type_code).upper(), "String")
 
 
 def snowflake_error_to_message(error: Exception) -> str:
@@ -295,6 +296,14 @@ def ensure_read_only_raw_mysql_statement(sql: str) -> str:
         if token_values[index : index + 4] == ["LOCK", "IN", "SHARE", "MODE"]:
             raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
 
+    return sql
+
+
+def ensure_read_only_raw_snowflake_statement(sql: str) -> str:
+    sql = ensure_single_direct_statement(sql)
+    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    if len(statements) != 1 or statements[0].get_type() != "SELECT":
+        raise ExposedHogQLError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
     return sql
 
 
@@ -415,7 +424,7 @@ class HogQLQueryExecutor:
     direct_sql: Optional[str] = None
     direct_source_id: Optional[str] = None
     direct_values: dict[str, object] | None = None
-    direct_dialect: Optional[Literal["postgres", "mysql"]] = None
+    direct_dialect: Optional[Literal["postgres", "mysql", "snowflake"]] = None
     connection_id: Optional[str] = None
     send_raw_query: bool = False
     user: Optional[User] = None
@@ -688,12 +697,17 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
 
         source = getattr(self, "_direct_source", None)
-        dialect: Literal["postgres", "mysql", "snowflake"] = (
-            "mysql" if source is not None and source.is_direct_mysql else "postgres"
-        )
-        engine: Literal["direct_postgres", "direct_mysql", "direct_snowflake"] = (
-            "direct_mysql" if dialect == "mysql" else "direct_postgres"
-        )
+        dialect: Literal["postgres", "mysql", "snowflake"]
+        engine: Literal["direct_postgres", "direct_mysql", "direct_snowflake"]
+        if source is not None and source.is_direct_mysql:
+            dialect = "mysql"
+            engine = "direct_mysql"
+        elif source is not None and source.is_direct_snowflake:
+            dialect = "snowflake"
+            engine = "direct_snowflake"
+        else:
+            dialect = "postgres"
+            engine = "direct_postgres"
 
         direct_context = dataclasses.replace(
             self.context,
@@ -899,10 +913,9 @@ class HogQLQueryExecutor:
 
         try:
             with self.timings.measure("snowflake_execute"):
-                with snowflake_implementation.connect(
-                    source_config, read_timeout=statement_timeout_seconds
-                ) as connection:
+                with snowflake_implementation.connect(source_config) as connection:
                     with connection.cursor() as cursor:
+                        cursor.execute(f"ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS = {statement_timeout_seconds}")
                         cursor.execute(self.direct_sql, self.direct_values or None)
                         results = cursor.fetchall()
                         description = cursor.description or []
@@ -1027,6 +1040,10 @@ class HogQLQueryExecutor:
             self.direct_dialect = "mysql"
             self.direct_sql = ensure_read_only_raw_mysql_statement(str(self.query))
             self._execute_direct_mysql_query()
+        elif source.is_direct_snowflake:
+            self.direct_dialect = "snowflake"
+            self.direct_sql = ensure_read_only_raw_snowflake_statement(str(self.query))
+            self._execute_direct_snowflake_query()
         else:
             self.direct_dialect = "postgres"
             self.direct_sql = ensure_single_direct_statement(str(self.query))
@@ -1161,6 +1178,8 @@ class HogQLQueryExecutor:
                     self._execute_direct_postgres_query()
                 elif prepared_execution.engine == "direct_mysql":
                     self._execute_direct_mysql_query()
+                elif prepared_execution.engine == "direct_snowflake":
+                    self._execute_direct_snowflake_query()
                 elif self.clickhouse_sql is not None:
                     if self.clickhouse_sql == "":
                         self.results = []

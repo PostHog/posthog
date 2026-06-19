@@ -14,9 +14,14 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
-    from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig, PostgresSourceConfig
+    from posthog.temporal.data_imports.sources.generated_configs import (
+        MySQLSourceConfig,
+        PostgresSourceConfig,
+        SnowflakeSourceConfig,
+    )
     from posthog.temporal.data_imports.sources.mysql.mysql import MySQLImplementation
     from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+    from posthog.temporal.data_imports.sources.snowflake.snowflake import SnowflakeImplementation
 
 
 INVALID_CONNECTION_ID_ERROR = (
@@ -142,7 +147,10 @@ def validate_direct_mysql_source_config(
 
     return mysql_source.get_implementation, config
 
-def validate_direct_snowflake_source_config(source: ExternalDataSource, team: "Team") -> tuple["SnowflakeImplementation", "SnowflakeSourceConfig"]:
+
+def validate_direct_snowflake_source_config(
+    source: ExternalDataSource, team: "Team"
+) -> tuple["SnowflakeImplementation", "SnowflakeSourceConfig"]:
     from posthog.temporal.data_imports.sources import SourceRegistry
     from posthog.temporal.data_imports.sources.snowflake.source import SnowflakeSource
 
@@ -153,15 +161,5 @@ def validate_direct_snowflake_source_config(source: ExternalDataSource, team: "T
 
     snowflake_source = cast(SnowflakeSource, SourceRegistry.get_source(ExternalDataSourceType.SNOWFLAKE))
     config = snowflake_source.parse_config(source.job_inputs or {})
-
-    is_ssh_valid, ssh_valid_errors = snowflake_source.ssh_tunnel_is_valid(config, team.pk)
-    if not is_ssh_valid:
-        raise ExposedHogQLError(ssh_valid_errors or "Invalid SSH tunnel configuration.")
-
-    valid_host, host_errors = snowflake_source.is_database_host_valid(
-        config.host, team.pk, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
-    )
-    if not valid_host:
-        raise ExposedHogQLError(host_errors or "Invalid Snowflake host.")
 
     return snowflake_source.get_implementation, config

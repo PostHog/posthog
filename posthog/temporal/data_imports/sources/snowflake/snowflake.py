@@ -170,6 +170,7 @@ def _parse_clustering_key_leading_column(clustering_key: str | None) -> str | No
 def get_connection_metadata(config: SnowflakeSourceConfig) -> dict[str, str | None]:
     """Connection metadata persisted on a direct-query source for the HogQL executor."""
     return {
+        "engine": "snowflake",
         "account_id": config.account_id,
         "warehouse": config.warehouse,
         "database": config.database,

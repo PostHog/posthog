@@ -106,10 +106,10 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.mysql_helpers import get_mysql_source_location, reconcile_mysql_schemas
 from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location, reconcile_postgres_schemas
-from products.data_warehouse.backend.snowflake_helpers import get_snowflake_source_location, reconcile_snowflake_schemas
 from products.data_warehouse.backend.postgres_warehouse_migration import (
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
 )
+from products.data_warehouse.backend.snowflake_helpers import reconcile_snowflake_schemas
 from products.data_warehouse.backend.sql_warehouse_migration import (
     apply_on_refresh as apply_sql_warehouse_refresh_migration,
     apply_on_schema_clear as apply_sql_warehouse_schema_clear_migration,
@@ -1050,14 +1050,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                         source_schemas=discovered_schemas,
                         team_id=instance.team_id,
                     )
-                elif updated_source.source_type == ExternalDataSourceType.SNOWFLAKE:
-                    reconcile_snowflake_schemas(
+                elif updated_source.source_type == ExternalDataSourceType.MYSQL:
+                    reconcile_mysql_schemas(
                         source=updated_source,
                         source_schemas=discovered_schemas,
                         team_id=instance.team_id,
                     )
-                else:
-                    reconcile_mysql_schemas(
+                elif updated_source.source_type == ExternalDataSourceType.SNOWFLAKE:
+                    reconcile_snowflake_schemas(
                         source=updated_source,
                         source_schemas=discovered_schemas,
                         team_id=instance.team_id,
@@ -1858,6 +1858,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         # Direct-snowflake columns are keyed by raw, case-sensitive source names.
                         normalize=False,
                     ),
+                    source_catalog=metadata_source_catalog,
                     source_schema=cast(str, metadata_source_schema),
                     source_table_name=cast(str, metadata_source_table_name),
                 )
@@ -2232,6 +2233,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
             elif instance.source_type == ExternalDataSourceType.MYSQL:
                 reconciled_deleted_schemas = reconcile_mysql_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif instance.source_type == ExternalDataSourceType.SNOWFLAKE:
+                reconciled_deleted_schemas = reconcile_snowflake_schemas(
                     source=instance,
                     source_schemas=schemas,
                     team_id=self.team_id,

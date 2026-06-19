@@ -24,6 +24,7 @@ from posthog.temporal.data_imports.sources.common.sql.projection import (
 )
 
 from products.data_warehouse.backend.direct_snowflake import (
+    DIRECT_SNOWFLAKE_CATALOG_OPTION,
     DIRECT_SNOWFLAKE_SCHEMA_OPTION,
     DIRECT_SNOWFLAKE_TABLE_OPTION,
     hide_direct_snowflake_table,
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-type SnowflakeSourceLocation = tuple[str, str]  # (schema, table_name)
+type SnowflakeSourceLocation = tuple[str | None, str, str]  # (catalog, schema, table_name)
 
 
 def get_default_snowflake_schema(source: ExternalDataSource) -> str | None:
@@ -45,28 +46,36 @@ def get_default_snowflake_schema(source: ExternalDataSource) -> str | None:
     job_inputs = source.job_inputs or {}
     if "schema" in job_inputs:
         return normalize_namespace(job_inputs.get("schema"))
-    return normalize_namespace(job_inputs.get("database"))
+    return None
+
+
+def get_default_snowflake_catalog(source: ExternalDataSource) -> str | None:
+    database = (source.job_inputs or {}).get("database")
+    return database if isinstance(database, str) and database.strip() else None
 
 
 def get_snowflake_source_location(
     *,
     schema_name: str,
     schema_metadata: dict[str, Any] | None = None,
+    default_catalog: str | None = None,
     default_schema: str | None = None,
 ) -> SnowflakeSourceLocation:
-    """Resolve (schema, table_name) for a Snowflake source, given a schema name and optional metadata."""
+    """Resolve (catalog, schema, table_name) for a Snowflake source."""
+    source_catalog = schema_metadata.get("source_catalog") if isinstance(schema_metadata, dict) else None
     source_schema = schema_metadata.get("source_schema") if isinstance(schema_metadata, dict) else None
     source_table_name = schema_metadata.get("source_table_name") if isinstance(schema_metadata, dict) else None
-    normalized_default = normalize_namespace(default_schema)
+    normalized_default_schema = normalize_namespace(default_schema)
 
+    catalog = source_catalog if isinstance(source_catalog, str) and source_catalog.strip() else default_catalog
     if isinstance(source_schema, str) and isinstance(source_table_name, str):
-        return source_schema, source_table_name
+        return catalog, source_schema, source_table_name
 
-    if normalized_default is None and "." in schema_name:
+    if normalized_default_schema is None and "." in schema_name:
         inferred_schema, inferred_table_name = schema_name.split(".", 1)
-        return inferred_schema, inferred_table_name
+        return catalog, inferred_schema, inferred_table_name
 
-    return normalized_default or "", schema_name
+    return catalog, normalized_default_schema or "", schema_name
 
 
 def get_snowflake_source_location_for_schema_model(
@@ -74,6 +83,7 @@ def get_snowflake_source_location_for_schema_model(
     schema_name: str,
     sync_type_config: dict[str, Any] | None = None,
     table_options: dict[str, Any] | None = None,
+    default_catalog: str | None = None,
     default_schema: str | None = None,
 ) -> SnowflakeSourceLocation:
     schema_metadata = (
@@ -85,9 +95,13 @@ def get_snowflake_source_location_for_schema_model(
         return get_snowflake_source_location(
             schema_name=schema_name,
             schema_metadata=schema_metadata,
+            default_catalog=default_catalog,
             default_schema=default_schema,
         )
 
+    table_source_catalog = (
+        table_options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION) if isinstance(table_options, dict) else None
+    )
     table_source_schema = table_options.get(DIRECT_SNOWFLAKE_SCHEMA_OPTION) if isinstance(table_options, dict) else None
     table_source_table_name = (
         table_options.get(DIRECT_SNOWFLAKE_TABLE_OPTION) if isinstance(table_options, dict) else None
@@ -95,6 +109,7 @@ def get_snowflake_source_location_for_schema_model(
 
     if isinstance(table_source_schema, str) and isinstance(table_source_table_name, str):
         return (
+            table_source_catalog if isinstance(table_source_catalog, str) else default_catalog,
             table_source_schema,
             table_source_table_name,
         )
@@ -102,6 +117,7 @@ def get_snowflake_source_location_for_schema_model(
     return get_snowflake_source_location(
         schema_name=schema_name,
         schema_metadata=None,
+        default_catalog=default_catalog,
         default_schema=default_schema,
     )
 
@@ -118,6 +134,7 @@ def reconcile_snowflake_schemas(
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
+    default_catalog = get_default_snowflake_catalog(source)
     default_schema = get_default_snowflake_schema(source)
     schema_models = {
         s.name: s for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
@@ -129,6 +146,7 @@ def reconcile_snowflake_schemas(
             schema_name=schema_model.name,
             sync_type_config=schema_model.sync_type_config,
             table_options=schema_model.table.options if schema_model.table is not None else None,
+            default_catalog=default_catalog,
             default_schema=default_schema,
         )
         schema_models_by_location.setdefault(location, schema_model)
@@ -139,21 +157,25 @@ def reconcile_snowflake_schemas(
             location = get_snowflake_source_location(
                 schema_name=source_schema.name,
                 schema_metadata={
+                    "source_catalog": source_schema.source_catalog,
                     "source_schema": source_schema.source_schema,
                     "source_table_name": source_schema.source_table_name,
                 },
+                default_catalog=default_catalog,
                 default_schema=default_schema,
             )
             matched = schema_models_by_location.get(location)
         if matched is None:
             continue
 
-        resolved_schema, resolved_table = get_snowflake_source_location(
+        resolved_catalog, resolved_schema, resolved_table = get_snowflake_source_location(
             schema_name=source_schema.name,
             schema_metadata={
+                "source_catalog": source_schema.source_catalog,
                 "source_schema": source_schema.source_schema,
                 "source_table_name": source_schema.source_table_name,
             },
+            default_catalog=default_catalog,
             default_schema=default_schema,
         )
 
@@ -161,6 +183,7 @@ def reconcile_snowflake_schemas(
         schema_metadata = sql_schema_metadata(
             source_schema.columns,
             source_schema.foreign_keys,
+            source_catalog=resolved_catalog,
             source_schema=resolved_schema,
             source_table_name=resolved_table,
         )
@@ -206,6 +229,7 @@ def reconcile_snowflake_schemas(
             schema_name=source_schema.name,
             source=source,
             columns=snowflake_columns_to_dwh_columns(projected_columns),
+            source_catalog=resolved_catalog,
             source_schema=resolved_schema,
             source_table_name=resolved_table,
         )

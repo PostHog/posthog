@@ -7,19 +7,25 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
-type DirectMySQLColumns = dict[str, dict[str, Any]]
+type DirectSnowflakeColumns = dict[str, dict[str, Any]]
 
 
 DIRECT_SNOWFLAKE_URL_PATTERN = "direct://snowflake"
+DIRECT_SNOWFLAKE_CATALOG_OPTION = "direct_snowflake_catalog"
 DIRECT_SNOWFLAKE_SCHEMA_OPTION = "direct_snowflake_schema"
 DIRECT_SNOWFLAKE_TABLE_OPTION = "direct_snowflake_table"
 
 
-def get_direct_snowflake_table_options(*, source_schema: str, source_table_name: str) -> dict[str, str]:
-    return {
+def get_direct_snowflake_table_options(
+    *, source_catalog: str | None = None, source_schema: str, source_table_name: str
+) -> dict[str, str]:
+    options = {
         DIRECT_SNOWFLAKE_SCHEMA_OPTION: source_schema,
         DIRECT_SNOWFLAKE_TABLE_OPTION: source_table_name,
     }
+    if source_catalog:
+        options[DIRECT_SNOWFLAKE_CATALOG_OPTION] = source_catalog
+    return options
 
 
 def upsert_direct_snowflake_table(
@@ -27,7 +33,8 @@ def upsert_direct_snowflake_table(
     *,
     schema_name: str,
     source: ExternalDataSource,
-    columns: DirectMySQLColumns,
+    columns: DirectSnowflakeColumns,
+    source_catalog: str | None = None,
     source_schema: str,
     source_table_name: str,
 ) -> DataWarehouseTable:
@@ -36,6 +43,7 @@ def upsert_direct_snowflake_table(
     options = {
         **(existing_table.options if existing_table is not None and isinstance(existing_table.options, dict) else {}),
         **get_direct_snowflake_table_options(
+            source_catalog=source_catalog,
             source_schema=source_schema,
             source_table_name=source_table_name,
         ),
