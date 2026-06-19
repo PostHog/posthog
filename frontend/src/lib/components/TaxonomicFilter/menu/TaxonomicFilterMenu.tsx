@@ -176,6 +176,11 @@ export function eventSelectionWasStale(
     return isDefinitionStale(item as unknown as EventDefinition)
 }
 
+/** The default combobox landing — the "All" scope, where recents/pinned lead and
+ *  the user can search across every category. The one home for this state so the
+ *  initial-mount and runtime open paths can't drift. */
+const comboboxAllState = (): MenuFilterState => ({ kind: 'combobox', drillTo: 'all' })
+
 /**
  * Resolve the panel a trigger open should land on from the current selection.
  * If `selected` is set, jump straight into the panel that matches its group so
@@ -183,7 +188,7 @@ export function eventSelectionWasStale(
  * the existing expression) instead of having to re-traverse the dropdown menu.
  * With no selection we fall back to the menu.
  */
-function resolveSelectedOpenState(selected: MenuFilterEntry | null): MenuFilterState {
+export function resolveSelectedOpenState(selected: MenuFilterEntry | null): MenuFilterState {
     if (!selected) {
         return { kind: 'menu' }
     }
@@ -196,11 +201,9 @@ function resolveSelectedOpenState(selected: MenuFilterEntry | null): MenuFilterS
         // visited.
         return { kind: 'dwh-config', table: selected.item, group: selected.group, origin: 'menu' }
     }
-    // Land on the regular combobox on the "All" scope. The committed selection
-    // floats to the first row (and stays highlighted) so the user can verify it
-    // at a glance, while still seeing recents/pinned and being able to search
-    // across every category.
-    return { kind: 'combobox', drillTo: 'all' }
+    // The committed selection floats to the first row (and stays highlighted) so
+    // the user can verify it at a glance.
+    return comboboxAllState()
 }
 
 /**
@@ -211,7 +214,7 @@ function resolveSelectedOpenState(selected: MenuFilterEntry | null): MenuFilterS
  * `defaultOpenState` routes the open to the panel matching the interaction (the
  * input trigger's search box -> combobox, its filter icon -> menu).
  */
-function resolveInitialMenuState(
+export function resolveInitialMenuState(
     defaultOpen: boolean,
     defaultOpenState: 'menu' | 'combobox' | undefined,
     selected: MenuFilterEntry | null
@@ -220,7 +223,7 @@ function resolveInitialMenuState(
         return { kind: 'closed' }
     }
     if (defaultOpenState === 'combobox') {
-        return { kind: 'combobox', drillTo: 'all' }
+        return comboboxAllState()
     }
     if (defaultOpenState === 'menu') {
         return { kind: 'menu' }
