@@ -46,7 +46,7 @@ What's the job?
 │     ("triage this alert, suggest a fix")   (oncall triage, code review,
 │                                             planning, light debugging)
 ├── Long, branching, with backtracking .... Sonnet, reasoning: high
-│     ("debug this failing session, work     (the concierge itself, deep
+│     ("debug this failing session, work     (the Agent Builder itself, deep
 │       through hypotheses")                 investigations, multi-turn
 │                                             editing flows)
 └── Cutting edge / research-grade ......... Opus / GPT-5-thinking, high

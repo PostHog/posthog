@@ -1,6 +1,7 @@
 import type { TooltipContext } from '@posthog/quill-charts'
 
 import { FunnelTooltip } from 'scenes/funnels/FunnelTooltip'
+import { funnelComparePeriodDateRange } from 'scenes/funnels/funnelUtils'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
@@ -13,6 +14,8 @@ interface FunnelStepsBarTooltipProps {
     breakdownFilter: BreakdownFilter | null | undefined
     groupTypeLabel: string
     showPersonsModal: boolean
+    resolvedDateRange?: Parameters<typeof funnelComparePeriodDateRange>[1]
+    compareTo?: Parameters<typeof funnelComparePeriodDateRange>[2]
 }
 
 export function FunnelStepsBarTooltip({
@@ -21,6 +24,8 @@ export function FunnelStepsBarTooltip({
     breakdownFilter,
     groupTypeLabel,
     showPersonsModal,
+    resolvedDateRange,
+    compareTo,
 }: FunnelStepsBarTooltipProps): JSX.Element | null {
     const stepIndex = context.dataIndex
     const step = steps[stepIndex]
@@ -39,6 +44,11 @@ export function FunnelStepsBarTooltip({
             series={series}
             groupTypeLabel={groupTypeLabel}
             breakdownFilter={breakdownFilter}
+            comparePeriodDateRange={
+                series.compare_label
+                    ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)
+                    : null
+            }
         />
     )
 }

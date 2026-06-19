@@ -86,7 +86,7 @@ output? pull cost over the last 90 days?
   red flags worth surfacing
 - Any session in `failed` state in the last 7 days
 - Any pending approvals surfaced by the session you're inspecting
-  (the concierge has no approvals-read tool — note them when they
+  (the Agent Builder has no approvals-read tool — note them when they
   show up in session logs, don't promise to fetch them)
 
 **Suppress unless asked:**

@@ -162,7 +162,7 @@ or worse" in the first five lines, not a re-read of the last sweep.
 
 The structured report in memory (`reports/fleet-audit/{date}.md` plus
 `latest.md`) is the complete output of the sweep. Point the operator at
-it. There is no Slack post step — the concierge doesn't post to Slack.
+it. There is no Slack post step — the Agent Builder doesn't post to Slack.
 
 ## Scope guard — what this run must NOT do
 
