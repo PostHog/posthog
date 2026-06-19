@@ -30,7 +30,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",
@@ -120,7 +120,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`.",
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. To link a user to this account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get account",
@@ -2613,7 +2613,7 @@
         }
     },
     "evaluation-create": {
-        "description": "Create a new AI observability evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
+        "description": "Create a new AI observability evaluation. Supported types are 'llm_judge' (LLM scores generations against a prompt), 'hog' (deterministic code returning a boolean), and 'sentiment' (user-message sentiment analysis). For llm_judge evaluations, provide evaluation_config.prompt and model_configuration. For hog evaluations, provide evaluation_config.source. For sentiment evaluations, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create a new evaluation.",
@@ -2641,7 +2641,7 @@
         }
     },
     "evaluation-get": {
-        "description": "Get a specific AI observability evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
+        "description": "Get a specific AI observability evaluation by its UUID. Returns full details including name, type (llm_judge, hog, or sentiment), configuration, conditions, and enabled status.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get a specific evaluation by ID.",
@@ -4219,7 +4219,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
+        "description": "Create a new AI observability evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). For 'sentiment' type, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'. When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -4233,7 +4233,7 @@
         }
     },
     "llma-evaluation-delete": {
-        "description": "Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
+        "description": "Soft-delete an AI observability evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete evaluation",
@@ -4247,7 +4247,7 @@
         }
     },
     "llma-evaluation-get": {
-        "description": "Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
+        "description": "Get a specific AI observability evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get evaluation",
@@ -4275,7 +4275,7 @@
         }
     },
     "llma-evaluation-list": {
-        "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
+        "description": "List all AI observability evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, sentiment, and other criteria. Supported types are 'llm_judge' (LLM scores outputs against a prompt), 'hog' (deterministic Hog code), and 'sentiment' (user-message sentiment analysis). Results are stored as '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List evaluations",
@@ -4401,7 +4401,7 @@
         }
     },
     "llma-evaluation-summary-create": {
-        "description": "Generate an AI-powered summary of LLM evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
+        "description": "Generate an AI-powered summary of boolean AI observability evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Summarize evaluation results",
@@ -4430,7 +4430,7 @@
         }
     },
     "llma-evaluation-update": {
-        "description": "Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt or Hog source), or change the model configuration.",
+        "description": "Update an existing AI observability evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt, Hog source, or sentiment source), or change the model configuration for llm_judge evaluations.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation",

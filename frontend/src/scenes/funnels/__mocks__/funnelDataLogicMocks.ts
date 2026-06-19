@@ -448,6 +448,74 @@ export const funnelResultTrendsCompareWithBreakdown = {
     is_cached: false,
 }
 
+// 1. Add steps "sign up" -> "buy"
+// 2. Toggle "Compare to previous" (default STEPS viz, no breakdown)
+// The runner returns a flat list of step dicts for both periods, each tagged with compare_label:
+// [step0_current, step1_current, step0_previous, step1_previous].
+export const funnelResultStepsCompare: FunnelAPIResponse = {
+    result: [
+        {
+            action_id: 'sign up',
+            name: 'sign up',
+            custom_name: null,
+            order: 0,
+            people: [],
+            count: 200,
+            type: 'events',
+            average_conversion_time: null,
+            median_conversion_time: null,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'current',
+        },
+        {
+            action_id: 'buy',
+            name: 'buy',
+            custom_name: null,
+            order: 1,
+            people: [],
+            count: 100,
+            type: 'events',
+            average_conversion_time: 3600,
+            median_conversion_time: 1800,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'current',
+        },
+        {
+            action_id: 'sign up',
+            name: 'sign up',
+            custom_name: null,
+            order: 0,
+            people: [],
+            count: 150,
+            type: 'events',
+            average_conversion_time: null,
+            median_conversion_time: null,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'previous',
+        },
+        {
+            action_id: 'buy',
+            name: 'buy',
+            custom_name: null,
+            order: 1,
+            people: [],
+            count: 60,
+            type: 'events',
+            average_conversion_time: 4200,
+            median_conversion_time: 2100,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'previous',
+        },
+    ],
+    timezone: 'UTC',
+    last_refresh: '2023-02-22T08:24:07.710763Z',
+    is_cached: true,
+}
+
 // 1. Add step "Pageview"
 // 2. Add "Pageview" as exclusion step
 export const funnelInvalidExclusionError = {

@@ -11,6 +11,7 @@ pub mod flag_matching;
 pub mod flag_matching_utils;
 pub mod flag_models;
 pub mod flag_operations;
+pub mod flag_payload_decryptor;
 pub mod flag_property_group;
 pub mod flag_request;
 pub mod flag_service;

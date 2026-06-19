@@ -24,7 +24,7 @@ from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
-from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
+from posthog.temporal.data_imports.cdc.adapters import cdc_supported_source_types, get_cdc_adapter
 from posthog.temporal.data_imports.cdc.batcher import (
     ChangeEventBatcher,
     build_scd2_table,
@@ -896,11 +896,15 @@ class CDCExtractActivity:
 
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)
+        synced_tables = {tracker.table_name for tracker in self.write_trackers.values()}
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.COMPLETED
             schema.latest_error = None
             schema.last_synced_at = now
             schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
+            # Breadcrumb for idle tables; _handle_no_changes only covers the whole-source-quiet case.
+            if schema.name not in synced_tables:
+                self._schema_log(schema).info("cdc_extract_no_changes")
 
 
 @activity.defn
@@ -944,8 +948,6 @@ def cleanup_orphan_slots_activity() -> None:
     """
     close_old_connections()
 
-    from products.data_warehouse.backend.types import ExternalDataSourceType
-
     log = logger.bind()
     log.info("cleanup_orphan_slots_started")
 
@@ -955,7 +957,7 @@ def cleanup_orphan_slots_activity() -> None:
     # point of this sweeper is to clean up slots for sources that were deleted.
     cdc_sources = list(
         ExternalDataSource.objects.filter(
-            source_type=ExternalDataSourceType.POSTGRES,
+            source_type__in=cdc_supported_source_types(),
             job_inputs__cdc_enabled=True,
         )
         .exclude(job_inputs__cdc_slot_name__isnull=True)
