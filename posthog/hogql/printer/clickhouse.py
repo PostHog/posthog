@@ -867,14 +867,22 @@ class ClickHousePrinter(BasePrinter):
             return team_id_guard_for_table(node_type, self.context)
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
-        if hasattr(table_type.table, "to_printed_clickhouse_table_ref"):
+        table = table_type.table
+        if hasattr(table, "to_printed_clickhouse_table_ref"):
             use_logical_alias = not isinstance(node.type, (ast.TableAliasType, ast.ColumnAliasedTableType))
-            sql = table_type.table.to_printed_clickhouse_table_ref(self.context, use_logical_alias=use_logical_alias)
+            sql = table.to_printed_clickhouse_table_ref(self.context, use_logical_alias=use_logical_alias)
         else:
-            sql = table_type.table.to_printed_clickhouse(self.context)
+            sql = table.to_printed_clickhouse(self.context)
+
+        # The v3 Parquet reader crashes (NOT_FOUND_COLUMN_IN_BLOCK) when the analyzer moves a
+        # computed predicate into the object-storage scan's PREWHERE. Wrap the read in a subquery
+        # that disables PREWHERE locally, so the surrounding query (incl. MergeTree joins) keeps it.
+        # See ClickHouse issue 80443.
+        if isinstance(table, S3Table) and table.format in ("Parquet", "Delta", "DeltaS3Wrapper"):
+            return f"(SELECT * FROM {sql} SETTINGS optimize_move_to_prewhere = 0)"
 
         # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
-        if isinstance(table_type.table, S3Table) and (
+        if isinstance(table, S3Table) and (
             node.next_join or node.join_type == "JOIN" or (node.join_type and node.join_type.startswith("GLOBAL "))
         ):
             sql = f"(SELECT * FROM {sql})"

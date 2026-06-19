@@ -408,21 +408,10 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-backend.yml
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile --filter=@posthog/root
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Restore test durations from cache
               # Shard counts are derived from .test_durations (Amdahl). Restore the newest
@@ -679,21 +668,10 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-backend.yml
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile --filter=@posthog/root
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -1701,25 +1679,10 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-backend.yml
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Install package.json dependencies with pnpm
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
 
             - name: Wait for Docker services
               env:
@@ -2367,6 +2330,14 @@ jobs:
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
+                  # Pick the split algorithm at runtime: optimal_chunks only when the
+                  # installed pytest-split offers it, else duration_based_chunks. A workflow
+                  # edit runs merged with master, so an unrebased PR on older pytest-split
+                  # must not hit an unknown --splitting-algorithm. See AGENTS.md (CI).
+                  SPLITTING_ALGORITHM=duration_based_chunks
+                  if python -c "from pytest_split.algorithms import Algorithms; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                      SPLITTING_ALGORITHM=optimal_chunks
+                  fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # No --splits/--group (no sharding), no --store-durations (don't pollute timing
@@ -2400,7 +2371,7 @@ jobs:
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 --store-durations \
                         --pytest-durations=100 \
-                        --splitting-algorithm=duration_based_chunks \
+                        --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         --reruns 2 --reruns-delay 1 \
                         -r fEsxX \
                         --junitxml=junit-core.xml \
@@ -2455,6 +2426,14 @@ jobs:
                   TEMPORAL_FILES: ${{ needs.select-tests.outputs.temporal_files }}
               run: |
                   set +e
+                  # Pick the split algorithm at runtime: optimal_chunks only when the
+                  # installed pytest-split offers it, else duration_based_chunks. A workflow
+                  # edit runs merged with master, so an unrebased PR on older pytest-split
+                  # must not hit an unknown --splitting-algorithm. See AGENTS.md (CI).
+                  SPLITTING_ALGORITHM=duration_based_chunks
+                  if python -c "from pytest_split.algorithms import Algorithms; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                      SPLITTING_ALGORITHM=optimal_chunks
+                  fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --store-durations (don't pollute
                       # timing data with a partial run), no --reruns (fail loud; the ready
@@ -2475,7 +2454,7 @@ jobs:
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
-                          --splitting-algorithm=duration_based_chunks \
+                          --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           --reruns 2 --reruns-delay 1 \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
