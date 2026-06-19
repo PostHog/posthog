@@ -11,6 +11,7 @@ from posthog.schema import (
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.session_recordings.utils import gate_surfacing_score_order
 
 
 class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
@@ -19,6 +20,9 @@ class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
 
     def _calculate(self) -> RecordingsQueryResponse:
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
+
+        # `surfacing_score` ordering is flag-gated; this is the path the MCP query tool hits.
+        gate_surfacing_score_order(self.query, self.user)
 
         listing = SessionRecordingListFromQuery(
             team=self.team,
