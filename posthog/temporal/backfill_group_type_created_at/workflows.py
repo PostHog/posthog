@@ -38,7 +38,12 @@ class BackfillGroupTypeCreatedAtWorkflow(PostHogWorkflow):
             PlanBackfillInput(team_id=input.team_id),
             # The ClickHouse min() scans the project's events; give it room.
             start_to_close_timeout=timedelta(minutes=30),
-            retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30)),
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(seconds=30),
+                # A missing team is fatal — don't retry it (matched by class name).
+                non_retryable_error_types=["BackfillGroupTypeCreatedAtError"],
+            ),
         )
 
         result: dict[str, Any] = {

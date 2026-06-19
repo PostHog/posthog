@@ -1,6 +1,16 @@
 from dataclasses import dataclass
+from typing import TypedDict
 
 from pydantic import BaseModel
+
+
+class GroupTypeUpdate(TypedDict):
+    """A single created_at correction, produced by the plan activity and applied by the apply activity."""
+
+    group_type: str
+    group_type_index: int
+    current_created_at: str  # ISO-8601
+    new_created_at: str  # ISO-8601
 
 
 class BackfillGroupTypeCreatedAtInput(BaseModel):
@@ -33,10 +43,14 @@ class ApplyBackfillInput:
     """
 
     project_id: int
-    updates: list[dict]
+    updates: list[GroupTypeUpdate]
 
 
 class BackfillGroupTypeCreatedAtError(Exception):
-    """Error during the group type created_at backfill."""
+    """Fatal error during the backfill.
+
+    Listed in the plan activity's RetryPolicy.non_retryable_error_types (by class name),
+    so Temporal fails fast instead of retrying an error that won't resolve on its own.
+    """
 
     pass

@@ -11,6 +11,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.backfill_group_type_created_at.types import (
     ApplyBackfillInput,
     BackfillGroupTypeCreatedAtError,
+    GroupTypeUpdate,
     PlanBackfillInput,
 )
 from posthog.temporal.common.clickhouse import get_client
@@ -39,6 +40,8 @@ async def plan_group_type_created_at_backfill(input: PlanBackfillInput) -> dict:
         try:
             team = Team.objects.get(id=input.team_id)
         except Team.DoesNotExist:
+            # Fatal: a missing team won't appear on retry. The workflow marks this type
+            # non-retryable so Temporal fails fast instead of spinning.
             raise BackfillGroupTypeCreatedAtError(f"Team {input.team_id} not found")
 
         project_id = team.project_id
@@ -81,13 +84,15 @@ async def plan_group_type_created_at_backfill(input: PlanBackfillInput) -> dict:
     return result
 
 
-def _build_backfill_plan(mappings: list[dict], earliest: dict[int, datetime]) -> tuple[list[dict], list[dict]]:
+def _build_backfill_plan(
+    mappings: list[dict], earliest: dict[int, datetime]
+) -> tuple[list[GroupTypeUpdate], list[dict]]:
     """Decide which mappings need a lower created_at, given the earliest event per group.
 
     A mapping is updated only when it currently masks real events — i.e. it has a
     created_at that is strictly later than the earliest event carrying that group.
     """
-    updates: list[dict] = []
+    updates: list[GroupTypeUpdate] = []
     skipped: list[dict] = []
 
     for mapping in mappings:
