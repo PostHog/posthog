@@ -96,4 +96,8 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
 
 
 class Extractor(Protocol):
-    def extract(self, alert: AlertConfiguration, insight: Insight, query: object) -> ExtractionResult: ...
+    # The dispatcher resolves execution_mode once (via execution_mode_for_alert) and passes it in, so
+    # the cache/recompute decision lives at one site instead of being re-derived in each extractor.
+    def extract(
+        self, alert: AlertConfiguration, insight: Insight, query: object, execution_mode: ExecutionMode
+    ) -> ExtractionResult: ...

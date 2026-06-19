@@ -12,6 +12,7 @@ from posthog.schema import (
     InsightThreshold,
     InsightThresholdType,
     IntervalType,
+    NodeKind,
     TrendsFilter,
     TrendsQuery,
 )
@@ -21,6 +22,7 @@ from posthog.caching.fetch_from_cache import InsightResult
 
 from products.alerts.backend.evaluation.contract import execution_mode_for_alert
 from products.alerts.backend.evaluation.detector import extract_detector_series
+from products.alerts.backend.evaluation.dispatcher import _resolve_execution_mode
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
@@ -84,47 +86,63 @@ def test_is_high_frequency_interval_property(interval, expected):
     assert AlertConfiguration(calculation_interval=interval).is_high_frequency_interval is expected
 
 
-@pytest.mark.parametrize("high_frequency,expected_mode", [(True, ALWAYS), (False, IF_STALE)])
+# The freshness decision lives in the dispatcher's _resolve_execution_mode — one site for every kind.
+# Only trends/detector escalate on hourly buckets (real time axis); funnels/hogql have none, so for
+# them the every-15-minutes cadence is the only fresh-recompute trigger.
+@pytest.mark.parametrize(
+    "kind,interval,high_frequency,expected",
+    [
+        (NodeKind.TRENDS_QUERY, "hour", False, ALWAYS),
+        (NodeKind.TRENDS_QUERY, "day", False, IF_STALE),
+        (NodeKind.TRENDS_QUERY, "day", True, ALWAYS),
+        (NodeKind.FUNNELS_QUERY, None, False, IF_STALE),
+        (NodeKind.FUNNELS_QUERY, None, True, ALWAYS),
+        (NodeKind.HOG_QL_QUERY, None, False, IF_STALE),
+        (NodeKind.HOG_QL_QUERY, None, True, ALWAYS),
+    ],
+)
+def test_resolve_execution_mode(kind, interval, high_frequency, expected):
+    alert = MagicMock()
+    alert.is_high_frequency_interval = high_frequency
+    query = {"kind": kind, "interval": interval} if interval is not None else {"kind": kind}
+    assert _resolve_execution_mode(alert, kind, query) == expected
+
+
+# Extractors forward the mode they're handed (the dispatcher decides it).
+@pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
 @patch("products.alerts.backend.evaluation.trends.calculate_for_query_based_insight")
-def test_trends_extractor_forces_fresh_for_high_frequency(mock_calc, high_frequency, expected_mode):
-    # A daily-bucketed insight would otherwise use the cache; the 15-min cadence forces fresh.
+def test_trends_extractor_forwards_execution_mode(mock_calc, mode):
     mock_calc.return_value = EMPTY_RESULT
-    TrendsExtractor().extract(_trends_alert(high_frequency=high_frequency), MagicMock(spec=Insight), _day_query())
-    assert mock_calc.call_args.kwargs["execution_mode"] == expected_mode
+    TrendsExtractor().extract(_trends_alert(high_frequency=False), MagicMock(spec=Insight), _day_query(), mode)
+    assert mock_calc.call_args.kwargs["execution_mode"] == mode
 
 
-@pytest.mark.parametrize("high_frequency,expected_mode", [(True, ALWAYS), (False, IF_STALE)])
+@pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
 @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
-def test_detector_extractor_forces_fresh_for_high_frequency(mock_calc, high_frequency, expected_mode):
+def test_detector_forwards_execution_mode(mock_calc, mode):
     mock_calc.return_value = EMPTY_RESULT
-    extract_detector_series(
-        MagicMock(spec=Insight), MagicMock(), _day_query(), ZSCORE_DETECTOR_CONFIG, high_frequency=high_frequency
-    )
-    assert mock_calc.call_args.kwargs["execution_mode"] == expected_mode
+    extract_detector_series(MagicMock(spec=Insight), MagicMock(), _day_query(), ZSCORE_DETECTOR_CONFIG, mode)
+    assert mock_calc.call_args.kwargs["execution_mode"] == mode
 
 
-@pytest.mark.parametrize("high_frequency,expected_mode", [(True, ALWAYS), (False, IF_STALE)])
+@pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
 @patch("products.alerts.backend.evaluation.funnels.calculate_for_query_based_insight")
-def test_funnels_extractor_forces_fresh_for_high_frequency(mock_calc, high_frequency, expected_mode):
-    # Funnels have no hourly axis, so only the cadence can force a fresh recompute.
+def test_funnels_extractor_forwards_execution_mode(mock_calc, mode):
     mock_calc.return_value = MagicMock(result=[{"order": 0, "count": 100, "breakdown_value": None}])
     alert = MagicMock()
     alert.config = {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None}
     alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
-    alert.is_high_frequency_interval = high_frequency
     query = {"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "step_a"}]}
-    FunnelsExtractor().extract(alert, MagicMock(), query)
-    assert mock_calc.call_args.kwargs["execution_mode"] == expected_mode
+    FunnelsExtractor().extract(alert, MagicMock(), query, mode)
+    assert mock_calc.call_args.kwargs["execution_mode"] == mode
 
 
-@pytest.mark.parametrize("high_frequency,expected_mode", [(True, ALWAYS), (False, IF_STALE)])
+@pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
 @patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
-def test_hogql_extractor_forces_fresh_for_high_frequency(mock_calc, high_frequency, expected_mode):
-    # HogQL results have no hourly axis either — cadence is the only fresh-recompute trigger.
+def test_hogql_extractor_forwards_execution_mode(mock_calc, mode):
     mock_calc.return_value = MagicMock(result=[[5.0], [6.0]], columns=["value"])
     alert = MagicMock()
     alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
     alert.config = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
-    alert.is_high_frequency_interval = high_frequency
-    HogQLExtractor().extract(alert, MagicMock(), MagicMock())
-    assert mock_calc.call_args.kwargs["execution_mode"] == expected_mode
+    HogQLExtractor().extract(alert, MagicMock(), MagicMock(), mode)
+    assert mock_calc.call_args.kwargs["execution_mode"] == mode

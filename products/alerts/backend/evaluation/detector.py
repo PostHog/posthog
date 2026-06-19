@@ -5,6 +5,7 @@ import numpy as np
 
 from posthog.schema import NodeKind, TrendsAlertConfig, TrendsQuery
 
+from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -37,10 +38,10 @@ def extract_detector_series(
     team: Any,
     query: TrendsQuery,
     detector_config: dict[str, Any],
+    execution_mode: ExecutionMode,
     *,
     series_index: int = 0,
     date_from: str | None = None,
-    high_frequency: bool = False,
 ) -> ExtractionResult:
     """Run a trends insight over the detector's lookback window and normalize it into series.
 
@@ -65,9 +66,6 @@ def extract_detector_series(
         filters_override = min_date_from if (min_dt and min_dt < user_dt) else {"date_from": date_from}
     else:
         filters_override = _date_range_override_for_detector(query, min_samples)
-
-    # Simulation passes high_frequency=False (read-only render, not cadence-bound).
-    execution_mode = execution_mode_for_alert(query.interval, high_frequency=high_frequency)
 
     calculation_result = calculate_for_query_based_insight(
         insight, team=team, execution_mode=execution_mode, user=None, filters_override=filters_override
@@ -186,7 +184,9 @@ class TrendsDetectorExtractor:
     fetching the detector's wider lookback window (the whole series is scored, not a single anchor).
     """
 
-    def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
+    def extract(
+        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+    ) -> ExtractionResult:
         detector_config = alert.detector_config
         if not detector_config:
             raise ValueError("TrendsDetectorExtractor requires detector_config — dispatcher invariant violated")
@@ -197,8 +197,8 @@ class TrendsDetectorExtractor:
             alert.team,
             trends_query,
             detector_config,
+            execution_mode,
             series_index=series_index,
-            high_frequency=alert.is_high_frequency_interval,
         )
 
 
@@ -227,8 +227,10 @@ def simulate_detector_on_insight(
     # Read-only simulation runs outside the alert-check activity, so tag its query directly.
     tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
     detector_type_str = detector_config.get("type", "zscore")
+    # Simulation isn't cadence-bound, so high_frequency=False; the interval still forces fresh on HOUR.
+    execution_mode = execution_mode_for_alert(trends_query.interval, high_frequency=False)
     result = extract_detector_series(
-        insight, team, trends_query, detector_config, series_index=series_index, date_from=date_from
+        insight, team, trends_query, detector_config, execution_mode, series_index=series_index, date_from=date_from
     )
     interval_value = trends_query.interval.value if trends_query.interval else None
 
