@@ -491,9 +491,12 @@ def _iter_time_range_pagination(
                     raise
                 if last_paging_url is not None:
                     response = _fetch_paging_url(_override_limit(last_paging_url, current_limit), access_token)
-                else:
-                    assert chunk_params is not None
+                elif chunk_params is not None:
                     response = make_tracked_session().get(url, params=chunk_params)
+                else:
+                    # Unreachable: on the non-resume path chunk_params is always
+                    # set, and on the resume path last_paging_url is always set.
+                    raise RuntimeError("Cannot retry truncated JSON: no cursor and no initial chunk params")
                 continue
             malformed_json_attempts = 0
 

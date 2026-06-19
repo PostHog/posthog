@@ -903,6 +903,48 @@ class TestTimeRangeMalformedJson:
             == "https://graph.facebook.com/v20/act_1/insights?after=p1&limit=500"
         )
 
+    def test_resumed_cursor_truncated_body_reissues_same_cursor(self) -> None:
+        # Mid-chunk resume: pending_next_url comes from a saved MetaAdsResumeConfig,
+        # so chunk_params stays None and recovery must go through the last_paging_url branch.
+        resumed_cursor = "https://graph.facebook.com/v20/act_1/insights?after=resumed"
+        manager = _build_manager(
+            can_resume=True,
+            state=MetaAdsResumeConfig(
+                end_date="2026-04-21",
+                chunk_since="2026-04-21",
+                chunk_size_days=1,
+                chunk_next_url=resumed_cursor,
+            ),
+        )
+        responses = [
+            # The resumed cursor page returns a truncated body, then succeeds on re-issue.
+            _mock_truncated_response(),
+            _mock_response(200, {"data": [{"ad_id": "b"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL,
+                    self.PARAMS,
+                    {"since": "2026-04-21", "until": "2026-04-21"},
+                    MetaAdsResumeConfig(
+                        end_date="2026-04-21",
+                        chunk_since="2026-04-21",
+                        chunk_size_days=1,
+                        chunk_next_url=resumed_cursor,
+                    ),
+                    manager,
+                )
+            )
+
+        assert batches == [[{"ad_id": "b"}]]
+        # Both calls re-fetch the same resumed cursor at the default limit; no initial chunk request.
+        assert mock_get.return_value.get.call_count == 2
+        for call in mock_get.return_value.get.call_args_list:
+            assert call.args[0] == f"{resumed_cursor}&limit=500"
+
     def test_persistently_truncated_body_raises(self) -> None:
         manager = _build_manager()
         responses = [_mock_truncated_response() for _ in range(MALFORMED_JSON_MAX_ATTEMPTS)]
