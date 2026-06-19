@@ -37,8 +37,8 @@ class AppsFlyerCredentialsError(Exception):
 
 
 def _get_session(api_token: str) -> requests.Session:
-    # The v5 Pull API defaults to JSON; CSV is opt-in via Accept only. This header is required —
-    # without it we'd get JSON and the CSV parser below would silently produce garbage.
+    # the v5 docs are a bit ambiguous about whether the return format defaults to CSV
+    # or JSON, so we explicitly request CSV for safety.
     return make_tracked_session(
         headers={"Authorization": f"Bearer {api_token}", "Accept": "text/csv"},
         redact_values=(api_token,),

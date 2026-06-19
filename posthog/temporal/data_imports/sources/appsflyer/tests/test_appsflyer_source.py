@@ -92,8 +92,6 @@ class TestAppsFlyerSource:
 
     @mock.patch("posthog.temporal.data_imports.sources.appsflyer.source.validate_appsflyer_credentials")
     def test_validate_credentials_succeeds(self, mock_validate):
-        mock_validate.return_value = True
-
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is True
