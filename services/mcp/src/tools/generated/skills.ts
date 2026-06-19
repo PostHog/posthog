@@ -43,7 +43,7 @@ const skillArchive = (): ToolBase<typeof SkillArchiveSchema, unknown> => ({
     },
 })
 
-const SkillCreateSchema = LlmSkillsCreateBody
+const SkillCreateSchema = LlmSkillsCreateBody.omit({ category: true })
 
 const skillCreate = (): ToolBase<typeof SkillCreateSchema, Schemas.LLMSkillCreate> => ({
     name: 'skill-create',
@@ -236,6 +236,7 @@ const skillList = (): ToolBase<typeof SkillListSchema, Schemas.PaginatedLLMSkill
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/`,
             query: {
+                category: params.category,
                 created_by_id: params.created_by_id,
                 limit: params.limit,
                 offset: params.offset,

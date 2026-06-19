@@ -30,6 +30,7 @@ class TestLLMSkillAPI(APIBaseTest):
         compatibility: str = "",
         allowed_tools: list | None = None,
         metadata: dict | None = None,
+        category: str = "",
         created_by: User | None = None,
     ) -> LLMSkill:
         return LLMSkill.objects.create(
@@ -44,6 +45,7 @@ class TestLLMSkillAPI(APIBaseTest):
             compatibility=compatibility,
             allowed_tools=allowed_tools or [],
             metadata=metadata or {},
+            category=category,
             created_by=created_by or self.user,
         )
 
@@ -289,6 +291,40 @@ class TestLLMSkillAPI(APIBaseTest):
         response = self.client.get(self._url() + f"?created_by_id={value}")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_list_skills_filter_by_category_returns_only_that_category(self, mock_feature_enabled):
+        self.create_skill(name="ordinary-skill", description="Plain.")
+        self.create_skill(name="signals-scout-errors", description="A scout.", category="scout")
+        self.create_skill(name="signals-scout-web", description="Another scout.", category="scout")
+
+        response = self.client.get(self._url() + "?category=scout")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert response.json()["count"] == 2
+        assert sorted(r["name"] for r in results) == ["signals-scout-errors", "signals-scout-web"]
+        assert all(r["category"] == "scout" for r in results)
+
+    def test_list_skills_filter_by_empty_category_returns_only_uncategorized(self, mock_feature_enabled):
+        self.create_skill(name="ordinary-skill", description="Plain.")
+        self.create_skill(name="signals-scout-errors", description="A scout.", category="scout")
+
+        response = self.client.get(self._url() + "?category=")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert response.json()["count"] == 1
+        assert results[0]["name"] == "ordinary-skill"
+        assert results[0]["category"] == ""
+
+    def test_list_skills_without_category_param_returns_all_categories(self, mock_feature_enabled):
+        self.create_skill(name="ordinary-skill", description="Plain.")
+        self.create_skill(name="signals-scout-errors", description="A scout.", category="scout")
+
+        response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
 
     # --- Get by name ---
 

@@ -26221,6 +26221,11 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
+      /**
+         * Optional classification for the skill. Empty for an ordinary skill; "scout" for a Signals scout. Used to group and filter skills (e.g. the Scouts tab) independently of the skill name.
+         * @maxLength 64
+         */
+      category?: string;
       /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -26287,6 +26292,11 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillCreateMetadata;
+      /**
+         * Optional classification for the skill. Empty for an ordinary skill; "scout" for a Signals scout. Used to group and filter skills (e.g. the Scouts tab) independently of the skill name.
+         * @maxLength 64
+         */
+      category?: string;
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -26412,6 +26422,11 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
+      /**
+         * Optional classification for the skill. Empty for an ordinary skill; "scout" for a Signals scout. Used to group and filter skills (e.g. the Scouts tab) independently of the skill name.
+         * @maxLength 64
+         */
+      category?: string;
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
@@ -53235,6 +53250,10 @@ export namespace Schemas {
 
     export type EnvironmentsLlmSkillsListParams = {
     /**
+     * Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.
+     */
+    category?: string;
+    /**
      * Filter skills by the ID of the user who created them.
      */
     created_by_id?: number;
@@ -59513,6 +59532,10 @@ export namespace Schemas {
     };
 
     export type LlmSkillsListParams = {
+    /**
+     * Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.
+     */
+    category?: string;
     /**
      * Filter skills by the ID of the user who created them.
      */

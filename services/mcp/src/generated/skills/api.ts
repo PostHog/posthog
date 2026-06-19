@@ -17,6 +17,12 @@ export const LlmSkillsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const LlmSkillsListQueryParams = /* @__PURE__ */ zod.object({
+    category: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.'
+        ),
     created_by_id: zod.number().optional().describe('Filter skills by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -38,6 +44,8 @@ export const llmSkillsCreateBodyDescriptionMax = 4096
 export const llmSkillsCreateBodyLicenseMax = 255
 
 export const llmSkillsCreateBodyCompatibilityMax = 500
+
+export const llmSkillsCreateBodyCategoryMax = 64
 
 export const llmSkillsCreateBodyFilesItemPathMax = 500
 
@@ -70,6 +78,13 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
         metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
+        category: zod
+            .string()
+            .max(llmSkillsCreateBodyCategoryMax)
+            .optional()
+            .describe(
+                'Optional classification for the skill. Empty for an ordinary skill; "scout" for a Signals scout. Used to group and filter skills (e.g. the Scouts tab) independently of the skill name.'
+            ),
         files: zod
             .array(
                 zod.object({

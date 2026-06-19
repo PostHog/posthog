@@ -119,6 +119,12 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Filter skills by the ID of the user who created them.",
     )
+    category = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text='Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to '
+        "return only uncategorized skills. Omit the parameter entirely to return skills of every category.",
+    )
 
 
 class LLMSkillResolveQuerySerializer(LLMSkillFetchQuerySerializer):
@@ -331,6 +337,13 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         default=dict,
         help_text="Arbitrary key-value metadata.",
     )
+    category = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=64,
+        help_text='Optional classification for the skill. Empty for an ordinary skill; "scout" for a Signals scout. '
+        "Used to group and filter skills (e.g. the Scouts tab) independently of the skill name.",
+    )
     files = serializers.SerializerMethodField(
         help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
     )
@@ -349,6 +362,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "compatibility",
             "allowed_tools",
             "metadata",
+            "category",
             "files",
             "outline",
             "version",
