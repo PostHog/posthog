@@ -224,6 +224,7 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
     return yData.map((series, index) => {
         const settings = series.settings
         const color = settings?.display?.color
+        const type = seriesDisplayType(visualizationType, settings)
 
         return {
             key: getSeriesKey(series, index),
@@ -232,10 +233,14 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             data: series.data.map((value) => (value == null ? NaN : value)),
             meta: { settings },
             // Per-series type; ignored by the single-type line/bar charts, read by ComboChart.
-            type: seriesDisplayType(visualizationType, settings),
+            type,
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
-            ...(isAreaSeries(visualizationType, settings) ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
+            // Area fill, but never on a bar — a bar-override on an area-graph chart resolves to
+            // `type: 'bar'` yet `isAreaSeries` is still true for the whole area graph.
+            ...(type !== 'bar' && isAreaSeries(visualizationType, settings)
+                ? { fill: { opacity: AREA_FILL_OPACITY } }
+                : {}),
         }
     })
 }

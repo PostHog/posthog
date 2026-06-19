@@ -333,6 +333,15 @@ describe('sqlLineGraphAdapter', () => {
             expect(series.fill).toBeUndefined()
         })
 
+        it('omits the area fill for a bar-override series on an area graph', () => {
+            const [series] = buildSeries(
+                [ySeries('a', [1], { display: { displayType: 'bar' } })],
+                ChartDisplayType.ActionsAreaGraph
+            )
+            expect(series.type).toBe('bar')
+            expect(series.fill).toBeUndefined()
+        })
+
         it('keys breakdown series by breakdown value', () => {
             const [series] = buildSeries([breakdownSeries('chrome', [1])], ChartDisplayType.ActionsLineGraph)
             expect(series.key).toBe('chrome')
