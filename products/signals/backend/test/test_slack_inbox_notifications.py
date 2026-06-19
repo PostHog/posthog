@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.conf import settings
 
 from social_django.models import UserSocialAuth
 
@@ -81,9 +82,10 @@ def _plain_text_block_texts(blocks: list[dict]) -> list[str]:
     return texts
 
 
-def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> None:
+def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() -> None:
     report = SignalReport(
         id="report-uuid",
+        team_id=42,
         title="Checkout errors spiked",
         summary="Error rate rose after deploy.\nIgnored second line.",
         signal_count=12,
@@ -107,8 +109,8 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
     assert "👤 Suggested reviewers: <@U123>" in context_text
     assert "Inbox" not in context_text
     button = blocks[3]["elements"][0]
-    assert button["text"]["text"] == "Open in PostHog Code"
-    assert button["url"] == "posthog-code://inbox/report-uuid"
+    assert button["text"]["text"] == "Open in PostHog"
+    assert button["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
     assert text == "Inbox item (P1): Checkout errors spiked"
 
 
@@ -165,6 +167,7 @@ def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields() -> None:
 def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -> None:
     report = SignalReport(
         id="report-uuid",
+        team_id=42,
         title="Checkout errors spiked",
         summary="Error rate rose after deploy.",
         signal_count=12,
@@ -182,7 +185,8 @@ def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -
     assert len(buttons) == 2
     assert buttons[0]["text"]["text"] == "Review PR"
     assert buttons[0]["url"] == pr_url
-    assert buttons[1]["text"]["text"] == "Open in PostHog Code"
+    assert buttons[1]["text"]["text"] == "Open in PostHog"
+    assert buttons[1]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
 
 
 def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
@@ -213,7 +217,7 @@ def test_build_message_blocks_appends_dismiss_button_last_with_action_id() -> No
     )
 
     buttons = blocks[3]["elements"]
-    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Open in PostHog Code", "Dismiss"]
+    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Open in PostHog", "Dismiss"]
     dismiss = buttons[-1]
     assert dismiss["action_id"] == "signals_dismiss_report"
     assert dismiss["value"] == dismiss_value
@@ -418,7 +422,7 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert blocks[1]["text"]["text"].startswith("*❗ P1 · Error tracking*")
     assert "👤 Suggested reviewers: <@U_REVIEWER>" in blocks[2]["elements"][0]["text"]
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
-    assert blocks[3]["elements"][0]["url"] == f"posthog-code://inbox/{report.id}"
+    assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
 
 
 @pytest.mark.django_db
@@ -597,8 +601,9 @@ def test_dispatch_includes_github_pr_button_when_implementation_task_has_pr(org_
 
     assert sent == 1
     buttons = fake_client.chat_postMessage.call_args.kwargs["blocks"][3]["elements"]
-    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Open in PostHog Code", "Dismiss"]
+    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Open in PostHog", "Dismiss"]
     assert buttons[0]["url"] == "https://github.com/org/repo/pull/99"
+    assert buttons[1]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
     assert buttons[-1]["action_id"] == "signals_dismiss_report"
 
 
