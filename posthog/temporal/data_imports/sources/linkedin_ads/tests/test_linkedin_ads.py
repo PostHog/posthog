@@ -7,6 +7,7 @@ import pytest
 from unittest import mock
 
 import pyarrow as pa
+from parameterized import parameterized
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
@@ -400,31 +401,28 @@ class TestLinkedinAdsClientTokenRefresh:
 
     config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
 
-    def test_refreshes_expired_token_before_use(self, mock_integration_model, mock_oauth_cls):
+    @parameterized.expand(
+        [
+            ("expired_token_is_refreshed", True),
+            ("valid_token_is_not_refreshed", False),
+        ]
+    )
+    def test_refreshes_only_when_token_is_expired(self, mock_integration_model, mock_oauth_cls, _name, token_expired):
         integration = mock.MagicMock()
         integration.access_token = "refreshed-token"
         integration.errors = ""
         mock_integration_model.objects.get.return_value = integration
 
         oauth = mock_oauth_cls.return_value
-        oauth.access_token_expired.return_value = True
+        oauth.access_token_expired.return_value = token_expired
 
         client = linkedin_ads_client(self.config, team_id=789)
 
-        oauth.refresh_access_token.assert_called_once()
+        if token_expired:
+            oauth.refresh_access_token.assert_called_once()
+        else:
+            oauth.refresh_access_token.assert_not_called()
         assert client.access_token == "refreshed-token"
-
-    def test_does_not_refresh_when_token_is_valid(self, mock_integration_model, mock_oauth_cls):
-        integration = mock.MagicMock()
-        integration.access_token = "token"
-        mock_integration_model.objects.get.return_value = integration
-
-        oauth = mock_oauth_cls.return_value
-        oauth.access_token_expired.return_value = False
-
-        linkedin_ads_client(self.config, team_id=789)
-
-        oauth.refresh_access_token.assert_not_called()
 
     def test_failed_refresh_raises_non_retryable_message(self, mock_integration_model, mock_oauth_cls):
         integration = mock.MagicMock()
