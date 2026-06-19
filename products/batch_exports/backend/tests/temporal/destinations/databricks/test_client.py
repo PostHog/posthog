@@ -288,30 +288,38 @@ class TestQueryBuilders:
 
 
 class TestGetTableColumns:
-    async def test_reads_type_name_from_column_metadata(self, client: DatabricksClient, mock_cursor: MagicMock):
-        """``aget_table_columns`` should map each column to its Databricks ``TYPE_NAME`` (incl. VARIANT)."""
-        mock_cursor.fetchall.return_value = [
-            SimpleNamespace(COLUMN_NAME="uuid", TYPE_NAME="STRING"),
-            SimpleNamespace(COLUMN_NAME="properties", TYPE_NAME="VARIANT"),
-            SimpleNamespace(COLUMN_NAME="team_id", TYPE_NAME="INT"),
-        ]
-
-        columns = await client.aget_table_columns("posthog_events_raw")
-
-        assert columns == {"uuid": "STRING", "properties": "VARIANT", "team_id": "INT"}
-
-    async def test_falls_back_to_name_attribute_and_missing_type(
-        self, client: DatabricksClient, mock_cursor: MagicMock
+    @pytest.mark.parametrize(
+        "rows,expected",
+        [
+            # Thrift metadata backend (what we use): JDBC-style COLUMN_NAME + TYPE_NAME, incl. VARIANT
+            (
+                [
+                    SimpleNamespace(COLUMN_NAME="uuid", TYPE_NAME="STRING"),
+                    SimpleNamespace(COLUMN_NAME="properties", TYPE_NAME="VARIANT"),
+                    SimpleNamespace(COLUMN_NAME="team_id", TYPE_NAME="INT"),
+                ],
+                {"uuid": "STRING", "properties": "VARIANT", "team_id": "INT"},
+            ),
+            # rows exposing the name as `name` and without `TYPE_NAME` must not raise
+            (
+                [SimpleNamespace(name="uuid"), SimpleNamespace(name="properties")],
+                {"uuid": "", "properties": ""},
+            ),
+            # when both attributes are present, COLUMN_NAME takes precedence
+            (
+                [SimpleNamespace(COLUMN_NAME="uuid", name="ignored", TYPE_NAME="STRING")],
+                {"uuid": "STRING"},
+            ),
+        ],
+    )
+    async def test_maps_column_name_to_type(
+        self, client: DatabricksClient, mock_cursor: MagicMock, rows: list[SimpleNamespace], expected: dict[str, str]
     ):
-        """Rows exposing the name as ``name`` (and without ``TYPE_NAME``) must not raise."""
-        mock_cursor.fetchall.return_value = [
-            SimpleNamespace(name="uuid"),
-            SimpleNamespace(name="properties"),
-        ]
+        mock_cursor.fetchall.return_value = rows
 
         columns = await client.aget_table_columns("posthog_events_raw")
 
-        assert columns == {"uuid": "", "properties": ""}
+        assert columns == expected
 
     async def test_column_names_returns_only_names(self, client: DatabricksClient, mock_cursor: MagicMock):
         mock_cursor.fetchall.return_value = [
