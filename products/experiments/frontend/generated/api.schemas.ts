@@ -909,6 +909,17 @@ export const ExperimentMetricsRecalculationStatusEnumApi = {
 } as const
 
 /**
+ * * `recalculation` - recalculation
+ * * `timeseries_fallback` - timeseries_fallback
+ */
+export type ResultSourceEnumApi = (typeof ResultSourceEnumApi)[keyof typeof ResultSourceEnumApi]
+
+export const ResultSourceEnumApi = {
+    Recalculation: 'recalculation',
+    TimeseriesFallback: 'timeseries_fallback',
+} as const
+
+/**
  * * `pending` - pending
  * * `completed` - completed
  * * `failed` - failed
@@ -996,6 +1007,11 @@ export interface ExperimentMetricsRecalculationApi {
     readonly query_to: string | null
     /** True if returning an existing job rather than a newly created one */
     readonly is_existing: boolean
+    /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
+     *
+     * * `recalculation` - recalculation
+     * * `timeseries_fallback` - timeseries_fallback */
+    readonly result_source: ResultSourceEnumApi
     /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
     readonly results: readonly MetricRecalculationResultApi[]
 }

@@ -20718,6 +20718,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `recalculation` - recalculation
+     * * `timeseries_fallback` - timeseries_fallback
+     */
+    export type ResultSourceEnum = typeof ResultSourceEnum[keyof typeof ResultSourceEnum];
+
+
+    export const ResultSourceEnum = {
+      Recalculation: 'recalculation',
+      TimeseriesFallback: 'timeseries_fallback',
+    } as const;
+
+    /**
      * * `pending` - pending
      * * `completed` - completed
      * * `failed` - failed
@@ -20805,6 +20817,11 @@ export namespace Schemas {
       readonly query_to: string | null;
       /** True if returning an existing job rather than a newly created one */
       readonly is_existing: boolean;
+      /** Where these results came from: 'recalculation' for a real metrics-recalculation run, 'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data.
+       *
+       * * `recalculation` - recalculation
+       * * `timeseries_fallback` - timeseries_fallback */
+      readonly result_source: ResultSourceEnum;
       /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
       readonly results: readonly MetricRecalculationResult[];
     }

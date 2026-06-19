@@ -820,6 +820,18 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )
+    # Named result_source (not source) to avoid shadowing DRF's reserved Field.source attribute, mirroring
+    # the metric_errors-vs-errors rename above.
+    result_source = serializers.ChoiceField(
+        choices=["recalculation", "timeseries_fallback"],
+        required=False,
+        default="recalculation",
+        read_only=True,
+        help_text=(
+            "Where these results came from: 'recalculation' for a real metrics-recalculation run, "
+            "'timeseries_fallback' for a cold-start placeholder built from the latest daily timeseries data."
+        ),
+    )
     # Populated by the GET endpoints (latest / by-id). Omitted from the POST response payload (which doesn't carry
     # per-metric results yet — the workflow has just started).
     results = MetricRecalculationResultSerializer(
