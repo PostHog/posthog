@@ -795,29 +795,29 @@ def _due_run(team_id: int, skill_name: str, overdue_s: float) -> _DueRun:
     return _DueRun(overdue_s=overdue_s, config_pk=skill_name, team_id=team_id, skill_name=skill_name)
 
 
-def test_daily_budget_trims_to_remaining_headroom():
-    # Three due scouts, fleet daily budget 3, team already ran twice today → only 1 slot left, so
-    # just the most-overdue dispatches even though the per-tick cap (50) is nowhere near binding.
-    due = [
-        _due_run(7, "signals-scout-most", 10 * 3600),
-        _due_run(7, "signals-scout-mid", 5 * 3600),
-        _due_run(7, "signals-scout-least", 2 * 3600),
-    ]
-    selected = _allocate_tick_budget(due, {}, {"max_runs_per_day": 3}, {7: 2})
-    assert [d.skill_name for d in selected] == ["signals-scout-most"]
-
-
-def test_daily_budget_exhausted_dispatches_nothing():
-    # Budget fully spent → 0 runs this tick, and the empty team must not crash the round-robin.
-    due = [_due_run(7, "signals-scout-most", 10 * 3600)]
-    assert _allocate_tick_budget(due, {}, {"max_runs_per_day": 3}, {7: 3}) == []
-
-
-def test_daily_budget_none_leaves_only_the_tick_cap():
-    # No daily budget set → historical behaviour: every due run (within the per-tick cap) goes.
-    due = [_due_run(7, "signals-scout-a", 3600), _due_run(7, "signals-scout-b", 2 * 3600)]
-    selected = _allocate_tick_budget(due, {}, {}, {7: 999})
-    assert sorted(d.skill_name for d in selected) == ["signals-scout-a", "signals-scout-b"]
+@pytest.mark.parametrize(
+    "default_cfg,runs_today,due_skills,expected",
+    [
+        # Budget 3, 2 already run today → 1 slot left, so only the most-overdue dispatches (the
+        # per-tick cap of 50 is nowhere near binding).
+        (
+            {"max_runs_per_day": 3},
+            {7: 2},
+            [("signals-scout-most", 10), ("signals-scout-mid", 5), ("signals-scout-least", 2)],
+            ["signals-scout-most"],
+        ),
+        # Budget fully spent → 0 runs this tick; the empty team must not crash the round-robin.
+        ({"max_runs_per_day": 3}, {7: 3}, [("signals-scout-most", 10)], []),
+        # Pre-existing over-run (runs_today > budget) → still 0, no negative cap.
+        ({"max_runs_per_day": 3}, {7: 5}, [("signals-scout-most", 10)], []),
+        # No daily budget set → historical behaviour: every due run (within the per-tick cap) goes.
+        ({}, {7: 999}, [("signals-scout-a", 1), ("signals-scout-b", 2)], ["signals-scout-a", "signals-scout-b"]),
+    ],
+)
+def test_daily_budget_allocation(default_cfg, runs_today, due_skills, expected):
+    due = [_due_run(7, name, hours * 3600) for name, hours in due_skills]
+    selected = _allocate_tick_budget(due, {}, default_cfg, runs_today)
+    assert sorted(d.skill_name for d in selected) == sorted(expected)
 
 
 @pytest.mark.asyncio

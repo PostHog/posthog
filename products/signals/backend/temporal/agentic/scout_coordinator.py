@@ -243,7 +243,12 @@ def _collect_planned_runs(
     if not due:
         return []
 
-    runs_today = _runs_today_by_team({d.team_id for d in due}, now - DAILY_BUDGET_WINDOW)
+    # Only count runs for teams that actually have a resolved daily budget — for the default
+    # rollout (no `max_runs_per_day` set anywhere) this skips the aggregate query entirely.
+    capped_team_ids = {
+        d.team_id for d in due if _resolve_max_runs_per_day(d.team_id, team_configs, default_team_config) is not None
+    }
+    runs_today = _runs_today_by_team(capped_team_ids, now - DAILY_BUDGET_WINDOW)
     selected = _allocate_tick_budget(due, team_configs, default_team_config, runs_today)
     planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
     # Stable order for predictable child-workflow ids within the tick.
@@ -293,12 +298,22 @@ def _allocate_tick_budget(
         runs.sort(key=lambda d: (-d.overdue_s, d.skill_name))
         cap = _team_cap(team_id)
         if len(runs) > cap:
-            logger.warning(
-                "signals_scout coordinator: team over effective per-team cap, deferring overflow",
-                team_id=team_id,
-                due=len(runs),
-                cap=cap,
-            )
+            if cap == 0:
+                # The expected steady state once a team has spent its daily budget — info, not a
+                # warning, so it doesn't read as a misconfiguration in alerting (it would otherwise
+                # fire every tick for the rest of the 24h window).
+                logger.info(
+                    "signals_scout coordinator: team daily budget spent, deferring all due scouts",
+                    team_id=team_id,
+                    deferred=len(runs),
+                )
+            else:
+                logger.warning(
+                    "signals_scout coordinator: team over effective per-team cap, deferring overflow",
+                    team_id=team_id,
+                    due=len(runs),
+                    cap=cap,
+                )
             del runs[cap:]
 
     # Drop teams trimmed to zero (e.g. daily budget spent) so the round-robin's most-overdue-team
