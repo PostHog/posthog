@@ -7575,17 +7575,6 @@ export namespace Schemas {
       results: AgentApprovalRequest[];
     }
 
-    export interface AgentApplicationEnvKeyStatus {
-      key: string;
-      /** True if the key is present in the env block. The value itself is never returned. */
-      is_set: boolean;
-    }
-
-    export interface AgentApplicationEnvKeysResponse {
-      /** Names of env variables currently set on the application. Values are never returned. */
-      keys: string[];
-    }
-
     export interface AgentApplicationPreviewTokenResponse {
       /** HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly. */
       token: string;
@@ -8401,6 +8390,17 @@ export namespace Schemas {
       idempotency_key: string;
       /** The request id the firing used (echoed back, or freshly minted). */
       request_id: string;
+    }
+
+    export interface AgentRevisionEnvKeyStatus {
+      key: string;
+      /** True if the key is present in the env block. The value itself is never returned. */
+      is_set: boolean;
+    }
+
+    export interface AgentRevisionEnvKeysResponse {
+      /** Names of env variables currently set on the revision. Values are never returned. */
+      keys: string[];
     }
 
     export interface AgentRevisionSlackManifestResponse {

@@ -665,9 +665,18 @@ export class Worker {
                     sLog.warn({ err: (appErr as Error).message }, 'session.failure_notifier_app_load_failed')
                     return null
                 })
-                if (application) {
+                // The notifier resolves its outbound secret (e.g. Slack bot
+                // token) from the revision's `encrypted_env`, so load the
+                // session's revision here — the pre-runSession `rev` may never
+                // have loaded (a revision_missing failure is one path into this
+                // catch). Best-effort: a missing revision just means no notice.
+                const revision = await this.deps.revisions.getRevision(session.revision_id).catch((revErr) => {
+                    sLog.warn({ err: (revErr as Error).message }, 'session.failure_notifier_revision_load_failed')
+                    return null
+                })
+                if (application && revision) {
                     await this.deps.failureNotifier
-                        .notify({ session, application, reason, category })
+                        .notify({ session, application, revision, reason, category })
                         .catch((notifyErr) =>
                             sLog.warn({ err: (notifyErr as Error).message }, 'session.failure_notifier_threw')
                         )
