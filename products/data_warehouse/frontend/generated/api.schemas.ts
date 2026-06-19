@@ -1393,6 +1393,7 @@ export interface CredentialApi {
  * * `Datorama` - Datorama
  * * `Ahrefs` - Ahrefs
  * * `Lightfield` - Lightfield
+ * * `Appstack` - Appstack
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -2025,6 +2026,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Datorama: 'Datorama',
     Ahrefs: 'Ahrefs',
     Lightfield: 'Lightfield',
+    Appstack: 'Appstack',
     Custom: 'Custom',
 } as const
 
