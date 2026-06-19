@@ -22,6 +22,7 @@
         "@babel/preset-react": "^7.22.5",
         "@babel/preset-typescript": "^7.22.5",
         "@babel/runtime": "^7.26.10",
+        "@jest/test-sequencer": "^30.0.5",
         "@posthog/frontend": "workspace:*",
         "@storybook/addon-a11y": "^10.4.3",
         "@storybook/addon-docs": "^10.4.3",

@@ -425,6 +425,9 @@ importers:
       '@babel/runtime':
         specifier: ^7.26.10
         version: 7.29.2
+      '@jest/test-sequencer':
+        specifier: ^30.0.5
+        version: 30.0.5
       '@posthog/frontend':
         specifier: workspace:*
         version: link:../../frontend
@@ -39972,7 +39975,7 @@ snapshots:
       ansi-escapes: 7.0.0
       chalk: 5.6.2
       jest: 30.0.5(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
-      jest-regex-util: 30.0.1
+      jest-regex-util: 30.4.0
       jest-watcher: 30.0.5
       slash: 5.1.0
       string-length: 6.0.0
