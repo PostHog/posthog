@@ -4996,6 +4996,7 @@ export namespace Schemas {
       CustomerioApp: 'customerio-app',
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
+      Postgresql: 'postgresql',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -10155,13 +10156,39 @@ export namespace Schemas {
       type: BigQueryDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig;
+    export type PostgresDestinationConfigType = typeof PostgresDestinationConfigType[keyof typeof PostgresDestinationConfigType];
+
+
+    export const PostgresDestinationConfigType = {
+      Postgres: 'Postgres',
+    } as const;
+
+    /**
+     * Typed configuration for a PostgreSQL batch-export destination.
+     *
+     * Connection credentials may live in a linked Integration (when one is provided) or
+     * inline in this config (legacy). Mirrors the non-credential fields of
+     * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface PostgresDestinationConfig {
+      /** PostgreSQL database name to connect to. */
+      database: string;
+      /** PostgreSQL schema name containing the destination table. */
+      schema?: string;
+      /** PostgreSQL table name to write exported rows into. */
+      table_name?: string;
+      /** Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration. */
+      has_self_signed_cert?: boolean;
+      type: PostgresDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
-     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
+     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).
      * Other destination types accept the same JSON shape but without a typed
      * OpenAPI schema. Secret fields are stripped from `config` on read.
      */
@@ -10182,7 +10209,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -10190,7 +10217,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -11124,7 +11151,24 @@ export namespace Schemas {
       config: BigQueryDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest;
+    export type PostgresDestinationRequestType = typeof PostgresDestinationRequestType[keyof typeof PostgresDestinationRequestType];
+
+
+    export const PostgresDestinationRequestType = {
+      Postgres: 'Postgres',
+    } as const;
+
+    /**
+     * Request shape for creating or updating a PostgreSQL batch-export destination.
+     */
+    export interface PostgresDestinationRequest {
+      type: PostgresDestinationRequestType;
+      /** ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
+      config: PostgresDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -40154,6 +40198,16 @@ export namespace Schemas {
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
+
+    /**
+     * * `Postgres` - Postgres
+     */
+    export type PostgresDestinationRequestTypeEnum = typeof PostgresDestinationRequestTypeEnum[keyof typeof PostgresDestinationRequestTypeEnum];
+
+
+    export const PostgresDestinationRequestTypeEnum = {
+      Postgres: 'Postgres',
+    } as const;
 
     export interface PreviewInviteRequest {
       /**
