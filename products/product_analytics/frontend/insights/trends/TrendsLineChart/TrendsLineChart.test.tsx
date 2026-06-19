@@ -876,24 +876,27 @@ describe('TrendsLineChart', () => {
             expect(legendEl.querySelector('button')).not.toBeInTheDocument()
         })
 
-        it('lays the legend out vertically when legendPosition is left or right', async () => {
-            const { container } = renderInsight({
-                query: buildTrendsQuery({
-                    series: [
-                        { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
-                        { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
-                    ],
-                    trendsFilter: { showLegend: true, legendPosition: 'left' },
-                }),
-                featureFlags: quillLegendFlag,
-            })
+        it.each(['left', 'right'] as const)(
+            'lays the legend out vertically when legendPosition is %s',
+            async (position) => {
+                const { container } = renderInsight({
+                    query: buildTrendsQuery({
+                        series: [
+                            { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                            { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                        ],
+                        trendsFilter: { showLegend: true, legendPosition: position },
+                    }),
+                    featureFlags: quillLegendFlag,
+                })
 
-            await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
-            })
+                await waitFor(() => {
+                    expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                })
 
-            const legendEl = getInChartLegend(container)
-            expect(legendEl.className).toContain('flex-col')
-        })
+                const legendEl = getInChartLegend(container)
+                expect(legendEl.className).toContain('flex-col')
+            }
+        )
     })
 })
