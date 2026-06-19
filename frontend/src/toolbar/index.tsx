@@ -17,7 +17,7 @@ import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
 import { posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, isClientNetworkError } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarParams } from '~/types'
 
 interface InitKeaProps {
@@ -112,8 +112,16 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
                 }
             })
             .catch((error) => {
-                toolbarLogger.error('flags', 'Error fetching toolbar feature flags')
-                captureToolbarException(error, 'preloaded_flags_fetch')
+                // A 'Failed to fetch' TypeError here is a client-side network failure
+                // (ad-blocker, CORS, offline) on the visitor's browser, not a toolbar
+                // defect — log it but don't open an error-tracking issue. The toolbar
+                // still loads below regardless.
+                if (isClientNetworkError(error)) {
+                    toolbarLogger.warn('flags', 'Could not fetch toolbar feature flags (client network failure)')
+                } else {
+                    toolbarLogger.error('flags', 'Error fetching toolbar feature flags')
+                    captureToolbarException(error, 'preloaded_flags_fetch')
+                }
             })
     }
 

@@ -1,5 +1,15 @@
 import { ToolbarParams } from '~/types'
 
+// Spy on captureToolbarException while keeping the real isClientNetworkError gate.
+const mockCaptureToolbarException = jest.fn()
+jest.mock('~/toolbar/toolbarPosthogJS', () => {
+    const actual = jest.requireActual('~/toolbar/toolbarPosthogJS')
+    return {
+        ...actual,
+        captureToolbarException: (...args: unknown[]) => mockCaptureToolbarException(...args),
+    }
+})
+
 // Mock window and fetch
 const mockFetch = jest.fn()
 
@@ -10,6 +20,7 @@ describe('Toolbar flag loading', () => {
         global.fetch = mockFetch
         jest.clearAllMocks()
         mockFetch.mockClear()
+        mockCaptureToolbarException.mockClear()
         jest.resetModules()
 
         // Setup DOM
@@ -86,6 +97,56 @@ describe('Toolbar flag loading', () => {
 
         // Should not have called overrideFeatureFlags
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
+
+        consoleErrorSpy.mockRestore()
+    })
+
+    it('should not capture an exception for a client-side network failure', async () => {
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: { overrideFeatureFlags: jest.fn() },
+        }
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            toolbarFlagsKey: 'test-key-123',
+            token: 'test-token',
+        }
+
+        // The classic ad-blocker / CORS / offline signature.
+        mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+
+        expect(mockCaptureToolbarException).not.toHaveBeenCalled()
+        // Toolbar still loads despite the failed flags fetch.
+        expect(document.querySelector('div')).toBeTruthy()
+
+        consoleWarnSpy.mockRestore()
+    })
+
+    it('should capture an exception for a genuine (non-network) flags-fetch error', async () => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: { overrideFeatureFlags: jest.fn() },
+        }
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            toolbarFlagsKey: 'test-key-123',
+            token: 'test-token',
+        }
+
+        const error = new Error('boom')
+        mockFetch.mockRejectedValueOnce(error)
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+
+        expect(mockCaptureToolbarException).toHaveBeenCalledWith(error, 'preloaded_flags_fetch')
 
         consoleErrorSpy.mockRestore()
     })
