@@ -95,6 +95,8 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "enum": [
+                                                                            "-1M",
+                                                                            "-30M",
                                                                             "-1h",
                                                                             "-3h",
                                                                             "-24h",
@@ -267,6 +269,8 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "enum": [
+                                                                            "-1M",
+                                                                            "-30M",
                                                                             "-1h",
                                                                             "-3h",
                                                                             "-24h",
@@ -436,6 +440,8 @@
                                                                 "anyOf": [
                                                                     {
                                                                         "enum": [
+                                                                            "-1M",
+                                                                            "-30M",
                                                                             "-1h",
                                                                             "-3h",
                                                                             "-24h",
@@ -599,6 +605,63 @@
                                             }
                                         },
                                         "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "createdBy": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Filter by creator (user id). Omit for any creator."
+                                            },
+                                            "limit": {
+                                                "default": 10,
+                                                "description": "Maximum number of experiments to return.",
+                                                "maximum": 25,
+                                                "minimum": 1,
+                                                "type": "number"
+                                            },
+                                            "orderBy": {
+                                                "default": "created_at",
+                                                "description": "Experiment list sort column.",
+                                                "enum": ["created_at", "name", "start_date"],
+                                                "type": "string"
+                                            },
+                                            "orderDirection": {
+                                                "default": "DESC",
+                                                "description": "Sort direction for orderBy.",
+                                                "enum": ["ASC", "DESC"],
+                                                "type": "string"
+                                            },
+                                            "status": {
+                                                "default": "all",
+                                                "description": "Experiment status filter.",
+                                                "enum": ["draft", "running", "paused", "stopped", "all"],
+                                                "type": "string"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "experimentId": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Experiment to show results for. Null until the user picks one in the widget settings."
+                                            }
+                                        },
+                                        "type": "object"
                                     }
                                 ],
                                 "description": "Widget-specific configuration. Shape depends on the tile's widget_type."
@@ -624,8 +687,14 @@
                                 "description": "Optional custom display name for the widget tile."
                             },
                             "widget_type": {
-                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `session_replay_list` - session_replay_list",
-                                "enum": ["activity_events_list", "error_tracking_list", "session_replay_list"],
+                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `session_replay_list` - session_replay_list",
+                                "enum": [
+                                    "activity_events_list",
+                                    "error_tracking_list",
+                                    "experiment_results",
+                                    "experiments_list",
+                                    "session_replay_list"
+                                ],
                                 "type": "string"
                             }
                         },

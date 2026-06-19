@@ -11,7 +11,6 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value, initial_datetime
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -23,6 +22,12 @@ from .client import LinkedinAdsClient, LinkedinAdsResource
 from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
 
 module_logger = structlog.get_logger(__name__)
+
+# On the first sync there's no saved cursor, so analytics would otherwise start from the epoch.
+# Syncing stats from 1970 fans out into dozens of empty yearly windows per stats resource, and that
+# call volume exhausts LinkedIn's per-member/app daily budget and trips the 429 DAY throttle. Cap the
+# initial lookback like the other ad-reporting sources do (mirrors Bing Ads' 5-year window).
+INITIAL_ANALYTICS_LOOKBACK_DAYS = 365 * 5
 
 
 @dataclass
@@ -141,28 +146,25 @@ def linkedin_ads_source(
         now = dt.datetime.now()
         date_start = None
         date_end = now.strftime("%Y-%m-%d")
+        default_start = (now - dt.timedelta(days=INITIAL_ANALYTICS_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
 
         if should_use_incremental_field and schema.filter_field_names:
             if incremental_field is None or incremental_field_type is None:
                 raise ValueError("incremental_field and incremental_field_type can't be None")
 
             if db_incremental_field_last_value is None:
-                last_value: int | dt.datetime | dt.date | str = incremental_type_to_initial_value(
-                    incremental_field_type
-                )
+                date_start = default_start
             else:
-                last_value = db_incremental_field_last_value
-
-            if isinstance(last_value, dt.datetime):
-                date_start = last_value.strftime("%Y-%m-%d")
-            elif isinstance(last_value, dt.date):
-                date_start = last_value.isoformat()
-            elif isinstance(last_value, str):
-                date_start = last_value
+                last_value: int | dt.datetime | dt.date | str = db_incremental_field_last_value
+                if isinstance(last_value, dt.datetime):
+                    date_start = last_value.strftime("%Y-%m-%d")
+                elif isinstance(last_value, dt.date):
+                    date_start = last_value.isoformat()
+                elif isinstance(last_value, str):
+                    date_start = last_value
 
         else:
-            start_date = initial_datetime
-            date_start = start_date.strftime("%Y-%m-%d")
+            date_start = default_start
 
         resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
         starting_page_token = resume_config.page_token if resume_config is not None else None

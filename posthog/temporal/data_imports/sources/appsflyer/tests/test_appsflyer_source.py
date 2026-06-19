@@ -5,7 +5,7 @@ import requests
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from posthog.temporal.data_imports.sources.appsflyer.appsflyer import AppsFlyerRetryableError
+from posthog.temporal.data_imports.sources.appsflyer.appsflyer import AppsFlyerCredentialsError, AppsFlyerRetryableError
 from posthog.temporal.data_imports.sources.appsflyer.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.appsflyer.source import AppsFlyerSource
 from posthog.temporal.data_imports.sources.generated_configs import AppsFlyerSourceConfig
@@ -120,6 +120,17 @@ class TestAppsFlyerSource:
         assert is_valid is False
         assert error_message is not None
         assert "temporary" in error_message
+
+    @mock.patch("posthog.temporal.data_imports.sources.appsflyer.source.validate_appsflyer_credentials")
+    def test_validate_credentials_surfaces_specific_rejection_message(self, mock_validate):
+        # A rejected token/app id raises AppsFlyerCredentialsError; its message reaches the user
+        # verbatim instead of the conflated "Invalid AppsFlyer API token or app id".
+        mock_validate.side_effect = AppsFlyerCredentialsError("AppsFlyer rejected the API token.")
+
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is False
+        assert error_message == "AppsFlyer rejected the API token."
 
     @mock.patch("posthog.temporal.data_imports.sources.appsflyer.source.appsflyer_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_af_source):

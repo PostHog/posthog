@@ -26,6 +26,7 @@ from posthog.temporal.session_replay.export_recording import EXPORT_RECORDING_WO
 from posthog.temporal.session_replay.import_recording import IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.summarization_sweep import SUMMARIZATION_SWEEP_WORKFLOWS
+from posthog.temporal.session_replay.surfacing_scoring_sweep import SURFACING_SCORING_SWEEP_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
@@ -156,6 +157,7 @@ class Command(BaseCommand):
             + RASTERIZE_RECORDING_WORKFLOWS
             + SUMMARIZATION_SWEEP_WORKFLOWS
             + WA_DIGEST_WORKFLOWS
+            + SURFACING_SCORING_SWEEP_WORKFLOWS
             + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         )
         try:

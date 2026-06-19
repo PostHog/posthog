@@ -118,4 +118,5 @@ class TestNotifyManagersOfUsageSpike(BaseTest):
         assert data.source_id == "spike-1"
         assert data.title == "Usage spike: Acme Corp"
         assert data.body == "events 3.2× (up) — detected 2026-06-09"
-        assert data.source_url == f"/project/{self.team.project_id}/customer_analytics/accounts"
+        # Project-relative path; the notifications side panel adds the project prefix on navigation.
+        assert data.source_url == f"/customer_analytics/accounts/{account.id}/usage"

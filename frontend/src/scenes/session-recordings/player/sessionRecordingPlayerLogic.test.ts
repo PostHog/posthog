@@ -437,6 +437,9 @@ describe('sessionRecordingPlayerLogic', () => {
 
         const inc = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
         const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
+        // second-window incremental for the multi-window case
+        const w2inc = (timestamp: number): RecordingSnapshot =>
+            ({ timestamp, type: EventType.IncrementalSnapshot, windowId: 2, data: {} }) as unknown as RecordingSnapshot
 
         // Seeds the snapshot store and the coordinator's processed snapshots (which
         // segments derive from) directly, bypassing the network loading machinery.
@@ -560,6 +563,54 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.playerError).toBeNull()
             expect(logic.values.currentTimestamp).toBe(START + 61500)
         })
+
+        it.each([
+            {
+                description: 'reports the leading unplayable span when the initial full snapshot is late',
+                firstSourceSnapshots: [inc(START), inc(START + 1000)],
+                secondSourceSnapshots: [fs(LATE_FS_TS)],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedHasLate: true,
+            },
+            {
+                description: 'reports no unplayable span when a full snapshot exists at the start',
+                firstSourceSnapshots: [fs(START), inc(START + 1000)],
+                secondSourceSnapshots: [inc(LATE_FS_TS)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+            {
+                description: 'reports no unplayable span when no full snapshot exists anywhere',
+                firstSourceSnapshots: [inc(START), inc(START + 1000)],
+                secondSourceSnapshots: [inc(START + 61000), inc(START + 62000)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+            {
+                description: 'measures the span but does not flag a late snapshot below the warning threshold',
+                firstSourceSnapshots: [inc(START), fs(START + 5000)],
+                secondSourceSnapshots: [inc(LATE_FS_TS)],
+                expectedLeadingUnplayableMs: 5000,
+                expectedHasLate: false,
+            },
+            {
+                // multi-window: the first window renders from its own start, so a later window
+                // lacking a full snapshot must not extend the leading unplayable span
+                description: 'does not flag when the first window renders but a later window lacks a full snapshot',
+                firstSourceSnapshots: [fs(START), inc(START + 1000)],
+                secondSourceSnapshots: [w2inc(START + 61000), w2inc(START + 62000)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+        ])(
+            '$description',
+            ({ firstSourceSnapshots, secondSourceSnapshots, expectedLeadingUnplayableMs, expectedHasLate }) => {
+                seedRecording(firstSourceSnapshots, secondSourceSnapshots)
+
+                expect(logic.values.leadingUnplayableMs).toBe(expectedLeadingUnplayableMs)
+                expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
+            }
+        )
     })
 
     describe('delete session recording', () => {

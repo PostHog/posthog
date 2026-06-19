@@ -9,6 +9,7 @@ ViewSet remains in experiments.py.
 from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
+from opentelemetry import trace
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -31,13 +32,16 @@ from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
-from products.experiments.backend.metric_utils import refresh_action_names_in_metric
+from products.experiments.backend.metric_utils import refresh_action_names_in_metric, resolve_action_names
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+tracer = trace.get_tracer(__name__)
 
 
 class _ExperimentApiMetricsList(PydanticRootModel):
@@ -103,6 +107,36 @@ class ExperimentExposureCriteriaField(serializers.JSONField):
 @extend_schema_field(ExperimentRunningTimeCalculation)  # type: ignore[arg-type]
 class ExperimentRunningTimeCalculationField(serializers.JSONField):
     pass
+
+
+class ExperimentListSerializer(serializers.ListSerializer):
+    """Batches action-name resolution across a whole page of experiments.
+
+    ``ExperimentSerializer.to_representation`` refreshes stale cached action names on every
+    metric, which would otherwise issue one ``Action`` query per metric per experiment. Here we
+    resolve every referenced action in a single query and hand the map down via the shared
+    serializer context, so a 100-experiment page does one action query instead of hundreds.
+    """
+
+    @tracer.start_as_current_span("ExperimentListSerializer.to_representation")
+    def to_representation(self, data):
+        instances = list(data)
+        trace.get_current_span().set_attribute("experiment_count", len(instances))
+
+        metric_queries: list[dict[str, Any] | None] = []
+        team: Team | None = None
+        for instance in instances:
+            team = instance.team
+            metric_queries.extend(instance.metrics or [])
+            metric_queries.extend(instance.metrics_secondary or [])
+            # Saved metrics are prefetched via experimenttosavedmetric_set
+            for relation in instance.experimenttosavedmetric_set.all():
+                metric_queries.append(relation.saved_metric.query)
+
+        if team is not None:
+            self.context["actions_by_id"] = resolve_action_names(metric_queries, team)
+
+        return super().to_representation(instances)
 
 
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -246,9 +280,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
     @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
     def get_status(self, instance: Experiment) -> str:
-        if instance.is_paused:
-            return "paused"
-        return instance.status or instance.computed_status.value
+        return instance.status_label
 
     class Meta:
         model = Experiment
@@ -303,6 +335,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "status",
             "user_access_level",
         ]
+        list_serializer_class = ExperimentListSerializer
 
     def get_fields(self):
         fields = super().get_fields()
@@ -317,6 +350,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def get_feature_flag(self, obj):
         return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
 
+    @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # Normalize query date ranges to the experiment's current range
@@ -327,12 +361,16 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "explicitDate": True,
         }
 
+        # actions_by_id is preloaded once per page by ExperimentListSerializer to avoid an
+        # Action query per metric; None on detail/launch/archive paths (falls back to a query).
+        actions_by_id = self.context.get("actions_by_id")
+
         # Refresh action names in inline metrics (metrics and metrics_secondary)
         # The columns are nullable, so the keys can be present with a None value
         for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
             for i, metric in enumerate(metrics_list):
                 # Refresh action names to show current names instead of stale cached values
-                refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
+                refreshed_metric = refresh_action_names_in_metric(metric, instance.team, actions_by_id)
                 if refreshed_metric:
                     metrics_list[i] = refreshed_metric
                     metric = refreshed_metric
@@ -344,23 +382,26 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         # Update date ranges in saved metrics
         # Note: Action name refresh is handled by ExperimentToSavedMetricSerializer.to_representation
-        for saved_metric in data.get("saved_metrics", []):
-            if saved_metric.get("query"):
-                if saved_metric["query"].get("count_query", {}).get("dateRange"):
-                    saved_metric["query"]["count_query"]["dateRange"] = new_date_range
-                if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
-                    saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+        saved_metrics = data.get("saved_metrics", [])
+        with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
+            span.set_attribute("saved_metric_count", len(saved_metrics))
+            for saved_metric in saved_metrics:
+                if saved_metric.get("query"):
+                    if saved_metric["query"].get("count_query", {}).get("dateRange"):
+                        saved_metric["query"]["count_query"]["dateRange"] = new_date_range
+                    if saved_metric["query"].get("funnels_query", {}).get("dateRange"):
+                        saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
 
-                # Add fingerprint to saved metric returned from API
-                # so that frontend knows what timeseries records to query
-                saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                    saved_metric["query"],
-                    instance.start_date,
-                    get_experiment_stats_method(instance),
-                    instance.exposure_criteria,
-                    only_count_matured_users=instance.only_count_matured_users,
-                    excluded_variants=(instance.parameters or {}).get("excluded_variants"),
-                )
+                    # Add fingerprint to saved metric returned from API
+                    # so that frontend knows what timeseries records to query
+                    saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
+                        saved_metric["query"],
+                        instance.start_date,
+                        get_experiment_stats_method(instance),
+                        instance.exposure_criteria,
+                        only_count_matured_users=instance.only_count_matured_users,
+                        excluded_variants=(instance.parameters or {}).get("excluded_variants"),
+                    )
 
         return data
 
@@ -657,7 +698,7 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=["manual", "experiment_launch", "experiment_stop", "experiment_update"],
+        choices=ExperimentMetricsRecalculation.Trigger.choices,
         required=False,
         default="manual",
         help_text="What triggered this recalculation (manual is the default for user-initiated runs)",
@@ -696,6 +737,14 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing started")
     completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")
+    query_to = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Upper time bound the metrics in this run were calculated against (the data freshness cutoff). "
+            "Shared by every metric in the run; null until processing starts"
+        ),
+    )
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )
@@ -706,4 +755,135 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         read_only=True,
         required=False,
         help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
+    )
+
+
+class RunningTimeBaselineStatsSerializer(serializers.Serializer):
+    """Raw control-group statistics the calculator uses to derive a baseline value and variance.
+
+    Supply this when you want the server to compute the baseline value and (for ratio/retention)
+    the delta-method variance, instead of passing `baseline_value`/`variance` directly.
+    """
+
+    number_of_samples = serializers.IntegerField(
+        min_value=0, help_text="Number of control-group samples (users/units) observed."
+    )
+    sum = serializers.FloatField(
+        help_text="Sum of the metric values across the control group (for funnels, the numerator/conversions)."
+    )
+    sum_squares = serializers.FloatField(
+        required=False, default=0.0, help_text="Sum of squared metric values. Required for ratio/retention variance."
+    )
+    denominator_sum = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Sum of the denominator values. Required for ratio/retention metrics.",
+    )
+    denominator_sum_squares = serializers.FloatField(
+        required=False, allow_null=True, help_text="Sum of squared denominator values (ratio/retention variance)."
+    )
+    numerator_denominator_sum_product = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Sum of numerator×denominator products, used for the delta-method covariance term.",
+    )
+    step_counts = serializers.ListField(
+        child=serializers.FloatField(),
+        required=False,
+        help_text="Per-step counts for funnel metrics; the last entry is the final-step count.",
+    )
+
+
+class RunningTimeCalculationInputSerializer(serializers.Serializer):
+    """Inputs for estimating the recommended sample size and running time of an experiment."""
+
+    metric_type = serializers.ChoiceField(
+        choices=METRIC_TYPE_CHOICES,
+        help_text=(
+            "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, "
+            "'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics "
+            "(both require baseline_stats or an explicit variance)."
+        ),
+    )
+    minimum_detectable_effect = serializers.FloatField(
+        min_value=0,
+        help_text="Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.",
+    )
+    number_of_variants = serializers.IntegerField(
+        required=False,
+        default=2,
+        min_value=2,
+        help_text="Total number of variants including control (default 2).",
+    )
+    exposure_rate_per_day = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text="Expected exposures per day. When provided, the response includes the recommended running time.",
+    )
+    baseline_value = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio "
+            "(ratio/retention). Provide this or baseline_stats."
+        ),
+    )
+    variance = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is "
+            "ratio/retention and baseline_value is given directly."
+        ),
+    )
+    baseline_stats = RunningTimeBaselineStatsSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Raw control-group statistics. When provided, the server derives baseline_value and variance.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("minimum_detectable_effect", 0) <= 0:
+            raise ValidationError({"minimum_detectable_effect": "Must be greater than 0."})
+
+        has_baseline_value = attrs.get("baseline_value") is not None
+        has_baseline_stats = attrs.get("baseline_stats") is not None
+        if not has_baseline_value and not has_baseline_stats:
+            raise ValidationError("Provide either baseline_value or baseline_stats.")
+
+        if attrs["metric_type"] in ("ratio", "retention"):
+            # A baseline value and variance must both be available. Pass them directly, or supply
+            # baseline_stats with denominator_sum so the server can derive them — without it both
+            # derivations return None and the endpoint silently responds with all-null results.
+            has_variance = attrs.get("variance") is not None
+            if not (has_baseline_value and has_variance):
+                stats = attrs.get("baseline_stats")
+                if not stats:
+                    raise ValidationError(
+                        "Ratio and retention metrics require baseline_stats, or both baseline_value and variance."
+                    )
+                if not stats.get("denominator_sum"):
+                    raise ValidationError(
+                        {"baseline_stats": {"denominator_sum": "Required to size ratio and retention metrics."}}
+                    )
+
+        return attrs
+
+
+class RunningTimeCalculationResultSerializer(serializers.Serializer):
+    """Estimated sample size and running time for the given inputs."""
+
+    baseline_value = serializers.FloatField(
+        allow_null=True, help_text="Baseline metric value used in the calculation (echoed or derived from stats)."
+    )
+    variance = serializers.FloatField(
+        allow_null=True, help_text="Variance used in the calculation; null for funnel metrics (implicit in p(1-p))."
+    )
+    recommended_sample_size = serializers.IntegerField(
+        allow_null=True, help_text="Total recommended sample size across all variants. Null if inputs are insufficient."
+    )
+    recommended_running_time_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.",
     )

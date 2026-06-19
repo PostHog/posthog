@@ -122,6 +122,11 @@ CODEX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.MEDIUM,
     ReasoningEffort.HIGH,
 )
+CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    *CODEX_REASONING_EFFORTS,
+    ReasoningEffort.XHIGH,
+)
+CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
 
 
 def get_provider_for_runtime_adapter(
@@ -148,6 +153,8 @@ def get_supported_reasoning_efforts(
     if adapter_value == RuntimeAdapter.CLAUDE.value:
         return CLAUDE_REASONING_EFFORTS_BY_MODEL.get(model, ())
     if adapter_value == RuntimeAdapter.CODEX.value:
+        if model.lower() in CODEX_XHIGH_REASONING_MODELS:
+            return CODEX_XHIGH_REASONING_EFFORTS
         return CODEX_REASONING_EFFORTS
 
     return ()

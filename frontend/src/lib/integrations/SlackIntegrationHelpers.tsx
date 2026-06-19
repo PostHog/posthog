@@ -54,8 +54,11 @@ const SLACK_CHANNEL_ID_PATTERN = /^[CGD][A-Z0-9]{8,}$/
 const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
     return slackChannels
         ? slackChannels.map((x) => {
-              const name = x.is_private_without_access ? 'Private Channel' : x.name
-              const displayLabel = `${x.is_private ? '🔒' : '#'}${name} (${x.id})`
+              // Channel names are unique per workspace, so the friendly name alone identifies a channel.
+              // Inaccessible private channels have no readable name, so there we keep the id to disambiguate.
+              const displayLabel = x.is_private_without_access
+                  ? `🔒Private channel (${x.id})`
+                  : `${x.is_private ? '🔒' : '#'}${x.name}`
               return {
                   key: `${x.id}|#${x.name}`,
                   labelComponent: (
@@ -140,7 +143,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     // /channels returns. Without a direct lookup the channel never makes it into slackChannels, so
     // LemonInputSelect can't find an option matching the saved value's key and falls back to
     // displaying the raw value text — e.g. "C0881TYHT41|#sentry-alerts" instead of the friendly
-    // "#sentry-alerts (C0881TYHT41)". Fire the by-id fetch for both bare and composite values so
+    // "#sentry-alerts". Fire the by-id fetch for both bare and composite values so
     // the channel is merged into slackChannels regardless of bulk-list position; the label only
     // renders correctly when the option exists in the picker's options list.
     useEffect(() => {
