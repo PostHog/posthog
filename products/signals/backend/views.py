@@ -268,6 +268,17 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_update(self, serializer):
         instance = cast(SignalSourceConfig, serializer.instance)
         was_enabled = instance.enabled
+
+        # The source keys are the row's identity and decide its canonical team_id on create
+        # (`_config_team_id`); retagging them in place would strand the row on the wrong team —
+        # e.g. a child-environment row retagged to the scout source would stay on the child team,
+        # hidden by the read filter while the emit gate checks the parent. There is no legitimate
+        # reason to change a config's source identity, so reject it rather than re-deriving team_id.
+        for field in ("source_product", "source_type"):
+            new_value = serializer.validated_data.get(field)
+            if new_value is not None and new_value != getattr(instance, field):
+                raise serializers.ValidationError({field: f"{field} cannot be changed after creation."})
+
         try:
             instance = serializer.save()
         except IntegrityError:

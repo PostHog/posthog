@@ -304,23 +304,19 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "recording_filters must be a JSON object" in str(response.json())
 
-    def test_update_source_type_is_not_writable(self):
+    def test_update_source_keys_are_immutable(self):
         config = SignalSourceConfig.objects.create(
             team=self.team,
             source_product="session_replay",
             source_type="session_analysis_cluster",
             created_by=self.user,
         )
-        response = self.client.patch(
-            self._url(str(config.id)),
-            data={"source_type": "nonexistent_type"},
-            format="json",
-        )
-        # source_type is not read_only in serializer, so this may succeed
-        # but the value is validated
+        for field, value in (("source_type", "issue_created"), ("source_product", "error_tracking")):
+            response = self.client.patch(self._url(str(config.id)), data={field: value}, format="json")
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         config.refresh_from_db()
-        # Should either be rejected or keep original value
-        assert config.source_type == "session_analysis_cluster" or response.status_code == status.HTTP_400_BAD_REQUEST
+        assert config.source_product == "session_replay"
+        assert config.source_type == "session_analysis_cluster"
 
     def test_delete_other_teams_config_forbidden(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -419,6 +415,31 @@ class TestScoutSourceCanonicalization(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         config.refresh_from_db()
         assert config.enabled is False
+
+    def test_child_env_cannot_retag_config_into_scout_source(self):
+        # A child-environment row retagged to the scout source would otherwise stay on the child
+        # team, hidden by the read filter while the emit gate checks the parent — a hidden, broken
+        # scout config. Source keys are immutable on update, so the retag is rejected outright.
+        config = SignalSourceConfig.objects.create(
+            team=self.child_team,
+            source_product="session_replay",
+            source_type="session_analysis_cluster",
+            enabled=True,
+        )
+        response = self.client.patch(
+            self._child_url(str(config.id)),
+            data={"source_product": "signals_scout", "source_type": "cross_source_issue"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        config.refresh_from_db()
+        assert config.team_id == self.child_team.id
+        assert config.source_product == "session_replay"
+        assert config.source_type == "session_analysis_cluster"
+        # No stranded scout row exists on either team.
+        assert not SignalSourceConfig.objects.filter(
+            source_product="signals_scout", source_type="cross_source_issue"
+        ).exists()
 
     def test_non_scout_source_stays_environment_scoped(self):
         # A parent-team session-analysis row must not leak into the child environment's list.
