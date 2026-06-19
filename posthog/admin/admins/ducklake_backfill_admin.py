@@ -11,12 +11,13 @@ class DuckLakeBackfillAdmin(admin.ModelAdmin):
         "id",
         "team_id",
         "enabled",
+        "events_table_suffix",
         "created_by",
         "created_at",
         "updated_at",
     )
     list_filter = ("enabled",)
-    search_fields = ("=team__id",)
+    search_fields = ("=team__id", "events_table_suffix")
     readonly_fields = ("id", "created_at", "updated_at")
     raw_id_fields = ("team", "created_by")
     actions = ("make_enabled", "make_disabled")
@@ -38,7 +39,7 @@ class DuckLakeBackfillAdmin(admin.ModelAdmin):
         (
             None,
             {
-                "fields": ("id", "team", "enabled"),
+                "fields": ("id", "team", "enabled", "events_table_suffix"),
             },
         ),
         (
