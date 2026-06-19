@@ -32,6 +32,11 @@ class FunnelsExtractor:
     alerts support only ``ABSOLUTE_VALUE`` conditions in v1 (relative change vs a prior window is a
     fast-follow). The config selects which step and how to measure conversion; the shared comparator
     then evaluates the resulting percentage against the threshold.
+
+    A breakdown funnel yields one series per breakdown value and fires if ANY breaches (matching trends
+    alerts). Scoping an alert to a specific breakdown value (a ``breakdown_value`` config field, null =
+    any value) is a fast-follow — deferred to stay consistent with trends and avoid pinning to values
+    that can churn out of a dynamic breakdown set.
     """
 
     def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:

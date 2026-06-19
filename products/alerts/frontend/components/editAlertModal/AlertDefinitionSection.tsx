@@ -103,7 +103,9 @@ export function AlertDefinitionSection({
             "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
     return (
         <>
-            {isBreakdownValid && (
+            {/* Funnels convey the same any-value behavior in their own preview banner (with the live
+                range), so this generic trends-worded banner is suppressed for them to avoid redundancy. */}
+            {isBreakdownValid && !isFunnelAlert && (
                 <LemonBanner type="warning">
                     {alertMode === 'detector'
                         ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
