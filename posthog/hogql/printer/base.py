@@ -550,8 +550,8 @@ class BasePrinter(Visitor[str]):
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
         # Constraints to add to the SELECT's WHERE clause (for most join types)
         extra_where: ast.Expr | None = None
-        # For LEFT JOINs, team_id goes in ON instead of WHERE to preserve NULL rows
-        team_id_for_on_clause: ast.Expr | None = None
+        # For LEFT JOINs, guards (team_id + access control) go in ON instead of WHERE to preserve NULL rows
+        on_clause_guard: ast.Expr | None = None
 
         join_strings = []
         if node.join_type is not None:
@@ -577,7 +577,7 @@ class BasePrinter(Visitor[str]):
 
             self._collect_table_top_level_settings(table_type.table)
 
-            # :IMPORTANT: Ensures team_id and and resource_id filtering on every table.
+            # :IMPORTANT: Ensures team_id and resource_id filtering on every table.
             # For LEFT JOINs, we add guards to ON (not WHERE) to preserve NULL rows.
             team_id_expr = self._ensure_team_id_where_clause(table_type, node.type)
             access_control_expr = self._ensure_access_control_where_clause(table_type, node.type)
@@ -590,7 +590,7 @@ class BasePrinter(Visitor[str]):
 
             is_left_join = node.join_type is not None and "LEFT" in node.join_type
             if is_left_join and combined_guard is not None and node.constraint is not None:
-                team_id_for_on_clause = combined_guard
+                on_clause_guard = combined_guard
             else:
                 extra_where = combined_guard
 
@@ -598,10 +598,10 @@ class BasePrinter(Visitor[str]):
             predicate_exprs = self._get_table_predicates(table_type, node.type)
             for pred in predicate_exprs:
                 if is_left_join and node.constraint is not None:
-                    if team_id_for_on_clause is None:
-                        team_id_for_on_clause = pred
+                    if on_clause_guard is None:
+                        on_clause_guard = pred
                     else:
-                        team_id_for_on_clause = ast.And(exprs=[team_id_for_on_clause, pred])
+                        on_clause_guard = ast.And(exprs=[on_clause_guard, pred])
                 else:
                     if extra_where is None:
                         extra_where = pred
@@ -687,8 +687,8 @@ class BasePrinter(Visitor[str]):
             # Allowlist gate against `setattr`-bypass — the printer interpolates `constraint_type` verbatim.
             if node.constraint.constraint_type not in ast.VALID_JOIN_CONSTRAINT_TYPES:
                 raise QueryError(f"Invalid join constraint type: {node.constraint.constraint_type!r}")
-            if team_id_for_on_clause is not None:
-                combined_constraint = ast.And(exprs=[team_id_for_on_clause, node.constraint.expr])
+            if on_clause_guard is not None:
+                combined_constraint = ast.And(exprs=[on_clause_guard, node.constraint.expr])
                 join_strings.append(f"{node.constraint.constraint_type} {self.visit(combined_constraint)}")
             else:
                 join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
