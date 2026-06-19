@@ -11,6 +11,7 @@ the two paths drifting apart.
 import json
 import hashlib
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -25,9 +26,77 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
+from posthog import redis
 from posthog.models import Team
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    TtlSchedule,
+    ensure_precomputed,
+    parse_ttl_schedule,
+)
+
 logger = structlog.get_logger(__name__)
+
+# Reactive per-team OOM cap. A very high-cardinality team's wide-window GROUP BY
+# (session, breakdown) can OOM the precompute INSERT. We run uncapped until that happens;
+# on an OOM we pin the team (one Redis key per team, self-healing TTL) so its later requests
+# build their TTL schedule with a 1-day `max_window_days` cap — bounding each insert's GROUP
+# BY by job *width*, at any window age (so a year-over-year compare's old previous period is
+# capped too), while keeping the team's normal TTL grading. The capping lives entirely in the
+# schedule handed to `ensure_precomputed`, so the executor needs no per-team knowledge.
+OOM_PIN_WINDOW_DAYS = 1
+TEAM_OOM_PIN_REDIS_PREFIX = "preagg:oom_pinned:"
+OOM_PIN_TTL_SECONDS = 14 * 24 * 60 * 60
+
+
+def _oom_pin_key(team_id: int) -> str:
+    return f"{TEAM_OOM_PIN_REDIS_PREFIX}{team_id}"
+
+
+def is_team_oom_pinned(team_id: int) -> bool:
+    """Whether the team has hit an OOM recently and should cap its insert windows.
+
+    Best-effort: a Redis failure reads as not-pinned (uncapped default) — never blocks the insert."""
+    try:
+        return redis.get_client().get(_oom_pin_key(team_id)) is not None
+    except Exception:
+        return False
+
+
+def pin_team_oom(team_id: int) -> None:
+    """Pin (or refresh) a team's OOM cap after an OOM. Best-effort; self-healing TTL."""
+    try:
+        redis.get_client().set(_oom_pin_key(team_id), "1", ex=OOM_PIN_TTL_SECONDS)
+    except Exception:
+        logger.warning("web_precompute.oom_pin_failed", team_id=team_id, exc_info=True)
+
+
+def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResult:
+    """`ensure_precomputed` for web analytics, with reactive per-team OOM capping.
+
+    A team runs uncapped until one of its precompute inserts OOMs; that pins it so later
+    requests build their TTL schedule with a 1-day `max_window_days` cap (job width bounded
+    at any window age). The request that hits the OOM still fails here and falls back to the
+    live query — the cap only takes effect next time.
+    """
+    pinned = is_team_oom_pinned(team.id)
+    if pinned and "ttl_seconds" in kwargs:
+        existing = kwargs["ttl_seconds"]
+        # Stamp the width cap onto whatever schedule the caller passed: an int/dict gets
+        # parsed with the cap; an already-built TtlSchedule (also accepted by
+        # ensure_precomputed) just gets the cap re-stamped — parse_ttl_schedule can't take one.
+        if isinstance(existing, TtlSchedule):
+            kwargs["ttl_seconds"] = replace(existing, max_window_days=OOM_PIN_WINDOW_DAYS)
+        else:
+            kwargs["ttl_seconds"] = parse_ttl_schedule(existing, team.timezone, max_window_days=OOM_PIN_WINDOW_DAYS)
+    result = ensure_precomputed(team=team, **kwargs)
+    if result.memory_exceeded:
+        pin_team_oom(team.id)  # set or refresh the cap so a still-OOMing team stays pinned
+        if not pinned:
+            logger.warning("web_precompute.oom_pinned_team", team_id=team.id, table=str(kwargs.get("table")))
+    return result
+
 
 # Fields stripped from the query payload before hashing.
 # These don't influence which precompute job_id a query would map to —

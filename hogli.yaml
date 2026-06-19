@@ -1075,3 +1075,7 @@ environment:
         bin_script: dev-sandbox-shims-selftest
         description: 'Verify the uv/pnpm dev-sandbox shims route install subcommands correctly'
         hidden: true
+    setup:gateway:e2e:
+        bin_script: setup-gateway-e2e
+        description: 'Provision the local ai-gateway e2e: enable the team, mint a phs_, publish the credential blob, fund the ledger'
+        hidden: true

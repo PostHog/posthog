@@ -25,8 +25,6 @@ import duckdb
 import psycopg
 from psycopg import sql
 
-from posthog.utils import get_instance_region
-
 if TYPE_CHECKING:
     from posthog.ducklake.models import DuckgresServer, DuckLakeCatalog
 
@@ -285,6 +283,10 @@ def _duckling_env_suffix() -> str:
     enabled yet, so that path is a no-op (raises rather than fabricating a bucket name);
     everything that isn't prod-US — hosted dev/staging, local dev — maps to "dev".
     """
+    # Lazy import so this module can be loaded standalone (see bin/check_ducklake_up)
+    # without the full posthog package on sys.path.
+    from posthog.utils import get_instance_region  # noqa: PLC0415
+
     region = (get_instance_region() or "").upper()
     if region == "EU":
         raise NotImplementedError("Managed warehouse is not enabled in the EU region")
