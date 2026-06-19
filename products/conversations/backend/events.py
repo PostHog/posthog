@@ -18,6 +18,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.settings import SITE_URL
 
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
@@ -164,7 +165,8 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     if ticket.distinct_id:
         # Only is_identified is read, and the membership lookup below keys off the ticket's own
         # distinct_id — so skip fetching the person's distinct_ids.
-        persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
+        with personhog_caller_tag("conversations/ticket-event-person"):
+            persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
         if any(p.is_identified for p in persons):
             membership = (
                 OrganizationMembership.objects.select_related("organization")

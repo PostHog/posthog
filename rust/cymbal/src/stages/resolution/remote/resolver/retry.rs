@@ -311,7 +311,7 @@ fn classify_outcome(
         }
         resolve_outcome::Result::Error(err) => {
             let kind = ErrorKind::try_from(err.kind).unwrap_or(ErrorKind::Unspecified);
-            metrics::counter!(REMOTE_RESOLUTION_ERROR_KINDS, "kind" => error_kind_label(kind))
+            metrics::counter!(REMOTE_RESOLUTION_ERROR_KINDS, "kind" => kind.metric_label())
                 .increment(1);
             match kind {
                 ErrorKind::Overloaded => Ok(ItemDecision::Overloaded(err.message)),
@@ -415,16 +415,6 @@ fn jittered_backoff(ctx: &RemoteResolutionContext, retry_index: u32) -> Duration
 fn record_reroute_depth(outcome: &'static str, attempts_used: u32) {
     metrics::histogram!(REMOTE_RESOLUTION_REROUTE_DEPTH, "outcome" => outcome)
         .record(attempts_used.saturating_sub(1) as f64);
-}
-
-fn error_kind_label(kind: ErrorKind) -> &'static str {
-    match kind {
-        ErrorKind::Unspecified => "unspecified",
-        ErrorKind::InvalidPayload => "invalid_payload",
-        ErrorKind::Poison => "poison",
-        ErrorKind::Unhandled => "unhandled",
-        ErrorKind::Overloaded => "overloaded",
-    }
 }
 
 #[cfg(test)]

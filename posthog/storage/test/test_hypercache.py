@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
+from botocore.exceptions import BotoCoreError, ClientError
 from parameterized import parameterized
 
 from posthog.storage import object_storage
@@ -102,6 +103,34 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
         # Clear both Redis and S3
         self.hypercache.clear_cache(self.team_id, kinds=["redis", "s3"])
         result, source = self.hypercache.get_from_cache_with_source(self.team_id)
+
+        assert result == {"default": "data"}
+        assert source == "db"
+
+    @parameterized.expand(
+        [
+            ("value_error", ValueError("Invalid endpoint: https://${POSTHOG_DOMAIN}")),
+            ("object_storage_error", object_storage.ObjectStorageError("read failed")),
+            ("boto_core_error", BotoCoreError()),
+            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")),
+        ]
+    )
+    def test_get_from_cache_s3_exception_falls_back_to_db(self, _name, exception):
+        """A storage-layer failure on the S3 read must degrade to a cache miss, not a 500."""
+        self.hypercache.clear_cache(self.team_id, kinds=["redis"])
+
+        with patch.object(object_storage, "read", side_effect=exception):
+            result, source = self.hypercache.get_from_cache_with_source(self.team_id)
+
+        assert result == {"default": "data"}
+        assert source == "db"
+
+    def test_get_from_cache_corrupt_s3_payload_falls_back_to_db(self):
+        """A malformed S3 blob (json.JSONDecodeError, a ValueError subclass) must degrade to a cache miss."""
+        self.hypercache.clear_cache(self.team_id, kinds=["redis"])
+
+        with patch.object(object_storage, "read", return_value="{not valid json"):
+            result, source = self.hypercache.get_from_cache_with_source(self.team_id)
 
         assert result == {"default": "data"}
         assert source == "db"

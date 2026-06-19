@@ -720,7 +720,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert [c["skill_name"] for c in body] == ["signals-scout-alpha", "signals-scout-beta"]
         assert body[0]["enabled"] is True
         assert body[0]["emit"] is True
-        assert body[0]["run_interval_minutes"] == 60
+        assert body[0]["run_interval_minutes"] == 180
 
     @parameterized.expand(
         [

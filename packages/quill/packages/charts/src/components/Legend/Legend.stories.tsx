@@ -21,7 +21,10 @@ const MANY: LegendItem[] = Array.from({ length: 12 }, (_, i) => ({
     color: `hsl(${(i * 36) % 360} 70% 55%)`,
 }))
 
-const meta: Meta = { title: 'Components/HogCharts/Legend', parameters: { layout: 'centered' } }
+const meta: Meta = {
+    title: 'Components/HogCharts/Legend',
+    parameters: { layout: 'centered' },
+}
 export default meta
 
 type Story = StoryObj
@@ -89,8 +92,39 @@ function ChartLegendStory({
     )
 }
 
-export const LayoutTop: Story = { render: () => <ChartLegendStory position="top" /> }
-export const LayoutBottom: Story = { render: () => <ChartLegendStory position="bottom" /> }
-export const LayoutLeft: Story = { render: () => <ChartLegendStory position="left" /> }
-export const LayoutRight: Story = { render: () => <ChartLegendStory position="right" /> }
-export const LegendHidden: Story = { render: () => <ChartLegendStory show={false} position="top" /> }
+export const LayoutTop: Story = {
+    render: () => <ChartLegendStory position="top" />,
+}
+export const LayoutBottom: Story = {
+    render: () => <ChartLegendStory position="bottom" />,
+}
+export const LayoutLeft: Story = {
+    render: () => <ChartLegendStory position="left" />,
+}
+export const LayoutRight: Story = {
+    render: () => <ChartLegendStory position="right" />,
+}
+export const LegendHidden: Story = {
+    render: () => <ChartLegendStory show={false} position="top" />,
+}
+
+// The chart owns the toggle state — `config.legend.show` is all that's needed; clicking a row
+// hides that series (dimmed in the legend) and the axes rescale into the freed space.
+function BuiltInToggleStory(): JSX.Element {
+    const theme = useReactiveTheme()
+    return (
+        <Stage width={520} height={320}>
+            <TimeSeriesBarChart
+                series={SERIES}
+                labels={DAYS}
+                theme={theme}
+                config={{
+                    yAxis: { showGrid: true },
+                    legend: { show: true, position: 'bottom' },
+                }}
+            />
+        </Stage>
+    )
+}
+
+export const BuiltInToggle: Story = { render: () => <BuiltInToggleStory /> }

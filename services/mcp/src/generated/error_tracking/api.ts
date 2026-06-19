@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 17 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2004,7 +2004,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingGroupingRulesUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking grouping rule.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -3496,6 +3496,49 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .describe('Search stack-frame source/file path text.'),
 })
 
+export const ErrorTrackingSettingsRetrieveSettingsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ErrorTrackingSettingsUpdateSettingsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    project_rate_limit_value: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe(
+            'Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.'
+        ),
+    project_rate_limit_bucket_size_minutes: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe('Bucket window over which the project-wide rate limit applies, in minutes.'),
+    per_issue_rate_limit_value: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe(
+            'Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.'
+        ),
+    per_issue_rate_limit_bucket_size_minutes: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe('Bucket window over which the per-issue rate limit applies, in minutes.'),
+})
+
 export const ErrorTrackingSuppressionRulesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -4494,7 +4537,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
 })
 
 export const ErrorTrackingSuppressionRulesUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking suppression rule.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

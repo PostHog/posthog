@@ -48,6 +48,38 @@ tools:
             id:
                 cast: string-int
         ui_app: experiment
+    experiment-calculate-running-time:
+        operation: experiments_calculate_running_time_create
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Calculate experiment running time
+        description: >
+            Estimate the recommended sample size and how many days an experiment needs to run to detect an effect. This
+            is a stateless statistical calculation — it does not read or modify any experiment, so it works for planning
+            before an experiment exists.
+
+
+            Required: metric_type ('funnel' for conversion rates, 'mean_count' for events per user, 'mean_sum_or_avg'
+            for summed property values per user, 'ratio' or 'retention' for ratio-style metrics) and
+            minimum_detectable_effect (the smallest relative change to detect, as a percentage — e.g. 5 means a 5%
+            lift). number_of_variants defaults to 2 (control + one test).
+
+
+            Provide the baseline one of two ways: pass baseline_value directly (a conversion rate as a fraction 0-1 for
+            funnels, or an average per user for mean metrics), or pass baseline_stats (raw control-group statistics) and
+            let the server derive it. Ratio and retention metrics REQUIRE baseline_stats (with denominator_sum /
+            denominator_sum_squares / numerator_denominator_sum_product for the delta-method variance) or an explicit
+            variance — baseline_value alone is not enough.
+
+
+            Optionally pass exposure_rate_per_day (expected exposures per day across all variants) to also get
+            recommended_running_time_days. The response returns baseline_value, variance (null for funnels),
+            recommended_sample_size (total across variants), and recommended_running_time_days.
     experiment-copy-to-project:
         operation: experiments_copy_to_project_create
         enabled: true

@@ -300,9 +300,21 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             # The runner / janitor address bundles by revision_id; bundle_uri is
-            # the storage-prefix metadata. We default it server-side so MCP
-            # callers (and humans) creating a draft don't need to know about it.
-            "bundle_uri": {"required": False, "default": ""},
+            # the storage-prefix metadata. We default it server-side (the view's
+            # perform_create fills `fs://<slug>/` when blank) so MCP callers and
+            # humans creating a draft don't need to know about it. `allow_blank`
+            # is required because the generated MCP tool ships the `default: ""`
+            # value explicitly — without it, callers hit "may not be blank".
+            "bundle_uri": {
+                "required": False,
+                "default": "",
+                "allow_blank": True,
+                "help_text": (
+                    "Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank "
+                    "and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id "
+                    "regardless, so this is only a prefix hint."
+                ),
+            },
         }
 
 
@@ -376,7 +388,7 @@ class WriteToolRequestSerializer(serializers.Serializer):
 
 class WriteTypedBundleRequestSerializer(serializers.Serializer):
     """Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
-    payload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3."""
+    payload."""
 
     agent_md = serializers.CharField(allow_blank=True, trim_whitespace=False)
     skills = serializers.ListField(child=WriteSkillRequestSerializer(), required=False, default=list)
@@ -422,9 +434,7 @@ class NewDraftRevisionRequestSerializer(serializers.Serializer):
 
 
 class DecideApprovalRequestSerializer(serializers.Serializer):
-    """Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/.
-
-    See docs/agent-platform/plans/approval-gated-tools.md."""
+    """Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/."""
 
     decision = serializers.ChoiceField(
         choices=["approve", "reject"],
@@ -439,4 +449,28 @@ class DecideApprovalRequestSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="Free-form approver note. Surfaces in the session's synthetic tool_result so the model can communicate the reason back to the user.",
+    )
+
+
+class PreviewProxyInvokeRequestSerializer(serializers.Serializer):
+    """Body forwarded verbatim to the agent ingress for a *preview* invoke of a
+    non-live revision. The meaningful shape depends on the `rest` path segment:
+
+    - `run` — `{ message }`: the user message that starts a new session.
+    - `send` — `{ session_id, message }`: append a message to a running session.
+    - `cancel` / `listen` — no body.
+
+    Documents `message` / `session_id` so the generated MCP tool exposes them;
+    any extra keys are still forwarded as-is to ingress.
+    """
+
+    message = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.",
+    )
+    session_id = serializers.CharField(
+        required=False,
+        help_text="Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created).",
     )

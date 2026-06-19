@@ -515,8 +515,9 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
 class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
     """
-    Authenticates inbound API requests using an access token minted by our
-    ID-JAG token endpoint (`posthog.api.id_jag`). Validates the JWT against the
+    Authenticates inbound API requests using an access token minted by the
+    ID-JAG (XAA) JWT Bearer grant served from the OAuth token endpoint
+    (`/oauth/token`, logic in `posthog.api.id_jag`). Validates the JWT against the
     RS256 public key derived from `OIDC_RSA_PRIVATE_KEY` and binds the request
     to the User whose email matches the `userSub` half of the token's `sub`
     claim (`{provider}:{userSub}` per

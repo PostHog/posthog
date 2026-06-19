@@ -260,6 +260,36 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
+    # Scouts pass ai_stage='scout' to the sandbox session so every $ai_generation carries it,
+    # letting scout spend be split out of the ai_product='signals' bucket (scouts have no report id).
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert captured["ai_stage"] == "scout"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, aerrors_skill):
     # Failure inside MultiTurnSession.start means we never get a session.task_run
     # to bridge to — the runner's except path returns FAILED without persisting.

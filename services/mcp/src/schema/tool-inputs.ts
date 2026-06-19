@@ -1,5 +1,9 @@
 import { z } from 'zod'
 
+// Relative (not `@/`) import: this module is loaded by the tsx schema-generation
+// script, and `playbookIds` is pure constants — no `.md` imports to choke on.
+import { PLAYBOOK_IDS, PLAYBOOK_URI_PREFIX } from '../tools/agentPlatform/playbookIds'
+
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
     name: z
         .string()
@@ -12,6 +16,14 @@ export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
         .optional()
         .default('manual')
         .describe('How often to auto-refresh this source in the background. Defaults to "manual" (no auto-refresh).'),
+})
+
+export const AgentResolveResourceSchema = z.object({
+    resource: z
+        .string()
+        .describe(
+            `Which operator playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for doing a class of agent-platform operations well — the same skills the agent concierge uses.`
+        ),
 })
 
 export const ExternalDataJobsAfterSchema = z
@@ -313,7 +325,7 @@ export const ExecuteSQLSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+            'Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
 
@@ -395,3 +407,146 @@ export function validateDistinctIdPersonIdExclusive(
         })
     }
 }
+
+const WorkflowGraphEdgeSchema = z.object({
+    from: z.string().describe('Source action id.'),
+    to: z.string().describe('Target action id.'),
+    type: z
+        .enum(['continue', 'branch'])
+        .describe(
+            "'continue' = fall-through (sequential or no-match path); 'branch' = a condition/cohort branch (needs index)."
+        ),
+    index: z
+        .number()
+        .int()
+        .optional()
+        .describe('Required for type=branch: which condition/cohort slot this branch matches (0-based).'),
+})
+
+const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
+    z.object({
+        op: z.literal('update_action'),
+        id: z.string().describe('Id of the action to update.'),
+        patch: z
+            .record(z.string(), z.unknown())
+            .describe(
+                'Partial action fields, deep-merged into the existing action; a null leaf deletes that key. ' +
+                    'e.g. {config: {inputs: {subject: {value: "Hi"}}}} changes only that one input.'
+            ),
+    }),
+    z.object({
+        op: z.literal('add_action'),
+        action: z
+            .record(z.string(), z.unknown())
+            .describe(
+                'A full action node {id, name, type, config, ...}; same shape as entries in the workflow actions array.'
+            ),
+    }),
+    z.object({
+        op: z.literal('remove_action'),
+        id: z.string().describe('Id of the action to remove. Its incoming edges reconnect to its first outgoer.'),
+    }),
+    z.object({
+        op: z.literal('add_edge'),
+        edge: WorkflowGraphEdgeSchema.describe('The edge to add.'),
+    }),
+    z.object({
+        op: z.literal('remove_edge'),
+        edge: WorkflowGraphEdgeSchema.describe('The edge to remove (matched on from/to/type/index).'),
+    }),
+    z.object({
+        op: z.literal('replace_action_edges'),
+        id: z.string().describe('Action id whose outgoing edges are being replaced.'),
+        edges: z
+            .array(WorkflowGraphEdgeSchema)
+            .describe("The complete set of the action's outgoing edges; incoming edges are preserved."),
+    }),
+])
+
+export const WorkflowGraphPatchSchema = z.object({
+    id: z.string().describe('The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP.'),
+    operations: z
+        .array(WorkflowGraphOperationSchema)
+        .min(1)
+        .describe(
+            'Ordered graph edits applied atomically: the stored graph is read, ops are applied in order, the result ' +
+                'is fully validated, and it is saved only if valid — otherwise the workflow is left unchanged. Reference ' +
+                'nodes/edges by id so you never resend the whole graph. The full updated workflow is returned.'
+        ),
+})
+
+// Surgical edits to an email template's Unlayer design — one discriminated op per change, addressed by
+// the stable block id. Mirrors DesignOperationSerializer; kept as a hand-authored discriminated union so
+// the LLM sees exactly which fields each op needs (the auto-generated PATCH schema flattens them all to
+// optional). `patch`/`content`/`row` are freeform Unlayer JSON.
+const EmailDesignFreeformObject = z.record(z.string(), z.unknown())
+
+const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
+    z.object({
+        op: z.literal('update_content'),
+        id: z.string().describe('Id of the content block to update.'),
+        patch: EmailDesignFreeformObject.describe(
+            'Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. ' +
+                "e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
+        ),
+    }),
+    z.object({
+        op: z.literal('update_column'),
+        id: z.string().describe('Id of the column to update.'),
+        patch: EmailDesignFreeformObject.describe('Partial column fields, deep-merged; a null leaf deletes that key.'),
+    }),
+    z.object({
+        op: z.literal('update_row'),
+        id: z.string().describe('Id of the row to update.'),
+        patch: EmailDesignFreeformObject.describe('Partial row fields, deep-merged; a null leaf deletes that key.'),
+    }),
+    z.object({
+        op: z.literal('update_body'),
+        patch: EmailDesignFreeformObject.describe(
+            "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
+        ),
+    }),
+    z.object({
+        op: z.literal('add_content'),
+        column_id: z.string().describe('Id of the column to insert the block into.'),
+        content: EmailDesignFreeformObject.describe(
+            'A content block {type, values: {...}}; omit id and values._meta — they are assigned server-side. ' +
+                'type is one of text, heading, button, image, divider, html, etc.'
+        ),
+        index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
+    }),
+    z.object({
+        op: z.literal('remove_content'),
+        id: z.string().describe('Id of the content block to remove.'),
+    }),
+    z.object({
+        op: z.literal('move_content'),
+        id: z.string().describe('Id of the content block to move.'),
+        column_id: z.string().describe('Id of the destination column.'),
+        index: z.number().int().optional().describe('0-based position in the destination column; omit to append.'),
+    }),
+    z.object({
+        op: z.literal('add_row'),
+        row: EmailDesignFreeformObject.describe(
+            'A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are ' +
+                'assigned server-side for the row and everything nested in it.'
+        ),
+        index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
+    }),
+    z.object({
+        op: z.literal('remove_row'),
+        id: z.string().describe('Id of the row to remove.'),
+    }),
+])
+
+export const EmailTemplateDesignPatchSchema = z.object({
+    id: z.string().describe('The email template id to edit.'),
+    operations: z
+        .array(EmailDesignPatchOperationSchema)
+        .min(1)
+        .describe(
+            "Ordered edits applied atomically to the template's Unlayer design: the stored design is read, the ops " +
+                'are applied in order, the result is validated and re-rendered to HTML, and saved only if valid — ' +
+                'otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design.'
+        ),
+})

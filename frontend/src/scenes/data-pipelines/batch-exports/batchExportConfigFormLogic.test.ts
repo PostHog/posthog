@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { BatchExportConfiguration } from '~/types'
 
@@ -343,11 +344,11 @@ describe('batchExportConfigFormLogic', () => {
         // Register a GET + PATCH mock for every fixture so any round-trip test can load its
         // own fixture by id and look up the captured request body via patchBodiesById[fx.id].
         const getMocks: Record<string, BatchExportConfiguration> = {}
-        const patchMocks: Record<string, (req: any) => Promise<[number, BatchExportConfiguration]>> = {}
+        const patchMocks: Record<string, (info: MockResolverInfo) => Promise<[number, BatchExportConfiguration]>> = {}
         for (const fx of ALL_BATCH_EXPORTS) {
             getMocks[`/api/environments/:team_id/batch_exports/${fx.id}`] = fx
-            patchMocks[`/api/environments/:team_id/batch_exports/${fx.id}/`] = async (req) => {
-                const body = await req.json()
+            patchMocks[`/api/environments/:team_id/batch_exports/${fx.id}/`] = async ({ request }) => {
+                const body = (await request.json()) as Record<string, any>
                 lastPatchBody = body
                 patchBodiesById[fx.id] = body
                 return [200, fx]
@@ -359,8 +360,8 @@ describe('batchExportConfigFormLogic', () => {
                 '/api/environments/:team_id/batch_exports/test': { steps: [] },
             },
             post: {
-                '/api/environments/:team_id/batch_exports/': async (req) => {
-                    lastPostBody = await req.json()
+                '/api/environments/:team_id/batch_exports/': async ({ request }) => {
+                    lastPostBody = (await request.json()) as Record<string, any>
                     return [200, { ...S3_BATCH_EXPORT, id: 'new-export-id' }]
                 },
             },
@@ -449,7 +450,7 @@ describe('batchExportConfigFormLogic', () => {
             },
             {
                 service: 'Postgres' as const,
-                fields: ['user', 'password', 'host', 'port', 'database', 'schema', 'table_name'],
+                fields: ['integration_id', 'database', 'schema', 'table_name'],
             },
             {
                 service: 'Redshift' as const,
@@ -541,6 +542,87 @@ describe('batchExportConfigFormLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.configurationErrors.container_name).toBe(error)
+        })
+    })
+
+    describe('compression resets when file_format changes', () => {
+        it.each([
+            { newFormat: 'JSONLines', expected: null },
+            { newFormat: 'Parquet', expected: 'zstd' },
+        ])('new export: switching to $newFormat sets compression to $expected', async ({ newFormat, expected }) => {
+            await initLogic({ service: 'S3', id: null })
+
+            logic.actions.setConfigurationValue('file_format', newFormat)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.configuration.compression).toBe(expected)
+        })
+
+        it.each([
+            { startCompression: 'snappy', expected: null },
+            { startCompression: 'gzip', expected: 'gzip' },
+        ])(
+            'existing export: Parquet/$startCompression -> JSONLines yields $expected',
+            async ({ startCompression, expected }) => {
+                await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+                logic.actions.setConfigurationValues({ compression: startCompression })
+                await expectLogic(logic).toFinishAllListeners()
+
+                logic.actions.setConfigurationValue('file_format', 'JSONLines')
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.configuration.compression).toBe(expected)
+            }
+        )
+
+        it('existing export: Parquet/zstd -> JSONLines -> Parquet restores the saved zstd codec', async () => {
+            // AWS_S3_BATCH_EXPORT is saved with Parquet/zstd; zstd is invalid for JSONLines, so it's
+            // cleared on the way out and must come back from the saved config — not default to zstd by
+            // coincidence.
+            await initLogic({ service: null, id: AWS_S3_BATCH_EXPORT.id })
+            expect(logic.values.configuration.compression).toBe('zstd')
+
+            logic.actions.setConfigurationValue('file_format', 'JSONLines')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBeNull()
+
+            logic.actions.setConfigurationValue('file_format', 'Parquet')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('zstd')
+        })
+
+        it('existing export: Parquet/gzip survives a JSONLines round-trip (valid for both formats)', async () => {
+            await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+            expect(logic.values.configuration.compression).toBe('gzip')
+
+            logic.actions.setConfigurationValue('file_format', 'JSONLines')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('gzip')
+
+            logic.actions.setConfigurationValue('file_format', 'Parquet')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.configuration.compression).toBe('gzip')
+        })
+    })
+
+    describe('invalid persisted compression is dropped on save', () => {
+        it('clears a JSONLines+zstd combination when saving an unrelated edit', async () => {
+            await initLogic({ service: null, id: S3_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                file_format: 'JSONLines',
+                compression: 'zstd',
+                prefix: 'updated-prefix/',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+
+            expect(lastPatchBody!.destination.config.file_format).toBe('JSONLines')
+            expect(lastPatchBody!.destination.config.compression).toBeNull()
+            expect(lastPatchBody!.destination.config.prefix).toBe('updated-prefix/')
         })
     })
 
@@ -804,21 +886,15 @@ describe('batchExportConfigFormLogic', () => {
                 name: 'Postgres',
                 service: 'Postgres' as const,
                 requiredValues: {
-                    user: 'pg-user',
-                    password: 'pg-pass',
-                    host: 'pg-host',
-                    port: 5432,
+                    integration_id: 13,
                     database: 'pg-db',
                     schema: 'public',
                     table_name: 'events',
                 },
                 expectedDestination: {
                     type: 'Postgres',
+                    integration: 13,
                     config: {
-                        user: 'pg-user',
-                        password: 'pg-pass',
-                        host: 'pg-host',
-                        port: 5432,
                         database: 'pg-db',
                         schema: 'public',
                         table_name: 'events',
