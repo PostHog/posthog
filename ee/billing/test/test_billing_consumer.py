@@ -104,29 +104,19 @@ class TestBillingConsumerCollectionsAccess(BaseTest):
         assert self.organization.is_active is True
         assert self.organization.is_not_active_reason is None
 
-    def test_block_leaves_manual_inactive_org_inactive(self):
+    def test_access_state_change_leaves_manual_inactive_org_inactive(self):
         self.organization.customer_id = "cus_billing_123"
         self.organization.is_active = False
         self.organization.is_not_active_reason = "Manual deactivation"
         self.organization.save()
 
-        self._build_consumer()._process_collections_access_state_changed(self._message("blocked"))
+        for desired_state in ["blocked", "unblocked"]:
+            with self.subTest(desired_state=desired_state):
+                self._build_consumer()._process_collections_access_state_changed(self._message(desired_state))
 
-        self.organization.refresh_from_db()
-        assert self.organization.is_active is False
-        assert self.organization.is_not_active_reason == "Manual deactivation"
-
-    def test_unblock_leaves_manual_inactive_org_inactive(self):
-        self.organization.customer_id = "cus_billing_123"
-        self.organization.is_active = False
-        self.organization.is_not_active_reason = "Manual deactivation"
-        self.organization.save()
-
-        self._build_consumer()._process_collections_access_state_changed(self._message("unblocked"))
-
-        self.organization.refresh_from_db()
-        assert self.organization.is_active is False
-        assert self.organization.is_not_active_reason == "Manual deactivation"
+                self.organization.refresh_from_db()
+                assert self.organization.is_active is False
+                assert self.organization.is_not_active_reason == "Manual deactivation"
 
     @patch(f"{CONSUMER}.capture_exception")
     def test_customer_mismatch_is_ignored(self, mock_capture):

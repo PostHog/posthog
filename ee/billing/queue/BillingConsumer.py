@@ -256,13 +256,9 @@ class BillingConsumer(SQSConsumer):
 
         if desired_state == "blocked":
             if (
-                organization.is_active is not False
-                or organization.is_not_active_reason == BILLING_COLLECTIONS_INACTIVE_REASON
+                organization.is_active is False
+                and organization.is_not_active_reason != BILLING_COLLECTIONS_INACTIVE_REASON
             ):
-                organization.is_active = False
-                organization.is_not_active_reason = BILLING_COLLECTIONS_INACTIVE_REASON
-                organization.save(update_fields=["is_active", "is_not_active_reason", "updated_at"])
-            else:
                 logger.info(
                     "Skipping Billing collections block because organization is already inactive for another reason",
                     extra={
@@ -273,6 +269,11 @@ class BillingConsumer(SQSConsumer):
                         "is_not_active_reason": organization.is_not_active_reason,
                     },
                 )
+                return
+
+            organization.is_active = False
+            organization.is_not_active_reason = BILLING_COLLECTIONS_INACTIVE_REASON
+            organization.save(update_fields=["is_active", "is_not_active_reason", "updated_at"])
         else:
             if (
                 organization.is_active is False
