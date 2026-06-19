@@ -143,8 +143,7 @@ test.describe('Persons', () => {
 
         await test.step('search for the multi-ID person and navigate to their detail page', async () => {
             await persons.goToList()
-            await persons.searchInput.fill(primaryDistinctId)
-            await expect(persons.table.getByRole('link')).toHaveCount(1, { timeout: 15_000 })
+            await persons.searchFor(primaryDistinctId)
             await persons.clickFirstPerson()
         })
 
