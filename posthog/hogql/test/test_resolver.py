@@ -509,18 +509,37 @@ class TestResolver(BaseTest):
             f"expected a plausible suggestion in: {message}",
         )
 
-    def test_unresolved_dollar_property_suggests_properties_prefix(self):
-        # $exception_types lives under properties, so steer a bare reference there
+    @parameterized.expand(
+        [
+            ("$exception_types",),
+            ("$exception_values",),
+            ("$session_id",),
+        ]
+    )
+    def test_unresolved_dollar_property_suggests_properties_prefix(self, name: str):
+        # $-prefixed properties live under properties, so steer a bare reference there
         with self.assertRaises(QueryError) as ctx:
             resolve_types(
-                self._select("SELECT $exception_types FROM events"),
+                self._select(f"SELECT {name} FROM events"),
                 self.context,
                 dialect="clickhouse",
             )
         message = str(ctx.exception)
-        self.assertIn("Unable to resolve field: $exception_types", message)
+        self.assertIn(f"Unable to resolve field: {name}", message)
         self.assertIn("Did you mean:", message)
-        self.assertIn("properties.$exception_types", message)
+        self.assertIn(f"properties.{name}", message)
+
+    def test_unresolved_dollar_property_no_suggestion_without_properties(self):
+        # numbers() has no properties field, so no properties.$foo suggestion is emitted
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(
+                self._select("SELECT $foo FROM numbers(10)"),
+                self.context,
+                dialect="clickhouse",
+            )
+        message = str(ctx.exception)
+        self.assertIn("Unable to resolve field: $foo", message)
+        self.assertNotIn("properties.$foo", message)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):
