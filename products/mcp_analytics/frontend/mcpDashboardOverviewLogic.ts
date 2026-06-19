@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLFilters, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { IntervalType, TeamType } from '~/types'
+import { AnyPropertyFilter, IntervalType, TeamType } from '~/types'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import { categorizeHarness } from './dashboard/harnessRegistry'
@@ -433,6 +433,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     actions({
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
+        setPropertyFilters: (properties: AnyPropertyFilter[]) => ({ properties }),
         reloadAll: true,
     }),
     reducers({
@@ -448,6 +449,12 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             null as boolean | null,
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }): boolean | null => filterTestAccounts,
+            },
+        ],
+        propertyFilters: [
+            [] as AnyPropertyFilter[],
+            {
+                setPropertyFilters: (_, { properties }): AnyPropertyFilter[] => properties,
             },
         ],
     }),
@@ -583,10 +590,15 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 override ?? !!currentTeam?.test_account_filters_default_checked,
         ],
         queryFilters: [
-            (s) => [s.dateFilter, s.filterTestAccounts],
-            (dateFilter: DateFilter, filterTestAccounts: boolean): HogQLFilters => ({
+            (s) => [s.dateFilter, s.filterTestAccounts, s.propertyFilters],
+            (
+                dateFilter: DateFilter,
+                filterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[]
+            ): HogQLFilters => ({
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 filterTestAccounts,
+                properties: propertyFilters,
             }),
         ],
         interval: [
@@ -628,6 +640,9 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         setFilterTestAccounts: () => {
             actions.reloadAll()
         },
+        setPropertyFilters: () => {
+            actions.reloadAll()
+        },
         reloadAll: () => {
             actions.loadKPIs()
             actions.loadToolRows()
@@ -657,11 +672,17 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             } else {
                 searchParams.filter_test_accounts = values.filterTestAccountsOverride
             }
+            if (values.propertyFilters.length > 0) {
+                searchParams.properties = values.propertyFilters
+            } else {
+                delete searchParams.properties
+            }
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
         return {
             setDateFilter: syncUrl,
             setFilterTestAccounts: syncUrl,
+            setPropertyFilters: syncUrl,
         }
     }),
     urlToAction(({ actions, values, cache }) => ({
@@ -672,17 +693,22 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             // Absent param leaves the override null (effective value follows the team default).
             const rawFilter = searchParams.filter_test_accounts
             const filterOverride = rawFilter === undefined ? null : rawFilter === true || rawFilter === 'true'
+            const properties = Array.isArray(searchParams.properties) ? searchParams.properties : []
             const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
             const filterChanged = filterOverride !== values.filterTestAccountsOverride
-            // setDateFilter / setFilterTestAccounts each reload via their listeners.
+            const propertiesChanged = JSON.stringify(properties) !== JSON.stringify(values.propertyFilters)
+            // setDateFilter / setFilterTestAccounts / setPropertyFilters each reload via their listeners.
             if (dateChanged) {
                 actions.setDateFilter(dateFrom, dateTo)
             }
             if (filterChanged) {
                 actions.setFilterTestAccounts(filterOverride)
             }
+            if (propertiesChanged) {
+                actions.setPropertyFilters(properties)
+            }
             // URL already matches state (e.g. default filters) and afterMount deferred — load once.
-            if (!dateChanged && !filterChanged && !cache.hasLoaded) {
+            if (!dateChanged && !filterChanged && !propertiesChanged && !cache.hasLoaded) {
                 actions.reloadAll()
             }
             cache.hasLoaded = true
@@ -697,7 +723,8 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         const hasUrlFilters =
             typeof searchParams.date_from === 'string' ||
             typeof searchParams.date_to === 'string' ||
-            typeof searchParams.filter_test_accounts !== 'undefined'
+            typeof searchParams.filter_test_accounts !== 'undefined' ||
+            Array.isArray(searchParams.properties)
         if (!hasUrlFilters && !cache.hasLoaded) {
             cache.hasLoaded = true
             actions.reloadAll()

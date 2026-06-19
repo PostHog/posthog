@@ -1,11 +1,14 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     aggregateHarnessRows,
@@ -347,6 +350,64 @@ describe('mcpDashboardOverviewLogic', () => {
             const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
             expect(reloads.length).toBeGreaterThanOrEqual(6)
             expect(reloads.every((call) => call.filters.filterTestAccounts === true)).toBe(true)
+        })
+
+        const EVENT_FILTER: AnyPropertyFilter = {
+            key: '$mcp_tool_name',
+            value: ['create_insight'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+        // Feature-flag filters arrive as ordinary $feature/<key> event-property filters.
+        const FLAG_FILTER: AnyPropertyFilter = {
+            key: '$feature/new-thing',
+            value: ['test'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+
+        it.each([
+            ['event property', EVENT_FILTER],
+            ['feature flag', FLAG_FILTER],
+        ])('passes %s filters to every tile', async (_label, filter) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([filter])
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads.length).toBe(6)
+            expect(reloads.every((call) => JSON.stringify(call.filters.properties) === JSON.stringify([filter]))).toBe(
+                true
+            )
+        })
+
+        it('syncs property filters to the URL and clears the param when emptied', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([EVENT_FILTER])
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.properties).toEqual([EVENT_FILTER])
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([])
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.properties).toBeUndefined()
+        })
+
+        it('hydrates property filters from the URL on mount', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard(), { properties: [EVENT_FILTER] })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.propertyFilters).toEqual([EVENT_FILTER])
         })
     })
 })
