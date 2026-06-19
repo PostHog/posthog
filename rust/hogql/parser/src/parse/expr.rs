@@ -821,8 +821,22 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // nested form and keep it only when a unit keyword still follows.
             TokenKind::Keyword(Kw::Interval) if interval_value => {
                 if self.peek_next() == TokenKind::String {
-                    self.parse_interval_string_only()
-                        .map_err(ParseError::into_fatal)
+                    // Nested string-valued INTERVAL. cpp keeps the inner string a
+                    // self-contained `ColumnExprIntervalString` (count+unit inside
+                    // the quotes, `'5 day'`) when a SINGLE unit trails — that unit
+                    // is the OUTER interval's. When TWO units trail, the inner is
+                    // instead an expr+unit INTERVAL whose VALUE is the (plain
+                    // constant) string and whose unit is the first keyword, leaving
+                    // the second for the outer (`interval interval '' day month` →
+                    // `INTERVAL (INTERVAL '' DAY) MONTH`). The value-expr reading
+                    // sidesteps the string's count/unit validation, which is why
+                    // `''` parses there but not as a bare string interval.
+                    if self.interval_string_trailing_unit_count() >= 2 {
+                        self.parse_interval_expr().map_err(ParseError::into_fatal)
+                    } else {
+                        self.parse_interval_string_only()
+                            .map_err(ParseError::into_fatal)
+                    }
                 } else {
                     let cp = self.checkpoint();
                     match self.parse_interval_expr() {
@@ -1395,6 +1409,18 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.expect_kw(Kw::Interval, "INTERVAL")?;
         let str_tok = self.peek0;
         let raw = unquote_single_string(self.text(str_tok));
+        // Unvisited clause (window FILTER body / discarded ORDER BY): cpp
+        // grammar-parses the inner `ColumnExprIntervalString` but never visits it,
+        // so its count/unit "not supported" rejections never fire — tolerate any
+        // string with a throwaway, matching the suppress short-circuit in
+        // `parse_interval_expr` (`a() filter(where interval interval 'bm ' day) over a`).
+        if self.suppress_unvisited_clause_checks {
+            self.bump()?;
+            return Ok(self.emit.call(
+                "toIntervalSecond",
+                vec![self.emit.constant(self.emit.string(&raw))],
+            ));
+        }
         let Some((count_str, unit)) = raw.split_once(' ') else {
             self.bump()?;
             return Err(ParseError::not_implemented_fatal(
@@ -1435,6 +1461,40 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(self
             .emit
             .call(unit_name, vec![self.emit.constant(self.emit.int(count))]))
+    }
+
+    /// For a nested string-valued INTERVAL (`peek0 == interval`, `peek1 ==
+    /// String`), count the INTERVAL unit keywords (`SECOND … YEAR`) that
+    /// immediately trail the string, capped at 2. Drives the string-only vs
+    /// expr+unit choice for the inner interval: one trailing unit is the OUTER
+    /// interval's (inner stays self-contained), two means the inner takes the
+    /// first as its own unit and reserves the second for the outer.
+    fn interval_string_trailing_unit_count(&self) -> usize {
+        let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+        let mut count = 0usize;
+        while count < 2 {
+            match probe.next_token() {
+                Ok(t)
+                    if matches!(
+                        t.kind,
+                        TokenKind::Keyword(
+                            Kw::Second
+                                | Kw::Minute
+                                | Kw::Hour
+                                | Kw::Day
+                                | Kw::Week
+                                | Kw::Month
+                                | Kw::Quarter
+                                | Kw::Year
+                        )
+                    ) =>
+                {
+                    count += 1
+                }
+                _ => break,
+            }
+        }
+        count
     }
 
     /// Is `peek_next` a recognised INTERVAL unit keyword? Used by
