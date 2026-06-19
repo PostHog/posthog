@@ -10,6 +10,7 @@ import pyarrow as pa
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from posthog.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsDailyRateLimitError
 from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
     INITIAL_ANALYTICS_LOOKBACK_DAYS,
     LinkedInAdsResumeConfig,
@@ -601,6 +602,78 @@ class TestLinkedinAdsSource:
         mock_client.get_data_by_resource.assert_called_once()
         assert mock_client.get_data_by_resource.call_args[1]["starting_page_token"] == "token-2"
         # Final page of a resume has no next token → no save.
+        manager.save_state.assert_not_called()
+
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.Batcher")
+    def test_daily_rate_limit_stops_gracefully_and_flushes_batched_rows(self, mock_batcher_cls, mock_client_func):
+        """A daily rate limit raised mid-stream must not fail the job. We stop fetching, flush the
+        rows already batched, and keep the most recent durable resume token so the next scheduled
+        sync continues from there."""
+        mock_batcher_cls.side_effect = _small_batcher_factory(chunk_size=2)
+
+        def pages_then_rate_limit():
+            yield ([{"id": "p1-a"}, {"id": "p1-b"}], "token-2")  # fills buffer, flush, pending=None
+            yield ([{"id": "p2-a"}, {"id": "p2-b"}], "token-3")  # fills buffer, flush, advances to token-2
+            yield ([{"id": "p3-a"}], "token-4")  # one record left buffered
+            raise LinkedinAdsDailyRateLimitError('LinkedIn daily rate limit reached (429): {"status":429}')
+
+        mock_client = mock.MagicMock()
+        mock_client.get_data_by_resource.return_value = pages_then_rate_limit()
+        mock_client_func.return_value = mock_client
+
+        config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
+        manager = _make_resume_manager(can_resume=False)
+
+        result = linkedin_ads_source(
+            config=config,
+            resource_name="campaigns",
+            team_id=789,
+            resumable_source_manager=manager,
+            logger=mock.MagicMock(),
+        )
+
+        items = result.items()
+        assert isinstance(items, Iterable)
+        rows = list(items)  # must not raise
+        assert all(isinstance(r, pa.Table) for r in rows)
+        # Two mid-stream flushes of 2 rows, then the final incomplete-chunk flush of the
+        # single buffered p3-a row.
+        assert [r.num_rows for r in rows] == [2, 2, 1]
+
+        # Only token-2 is durably saved: it's committed once page 2's flush proves page 1's rows are
+        # written. Page 3 holds a single record that never triggers its own mid-stream flush, so
+        # token-3 stays pending and the final incomplete-chunk flush deliberately skips save_state.
+        # Resume from token-2 re-fetches the rest — already-written rows are deduped by primary key.
+        assert manager.save_state.call_args_list == [
+            mock.call(LinkedInAdsResumeConfig(page_token="token-2")),
+        ]
+
+    def test_daily_rate_limit_on_first_page_yields_nothing_without_error(self, mock_client_func):
+        """Hitting the daily limit before any data is fetched stops cleanly with no rows and no state."""
+
+        def rate_limit_immediately():
+            yield from ()  # makes this a generator that yields nothing before raising
+            raise LinkedinAdsDailyRateLimitError('LinkedIn daily rate limit reached (429): {"status":429}')
+
+        mock_client = mock.MagicMock()
+        mock_client.get_data_by_resource.return_value = rate_limit_immediately()
+        mock_client_func.return_value = mock_client
+
+        config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
+        manager = _make_resume_manager(can_resume=False)
+
+        result = linkedin_ads_source(
+            config=config,
+            resource_name="campaigns",
+            team_id=789,
+            resumable_source_manager=manager,
+            logger=mock.MagicMock(),
+        )
+
+        items = result.items()
+        assert isinstance(items, Iterable)
+        rows = list(items)
+        assert rows == []
         manager.save_state.assert_not_called()
 
     def test_empty_first_page_does_not_save_state(self, mock_client_func):

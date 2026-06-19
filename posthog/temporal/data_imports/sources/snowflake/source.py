@@ -216,7 +216,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # (rotated/removed key, key assigned to a different user, or the wrong key pasted). Retrying
             # can never succeed until the customer re-registers the matching public key. The host and
             # request id in the message are volatile, so we match the stable phrase.
-            "JWT token is invalid": "Snowflake rejected key-pair authentication because the signed token is invalid — the private key you configured doesn't match the public key registered on the Snowflake user. Re-register the matching public key on the user in Snowflake (or paste the correct private key), then resync.",
+            "JWT token is invalid": "Snowflake rejected key-pair authentication because the signed token is invalid — the private key you configured doesn't match the public key registered on the Snowflake user (often after a key rotation, or if the public key was never set). Re-register the matching public key on your Snowflake user (ALTER USER ... SET RSA_PUBLIC_KEY), or paste the correct private key here, then resync.",
             # Snowflake error 002003 (SQLSTATE 42S02 for tables / 02000 for schemas): a table or
             # schema the source syncs was dropped or renamed in Snowflake, or the role's grant on it
             # was revoked, after the schema was discovered. The driver raises "<object> does not exist

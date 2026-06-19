@@ -191,15 +191,16 @@ _CONNECTION_DROPPED_ERROR_TYPES = (
 )
 
 
-def _safe_close_connection(connection: psycopg.Connection) -> None:
+def _safe_close_connection(connection: psycopg.Connection | None) -> None:
     """Close a connection without raising.
 
     Prefer this over Connection.__exit__ for teardown in exception handlers:
     __exit__ attempts a commit/rollback first, which can itself raise on a
     broken connection and mask the original error. close() just releases the
-    socket.
+    socket. Accepts None so callers can close a connection that was never opened
+    (a connect that raised before assigning) without a None-check at each site.
     """
-    if connection.closed:
+    if connection is None or connection.closed:
         return
     try:
         connection.close()
@@ -2563,18 +2564,22 @@ def postgres_source(
                 successive_errors = 0
                 successive_conn_errors = 0
                 floor_retries = 0
-                connection = _connect_with_dropped_retry(get_connection, logger)
-                # Autocommit so each LIMIT/OFFSET query runs as its own statement
-                # and no transaction stays open across the slow delta-merge that
-                # happens between yields. A held transaction is what gets the
-                # backend culled by idle_in_transaction_session_timeout, producing
-                # the "server conn crashed?" ProtocolViolation on the next fetch.
-                connection.autocommit = True
+                # Open lazily inside the loop so a recovery conflict (or connection drop) raised by
+                # the connect itself is caught by the handlers below. A hot standby can cancel the
+                # connection's own startup with "conflict with recovery" (SerializationFailure) when
+                # we reconnect mid-recovery — opening outside the loop let that escape the whole
+                # fallback even though it's the same transient condition the loop already retries.
+                connection: psycopg.Connection | None = None
                 while True:
                     try:
-                        if connection.closed:
-                            logger.debug("Postgres connection was closed, reopening...")
+                        if connection is None or connection.closed:
+                            logger.debug("Opening Postgres connection for offset chunking...")
                             connection = get_connection()
+                            # Autocommit so each LIMIT/OFFSET query runs as its own statement and no
+                            # transaction stays open across the slow delta-merge that happens between
+                            # yields. A held transaction is what gets the backend culled by
+                            # idle_in_transaction_session_timeout, producing the "server conn
+                            # crashed?" ProtocolViolation on the next fetch.
                             connection.autocommit = True
 
                         # Use psycopg.Cursor directly to bypass cursor_factory: on a

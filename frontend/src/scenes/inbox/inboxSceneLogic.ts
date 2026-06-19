@@ -268,6 +268,15 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
         },
         [urls.inbox(':tab')]: ({ tab }: { tab?: string }) => {
+            // A bare report deep-link `/inbox/<reportId>`  redirected to report form
+            if (tab && !isInboxTabKey(tab) && tab !== 'scouts') {
+                router.actions.replace(
+                    urls.inboxReport('reports', tab),
+                    router.values.searchParams,
+                    router.values.hashParams
+                )
+                return
+            }
             // Staff-only tabs (Runs, Not actionable): bounce non-staff to the default tab.
             if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
                 actions.setActiveTab('pulls')
