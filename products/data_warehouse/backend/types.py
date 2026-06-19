@@ -668,6 +668,7 @@ class ExternalDataSourceType(models.TextChoices):
     DATORAMA = "Datorama", "Datorama"
     AHREFS = "Ahrefs", "Ahrefs"
     LIGHTFIELD = "Lightfield", "Lightfield"
+    APPSTACK = "Appstack", "Appstack"
     CUSTOM = "Custom", "Custom"
 
 

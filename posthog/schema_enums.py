@@ -1789,6 +1789,7 @@ class ExternalDataSourceType(StrEnum):
     DATORAMA = "Datorama"
     AHREFS = "Ahrefs"
     LIGHTFIELD = "Lightfield"
+    APPSTACK = "Appstack"
     CUSTOM = "Custom"
 
 

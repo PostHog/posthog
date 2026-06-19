@@ -6864,6 +6864,7 @@ export const externalDataSources = [
     'Datorama',
     'Ahrefs',
     'Lightfield',
+    'Appstack',
     'Custom',
 ] as const
 

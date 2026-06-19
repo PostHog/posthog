@@ -292,6 +292,11 @@ class AppsFlyerSourceConfig(config.Config):
 
 
 @config.config
+class AppstackSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class ApptivoSourceConfig(config.Config):
     pass
 
@@ -3477,6 +3482,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.APPFOLLOW: AppfollowSourceConfig,
         ExternalDataSourceType.APPLESEARCHADS: AppleSearchAdsSourceConfig,
         ExternalDataSourceType.APPSFLYER: AppsFlyerSourceConfig,
+        ExternalDataSourceType.APPSTACK: AppstackSourceConfig,
         ExternalDataSourceType.APPTIVO: ApptivoSourceConfig,
         ExternalDataSourceType.ASANA: AsanaSourceConfig,
         ExternalDataSourceType.ASHBY: AshbySourceConfig,
