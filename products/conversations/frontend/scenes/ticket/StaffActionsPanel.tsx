@@ -1,21 +1,12 @@
 import { useValues } from 'kea'
 
-import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
+import { LemonCollapse } from '@posthog/lemon-ui'
 
+import { AdminLoginButtons } from '~/layout/navigation/ImpersonationNotice/AdminLoginButtons'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 
 export function StaffActionsPanel(): JSX.Element {
     const { ticketContext, adminLoginUrls } = useValues(impersonationNoticeLogic)
-
-    const disabledReason = !ticketContext?.email
-        ? 'This ticket has no associated email'
-        : adminLoginUrls.length === 0
-          ? 'Unable to determine admin URL'
-          : undefined
-
-    // Region is ambiguous when we couldn't infer it, so we offer one button per
-    // region and label each so staff know which admin page they're opening.
-    const showRegionLabel = adminLoginUrls.length > 1
 
     return (
         <LemonCollapse
@@ -37,26 +28,7 @@ export function StaffActionsPanel(): JSX.Element {
                                         'No customer email on this ticket'
                                     )}
                                 </span>
-                                <div className="flex flex-wrap justify-end gap-2">
-                                    {disabledReason ? (
-                                        <LemonButton type="secondary" size="small" disabledReason={disabledReason}>
-                                            Login as {ticketContext?.email || 'customer'}
-                                        </LemonButton>
-                                    ) : (
-                                        adminLoginUrls.map(({ region, url }) => (
-                                            <LemonButton
-                                                key={region}
-                                                type="secondary"
-                                                size="small"
-                                                tooltip="This currently redirects to the admin login page, but in future will log you in directly."
-                                                onClick={() => window.open(url, '_blank')}
-                                            >
-                                                Login as {ticketContext?.email}
-                                                {showRegionLabel ? ` (${region})` : ''}
-                                            </LemonButton>
-                                        ))
-                                    )}
-                                </div>
+                                <AdminLoginButtons ticketContext={ticketContext} adminLoginUrls={adminLoginUrls} />
                             </div>
                         </div>
                     ),

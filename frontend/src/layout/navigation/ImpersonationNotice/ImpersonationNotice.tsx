@@ -13,6 +13,7 @@ import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
+import { AdminLoginButtons } from './AdminLoginButtons'
 import {
     AdminLoginUrl,
     ExpiredSessionInfo,
@@ -60,14 +61,6 @@ function LoginAsContent({
     ticketContext: ImpersonationTicketContext
     adminLoginUrls: AdminLoginUrl[]
 }): JSX.Element {
-    const disabledReason = !ticketContext.email
-        ? 'This ticket has no associated email'
-        : adminLoginUrls.length === 0
-          ? 'Unable to determine admin URL'
-          : undefined
-
-    const showRegionLabel = adminLoginUrls.length > 1
-
     return (
         <>
             <p className="ImpersonationNotice__message">
@@ -79,26 +72,7 @@ function LoginAsContent({
                     'No customer email on this ticket'
                 )}
             </p>
-            <div className="flex flex-wrap gap-2 justify-end">
-                {disabledReason ? (
-                    <LemonButton type="secondary" size="small" disabledReason={disabledReason}>
-                        Login as {ticketContext.email || 'customer'}
-                    </LemonButton>
-                ) : (
-                    adminLoginUrls.map(({ region, url }) => (
-                        <LemonButton
-                            key={region}
-                            type="secondary"
-                            size="small"
-                            tooltip="This currently redirects to the admin login page, but in future will log you in directly."
-                            onClick={() => window.open(url, '_blank')}
-                        >
-                            Login as {ticketContext.email}
-                            {showRegionLabel ? ` (${region})` : ''}
-                        </LemonButton>
-                    ))
-                )}
-            </div>
+            <AdminLoginButtons ticketContext={ticketContext} adminLoginUrls={adminLoginUrls} />
         </>
     )
 }
