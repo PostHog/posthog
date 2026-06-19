@@ -11,6 +11,7 @@ the two paths drifting apart.
 import json
 import hashlib
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -30,6 +31,7 @@ from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
+    TtlSchedule,
     ensure_precomputed,
     parse_ttl_schedule,
 )
@@ -80,9 +82,14 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     """
     pinned = is_team_oom_pinned(team.id)
     if pinned and "ttl_seconds" in kwargs:
-        kwargs["ttl_seconds"] = parse_ttl_schedule(
-            kwargs["ttl_seconds"], team.timezone, max_window_days=OOM_PIN_WINDOW_DAYS
-        )
+        existing = kwargs["ttl_seconds"]
+        # Stamp the width cap onto whatever schedule the caller passed: an int/dict gets
+        # parsed with the cap; an already-built TtlSchedule (also accepted by
+        # ensure_precomputed) just gets the cap re-stamped — parse_ttl_schedule can't take one.
+        if isinstance(existing, TtlSchedule):
+            kwargs["ttl_seconds"] = replace(existing, max_window_days=OOM_PIN_WINDOW_DAYS)
+        else:
+            kwargs["ttl_seconds"] = parse_ttl_schedule(existing, team.timezone, max_window_days=OOM_PIN_WINDOW_DAYS)
     result = ensure_precomputed(team=team, **kwargs)
     if result.memory_exceeded:
         pin_team_oom(team.id)  # set or refresh the cap so a still-OOMing team stays pinned

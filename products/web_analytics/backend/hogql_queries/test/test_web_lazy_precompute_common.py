@@ -418,3 +418,16 @@ class TestWebEnsurePrecomputed(BaseTest):
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
         web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         assert is_team_oom_pinned(self.team.pk) is False
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_pinned_team_restamps_prebuilt_schedule(self, mock_ensure):
+        # A caller may pass an already-built TtlSchedule (ensure_precomputed accepts one);
+        # the pin must stamp the cap onto it, not crash by re-parsing it.
+        pin_team_oom(self.team.pk)
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        prebuilt = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=None)
+        web_ensure_precomputed(team=self.team, ttl_seconds=prebuilt, table=None)
+        passed = mock_ensure.call_args.kwargs["ttl_seconds"]
+        assert isinstance(passed, TtlSchedule)
+        assert passed.max_window_days == 1
+        assert passed.default_ttl_seconds == 3600
