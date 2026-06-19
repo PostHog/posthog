@@ -53460,6 +53460,8 @@ export namespace Schemas {
     export interface _TracingCountResponse {
       /** Number of spans matching the filters. */
       count: number;
+      /** Number of distinct traces whose root span matches the filters — the trace count shown in the Traces view. */
+      traceCount: number;
     }
 
     /**
