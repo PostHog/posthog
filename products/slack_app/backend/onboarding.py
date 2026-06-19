@@ -454,7 +454,13 @@ def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> 
         return False
     from posthog.models.organization import Organization  # noqa: PLC0415
 
-    Organization.objects.filter(id=org_id).update(is_ai_data_processing_approved=True)
+    # Save the instance (not a queryset .update()) so ModelActivityMixin records the consent change
+    # in the activity log and updated_at is bumped.
+    organization = Organization.objects.filter(id=org_id).first()
+    if organization is None:
+        return False
+    organization.is_ai_data_processing_approved = True
+    organization.save(update_fields=["is_ai_data_processing_approved", "updated_at"])
     capture_slack_event(
         integration, EVENT_STEP_COMPLETED, slack_user_id=slack_user_id, step=str(OnboardingStep.AI_APPROVAL)
     )
