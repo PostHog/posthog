@@ -45,6 +45,8 @@ export const agentMemoryAppendCreateBodyHeadingMax = 500
 
 export const agentMemoryAppendCreateBodyBodyMax = 1000000
 
+export const agentMemoryAppendCreateBodyUpdatedByRunMax = 255
+
 export const AgentMemoryAppendCreateBody = /* @__PURE__ */ zod.object({
     path: zod
         .string()
@@ -60,6 +62,13 @@ export const AgentMemoryAppendCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(agentMemoryAppendCreateBodyBodyMax)
         .describe('Markdown body for the section. Never clobbers other sections of the file.'),
+    updated_by_run: zod
+        .string()
+        .max(agentMemoryAppendCreateBodyUpdatedByRunMax)
+        .nullish()
+        .describe(
+            "Optional identifier of the agent run performing this write (e.g. a scout run UUID), recorded for attribution. Omit for human/API writes; the writer's user is attributed automatically."
+        ),
 })
 
 /**
@@ -92,6 +101,8 @@ export const agentMemoryWriteCreateBodyPathMax = 1024
 
 export const agentMemoryWriteCreateBodyContentMax = 1000000
 
+export const agentMemoryWriteCreateBodyUpdatedByRunMax = 255
+
 export const AgentMemoryWriteCreateBody = /* @__PURE__ */ zod.object({
     path: zod
         .string()
@@ -110,5 +121,12 @@ export const AgentMemoryWriteCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Compare-and-set token. Omit (or null) to create a new file; pass the version you last read to update an existing one. A mismatch returns 409 — re-read and merge before retrying.'
+        ),
+    updated_by_run: zod
+        .string()
+        .max(agentMemoryWriteCreateBodyUpdatedByRunMax)
+        .nullish()
+        .describe(
+            "Optional identifier of the agent run performing this write (e.g. a scout run UUID), recorded for attribution. Omit for human/API writes; the writer's user is attributed automatically."
         ),
 })

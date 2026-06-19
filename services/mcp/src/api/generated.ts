@@ -27980,6 +27980,12 @@ export namespace Schemas {
          * @maxLength 1000000
          */
       body: string;
+      /**
+         * Optional identifier of the agent run performing this write (e.g. a scout run UUID), recorded for attribution. Omit for human/API writes; the writer's user is attributed automatically.
+         * @maxLength 255
+         * @nullable
+         */
+      updated_by_run?: string | null;
     }
 
     export interface MemoryConflictResponse {
@@ -28052,6 +28058,12 @@ export namespace Schemas {
          * @nullable
          */
       expected_version?: number | null;
+      /**
+         * Optional identifier of the agent run performing this write (e.g. a scout run UUID), recorded for attribution. Omit for human/API writes; the writer's user is attributed automatically.
+         * @maxLength 255
+         * @nullable
+         */
+      updated_by_run?: string | null;
     }
 
     export type MessageContextualTools = { [key: string]: unknown };

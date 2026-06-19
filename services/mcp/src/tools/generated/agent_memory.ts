@@ -72,6 +72,9 @@ const memoryWrite = (): ToolBase<typeof MemoryWriteSchema, Schemas.MemoryFile> =
         if (params.expected_version !== undefined) {
             body['expected_version'] = params.expected_version
         }
+        if (params.updated_by_run !== undefined) {
+            body['updated_by_run'] = params.updated_by_run
+        }
         const result = await context.api.request<Schemas.MemoryFile>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_memory/write/`,
@@ -97,6 +100,9 @@ const memoryAppend = (): ToolBase<typeof MemoryAppendSchema, Schemas.MemoryFile>
         }
         if (params.body !== undefined) {
             body['body'] = params.body
+        }
+        if (params.updated_by_run !== undefined) {
+            body['updated_by_run'] = params.updated_by_run
         }
         const result = await context.api.request<Schemas.MemoryFile>({
             method: 'POST',
