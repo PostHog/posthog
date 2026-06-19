@@ -21294,7 +21294,8 @@
                 "Razorpay",
                 "Neon",
                 "NewRelic",
-                "Custom"
+                "Custom",
+                "Tile38"
             ],
             "type": "string"
         },

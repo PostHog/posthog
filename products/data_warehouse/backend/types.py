@@ -673,6 +673,7 @@ class ExternalDataSourceType(models.TextChoices):
     NEON = "Neon", "Neon"
     NEWRELIC = "NewRelic", "NewRelic"
     CUSTOM = "Custom", "Custom"
+    TILE38 = "Tile38", "Tile38"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):
