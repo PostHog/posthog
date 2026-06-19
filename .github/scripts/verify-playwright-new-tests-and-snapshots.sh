@@ -54,25 +54,107 @@ fi
 changed_test_files=$(git diff --name-only --diff-filter=AM "$merge_base..HEAD" -- 'playwright/**/*.spec.ts' 'products/*/frontend/e2e/**/*.spec.ts')
 
 # Also detect spec files affected by changed test helpers (page models, utils, fixtures).
-# A page-model or utility change can introduce flakiness in every test that imports it,
-# so we resolve the reverse dependencies and add those spec files to the verification set.
+# A page-model or utility change can introduce flakiness in every test that imports it.
+# We resolve reverse dependencies AND do method-level targeting: only re-run tests that
+# call the specific methods that changed, not every test in the consuming spec.
 changed_helpers=$(git diff --name-only --diff-filter=AM "$merge_base..HEAD" -- \
     'playwright/**/*.ts' 'products/*/frontend/e2e/**/*.ts' \
     | grep -v '\.spec\.ts$' || true)
 
+# Accumulate method names changed across all helpers. Tests calling any of these methods
+# will be targeted for re-verification.
+declare -a changed_method_names=()
+# Track helpers where the change is in shared scope (constructor, fields, imports) —
+# consuming specs of these helpers must run ALL their tests.
+declare -a shared_scope_helpers=()
+
 if [ -n "$changed_helpers" ]; then
     echo "Detecting spec files that import changed helpers..."
+    # Regex for method/function declarations in TypeScript class-based page models.
+    # Matches: `async goToList(`, `detailTable():`, `searchFor(query` etc.
+    # Does NOT match: `constructor(`, class fields, or import lines.
+    HELPER_METHOD_RE='^[[:space:]]*(async[[:space:]]+)?[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\('
+
     while IFS= read -r helper; do
         [ -z "$helper" ] && continue
         helper_basename=$(basename "$helper" .ts)
+
         # Find spec files that import this helper (anchored to import/require patterns)
         consuming=$(grep -Erl --include='*.spec.ts' "(from|require).*['\"/]${helper_basename}['\"]" \
             playwright/e2e/ products/*/frontend/e2e/ 2>/dev/null || true)
-        if [ -n "$consuming" ]; then
-            num_consuming=$(echo "$consuming" | wc -l | tr -d ' ')
-            echo "  $helper → $num_consuming consuming spec(s)"
-            changed_test_files=$(printf '%s\n%s' "$changed_test_files" "$consuming" | sort -u | sed '/^$/d')
+        [ -z "$consuming" ] && continue
+
+        num_consuming=$(echo "$consuming" | wc -l | tr -d ' ')
+        echo "  $helper → $num_consuming consuming spec(s)"
+
+        # Determine which methods changed in this helper (same hunk-mapping as spec targeting).
+        if [ ! -f "$helper" ]; then
+            echo "    Warning: $helper no longer exists — skipping"
+            continue
         fi
+
+        # Method declaration line numbers (exclude constructor — that's shared scope).
+        mapfile -t method_lines < <(grep -nE "$HELPER_METHOD_RE" "$helper" | grep -v 'constructor' | cut -d: -f1)
+        total_methods=${#method_lines[@]}
+
+        # Changed line numbers in the helper.
+        mapfile -t helper_changed_lines < <(
+            git diff -U0 "$merge_base..HEAD" -- "$helper" \
+                | sed -nE 's/^@@ -[0-9]+(,[0-9]+)? \+([0-9]+)(,([0-9]+))? @@.*/\2 \4/p' \
+                | while read -r start count; do
+                    count=${count:-1}
+                    ((count == 0)) && count=1
+                    for ((i = 0; i < count; i++)); do echo $((start + i)); done
+                done
+        )
+
+        # If no methods detected or no changed lines, treat as shared-scope (whole file).
+        if ((total_methods == 0)) || ((${#helper_changed_lines[@]} == 0)); then
+            shared_scope_helpers+=("$helper")
+            # Add all consuming specs to changed_test_files (will run whole file later)
+            changed_test_files=$(printf '%s\n%s' "$changed_test_files" "$consuming" | sort -u | sed '/^$/d')
+            echo "    → no method boundaries detected — whole-file fallback for consumers"
+            continue
+        fi
+
+        first_method_line=${method_lines[0]}
+        helper_shared_scope=0
+        declare -A hit_method_lines=()
+
+        for cl in "${helper_changed_lines[@]}"; do
+            # Change above first method → shared scope (imports, constructor, class fields).
+            if ((cl < first_method_line)); then
+                helper_shared_scope=1
+                break
+            fi
+            # Find the enclosing method.
+            enclosing=$first_method_line
+            for ml in "${method_lines[@]}"; do
+                ((ml <= cl)) && enclosing=$ml || break
+            done
+            hit_method_lines[$enclosing]=1
+        done
+
+        if ((helper_shared_scope)); then
+            shared_scope_helpers+=("$helper")
+            changed_test_files=$(printf '%s\n%s' "$changed_test_files" "$consuming" | sort -u | sed '/^$/d')
+            echo "    → change in shared scope (constructor/fields/imports) — whole-file fallback"
+            continue
+        fi
+
+        # Extract the actual method names from the hit lines.
+        for ml in "${!hit_method_lines[@]}"; do
+            method_name=$(sed -n "${ml}p" "$helper" | sed -E 's/^[[:space:]]*(async[[:space:]]+)?([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]*\(.*/\2/')
+            if [ -n "$method_name" ]; then
+                changed_method_names+=("$method_name")
+                echo "    → changed method: $method_name"
+            fi
+        done
+        unset hit_method_lines
+
+        # Add consuming specs to changed_test_files — the targeting loop below will narrow
+        # to specific tests that call the changed methods.
+        changed_test_files=$(printf '%s\n%s' "$changed_test_files" "$consuming" | sort -u | sed '/^$/d')
     done <<< "$changed_helpers"
 fi
 
@@ -100,6 +182,9 @@ playwright_path() {
 # the test() declarations in each file and target those tests by `file:line`. A change that
 # lands outside any test body — imports, helpers, fixtures, before/after hooks, describe-level
 # setup — can affect every test in the file, so we conservatively fall back to the whole file.
+#
+# For specs pulled in via helper method changes (no direct diff), we target only the tests
+# that call the changed methods — avoiding a full-file re-run that would exceed the budget.
 declare -a targets=()
 num_targeted_tests=0
 while IFS= read -r test_file; do
@@ -128,42 +213,90 @@ while IFS= read -r test_file; do
             done
     )
 
-    # Can't analyze (no detectable tests, or no changed lines) → re-run the whole file.
-    if ((total_file_tests == 0)) || ((${#changed_lines[@]} == 0)); then
+    # Spec has a direct diff — use existing line-based targeting.
+    if ((${#changed_lines[@]} > 0)); then
+        # Can't analyze (no detectable tests) → re-run the whole file.
+        if ((total_file_tests == 0)); then
+            targets+=("$pw_file")
+            num_targeted_tests=$((num_targeted_tests + 1))
+            continue
+        fi
+
+        first_test_line=${test_lines[0]}
+        declare -A hit_test_lines=()
+        shared_change=0
+        for cl in "${changed_lines[@]}"; do
+            # Above the first test → shared scope (imports / module helpers / top-of-describe hooks).
+            if ((cl < first_test_line)); then
+                shared_change=1
+                break
+            fi
+            enclosing=$first_test_line
+            for tl in "${test_lines[@]}"; do
+                ((tl <= cl)) && enclosing=$tl || break
+            done
+            hit_test_lines[$enclosing]=1
+        done
+
+        # Shared-scope change, or every test touched → whole file (correctness over cleverness).
+        if ((shared_change)) || ((${#hit_test_lines[@]} >= total_file_tests)); then
+            ((shared_change)) && echo "  $test_file: change touches shared scope — re-running all $total_file_tests test(s)"
+            targets+=("$pw_file")
+            num_targeted_tests=$((num_targeted_tests + total_file_tests))
+        else
+            for tl in "${!hit_test_lines[@]}"; do
+                targets+=("$pw_file:$tl")
+            done
+            num_targeted_tests=$((num_targeted_tests + ${#hit_test_lines[@]}))
+            echo "  $test_file: re-running ${#hit_test_lines[@]} changed test(s) of $total_file_tests"
+        fi
+        unset hit_test_lines
+        continue
+    fi
+
+    # No direct diff — this spec was pulled in via helper method changes.
+    # Target only tests whose bodies reference the changed method names.
+    if ((${#changed_method_names[@]} == 0)) || ((total_file_tests == 0)); then
+        # No method names to match (shared-scope helper change) → whole file.
         targets+=("$pw_file")
         num_targeted_tests=$((num_targeted_tests + (total_file_tests > 0 ? total_file_tests : 1)))
+        echo "  $test_file: helper shared-scope change — re-running all $total_file_tests test(s)"
         continue
     fi
 
-    first_test_line=${test_lines[0]}
-    declare -A hit_test_lines=()
-    shared_change=0
-    for cl in "${changed_lines[@]}"; do
-        # Above the first test → shared scope (imports / module helpers / top-of-describe hooks).
-        if ((cl < first_test_line)); then
-            shared_change=1
-            break
+    # Build a grep pattern for any of the changed method names (e.g. "goToList|searchFor").
+    method_pattern=$(printf '%s\n' "${changed_method_names[@]}" | sort -u | paste -sd'|')
+
+    # For each test, check if its body (from test declaration to next test or EOF) calls
+    # any changed method.
+    declare -A method_hit_tests=()
+    for ((i = 0; i < ${#test_lines[@]}; i++)); do
+        start_line=${test_lines[$i]}
+        if ((i + 1 < ${#test_lines[@]})); then
+            end_line=$((test_lines[$((i + 1))] - 1))
+        else
+            end_line=$(wc -l < "$test_file")
         fi
-        enclosing=$first_test_line
-        for tl in "${test_lines[@]}"; do
-            ((tl <= cl)) && enclosing=$tl || break
-        done
-        hit_test_lines[$enclosing]=1
+        # Check if this test body references any changed method.
+        if sed -n "${start_line},${end_line}p" "$test_file" | grep -qE "$method_pattern"; then
+            method_hit_tests[$start_line]=1
+        fi
     done
 
-    # Shared-scope change, or every test touched → whole file (correctness over cleverness).
-    if ((shared_change)) || ((${#hit_test_lines[@]} >= total_file_tests)); then
-        ((shared_change)) && echo "  $test_file: change touches shared scope — re-running all $total_file_tests test(s)"
+    if ((${#method_hit_tests[@]} == 0)); then
+        echo "  $test_file: no tests call changed methods — skipping"
+    elif ((${#method_hit_tests[@]} >= total_file_tests)); then
         targets+=("$pw_file")
         num_targeted_tests=$((num_targeted_tests + total_file_tests))
-        continue
+        echo "  $test_file: all $total_file_tests test(s) call changed methods — re-running whole file"
+    else
+        for tl in "${!method_hit_tests[@]}"; do
+            targets+=("$pw_file:$tl")
+        done
+        num_targeted_tests=$((num_targeted_tests + ${#method_hit_tests[@]}))
+        echo "  $test_file: re-running ${#method_hit_tests[@]} test(s) of $total_file_tests that call changed methods"
     fi
-
-    for tl in "${!hit_test_lines[@]}"; do
-        targets+=("$pw_file:$tl")
-    done
-    num_targeted_tests=$((num_targeted_tests + ${#hit_test_lines[@]}))
-    echo "  $test_file: re-running ${#hit_test_lines[@]} changed test(s) of $total_file_tests"
+    unset method_hit_tests
 done <<< "$changed_test_files"
 
 if [ ${#targets[@]} -eq 0 ]; then
