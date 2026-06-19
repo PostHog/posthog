@@ -59,15 +59,15 @@ Under `src/ingestion/pipelines/<name>/` — single-word lowercase names matching
 Phase 4 shipped these under `src/ingestion/lanes/` with hyphenated names; Phase 6 renames the parent
 to `pipelines/` and the dirs to the names below (directory moves).
 
-| Pipeline         | Current dir (Phase 4)              | Notes                                      |
-| ---------------- | ---------------------------------- | ------------------------------------------ |
-| `analytics`      | `lanes/analytics`                  | core event pipeline                        |
-| `heatmaps`       | `lanes/heatmaps`                   |                                            |
-| `clientwarnings` | `lanes/ingestionwarnings`          | rename back to `clientwarnings`            |
-| `metrics`        | `lanes/metrics`                    |                                            |
-| `sessionreplay`  | `lanes/session-replay`             | session-recording **ingestion only**       |
-| `ai`             | `lanes/ai`                         |                                            |
-| `errortracking`  | `lanes/error-tracking`             | rename to `errortracking`                  |
+| Pipeline         | Current dir (Phase 4)     | Notes                                |
+| ---------------- | ------------------------- | ------------------------------------ |
+| `analytics`      | `lanes/analytics`         | core event pipeline                  |
+| `heatmaps`       | `lanes/heatmaps`          |                                      |
+| `clientwarnings` | `lanes/ingestionwarnings` | rename back to `clientwarnings`      |
+| `metrics`        | `lanes/metrics`           |                                      |
+| `sessionreplay`  | `lanes/session-replay`    | session-recording **ingestion only** |
+| `ai`             | `lanes/ai`                |                                      |
+| `errortracking`  | `lanes/error-tracking`    | rename to `errortracking`            |
 
 Moving **out** of `src/ingestion/` (owned by other teams — PR #64506 review):
 
