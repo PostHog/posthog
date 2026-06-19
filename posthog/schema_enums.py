@@ -2020,6 +2020,12 @@ class HogLanguage(StrEnum):
     LIQUID = "liquid"
 
 
+class HogQLAlertEvaluation(StrEnum):
+    LAST_ROW = "last_row"
+    FIRST_ROW = "first_row"
+    ANY_ROW = "any_row"
+
+
 class BounceRatePageViewMode(StrEnum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"
@@ -2163,6 +2169,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_APP = "customerio-app"
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
+    POSTGRESQL = "postgresql"
 
 
 class IntervalType(StrEnum):

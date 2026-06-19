@@ -18,6 +18,7 @@ from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.types import SignalCandidate, SignalData, SignalTypeExample
 
@@ -447,6 +448,7 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
             remaining -= chunk
             temporalio.activity.heartbeat(attempt)
 
+    metrics.increment_ch_wait_timeout()
     logger.warning(
         f"Not all signals found in ClickHouse after {input.max_wait_time_seconds}s, proceeding anyway",
         signal_ids=signal_ids,
