@@ -293,9 +293,12 @@ export function aggregateHarnessRows(raw: HarnessRawRow[]): HarnessRow[] {
 const TOOL_SERIES_LIMIT = 8
 
 // Pivot flat (day, tool, calls) rows into a label array + one data series per tool, tools ordered
-// by total volume (biggest first) so the stack and legend read consistently.
-export function buildToolDailySeries(rows: ToolDailyRow[]): ToolDailySeries {
-    const days = [...new Set(rows.map((r) => r.day))].sort()
+// by total volume (biggest first) so the stack and legend read consistently. When `bucketKeys` is
+// supplied the labels span the full selected window (zero-filling empty buckets) so the x-axis
+// matches the date range instead of collapsing to the days that happened to have calls; without it
+// the labels fall back to the days present in the rows (a plain pivot, used in tests).
+export function buildToolDailySeries(rows: ToolDailyRow[], bucketKeys?: string[]): ToolDailySeries {
+    const days = bucketKeys ?? [...new Set(rows.map((r) => r.day))].sort()
     const totalByTool = new Map<string, number>()
     const byToolDay = new Map<string, Map<string, number>>()
     for (const row of rows) {
@@ -338,6 +341,49 @@ function resolveWindow(dateFilter: DateFilter, timezone: string): { start: dayjs
     }
     const start = dateStringToDayJs(dateFilter.dateFrom, timezone) ?? now.subtract(7, 'day')
     return { start, end }
+}
+
+// Truncate to the start of an interval bucket the same way ClickHouse's dateTrunc does, so the keys
+// we generate line up with the query's bucket strings. dayjs' startOf covers minute/hour/day/month;
+// only 'week' differs — dateTrunc('week') is ISO (Monday-start) while dayjs defaults to Sunday.
+function startOfBucket(d: dayjs.Dayjs, interval: IntervalType): dayjs.Dayjs {
+    if (interval === 'week') {
+        const day = d.day() // 0 = Sunday … 6 = Saturday
+        return d.startOf('day').subtract((day + 6) % 7, 'day')
+    }
+    return d.startOf(interval)
+}
+
+// Every bucket key across the resolved window [start, end] at the active interval, formatted to
+// match dateTrunc's DateTime output ('YYYY-MM-DD HH:mm:ss'). The activity and tool-usage series are
+// zero-filled against these so the x-axis spans the whole selected range instead of clipping to the
+// buckets that happened to have events.
+export function buildBucketKeys(dateFilter: DateFilter, timezone: string, interval: IntervalType): string[] {
+    const { start, end } = resolveWindow(dateFilter, timezone)
+    const last = startOfBucket(end, interval).valueOf()
+    const keys: string[] = []
+    let cursor = startOfBucket(start, interval)
+    // Bounded dashboard windows keep this small; the cap is just a guard against a pathological range.
+    for (let i = 0; cursor.valueOf() <= last && i < 100000; i++) {
+        keys.push(cursor.format('YYYY-MM-DD HH:mm:ss'))
+        cursor = cursor.add(1, interval)
+    }
+    return keys
+}
+
+export function normalizeBucket(raw: unknown, timezone: string): string {
+    const s = String(raw ?? '')
+    return s ? dayjs(s).tz(timezone).format('YYYY-MM-DD HH:mm:ss') : ''
+}
+
+// Project the daily success/error rows onto the full set of buckets, defaulting empty buckets to 0.
+export function buildDailyActivity(rows: ActivityRow[], bucketKeys: string[]): DailyActivity {
+    const byDay = new Map(rows.map((r) => [r.day, r]))
+    return {
+        labels: bucketKeys,
+        successes: bucketKeys.map((k) => byDay.get(k)?.successes ?? 0),
+        errors: bucketKeys.map((k) => byDay.get(k)?.errors ?? 0),
+    }
 }
 
 export interface KpiWindow {
@@ -548,7 +594,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
-                        day: String(r[0] ?? ''),
+                        day: normalizeBucket(r[0], values.timezone),
                         successes: Number(r[1] ?? 0),
                         errors: Number(r[2] ?? 0),
                     }))
@@ -567,7 +613,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
-                        day: String(r[0] ?? ''),
+                        day: normalizeBucket(r[0], values.timezone),
                         tool: String(r[1] ?? ''),
                         calls: Number(r[2] ?? 0),
                     }))
@@ -593,18 +639,19 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.dateFilter],
             (dateFilter: DateFilter): IntervalType => getDefaultInterval(dateFilter.dateFrom, dateFilter.dateTo),
         ],
+        bucketKeys: [
+            (s) => [s.dateFilter, s.timezone, s.interval],
+            (dateFilter: DateFilter, timezone: string, interval: IntervalType): string[] =>
+                buildBucketKeys(dateFilter, timezone, interval),
+        ],
         harnessRows: [(s) => [s.harnessRawRows], (raw: HarnessRawRow[]): HarnessRow[] => aggregateHarnessRows(raw)],
         dailyActivity: [
-            (s) => [s.activityRows],
-            (rows: ActivityRow[]): DailyActivity => ({
-                labels: rows.map((r) => r.day),
-                successes: rows.map((r) => r.successes),
-                errors: rows.map((r) => r.errors),
-            }),
+            (s) => [s.activityRows, s.bucketKeys],
+            (rows: ActivityRow[], bucketKeys: string[]): DailyActivity => buildDailyActivity(rows, bucketKeys),
         ],
         toolDailySeries: [
-            (s) => [s.toolDailyRows],
-            (rows: ToolDailyRow[]): ToolDailySeries => buildToolDailySeries(rows),
+            (s) => [s.toolDailyRows, s.bucketKeys],
+            (rows: ToolDailyRow[], bucketKeys: string[]): ToolDailySeries => buildToolDailySeries(rows, bucketKeys),
         ],
         notableSessions: [
             (s) => [s.sessionRows],
