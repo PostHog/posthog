@@ -23,7 +23,7 @@ import {
     funnelResultWithMultiBreakdown,
 } from './__mocks__/funnelDataLogicMocks'
 import { funnelDataLogic } from './funnelDataLogic'
-import { dimPreviousPeriodColor } from './funnelUtils'
+import { dimPreviousPeriodColor, getVisibilityKey } from './funnelUtils'
 
 let logic: ReturnType<typeof funnelDataLogic.build>
 let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
@@ -1514,6 +1514,16 @@ describe('funnelDataLogic', () => {
             expect(previousColor).not.toBe(currentColor)
         })
 
+        it('exposes no breakdown table for a pure compare funnel', async () => {
+            await loadStepsCompare(funnelResultStepsCompare.result)
+
+            // Pure compare: current/previous bars are not real breakdown values.
+            expect(logic.values.isComparedFunnel).toBe(true)
+            expect(logic.values.isBreakdownCompareFunnel).toBe(false)
+            // So the breakdown table / flattened breakdown rows stay empty.
+            expect(logic.values.flattenedBreakdowns).toEqual([])
+        })
+
         it('leaves a non-compared steps funnel unchanged (single bar per step)', async () => {
             const stepsQueryNoCompare: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
@@ -1594,6 +1604,51 @@ describe('funnelDataLogic', () => {
             // ...with each value's previous-period bar the same hue, desaturated.
             expect(color(chromePrev)).toBe(dimPreviousPeriodColor(color(chromeCur)))
             expect(color(safariPrev)).toBe(dimPreviousPeriodColor(color(safariCur)))
+        })
+
+        it('keeps the breakdown table populated with the real breakdown values', async () => {
+            await loadBreakdownCompare(funnelResultStepsBreakdownCompare.result)
+
+            // Breakdown + compare is distinguished from pure compare so breakdown behavior survives.
+            expect(logic.values.isComparedFunnel).toBe(true)
+            expect(logic.values.isBreakdownCompareFunnel).toBe(true)
+
+            // The table is built from the current-period bars: one row per real value (Chrome,
+            // Safari), not one per period — the compare periods are not breakdown values.
+            const breakdownValues = logic.values.flattenedBreakdowns
+                .filter((b) => !b.isBaseline)
+                .map((b) => getVisibilityKey(b.breakdown_value))
+            expect(breakdownValues).toEqual(['Chrome', 'Safari'])
+        })
+
+        it('hides both periods of a breakdown value when its legend entry is hidden', async () => {
+            const insight: Partial<InsightModel> = {
+                filters: { insight: InsightType.FUNNELS },
+                result: funnelResultStepsBreakdownCompare.result as InsightModel['result'],
+            }
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource({
+                    ...stepsQuery,
+                    funnelsFilter: { ...stepsQuery.funnelsFilter, hiddenLegendBreakdowns: ['Chrome'] },
+                })
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            // Hiding Chrome drops its current AND previous bars; Safari's pair remains, still grouped.
+            const visibleValues = logic.values.visibleStepsWithConversionMetrics[0].nested_breakdown?.map((b) => [
+                getVisibilityKey(b.breakdown_value),
+                b.compare_label,
+            ])
+            expect(visibleValues).toEqual([
+                ['Safari', 'current'],
+                ['Safari', 'previous'],
+            ])
+
+            // The table still lists Chrome (just unchecked), so it can be toggled back on.
+            const breakdownValues = logic.values.flattenedBreakdowns
+                .filter((b) => !b.isBaseline)
+                .map((b) => getVisibilityKey(b.breakdown_value))
+            expect(breakdownValues).toEqual(['Chrome', 'Safari'])
         })
     })
 })
