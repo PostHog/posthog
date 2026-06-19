@@ -486,7 +486,7 @@ class TestCompaniesScrollServerError:
             companies = list(_iter_companies(mock_session))
 
         assert [c["id"] for c in companies] == ["co1", "co2"]
-        sleep.assert_called_once()
+        sleep.assert_called_once_with(intercom_module._SCROLL_SERVER_ERROR_BACKOFF_SECONDS)
         # The retried continuation reuses the same scroll_param — the cursor only
         # advances once a page is returned.
         assert mock_session.get.call_args_list[2].kwargs["params"] == {"scroll_param": "s1"}
