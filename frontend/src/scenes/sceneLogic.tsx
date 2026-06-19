@@ -1,7 +1,6 @@
 import equal from 'fast-deep-equal'
 import { BuiltLogic, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
@@ -230,10 +229,6 @@ export const sceneLogic = kea<sceneLogicType>([
         }),
         reloadBrowserDueToImportError: true,
 
-        applyTitleAndIcon: (title: string, iconType: FileSystemIconType | 'loading' | 'blank') => ({
-            title,
-            iconType,
-        }),
         setHomepage: (tab: SceneTab | null) => ({ tab }),
     }),
     reducers({
@@ -449,12 +444,6 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
-        applyTitleAndIcon: ({ title }) => {
-            if (!title || title === '...' || title === 'Loading...') {
-                // When the scene is loading, don't flicker between the loaded title and the new one
-                return
-            }
-        },
         setHomepage: ({ tab }) => {
             if (isSharedView()) {
                 return
@@ -828,36 +817,5 @@ export const sceneLogic = kea<sceneLogicType>([
         }
 
         return mapping
-    }),
-
-    subscriptions(({ actions, cache }) => {
-        return {
-            titleAndIcon: ({ title, iconType }) => {
-                if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-                    cache.pendingTitleAndIcon = { title, iconType }
-                    return
-                }
-                cache.pendingTitleAndIcon = null
-                actions.applyTitleAndIcon(title, iconType)
-            },
-        }
-    }),
-
-    afterMount(({ actions, cache }) => {
-        cache.disposables.add(
-            () => {
-                const onVisibilityChange = (): void => {
-                    if (document.visibilityState === 'visible' && cache.pendingTitleAndIcon) {
-                        const { title, iconType } = cache.pendingTitleAndIcon
-                        cache.pendingTitleAndIcon = null
-                        actions.applyTitleAndIcon(title, iconType)
-                    }
-                }
-                document.addEventListener('visibilitychange', onVisibilityChange)
-                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-            },
-            'titleAndIconVisibilitySync',
-            { pauseOnPageHidden: false }
-        )
     }),
 ])
