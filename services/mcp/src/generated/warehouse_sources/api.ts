@@ -628,6 +628,7 @@ export const externalDataSourcesCreateBodyPrefixMax = 100
 export const externalDataSourcesCreateBodyDescriptionMax = 400
 
 export const externalDataSourcesCreateBodyAccessMethodDefault = `warehouse`
+export const externalDataSourcesCreateBodyDirectQueryEnabledDefault = true
 
 export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
     source_type: zod
@@ -1284,6 +1285,12 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Connection mode: 'warehouse' (import) or 'direct' (live query).\n\n* `warehouse` - warehouse\n* `direct` - direct"
         ),
+    direct_query_enabled: zod
+        .boolean()
+        .default(externalDataSourcesCreateBodyDirectQueryEnabledDefault)
+        .describe(
+            'Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources.'
+        ),
 })
 
 /**
@@ -1329,6 +1336,12 @@ export const ExternalDataSourcesPartialUpdateBody = /* @__PURE__ */ zod
         account_id: zod.string().optional(),
         prefix: zod.string().max(externalDataSourcesPartialUpdateBodyPrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesPartialUpdateBodyDescriptionMax).nullish(),
+        direct_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+            ),
         job_inputs: zod.unknown().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1376,6 +1389,12 @@ export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesCreateWebhookCreateBodyPrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesCreateWebhookCreateBodyDescriptionMax).nullish(),
+        direct_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+            ),
         job_inputs: zod.unknown().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1411,6 +1430,12 @@ export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesDeleteWebhookCreateBodyPrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesDeleteWebhookCreateBodyDescriptionMax).nullish(),
+        direct_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+            ),
         job_inputs: zod.unknown().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1438,6 +1463,12 @@ export const ExternalDataSourcesRefreshSchemasCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
             ),
+        direct_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -1463,6 +1494,12 @@ export const ExternalDataSourcesReloadCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. Ignored on update.\n\n* `web` - web\n* `api` - api\n* `mcp` - mcp'
+            ),
+        direct_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
             ),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1498,6 +1535,12 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
         account_id: zod.string(),
         prefix: zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyPrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyDescriptionMax).nullish(),
+        direct_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources.'
+            ),
         job_inputs: zod.unknown().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
@@ -1589,6 +1632,8 @@ export const ExternalDataSourcesSetupCreateParams = /* @__PURE__ */ zod.object({
 export const externalDataSourcesSetupCreateBodyPrefixMax = 100
 
 export const externalDataSourcesSetupCreateBodyDescriptionMax = 400
+
+export const externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault = true
 
 export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
     source_type: zod
@@ -2245,6 +2290,12 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .max(externalDataSourcesSetupCreateBodyDescriptionMax)
         .nullish()
         .describe('Human-readable description.'),
+    direct_query_enabled: zod
+        .boolean()
+        .default(externalDataSourcesSetupCreateBodyDirectQueryEnabledDefault)
+        .describe(
+            'Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources.'
+        ),
 })
 
 /**

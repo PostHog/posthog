@@ -75,7 +75,7 @@ impl ProduceError {
 pub struct ProduceRecord<'a> {
     pub topic: &'a str,
     pub key: Option<&'a str>,
-    pub payload: &'a str,
+    pub payload: &'a [u8],
     pub headers: OwnedHeaders,
 }
 
@@ -243,7 +243,7 @@ impl super::KafkaProducerTrait for KafkaProducer {
                 let returned_record = ProduceRecord {
                     topic: returned.topic,
                     key: returned.key,
-                    payload: returned.payload.unwrap_or(""),
+                    payload: returned.payload.unwrap_or(&[]),
                     headers: returned.headers.unwrap_or_else(OwnedHeaders::new),
                 };
                 Err((produce_error_from_kafka(e), returned_record))
