@@ -39,6 +39,7 @@ from ee.hogai.chat_agent.taxonomy.tools import (
 )
 from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     PropertyDefinitionOrVirtual,
+    get_property_definition_type,
     get_virtual_property_definition,
     get_virtual_property_sample_values,
     list_virtual_properties,
@@ -366,7 +367,7 @@ class TaxonomyAgentToolkit:
             return f"The property {property_name} does not exist in the taxonomy for the {verbose_name}."
 
         sample_values = prop.sample_values
-        if property_definition.property_type == PropertyType.Datetime:
+        if get_property_definition_type(property_definition) == PropertyType.Datetime:
             sample_values = self._normalize_datetime_sample_values(sample_values)
 
         return self._format_property_values(
@@ -478,7 +479,7 @@ class TaxonomyAgentToolkit:
             return self._format_virtual_property_values(property_name, virtual_definition)
 
         sample_values = unpacked_results.sample_values
-        if property_definition.property_type == PropertyType.Datetime:
+        if get_property_definition_type(property_definition) == PropertyType.Datetime:
             sample_values = self._normalize_datetime_sample_values(sample_values)
 
         return self._format_property_values(

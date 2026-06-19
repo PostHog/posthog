@@ -126,33 +126,33 @@
 # ---
 # name: test_parse_prop_clauses_defaults
   tuple(
-    '''
-      AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), '^"|"$', ''))  AND distinct_id IN (
-      SELECT distinct_id
-      FROM (
-          
-      SELECT distinct_id, argMax(person_id, version) as person_id
-      FROM person_distinct_id2
-      WHERE team_id = %(team_id)s
-      
-      GROUP BY distinct_id
-      HAVING argMax(is_deleted, version) = 0
-      
-      )
-      WHERE person_id IN
-      (
-          SELECT id
-          FROM (
-              SELECT id, argMax(properties, person._timestamp) as properties, max(is_deleted) as is_deleted
-              FROM person
-              WHERE team_id = %(team_id)s
-              GROUP BY id
-              HAVING is_deleted = 0
-          )
-          WHERE   replaceRegexpAll(JSONExtractRaw(properties, %(kglobalperson_1)s), '^"|"$', '') ILIKE %(vglobalperson_1)s
-      )
-      ))
-    ''',
+    list([
+      'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND distinct_id IN (',
+      'SELECT distinct_id',
+      'FROM (',
+      '    ',
+      'SELECT distinct_id, argMax(person_id, version) as person_id',
+      'FROM person_distinct_id2',
+      'WHERE team_id = %(team_id)s',
+      '',
+      'GROUP BY distinct_id',
+      'HAVING argMax(is_deleted, version) = 0',
+      '',
+      ')',
+      'WHERE person_id IN',
+      '(',
+      '    SELECT id',
+      '    FROM (',
+      '        SELECT id, argMax(properties, person._timestamp) as properties, max(is_deleted) as is_deleted',
+      '        FROM person',
+      '        WHERE team_id = %(team_id)s',
+      '        GROUP BY id',
+      '        HAVING is_deleted = 0',
+      '    )',
+      '    WHERE   replaceRegexpAll(JSONExtractRaw(properties, %(kglobalperson_1)s), \'^"|"$\', \'\') ILIKE %(vglobalperson_1)s',
+      ')',
+      '))',
+    ]),
     dict({
       'kglobal_0': 'event_prop',
       'kglobalperson_1': 'email',
@@ -165,7 +165,9 @@
 # ---
 # name: test_parse_prop_clauses_defaults.1
   tuple(
-    'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND replaceRegexpAll(JSONExtractRaw(person_props, %(kglobalperson_1)s), \'^"|"$\', \'\') ILIKE %(vglobalperson_1)s)',
+    list([
+      'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND replaceRegexpAll(JSONExtractRaw(person_props, %(kglobalperson_1)s), \'^"|"$\', \'\') ILIKE %(vglobalperson_1)s)',
+    ]),
     dict({
       'kglobal_0': 'event_prop',
       'kglobalperson_1': 'email',
@@ -178,7 +180,78 @@
 # ---
 # name: test_parse_prop_clauses_defaults.2
   tuple(
-    'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_global_1)s), \'^"|"$\', \'\') ILIKE %(vpersonquery_global_1)s)',
+    list([
+      'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_global_1)s), \'^"|"$\', \'\') ILIKE %(vpersonquery_global_1)s)',
+    ]),
+    dict({
+      'kglobal_0': 'event_prop',
+      'kpersonquery_global_1': 'email',
+      'vglobal_0': list([
+        'value',
+      ]),
+      'vpersonquery_global_1': '%posthog%',
+    }),
+  )
+# ---
+# name: test_parse_prop_clauses_defaults_new_events_schema
+  tuple(
+    list([
+      "AND (   has(%(vglobal_0)s, ifNull(toString(properties.event_prop), ''))  AND distinct_id IN (",
+      'SELECT distinct_id',
+      'FROM (',
+      '    ',
+      'SELECT distinct_id, argMax(person_id, version) as person_id',
+      'FROM person_distinct_id2',
+      'WHERE team_id = %(team_id)s',
+      '',
+      'GROUP BY distinct_id',
+      'HAVING argMax(is_deleted, version) = 0',
+      '',
+      ')',
+      'WHERE person_id IN',
+      '(',
+      '    SELECT id',
+      '    FROM (',
+      '        SELECT id, argMax(properties, person._timestamp) as properties, max(is_deleted) as is_deleted',
+      '        FROM person',
+      '        WHERE team_id = %(team_id)s',
+      '        GROUP BY id',
+      '        HAVING is_deleted = 0',
+      '    )',
+      '    WHERE   replaceRegexpAll(JSONExtractRaw(properties, %(kglobalperson_1)s), \'^"|"$\', \'\') ILIKE %(vglobalperson_1)s',
+      ')',
+      '))',
+    ]),
+    dict({
+      'kglobal_0': 'event_prop',
+      'kglobalperson_1': 'email',
+      'vglobal_0': list([
+        'value',
+      ]),
+      'vglobalperson_1': '%posthog%',
+    }),
+  )
+# ---
+# name: test_parse_prop_clauses_defaults_new_events_schema.1
+  tuple(
+    list([
+      'AND (   has(%(vglobal_0)s, ifNull(toString(properties.event_prop), \'\'))  AND replaceRegexpAll(JSONExtractRaw(person_props, %(kglobalperson_1)s), \'^"|"$\', \'\') ILIKE %(vglobalperson_1)s)',
+    ]),
+    dict({
+      'kglobal_0': 'event_prop',
+      'kglobalperson_1': 'email',
+      'vglobal_0': list([
+        'value',
+      ]),
+      'vglobalperson_1': '%posthog%',
+    }),
+  )
+# ---
+# name: test_parse_prop_clauses_defaults_new_events_schema.2
+  tuple(
+    list([
+      'AND (   has(%(vglobal_0)s, ifNull(toString(properties.event_prop), \'\'))  AND replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_global_1)s), \'^"|"$\', \'\') ILIKE %(vpersonquery_global_1)s)',
+    ]),
     dict({
       'kglobal_0': 'event_prop',
       'kpersonquery_global_1': 'email',

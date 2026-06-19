@@ -324,7 +324,11 @@ def test_compile_hogql_predicate_boolean_person_property_not_coerced(team):
     )
     sql, _ = compile_hogql_predicate(request)
 
-    assert "person_properties_map_custom" in sql
+    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        assert "person_properties.isEnterprise" in sql
+        assert "person_properties_map_custom" not in sql
+    else:
+        assert "person_properties_map_custom" in sql
     assert "accurateCastOrNull" not in sql
     assert "transform(" not in sql
 

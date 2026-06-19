@@ -999,14 +999,15 @@ def parse_jsonish_property_value(input: object) -> object:
     for _ in range(2):
         if not isinstance(parsed, str):
             return parsed
+        parsed_str = parsed
         try:
-            parsed = json.loads(parsed)
+            parsed = json.loads(parsed_str)
         except (json.JSONDecodeError, TypeError):
-            if parsed.startswith(("[", "{")):
+            if parsed_str.startswith(("[", "{")):
                 with suppress(ValueError, SyntaxError):
-                    return literal_eval(parsed)
-            if len(parsed) >= 2 and parsed[0] == '"' and parsed[-1] == '"':
-                parsed = parsed[1:-1]
+                    return literal_eval(parsed_str)
+            if len(parsed_str) >= 2 and parsed_str[0] == '"' and parsed_str[-1] == '"':
+                parsed = parsed_str[1:-1]
                 continue
             return parsed
     return parsed

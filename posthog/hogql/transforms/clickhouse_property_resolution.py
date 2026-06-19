@@ -697,6 +697,20 @@ class ClickHousePropertyResolver(CloningVisitor):
             and self._property_table_in_scope(prop_type.field_type)
         ):
             return prop_type.field_type, str(prop_type.chain[0])
+        if isinstance(expr, ast.Call) and expr.name.lower() == "tobool" and len(expr.args) == 1:
+            return self._single_key_property_from_boolean_conversion(expr.args[0])
+        return None
+
+    def _single_key_property_from_boolean_conversion(self, expr: ast.Expr) -> tuple[ast.FieldType, str] | None:
+        expr = expr.expr if isinstance(expr, ast.Alias) else expr
+        if not isinstance(expr, ast.Call) or len(expr.args) == 0:
+            return self._single_key_property(expr)
+
+        normalized_name = expr.name.lower()
+        if normalized_name == "transform":
+            return self._single_key_property_from_boolean_conversion(expr.args[0])
+        if normalized_name == "tostring" and len(expr.args) == 1:
+            return self._single_key_property(expr.args[0])
         return None
 
     # --- value substitution ---
@@ -848,12 +862,14 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         if len(node.args) < 2:
             raise QueryError("JSONHas on events JSON properties requires at least one property key")
-        if not all(isinstance(arg, ast.Constant) for arg in node.args[1:]):
-            return None
-        if not all(isinstance(arg.value, str) for arg in node.args[1:]):
-            raise QueryError("JSONHas on events JSON properties only supports constant string property keys")
 
-        keys = [cast(str, cast(ast.Constant, arg).value) for arg in node.args[1:]]
+        keys: list[str] = []
+        for arg in node.args[1:]:
+            if not isinstance(arg, ast.Constant):
+                return None
+            if not isinstance(arg.value, str):
+                raise QueryError("JSONHas on events JSON properties only supports constant string property keys")
+            keys.append(arg.value)
         source = resolve_json_subcolumn_source(
             table_type.table.to_printed_clickhouse(self.context), field.name, keys[0]
         )
@@ -898,12 +914,14 @@ class ClickHousePropertyResolver(CloningVisitor):
 
     # --- property operand detection ---
 
-    def _materialized_string_property(self, expr: ast.Expr) -> _OptimizableProperty | None:
+    def _materialized_string_property(
+        self, expr: ast.Expr, *, allow_dynamic_json: bool = False
+    ) -> _OptimizableProperty | None:
         """A single-key string property backed by an individually materialized column, or None.
 
         Unwraps a `toString(properties.x)` wrapper, requires a single key, skips properties whose resolved type isn't a
-        string, and requires a materialized column (not a property group). The plain and `toString(...)` forms both
-        resolve to the same lowered property.
+        string unless a dynamic JSON value is being compared as a string, and requires a materialized column (not a
+        property group). The plain and `toString(...)` forms both resolve to the same lowered property.
         """
         single = self._single_key_property(expr)
         if single is None and isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
@@ -913,17 +931,21 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         field_type, property_name = single
 
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
+        if source is None or source.kind not in ("materialized_column", "dmat", "json_subcolumn"):
+            return None
+
+        is_dynamic_json_string_comparison = allow_dynamic_json and _is_dynamic_json_source(source)
         if self.context.property_swapper is not None:
             prop_info = self.context.property_swapper.event_properties.get(property_name)
-            if prop_info is not None and prop_info.get("type") not in (None, "String"):
+            if (
+                prop_info is not None
+                and prop_info.get("type") not in (None, "String")
+                and not is_dynamic_json_string_comparison
+            ):
                 return None
 
-        source = resolve_materialized_property_source(field_type, property_name, self.context)
-        if (
-            source is None
-            or source.kind not in ("materialized_column", "dmat", "json_subcolumn")
-            or not _is_string_column(source)
-        ):
+        if not _is_string_column(source) and not is_dynamic_json_string_comparison:
             return None
         return _OptimizableProperty(
             field_type=field_type,
@@ -1094,9 +1116,13 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         prop: _OptimizableProperty | None = None
         constant_expr: ast.Constant | None = None
-        if (p := self._materialized_string_property(node.left)) and (c := _string_pattern_constant(node.right)):
+        if (p := self._materialized_string_property(node.left, allow_dynamic_json=True)) and (
+            c := _string_pattern_constant(node.right)
+        ):
             prop, constant_expr = p, c
-        elif (p := self._materialized_string_property(node.right)) and (c := _string_pattern_constant(node.left)):
+        elif (p := self._materialized_string_property(node.right, allow_dynamic_json=True)) and (
+            c := _string_pattern_constant(node.left)
+        ):
             prop, constant_expr = p, c
         if prop is None or constant_expr is None:
             return None
@@ -1106,7 +1132,16 @@ class ClickHousePropertyResolver(CloningVisitor):
         if self._is_ai_column(prop.source):
             return None  # the printer handles the $ai columns
 
-        column = prop.bare_column()
+        if prop.source.kind == "json_subcolumn" and _is_dynamic_json_source(prop.source):
+            column = _json_subcolumn_value_expr(
+                prop.field_type,
+                [prop.key],
+                source=prop.source,
+                as_json=False,
+                materialization_mode=self.context.modifiers.materializationMode,
+            )
+        else:
+            column = prop.bare_column()
         value = _const(constant_expr.value)
         if node.op == ast.CompareOperationOp.Eq:
             eq = _call("equals", [column, value])

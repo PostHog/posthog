@@ -46,6 +46,7 @@ from ee.hogai.chat_agent.taxonomy.format import (
 from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     PropertyDefinitionOrVirtual,
     VirtualPropertyGroup,
+    get_property_definition_type,
     get_virtual_property_definition,
     get_virtual_property_sample_values,
     list_virtual_properties,
@@ -838,7 +839,7 @@ class TaxonomyAgentToolkit:
                 continue
 
             sample_values = prop_result.sample_values
-            if property_definition.property_type == PropertyType.Datetime:
+            if get_property_definition_type(property_definition) == PropertyType.Datetime:
                 sample_values = self._normalize_datetime_sample_values(sample_values)
 
             result = self._format_property_values(

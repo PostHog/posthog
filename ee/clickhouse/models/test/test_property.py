@@ -1169,8 +1169,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         assert params["k_0"] == "bad%key"
 
 
-@pytest.mark.django_db
-def test_parse_prop_clauses_defaults(snapshot):
+def _parse_prop_clauses_defaults_results() -> list[tuple[str, dict[str, object]]]:
     filter = Filter(
         data={
             "properties": [
@@ -1185,35 +1184,47 @@ def test_parse_prop_clauses_defaults(snapshot):
         }
     )
 
-    assert (
+    return [
         parse_prop_grouped_clauses(
             property_group=filter.property_groups,
             allow_denormalized_props=False,
             team_id=1,
             hogql_context=filter.hogql_context,
-        )
-        == snapshot
-    )
-    assert (
+        ),
         parse_prop_grouped_clauses(
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=False,
             team_id=1,
             hogql_context=filter.hogql_context,
-        )
-        == snapshot
-    )
-    assert (
+        ),
         parse_prop_grouped_clauses(
             team_id=1,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT,
             allow_denormalized_props=False,
             hogql_context=filter.hogql_context,
-        )
-        == snapshot
-    )
+        ),
+    ]
+
+
+def _split_query_lines(result: tuple[str, dict[str, object]]) -> tuple[list[str], dict[str, object]]:
+    query, params = result
+    return query.split("\n"), params
+
+
+@pytest.mark.django_db
+@pytest.mark.skipif(settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="legacy events schema snapshot")
+def test_parse_prop_clauses_defaults(snapshot):
+    for result in _parse_prop_clauses_defaults_results():
+        snapshot.assert_match(_split_query_lines(result))
+
+
+@pytest.mark.django_db
+@pytest.mark.skipif(not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="new events schema snapshot")
+def test_parse_prop_clauses_defaults_new_events_schema(snapshot):
+    for result in _parse_prop_clauses_defaults_results():
+        snapshot.assert_match(_split_query_lines(result))
 
 
 @pytest.mark.django_db
