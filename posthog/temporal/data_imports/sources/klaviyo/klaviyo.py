@@ -44,6 +44,25 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+def _clamp_future_value_to_now(value: Any) -> Any:
+    """Cap a future datetime/date incremental cursor at the current time.
+
+    The incremental cursor tracks the max value seen for the endpoint's datetime field
+    (e.g. an event's customer-supplied `datetime`). If the source's data contains a
+    future-dated record, the cursor advances past now and every subsequent sync builds
+    a `greater-than(<field>,<future>)` filter that Klaviyo rejects with a 400, wedging
+    the sync. Asking for records newer than now is a no-op anyway, so capping the value
+    keeps the request valid and lets the sync self-heal.
+    """
+    now = datetime.now(UTC)
+    if isinstance(value, datetime):
+        aware_value = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return now if aware_value > now else value
+    if isinstance(value, date):
+        return now.date() if value > now.date() else value
+    return value
+
+
 def _build_filter(
     config: KlaviyoEndpointConfig,
     incremental_field: str | None,
@@ -114,6 +133,10 @@ def _build_initial_params(
     # On first sync/full refresh, apply a lookback window to avoid fetching the entire history
     if should_use_incremental_field and not db_incremental_field_last_value and config.default_lookback_days:
         db_incremental_field_last_value = datetime.now(UTC) - timedelta(days=config.default_lookback_days)
+
+    # Future-dated source data can push the cursor past now; Klaviyo 400s on a future filter value.
+    if should_use_incremental_field and db_incremental_field_last_value:
+        db_incremental_field_last_value = _clamp_future_value_to_now(db_incremental_field_last_value)
 
     formatted_last_value = (
         _format_incremental_value(db_incremental_field_last_value)

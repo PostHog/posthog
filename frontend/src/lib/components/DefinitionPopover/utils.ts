@@ -1,6 +1,6 @@
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { allOperatorsMapping, genericOperatorMap } from 'lib/utils'
+import { allOperatorsMapping, genericOperatorMap } from 'lib/utils/operators'
 
 import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
 

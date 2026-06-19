@@ -1,7 +1,7 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
-import { chunk } from 'lib/utils'
+import { chunk } from 'lib/utils/arrays'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { escapeHogQLString } from '~/queries/utils'

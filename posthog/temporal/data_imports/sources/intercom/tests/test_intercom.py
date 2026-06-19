@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.sources.intercom.intercom import (
     _build_search_body,
     _company_segments_generator,
     _conversation_parts_generator,
+    _is_scroll_exists,
     _iter_companies,
     _make_intercom_session,
     get_resource,
@@ -41,6 +42,16 @@ def _make_response(json_body: Any, status_code: int = 200, text: str = "") -> Re
 def _endpoint(resource: Any) -> dict[str, Any]:
     # `EndpointResource["endpoint"]` is typed `str | Endpoint | None`; tests build dict endpoints.
     return cast(dict[str, Any], resource["endpoint"])
+
+
+SCROLL_EXISTS_BODY = {
+    "type": "error.list",
+    "errors": [{"code": "scroll_exists", "message": "scroll already exists for this workspace"}],
+}
+
+
+def _http_error(json_body: Any, status_code: int = 400, text: str = "") -> HTTPError:
+    return HTTPError(response=_make_response(json_body, status_code=status_code, text=text))
 
 
 class TestValidateCredentials:
@@ -372,6 +383,72 @@ class TestSubstreamGenerators:
         mock_session.get.side_effect = [_make_response({"data": [], "scroll_param": "s1"})]
 
         assert list(_iter_companies(mock_session)) == []
+        assert mock_session.get.call_count == 1
+
+
+class TestCompaniesScrollExists:
+    @pytest.mark.parametrize(
+        "body,status_code,expected",
+        [
+            (SCROLL_EXISTS_BODY, 400, True),
+            # A different 400 (e.g. a genuinely malformed request) is not the transient lock.
+            ({"type": "error.list", "errors": [{"code": "parameter_invalid"}]}, 400, False),
+            # Right code, wrong status — not the scroll lock.
+            (SCROLL_EXISTS_BODY, 404, False),
+            # No errors array at all.
+            ({"type": "error.list"}, 400, False),
+        ],
+    )
+    def test_is_scroll_exists(self, body: Any, status_code: int, expected: bool):
+        assert _is_scroll_exists(_http_error(body, status_code=status_code)) is expected
+
+    def test_is_scroll_exists_handles_non_json_body(self):
+        assert _is_scroll_exists(_http_error(None, status_code=400, text="<html>bad</html>")) is False
+
+    def test_iter_companies_retries_open_past_stale_scroll(self):
+        # A scroll left open by an interrupted/concurrent sync blocks the open with
+        # `400 scroll_exists` until it expires. Wait it out and retry the open
+        # rather than failing the whole sync.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response(SCROLL_EXISTS_BODY, status_code=400),
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": []}),
+        ]
+
+        with mock.patch.object(intercom_module.time, "sleep") as sleep:
+            companies = list(_iter_companies(mock_session))
+
+        assert [c["id"] for c in companies] == ["co1"]
+        sleep.assert_called_once_with(intercom_module._SCROLL_EXISTS_BACKOFF_SECONDS)
+        # The retried open carries no scroll_param — a scroll can only restart from
+        # the beginning, never resume.
+        assert mock_session.get.call_args_list[1].kwargs["params"] is None
+
+    def test_iter_companies_reraises_scroll_exists_after_max_retries(self):
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response(SCROLL_EXISTS_BODY, status_code=400)
+            for _ in range(intercom_module._SCROLL_EXISTS_MAX_RETRIES + 1)
+        ]
+
+        with mock.patch.object(intercom_module.time, "sleep"):
+            with pytest.raises(HTTPError):
+                list(_iter_companies(mock_session))
+
+        assert mock_session.get.call_count == intercom_module._SCROLL_EXISTS_MAX_RETRIES + 1
+
+    def test_iter_companies_does_not_retry_other_400(self):
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"type": "error.list", "errors": [{"code": "parameter_invalid"}]}, status_code=400),
+        ]
+
+        with mock.patch.object(intercom_module.time, "sleep") as sleep:
+            with pytest.raises(HTTPError):
+                list(_iter_companies(mock_session))
+
+        sleep.assert_not_called()
         assert mock_session.get.call_count == 1
 
 

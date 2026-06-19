@@ -20,10 +20,6 @@ SAMPLE_QUERY = {"kind": "HogQLQuery", "query": "SELECT 1"}
 _UNSET = object()
 
 
-def _ff_returns_true_for_hogql_access_control(flag_key, *args, **kwargs):
-    return True if flag_key == "hogql-access-control" else False
-
-
 def _make_psak(team, label="psak", scopes=_UNSET):
     # Token must match _SECRET_API_KEY_RE = r"^phs_[a-zA-Z0-9]+$", so only alphanumerics after phs_.
     suffix = "".join(c for c in label if c.isalnum())
@@ -181,23 +177,17 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
 
-    def test_psak_can_run_endpoint_with_hogql_access_control_on(self):
-        # Without the FF mock, the test path skips the access-control branch
-        # in posthog/hogql/database/database.py and never exercises the
-        # synthetic-user code path.
+    def test_psak_run_uses_synthetic_user_access_control(self):
         token, _ = _make_psak(self.team, label="run-with-rbac")
 
         captured: dict = {}
 
-        def spy(team, user):
-            result = _compute_system_table_access_decision(team, user)
+        def spy(team, user, user_access_control=None):
+            result = _compute_system_table_access_decision(team, user, user_access_control)
             captured.setdefault("results", []).append(result)
             return result
 
-        with (
-            patch("posthoganalytics.feature_enabled", side_effect=_ff_returns_true_for_hogql_access_control),
-            patch("posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy),
-        ):
+        with patch("posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/endpoints/my_endpoint/run/",
                 data={},

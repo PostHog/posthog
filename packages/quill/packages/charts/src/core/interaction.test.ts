@@ -1,5 +1,12 @@
 import { dimensions, makeSeries } from '../testing'
-import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from './interaction'
+import {
+    buildLabelPositions,
+    buildPointClickData,
+    buildTooltipContext,
+    dragRectToLabelRange,
+    findNearestIndex,
+    isInPlotArea,
+} from './interaction'
 import type { ResolveValueFn } from './types'
 
 const defaultResolveValue: ResolveValueFn = (s, i) => s.data[i]
@@ -284,6 +291,44 @@ describe('hog-charts interaction', () => {
             )
             expect(result?.position.x).toBe(400)
             expect(result?.position.y).toBe(150)
+        })
+    })
+
+    describe('dragRectToLabelRange', () => {
+        const xScale = (label: string): number | undefined => ({ a: 100, b: 200, c: 300, d: 400, e: 500 })[label]
+        const positions = buildLabelPositions(['a', 'b', 'c', 'd', 'e'], xScale)
+        const single = buildLabelPositions(['a'], xScale)
+
+        it.each([
+            { desc: 'fewer than two labels are positioned', rect: { x0: 50, x1: 500 }, pos: single, expected: null },
+            // 160 → nearest 200 (index 1); 340 → nearest 300 (index 2)
+            {
+                desc: 'a left-to-right drag',
+                rect: { x0: 160, x1: 340 },
+                pos: positions,
+                expected: { startIndex: 1, endIndex: 2 },
+            },
+            {
+                desc: 'a right-to-left drag (normalized)',
+                rect: { x0: 340, x1: 160 },
+                pos: positions,
+                expected: { startIndex: 1, endIndex: 2 },
+            },
+            {
+                desc: 'a drag past the plot edges (clamped to outermost labels)',
+                rect: { x0: -100, x1: 9999 },
+                pos: positions,
+                expected: { startIndex: 0, endIndex: 4 },
+            },
+            {
+                desc: 'both edges landing on the same label',
+                rect: { x0: 195, x1: 205 },
+                pos: positions,
+                expected: null,
+            },
+            { desc: 'a zero-width drag', rect: { x0: 250, x1: 250 }, pos: positions, expected: null },
+        ])('returns $expected for $desc', ({ rect, pos, expected }) => {
+            expect(dragRectToLabelRange(rect, pos)).toEqual(expected)
         })
     })
 

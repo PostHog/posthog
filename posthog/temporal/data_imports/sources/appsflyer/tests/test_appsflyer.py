@@ -8,6 +8,7 @@ from posthog.temporal.data_imports.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
     LOOKBACK_DAYS,
     MAX_WINDOW_DAYS,
+    AppsFlyerCredentialsError,
     AppsFlyerRetryableError,
     _normalize_header,
     _parse_csv_rows,
@@ -86,24 +87,34 @@ class TestHelpers:
 
 
 class TestValidateCredentials:
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_credentials_succeeds_on_200(self, mock_session):
+        mock_session.return_value.get.return_value = _response("", status=200)
+
+        assert validate_credentials("token", "id123") is True
+
     @pytest.mark.parametrize(
-        "status_code, expected",
+        "status_code, expected_substring",
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (404, False),
+            # 401 means the token is bad; 403/404 mean the app id (or subscription) is the problem.
+            (401, "API token"),
+            (403, "denied access"),
+            (404, "app id"),
         ],
     )
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
+    def test_validate_credentials_distinguishes_token_from_app_id(self, mock_session, status_code, expected_substring):
         mock_session.return_value.get.return_value = _response("", status=status_code)
 
-        assert validate_credentials("token", "id123") is expected
+        with pytest.raises(AppsFlyerCredentialsError) as exc:
+            validate_credentials("token", "id123")
+        assert expected_substring in str(exc.value)
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_validate_rejects_bad_app_id_without_request(self, mock_session):
-        assert validate_credentials("token", "bad app!") is False
+        with pytest.raises(AppsFlyerCredentialsError) as exc:
+            validate_credentials("token", "bad app!")
+        assert "app id" in str(exc.value)
         mock_session.return_value.get.assert_not_called()
 
     @pytest.mark.parametrize("status_code", [429, 500, 503])

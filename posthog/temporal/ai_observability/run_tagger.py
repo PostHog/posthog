@@ -13,8 +13,14 @@ from temporalio.exceptions import ApplicationError
 from posthog.api.capture_dispatch import capture_internal_routed
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.temporal.ai_observability.evaluation_workflow_activities import (
+    SendTrialUsageEmailInputs,
+    increment_trial_eval_count_activity,
+    send_trial_usage_email_activity,
+    update_key_state_activity,
+)
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
-from posthog.temporal.ai_observability.run_evaluation import extract_event_io
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.scoped import scoped_temporal
 
@@ -408,8 +414,8 @@ def run_hog_tagger(bytecode: list, event_data: dict[str, Any], valid_tag_names: 
     event_type = event_data["event"]
     input_raw, output_raw = extract_event_io(event_type, properties)
 
-    input_val = json.dumps(input_raw) if isinstance(input_raw, (list, dict)) else (input_raw or "")
-    output_val = json.dumps(output_raw) if isinstance(output_raw, (list, dict)) else (output_raw or "")
+    input_val = json.dumps(input_raw) if isinstance(input_raw, list | dict) else (input_raw or "")
+    output_val = json.dumps(output_raw) if isinstance(output_raw, list | dict) else (output_raw or "")
 
     globals_dict: dict[str, Any] = {
         "input": input_val,
@@ -673,11 +679,6 @@ class RunTaggerWorkflow(PostHogWorkflow):
                             )
                             if temporalio.workflow.patched("trial-usage-email"):
                                 try:
-                                    from posthog.temporal.ai_observability.run_evaluation import (
-                                        SendTrialUsageEmailInputs,
-                                        send_trial_usage_email_activity,
-                                    )
-
                                     await temporalio.workflow.execute_activity(
                                         send_trial_usage_email_activity,
                                         SendTrialUsageEmailInputs(team_id=tagger["team_id"], threshold_pct=100),
@@ -699,8 +700,6 @@ class RunTaggerWorkflow(PostHogWorkflow):
                         }
 
                     # Update key state for API-related errors
-                    from posthog.temporal.ai_observability.run_evaluation import update_key_state_activity
-
                     key_id = details.get("key_id")
                     if key_id and error_type in ("auth_error", "permission_error", "quota_error", "rate_limit"):
                         new_state = (
@@ -716,12 +715,6 @@ class RunTaggerWorkflow(PostHogWorkflow):
 
         # Increment trial counter if using PostHog key (LLM taggers only — Hog taggers have no LLM cost)
         if tagger_type != "hog" and not result.get("is_byok"):
-            from posthog.temporal.ai_observability.run_evaluation import (
-                SendTrialUsageEmailInputs,
-                increment_trial_eval_count_activity,
-                send_trial_usage_email_activity,
-            )
-
             threshold_pct = await temporalio.workflow.execute_activity(
                 increment_trial_eval_count_activity,
                 tagger["team_id"],

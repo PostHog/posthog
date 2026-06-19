@@ -1,14 +1,17 @@
-use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::{env, fs};
 
 use anyhow::{bail, Context, Result};
 
 use crate::error::CapturedError;
 use crate::invocation_context::InvocationContext;
+use crate::utils::homedir::posthog_home_dir_if_available;
 
 const API_CLI_BUNDLE: &str = "posthog-api-cli.mjs";
 const ANALYTICS_HOST: &str = "https://us.i.posthog.com";
+
+include!(concat!(env!("OUT_DIR"), "/api_cli_bundle.rs"));
 
 fn canonicalize_file(path: &Path) -> Option<PathBuf> {
     let resolved = path.canonicalize().ok()?;
@@ -20,7 +23,41 @@ fn canonicalize_file(path: &Path) -> Option<PathBuf> {
 }
 
 fn default_install_dir() -> Option<PathBuf> {
-    Some(dirs::home_dir()?.join(".posthog"))
+    posthog_home_dir_if_available()
+}
+
+fn embedded_bundle_path(install_dir: &Path) -> PathBuf {
+    install_dir
+        .join("api-cli")
+        .join(env!("CARGO_PKG_VERSION"))
+        .join(API_CLI_BUNDLE)
+}
+
+fn materialize_embedded_script(
+    bundle: Option<&[u8]>,
+    install_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    let bundle = bundle?;
+    let path = embedded_bundle_path(install_dir?);
+    fs::create_dir_all(path.parent()?).ok()?;
+    fs::write(&path, bundle).ok()?;
+    canonicalize_file(&path)
+}
+
+fn legacy_bundle_candidates(install_dir: Option<&Path>, development_dir: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(install_dir) = install_dir {
+        candidates.extend([
+            install_dir.join("lib").join(API_CLI_BUNDLE),
+            install_dir.join("cli/lib").join(API_CLI_BUNDLE),
+            install_dir.join("api-cli").join(API_CLI_BUNDLE),
+            install_dir.join(API_CLI_BUNDLE),
+        ]);
+    }
+
+    candidates.push(development_dir.join("lib").join(API_CLI_BUNDLE));
+    candidates
 }
 
 fn find_script() -> Result<PathBuf> {
@@ -44,24 +81,20 @@ fn find_script() -> Result<PathBuf> {
         return Ok(resolved);
     }
 
-    if let Some(install_dir) = default_install_dir() {
-        for candidate in [
-            install_dir.join("lib").join(API_CLI_BUNDLE),
-            install_dir.join("cli/lib").join(API_CLI_BUNDLE),
-            install_dir.join("api-cli").join(API_CLI_BUNDLE),
-            install_dir.join(API_CLI_BUNDLE),
-        ] {
-            if let Some(resolved) = canonicalize_file(&candidate) {
-                return Ok(resolved);
-            }
-        }
+    let install_dir = default_install_dir();
+    if let Some(resolved) =
+        materialize_embedded_script(EMBEDDED_API_CLI_BUNDLE, install_dir.as_deref())
+    {
+        return Ok(resolved);
     }
 
-    let development_bundle = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("lib")
-        .join(API_CLI_BUNDLE);
-    if let Some(resolved) = canonicalize_file(&development_bundle) {
-        return Ok(resolved);
+    for candidate in legacy_bundle_candidates(
+        install_dir.as_deref(),
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+    ) {
+        if let Some(resolved) = canonicalize_file(&candidate) {
+            return Ok(resolved);
+        }
     }
 
     bail!(
@@ -144,4 +177,129 @@ pub fn run(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsString;
+    use std::fs;
+    use std::sync::Mutex;
+
+    use super::*;
+
+    static POSTHOG_HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvVarGuard {
+        name: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(name: &'static str, value: &Path) -> Self {
+            let previous = env::var_os(name);
+            env::set_var(name, value);
+            Self { name, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => env::set_var(self.name, value),
+                None => env::remove_var(self.name),
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_bundle_candidates_include_install_and_development_paths() {
+        let install_dir = PathBuf::from("home").join(".posthog");
+        let development_dir = PathBuf::from("repo").join("cli");
+
+        let candidates = legacy_bundle_candidates(Some(&install_dir), &development_dir);
+
+        assert_eq!(candidates[0], install_dir.join("lib").join(API_CLI_BUNDLE));
+        assert_eq!(
+            candidates[1],
+            install_dir.join("cli/lib").join(API_CLI_BUNDLE)
+        );
+        assert_eq!(
+            candidates.last(),
+            Some(&development_dir.join("lib").join(API_CLI_BUNDLE))
+        );
+    }
+
+    #[test]
+    fn canonicalize_file_rejects_directories() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+
+        assert_eq!(canonicalize_file(temp_dir.path()), None);
+    }
+
+    #[test]
+    fn default_install_dir_honors_posthog_home() {
+        let _lock = POSTHOG_HOME_ENV_LOCK.lock().expect("lock POSTHOG_HOME");
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let _guard = EnvVarGuard::set("POSTHOG_HOME", temp_dir.path());
+
+        assert_eq!(default_install_dir(), Some(temp_dir.path().to_path_buf()));
+    }
+
+    #[test]
+    fn embedded_bundle_is_materialized_into_a_versioned_install_dir() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+
+        let resolved = materialize_embedded_script(Some(b"embedded bundle"), Some(temp_dir.path()))
+            .expect("materialize embedded bundle");
+
+        assert_eq!(
+            resolved,
+            temp_dir
+                .path()
+                .join("api-cli")
+                .join(env!("CARGO_PKG_VERSION"))
+                .join(API_CLI_BUNDLE)
+                .canonicalize()
+                .expect("canonicalize materialized bundle")
+        );
+        assert_eq!(
+            fs::read(resolved).expect("read materialized bundle"),
+            b"embedded bundle"
+        );
+    }
+
+    #[test]
+    fn embedded_bundle_is_ignored_when_it_was_not_built() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+
+        assert_eq!(
+            materialize_embedded_script(None, Some(temp_dir.path())),
+            None
+        );
+    }
+
+    #[test]
+    fn materialized_embedded_bundle_is_used_before_legacy_install() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let install_dir = temp_dir.path().join("home").join(".posthog");
+        let legacy_bundle = install_dir.join("lib").join(API_CLI_BUNDLE);
+
+        fs::create_dir_all(legacy_bundle.parent().expect("legacy parent"))
+            .expect("create legacy lib dir");
+        fs::write(&legacy_bundle, "legacy").expect("write legacy bundle");
+
+        let resolved = materialize_embedded_script(Some(b"embedded bundle"), Some(&install_dir))
+            .expect("materialize embedded bundle");
+
+        assert_eq!(
+            resolved,
+            embedded_bundle_path(&install_dir)
+                .canonicalize()
+                .expect("canonicalize embedded bundle")
+        );
+        assert_eq!(
+            fs::read(resolved).expect("read materialized bundle"),
+            b"embedded bundle"
+        );
+    }
 }

@@ -170,8 +170,8 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 ### How the coordinator decides what runs
 
 There is no sampling. Each scout has its own `SignalScoutConfig` row (one per
-`(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 60 =
-hourly) and a `last_run_at` stamp. Every tick the coordinator:
+`(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 180 =
+every 3 hours) and a `last_run_at` stamp. Every tick the coordinator:
 
 1. Bounds candidates to the teams enrolled via the `signals-scout` feature flag's
    JSON payload allowlist (`guaranteed_team_ids` minus `skip_team_ids`,
@@ -200,8 +200,8 @@ will:
 
 - discover it via `lazy_seed.discover_canonical_skills()`,
 - create matching `LLMSkill` rows on each agent-enabled team,
-- auto-register an enabled, hourly-schedule `SignalScoutConfig` for it so the next
-  due tick dispatches it.
+- auto-register an enabled `SignalScoutConfig` on the default every-3-hours schedule
+  for it so the next due tick dispatches it.
 
 No coordinator-side code change is needed. Use `signals-scout-general` as the
 template if your scout is broad; pick a specialist as the template if it is

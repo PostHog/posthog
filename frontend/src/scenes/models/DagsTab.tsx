@@ -13,7 +13,7 @@ import {
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { DataModelingDAG, DataModelingSyncInterval } from '~/types'
 

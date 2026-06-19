@@ -61,6 +61,7 @@ import type {
     PatchedAgentApplicationApi,
     PatchedAgentMemoryUpdateRequestApi,
     PatchedAgentRevisionApi,
+    PreviewProxyInvokeRequestApi,
     SetEnvKeyRequestApi,
     SetEnvRequestApi,
     WriteAgentMdRequestApi,
@@ -847,8 +848,7 @@ export const getAgentApplicationsRevisionsCronFireCreateUrl = (
  * thing?' is unanswerable until the cron actually fires.
  *
  * Idempotent via `request_id`: repeat clicks with the same id resolve
- * to the same session id rather than firing N times. See
- * `docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+ * to the same session id rather than firing N times.
  */
 export const agentApplicationsRevisionsCronFireCreate = async (
     projectId: string,
@@ -1684,22 +1684,25 @@ export const getAgentApplicationsPreviewProxyUrl = (
  *
  * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
  * non-live invokes that don't carry the `x-agent-preview-secret` header;
- * this proxy attaches it after authenticating the Django caller. See
- * docs/agent-platform/plans/draft-preview-auth.md.
+ * this proxy attaches it after authenticating the Django caller.
  *
  * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
- * Auth: standard PAT / session — `agents:read` scope.
+ * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
+ * is a mutating invoke; the read-only `listen` GET is `agents:read`).
  */
 export const agentApplicationsPreviewProxy = async (
     projectId: string,
     id: string,
     rest: string,
     params: AgentApplicationsPreviewProxyParams,
+    previewProxyInvokeRequestApi?: PreviewProxyInvokeRequestApi,
     options?: RequestInit
-): Promise<AgentApplicationApi> => {
-    return apiMutator<AgentApplicationApi>(getAgentApplicationsPreviewProxyUrl(projectId, id, rest, params), {
+): Promise<string> => {
+    return apiMutator<string>(getAgentApplicationsPreviewProxyUrl(projectId, id, rest, params), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(previewProxyInvokeRequestApi),
     })
 }
 

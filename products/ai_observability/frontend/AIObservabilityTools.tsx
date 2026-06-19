@@ -3,12 +3,12 @@ import { combineUrl, router } from 'kea-router'
 
 import { IconGraph, IconRetentionHeatmap, IconTrends, IconUserPaths } from '@posthog/icons'
 
-import { escapeRegex } from 'lib/actionUtils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { escapeRegex } from 'lib/utils/actions'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'

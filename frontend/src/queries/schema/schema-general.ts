@@ -115,6 +115,7 @@ export enum NodeKind {
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
     TraceSpansAttributeBreakdownQuery = 'TraceSpansAttributeBreakdownQuery',
+    TraceSpansSymbolStatsQuery = 'TraceSpansSymbolStatsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -1492,6 +1493,20 @@ export type TrendsFilter = {
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
+    /** Show the period-over-period change pill on the Metric display.
+     * @default true */
+    metricShowChange?: boolean
+    /** Metric display: change pill color when the metric increased. Defaults to green. */
+    metricChangeIncreaseColor?: string
+    /** Metric display: change pill color when the metric decreased. Defaults to red. */
+    metricChangeDecreaseColor?: string
+    /** Metric display: color the sparkline by whether the metric increased or decreased.
+     * @default false */
+    metricColorByDirection?: boolean
+    /** Metric display: line color when the metric increased. Defaults to green. */
+    metricLineIncreaseColor?: string
+    /** Metric display: line color when the metric decreased. Defaults to red. */
+    metricLineDecreaseColor?: string
 }
 
 export type CalendarHeatmapFilter = {
@@ -1524,6 +1539,12 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'excludeBoxPlotOutliers',
     'hideWeekends',
     'showAnnotations',
+    'metricShowChange',
+    'metricChangeIncreaseColor',
+    'metricChangeDecreaseColor',
+    'metricColorByDirection',
+    'metricLineIncreaseColor',
+    'metricLineDecreaseColor',
 ])
 
 export interface BoxPlotDatum {
@@ -2328,12 +2349,6 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
-    /** Match accounts whose CSM is any of these user ids (OR semantics). */
-    csm?: integer[]
-    /** Match accounts whose account executive is any of these user ids (OR semantics). */
-    accountExecutive?: integer[]
-    /** Match accounts whose account owner is any of these user ids (OR semantics). */
-    accountOwner?: integer[]
     /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: integer[]
     allRolesUnassigned?: boolean
@@ -2442,8 +2457,16 @@ export interface WebAnalyticsItemBase<T> {
     changeFromPreviousPct?: number
     isIncreaseBad?: boolean
 }
-export interface WebOverviewItem extends WebAnalyticsItemBase<number> {
-    usedPreAggregatedTables?: boolean
+export interface WebOverviewItem extends WebAnalyticsItemBase<number> {}
+
+/** Which read path served a web analytics response. */
+export enum WebAnalyticsPreComputeStrategy {
+    /** Served from the v2 continuously-maintained pre-aggregated tables. */
+    PreAggregated = 'pre_aggregated',
+    /** Served from the on-demand lazy precompute tables. */
+    LazyPrecompute = 'lazy_precompute',
+    /** Computed live from raw events (no precompute). */
+    Live = 'live',
 }
 
 export interface SamplingRate {
@@ -2456,8 +2479,7 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     samplingRate?: SamplingRate
     dateFrom?: string
     dateTo?: string
-    usedPreAggregatedTables?: boolean
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -2510,8 +2532,7 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    usedPreAggregatedTables?: boolean
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -2548,10 +2569,7 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    /** Whether the response was served from a precomputed table. */
-    usedPreAggregatedTables?: boolean
-    /** Whether the response was served from the lazy precompute path. */
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
@@ -2600,7 +2618,7 @@ export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitals
 // hence the tuple type rather than a single object.
 export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryResponseBase {
     results: [WebVitalsPathBreakdownResult]
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
@@ -3227,6 +3245,14 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     statusCodes?: integer[]
     traceId?: string
     rootSpans?: boolean
+    /**
+     * Return the matching spans themselves, one row per span (root and child), instead of the
+     * whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every
+     * matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays
+     * bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace
+     * waterfall never sets this.
+     */
+    flatSpans?: boolean
     /** Cursor for fetching the next page of results */
     after?: string
     /** Prefetch up to this many spans per trace and include them in results */
@@ -3373,6 +3399,138 @@ export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQuer
 
 export type CachedTraceSpansAttributeBreakdownQueryResponse =
     CachedQueryResponse<TraceSpansAttributeBreakdownQueryResponse>
+
+/**
+ * A source symbol (typically a function) the client wants production latency for, identified by its
+ * declaration line range. The client supplies these from its own AST/LSP — the server does not infer
+ * function boundaries (OTel `code.function.name` is frequently absent, and `code.line.number` may be a
+ * call site inside the body rather than the declaration line).
+ */
+export interface SourceSymbol {
+    /** Opaque identifier (e.g. the function name) echoed back on the matching result row. */
+    name?: string
+    /** First line of the symbol's range, inclusive (1-based). */
+    startLine: positive_integer
+    /** Last line of the symbol's range, inclusive (1-based). */
+    endLine: positive_integer
+}
+
+/** Aggregated metrics for a symbol over a single time period. Used for the prior-period comparison. */
+export interface SymbolStatsPeriod {
+    /** Number of spans attributed to this symbol in the period. */
+    count: integer
+    /** Spans whose OTel status is Error (`status_code = 2`). */
+    error_count: integer
+    /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: integer
+    /** Median active (busy) time, in nanoseconds. Excludes time awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+}
+
+/**
+ * Production latency for one bucket of a source file: spans carrying OpenTelemetry `code.*` location
+ * attributes, aggregated by line (no `symbols`) or into a symbol's line range (`symbols` supplied). The
+ * flat fields are the current period; `previous` is the immediately-preceding equal-length window. One
+ * row per bucket with spans in either period.
+ */
+export interface SymbolStatsRow {
+    /** The bucket's anchor line: the source line in line mode, or the symbol's `startLine` in symbol mode. */
+    line: integer
+    /** Echoed `name` from the requested symbol. Symbol mode only. */
+    name?: string
+    /** `endLine` of the matched symbol's range. Symbol mode only. */
+    end_line?: integer
+    /** Number of spans attributed to this bucket. */
+    count: integer
+    /** Spans whose OTel status is Error (`status_code = 2`). */
+    error_count: integer
+    /** Total wall-clock span duration in this symbol, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in this symbol carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: integer
+    /** Median active (busy) time, in nanoseconds. Excludes time awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+    /** The same metrics over the immediately-preceding equal-length period. */
+    previous: SymbolStatsPeriod
+    /**
+     * Percentage change in count vs the previous period (180 = +180%). Null when there is no baseline
+     * (previous count 0); use `previous.count`, not a null here, to detect a brand-new symbol.
+     */
+    count_pct_change: number | null
+    /**
+     * Percentage change in p50 duration vs the previous period (180 = +180%). Null when the previous p50
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p50_duration_pct_change: number | null
+    /**
+     * Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p95_duration_pct_change: number | null
+    /**
+     * Percentage change in p99 duration vs the previous period (180 = +180%). Null when the previous p99
+     * is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as "new".
+     */
+    p99_duration_pct_change: number | null
+    /**
+     * Percentage change in error rate (`error_count / count` per window) vs the previous period. Null when
+     * the previous error rate is 0 — i.e. the previous window had no errors or no traffic. This includes a
+     * 0→N new-error spike, which surfaces as null rather than a delta.
+     */
+    error_rate_pct_change: number | null
+}
+
+export interface TraceSpansSymbolStatsQuery extends DataNode<TraceSpansSymbolStatsQueryResponse> {
+    kind: NodeKind.TraceSpansSymbolStatsQuery
+    dateRange: DateRange
+    /**
+     * Repo-relative path of the source file to aggregate (e.g. `src/flags/flag_matching.rs`).
+     * Matched as a path suffix against the recorded `code.file.path` / `code.filepath`, so a
+     * recorded path carrying an extra crate/workspace prefix still matches.
+     */
+    filePath: string
+    /**
+     * Optional symbol (function) ranges to aggregate spans into. When supplied, each span is attributed
+     * to the smallest range that encloses its recorded line (one row per symbol). When omitted (or an
+     * empty list), spans are aggregated per source line (one row per instrumented line) — pass a single
+     * whole-file range for a file-level total.
+     */
+    symbols?: SourceSymbol[]
+}
+
+/** Bucketing applied to a symbol-stats result: per source line, or per requested symbol range. */
+export type SymbolStatsGranularity = 'line' | 'symbol'
+
+export interface TraceSpansSymbolStatsQueryResponse extends AnalyticsQueryResponseBase {
+    /** One row per bucket, ordered by line ascending. */
+    results: SymbolStatsRow[]
+    /** Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise. */
+    granularity: SymbolStatsGranularity
+}
+
+export type CachedTraceSpansSymbolStatsQueryResponse = CachedQueryResponse<TraceSpansSymbolStatsQueryResponse>
 
 export interface FileSystemCount {
     count: number
@@ -3747,6 +3905,9 @@ export interface ExperimentApiMetric {
     upper_bound_percentile?: number
     /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
     ignore_zeros?: boolean
+    /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value
+     *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+    threshold?: number
     /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the
      *  denominator and each with its own percentile thresholds. */
     numerator_outlier_handling?: ExperimentMetricOutlierHandling
@@ -3783,6 +3944,30 @@ export interface ExperimentParameters {
     rollout_percentage?: number
     /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
     excluded_variants?: string[]
+}
+
+/** Exposure estimate settings for the experiment running-time calculator. */
+export interface ExperimentExposureEstimateConfig {
+    /** 'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data. */
+    conversionRateInputType: 'manual' | 'automatic'
+    /** Metric type the manual baseline value refers to. Only used in manual mode. */
+    manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
+    /** Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode. */
+    manualBaselineValue?: number
+    /** Manually entered estimate of users exposed to the experiment per day. Only used in manual mode. */
+    manualExposureRate?: number
+}
+
+/** Running-time calculator state for an experiment. Canonical home for keys that historically lived in `parameters`. */
+export interface ExperimentRunningTimeCalculation {
+    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. */
+    minimum_detectable_effect?: number
+    /** Estimated number of days needed to reach the recommended sample size. */
+    recommended_running_time?: number
+    /** Recommended number of exposed users needed for statistical significance. */
+    recommended_sample_size?: number
+    /** How the exposure estimate is configured: manual user-entered values or automatic from live experiment data. */
+    exposure_estimate_config?: ExperimentExposureEstimateConfig | null
 }
 
 /** Slim exposure config for experiment API payloads. Discriminated by `kind`:
@@ -3867,6 +4052,9 @@ export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
         metric_type: ExperimentMetricType.MEAN
         source: ExperimentMetricSource
+        /** When set, reports the percentage of users whose per-user summed/counted value
+         *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
+        threshold?: number
     }
 
 export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
@@ -4629,6 +4817,26 @@ export interface TrendsAlertConfig {
     series_index: integer
     /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
     check_ongoing_interval?: boolean
+}
+
+/** How a SQL alert reads the query result.
+ * `last_row` = the query is ordered oldest→newest and the last row is the current value;
+ * `first_row` = the query is ordered newest→oldest and the first row is the current value
+ * (this mode bounds the fetch with a LIMIT since only the head is read);
+ * `any_row` = every row is checked and the alert fires if any value breaches (absolute conditions only). */
+export type HogQLAlertEvaluation = 'last_row' | 'first_row' | 'any_row'
+
+/** Alert config for HogQL/SQL-backed insights. The query owns its own time window. */
+export interface HogQLAlertConfig {
+    type: 'HogQLAlertConfig'
+    /** Name of the result column to evaluate. When unset, the single numeric column is used
+     * (an error if the result has more than one numeric column). */
+    column?: string | null
+    /** How to read the result rows — an explicit choice, no implicit default. */
+    evaluation: HogQLAlertEvaluation
+    /** In `any_row` mode, the column whose value labels each row in breach messages.
+     * When unset, the first non-evaluated column is used, falling back to the row number. */
+    label_column?: string | null
 }
 
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
@@ -5394,6 +5602,7 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
     results: PageURL[]
     hasMore?: boolean
     limit?: integer
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
@@ -5416,7 +5625,7 @@ export interface WebNotableChangeItem {
 export interface WebNotableChangesQueryResponse extends AnalyticsQueryResponseBase {
     results: WebNotableChangeItem[]
     samplingRate?: SamplingRate
-    usedPreAggregatedTables?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebNotableChangesQueryResponse = CachedQueryResponse<WebNotableChangesQueryResponse>
@@ -6254,6 +6463,399 @@ export const externalDataSources = [
     'AmazonKinesis',
     'AmazonCloudWatch',
     'OpenAIAds',
+    'OneHundredMs',
+    'SevenShifts',
+    'AcuityScheduling',
+    'AgileCRM',
+    'Aha',
+    'Airbyte',
+    'Akeneo',
+    'Algolia',
+    'AlpacaBrokerAPI',
+    'ApifyDataset',
+    'Appcues',
+    'Appfigures',
+    'Appfollow',
+    'Apptivo',
+    'AssemblyAI',
+    'Awin',
+    'AwsCloudTrail',
+    'AzureTableStorage',
+    'Babelforce',
+    'Basecamp',
+    'Beamer',
+    'BigMailer',
+    'Bluetally',
+    'BoldSign',
+    'BreezyHR',
+    'Bugsnag',
+    'Buildkite',
+    'Bunny',
+    'Buzzsprout',
+    'CalCom',
+    'CallRail',
+    'Campayn',
+    'Canny',
+    'CapsuleCRM',
+    'CaptainData',
+    'CartCom',
+    'CastorEDC',
+    'Chameleon',
+    'Chargedesk',
+    'Chargify',
+    'Chift',
+    'Churnkey',
+    'Cin7',
+    'CiscoMeraki',
+    'Clazar',
+    'Clockify',
+    'Clockodo',
+    'Cloudbeds',
+    'Coassemble',
+    'Codefresh',
+    'Concord',
+    'ConfigCat',
+    'Couchbase',
+    'Curve',
+    'Customerly',
+    'Datascope',
+    'Dbt',
+    'Deputy',
+    'DevinAI',
+    'Docuseal',
+    'Dolibarr',
+    'Dremio',
+    'DropboxSign',
+    'Dwolla',
+    'EConomic',
+    'Easypost',
+    'Easypromos',
+    'Elasticemail',
+    'EmailOctopus',
+    'EmploymentHero',
+    'Encharge',
+    'Eventee',
+    'Eventzilla',
+    'Everhour',
+    'EZOfficeInventory',
+    'Factorial',
+    'Fastbill',
+    'Fastly',
+    'Fauna',
+    'Feishu',
+    'Fillout',
+    'Finage',
+    'Firebolt',
+    'FireHydrant',
+    'Fleetio',
+    'Flexmail',
+    'Flexport',
+    'FloatApp',
+    'Flowlu',
+    'Formbricks',
+    'FreeAgent',
+    'Freightview',
+    'Freshcaller',
+    'Freshchat',
+    'Freshservice',
+    'Fulcrum',
+    'GainsightPx',
+    'GitBook',
+    'Glassfrog',
+    'Goldcast',
+    'GoLogin',
+    'Grafana',
+    'GreytHr',
+    'Gridly',
+    'Harness',
+    'Height',
+    'Hellobaton',
+    'HighLevel',
+    'HoorayHR',
+    'Hubplanner',
+    'Humanitix',
+    'Huntr',
+    'Inflowinventory',
+    'InforNexus',
+    'Insightful',
+    'Insightly',
+    'Instatus',
+    'Intruder',
+    'Invoiced',
+    'Invoiceninja',
+    'JamfPro',
+    'JobNimbus',
+    'Jotform',
+    'JudgeMeReviews',
+    'JustCall',
+    'JustSift',
+    'K6Cloud',
+    'Katana',
+    'Keka',
+    'Kisi',
+    'Kissmetrics',
+    'Klarna',
+    'Klaus',
+    'Lago',
+    'Leadfeeder',
+    'Lemlist',
+    'LessAnnoyingCRM',
+    'LinkedinPages',
+    'Linkrunner',
+    'Linnworks',
+    'Lob',
+    'Lokalise',
+    'Looker',
+    'Luma',
+    'MailerSend',
+    'Mailosaur',
+    'Mailtrap',
+    'Mantle',
+    'Mention',
+    'MercadoAds',
+    'Merge',
+    'Metabase',
+    'Metricool',
+    'MicrosoftDataverse',
+    'MicrosoftEntraId',
+    'MicrosoftLists',
+    'Miro',
+    'Missive',
+    'MixMax',
+    'Mode',
+    'Mux',
+    'MyHours',
+    'N8n',
+    'Navan',
+    'NebiusAI',
+    'Nexiopay',
+    'NinjaOneRMM',
+    'NoCRM',
+    'NorthpassLMS',
+    'Nutshell',
+    'Nylas',
+    'Oncehub',
+    'Onepagecrm',
+    'OneSignal',
+    'Onfleet',
+    'OpinionStage',
+    'OPUSWatch',
+    'Orb',
+    'Orbit',
+    'Oura',
+    'Oveit',
+    'PabblySubscriptionsBilling',
+    'Paperform',
+    'Papersign',
+    'Partnerize',
+    'PartnerStack',
+    'PayFit',
+    'Paystack',
+    'Pennylane',
+    'Perk',
+    'PersistIq',
+    'Persona',
+    'Phyllo',
+    'Picqer',
+    'Pipeliner',
+    'PivotalTracker',
+    'Piwik',
+    'Planhat',
+    'Plausible',
+    'Poplar',
+    'PrestaShop',
+    'Pretix',
+    'Primetric',
+    'Printify',
+    'Productive',
+    'Pylon',
+    'Qonto',
+    'Qualaroo',
+    'Railz',
+    'RDStationMarketing',
+    'Recruitee',
+    'Reddit',
+    'ReferralHero',
+    'RentCast',
+    'Repairshopr',
+    'ReplyIo',
+    'RetailExpress',
+    'Retently',
+    'RevolutMerchant',
+    'RocketChat',
+    'Rocketlane',
+    'Rootly',
+    'Ruddr',
+    'SafetyCulture',
+    'SageHR',
+    'Salesflare',
+    'SAPFieldglass',
+    'SavvyCal',
+    'Secoda',
+    'Segment',
+    'Sendowl',
+    'SendPulse',
+    'Senseforce',
+    'Serpstat',
+    'Sharetribe',
+    'Shippo',
+    'ShopWired',
+    'Shortio',
+    'Shutterstock',
+    'SigmaComputing',
+    'SignNow',
+    'SimpleCast',
+    'Simplesat',
+    'Smaily',
+    'SmartEngage',
+    'Smartreach',
+    'Smartwaiver',
+    'SolarwindsServiceDesk',
+    'SonarCloud',
+    'SparkPost',
+    'SplitIo',
+    'SpotifyAds',
+    'SpotlerCRM',
+    'Squarespace',
+    'Statsig',
+    'Statuspage',
+    'Stigg',
+    'Strava',
+    'SurveySparrow',
+    'Survicate',
+    'Svix',
+    'Systeme',
+    'Tavus',
+    'Teamtailor',
+    'Teamwork',
+    'Tempo',
+    'Testrail',
+    'Thinkific',
+    'ThinkificCourses',
+    'ThriveLearning',
+    'Ticketmaster',
+    'TicketTailor',
+    'TickTick',
+    'Timely',
+    'Tinyemail',
+    'Todoist',
+    'Toggl',
+    'TrackPMS',
+    'Tremendous',
+    'TrustPilot',
+    'Twitter',
+    'TyntecSMS',
+    'Unleash',
+    'UpPromote',
+    'Uptick',
+    'Uservoice',
+    'Vantage',
+    'Veeqo',
+    'Vercel',
+    'VismaEconomic',
+    'VWO',
+    'Waiteraid',
+    'Wasabi',
+    'WhenIWork',
+    'Wordpress',
+    'Workable',
+    'Workflowmax',
+    'Workramp',
+    'Wufoo',
+    'Xsolla',
+    'YandexMetrica',
+    'Yotpo',
+    'Ynab',
+    'Younium',
+    'YouSign',
+    'YoutubeData',
+    'ZapierSupportedStorage',
+    'ZapSign',
+    'ZendeskSell',
+    'ZendeskSunshine',
+    'Zenefits',
+    'Zenloop',
+    'ZohoAnalytics',
+    'ZohoBigin',
+    'ZohoBilling',
+    'ZohoBooks',
+    'ZohoCampaign',
+    'ZohoDesk',
+    'ZohoExpense',
+    'ZohoInventory',
+    'ZohoInvoice',
+    'ZonkaFeedback',
+    'AlphaVantage',
+    'Aviationstack',
+    'Bitly',
+    'Blogger',
+    'Breezometer',
+    'CareQualityCommission',
+    'Cimis',
+    'CoinApi',
+    'CoinGecko',
+    'CoinMarketCap',
+    'DingConnect',
+    'Dockerhub',
+    'ExchangeRatesApi',
+    'FinancialModelling',
+    'Finnhub',
+    'Finnworlds',
+    'Giphy',
+    'Gmail',
+    'GNews',
+    'GoogleCalendar',
+    'GoogleClassroom',
+    'GoogleDirectory',
+    'GoogleForms',
+    'GooglePageSpeedInsights',
+    'GoogleTasks',
+    'GoogleWebfonts',
+    'GoogleWorkspaceAdminReports',
+    'HuggingFace',
+    'IlluminaBasespace',
+    'Imagga',
+    'Interzoid',
+    'IP2Whois',
+    'KYVE',
+    'Marketstack',
+    'Mendeley',
+    'Nasa',
+    'NewYorkTimes',
+    'NewsApi',
+    'NewsData',
+    'OpenDataDc',
+    'OpenExchangeRates',
+    'OpenAQ',
+    'OpenFDA',
+    'OpenWeather',
+    'Outlook',
+    'Perigon',
+    'Pexels',
+    'Pocket',
+    'Polygon',
+    'PyPI',
+    'Recreation',
+    'RKICovid',
+    'Rss',
+    'SimFin',
+    'StockData',
+    'Guardian',
+    'TMDb',
+    'TVMaze',
+    'TwelveData',
+    'Ubidots',
+    'USCensus',
+    'Watchmode',
+    'WikipediaPageviews',
+    'YahooFinance',
+    'Clarifai',
+    'Adapty',
+    'Braintrust',
+    'StreamElements',
+    'Streamlabs',
+    'Datorama',
+    'Ahrefs',
     'Custom',
 ] as const
 

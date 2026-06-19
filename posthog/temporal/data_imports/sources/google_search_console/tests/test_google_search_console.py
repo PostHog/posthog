@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.sources.google_search_console.google_search_c
     _resolve_window,
     _row_to_dict,
     google_search_console_source,
+    normalize_site_url,
 )
 
 TODAY = dt.date(2026, 4, 30)
@@ -425,3 +426,33 @@ def test_throttle_spaces_requests_per_site(monkeypatch):
     gsc._throttle("sc-domain:example.com")
 
     assert sleeps == [pytest.approx(gsc._MIN_REQUEST_INTERVAL_SECONDS)]
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # Already canonical — left untouched.
+        ("https://example.com/", "https://example.com/"),
+        ("sc-domain:example.com", "sc-domain:example.com"),
+        # Percent-encoded values copied from a URL bar.
+        ("sc-domain%3Abidsstack.com", "sc-domain:bidsstack.com"),
+        ("sc-domain%3Atopol.io", "sc-domain:topol.io"),
+        ("https%3A%2F%2Fexample.com%2F", "https://example.com/"),
+        # URL-prefix property missing its trailing slash.
+        ("https://agentic30.app", "https://agentic30.app/"),
+        ("https://docebo.com", "https://docebo.com/"),
+        # Surrounding whitespace.
+        ("  https://example.com/  ", "https://example.com/"),
+        # The full Search Console UI URL — the property lives in resource_id.
+        (
+            "https://search.google.com/search-console/performance/search-analytics"
+            "?resource_id=https%3A%2F%2Fwww.viamar.ca%2F&metrics=CLICKS%2CIMPRESSIONS",
+            "https://www.viamar.ca/",
+        ),
+        # Bare hostname is ambiguous (URL-prefix vs domain) — left untouched.
+        ("agentic30.app", "agentic30.app"),
+        ("agentic30.app/", "agentic30.app/"),
+    ],
+)
+def test_normalize_site_url(raw, expected):
+    assert normalize_site_url(raw) == expected
