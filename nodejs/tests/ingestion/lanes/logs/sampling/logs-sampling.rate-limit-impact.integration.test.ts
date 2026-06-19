@@ -3,11 +3,10 @@ import avro from 'avsc'
 import { deleteKeysWithPrefix } from '~/cdp/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/ingestion/lanes/logs/log-record-avro'
+import { compileRuleSet } from '~/ingestion/lanes/logs/sampling/compile-rules'
+import { LogsSamplingService } from '~/ingestion/lanes/logs/sampling/logs-sampling.service'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
-
-import { compileRuleSet } from './compile-rules'
-import { LogsSamplingService } from './logs-sampling.service'
 
 // Real-Redis integration test: drives the genuine token-bucket Lua with a mocked clock so we can
 // simulate a sustained log stream at different volumes deterministically (no sleeps). This is the

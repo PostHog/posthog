@@ -5,17 +5,16 @@ import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
 import { BatchWritingStore, BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
+import { BatchingPipeline, BeforeBatchInput, FeedResult } from '~/ingestion/framework/batching-pipeline'
+import { newBatchingPipeline } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
+import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { PERSONS_OUTPUT } from '~/ingestion/lanes/analytics/outputs'
 import { createFlushBatchStoresStep } from '~/ingestion/steps/event-processing/flush-batch-stores-step'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { parseJSON } from '~/utils/json-parse'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
-
-import { BatchingPipeline, BeforeBatchInput, FeedResult } from './batching-pipeline'
-import { newBatchingPipeline } from './builders'
-import { createOkContext } from './helpers'
-import { OkResultWithContext } from './pipeline.interface'
-import { PipelineResult, drop, ok } from './results'
 
 /**
  * Integration tests for BatchingPipeline + groupBy + sequential group processing,

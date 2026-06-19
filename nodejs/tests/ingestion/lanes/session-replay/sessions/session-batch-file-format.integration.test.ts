@@ -27,6 +27,15 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { KafkaOffsetManager } from '~/ingestion/lanes/session-replay/kafka/offset-manager'
+import {
+    SessionBatchFileStorage,
+    SessionBatchFileWriter,
+    WriteSessionData,
+} from '~/ingestion/lanes/session-replay/sessions/session-batch-file-storage'
+import { SessionBatchRecorder } from '~/ingestion/lanes/session-replay/sessions/session-batch-recorder'
+import { SessionConsoleLogStore } from '~/ingestion/lanes/session-replay/sessions/session-console-log-store'
+import { SessionFilter } from '~/ingestion/lanes/session-replay/sessions/session-filter'
+import { SessionTracker } from '~/ingestion/lanes/session-replay/sessions/session-tracker'
 import { SessionFeatureStore } from '~/ingestion/lanes/session-replay/shared/features/session-feature-store'
 import { SessionBlockMetadata } from '~/ingestion/lanes/session-replay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/lanes/session-replay/shared/metadata/session-metadata-store'
@@ -35,13 +44,7 @@ import { KeyStore, RecordingEncryptor } from '~/ingestion/lanes/session-replay/s
 import { MessageWithTeam } from '~/ingestion/lanes/session-replay/teams/types'
 import { parseJSON } from '~/utils/json-parse'
 
-import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionData } from './session-batch-file-storage'
-import { SessionBatchRecorder } from './session-batch-recorder'
-import { SessionConsoleLogStore } from './session-console-log-store'
-import { SessionFilter } from './session-filter'
-import { SessionTracker } from './session-tracker'
-
-jest.mock('./session-feature-recorder', () => ({
+jest.mock('~/ingestion/lanes/session-replay/sessions/session-feature-recorder', () => ({
     SessionFeatureRecorder: jest.fn().mockImplementation(() => ({
         recordMessage: jest.fn().mockReturnValue(undefined),
         end: jest.fn().mockReturnValue({

@@ -9,15 +9,14 @@ import {
     OverflowOutput,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { createBatch, createNewPipeline, createUnwrapper } from '~/ingestion/framework/helpers'
+import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import { PipelineResult, dlq, drop, ok, redirect } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { ProjectId, Team } from '~/types'
-
-import { BatchProcessingStep } from './base-batch-pipeline'
-import { newBatchPipelineBuilder } from './builders'
-import { createBatch, createNewPipeline, createUnwrapper } from './helpers'
-import { PipelineConfig } from './result-handling-pipeline'
-import { PipelineResult, dlq, drop, ok, redirect } from './results'
-import { ProcessingStep } from './steps'
 
 const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     id: 1,

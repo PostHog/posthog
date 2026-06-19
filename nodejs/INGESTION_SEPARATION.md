@@ -313,9 +313,16 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
       `./` source imports to `~/ingestion/...` and reformatted. Unit tests stay beside source. (Mirrors the
       existing `tests/worker/ingestion/` precedent; `pnpm test`'s `service-e2e|postgres-parity` ignore is
       unaffected, so these still run in the same shard set.)
-- [ ] (Optional, not requested) the 12 `*.integration.test.ts` under `src/ingestion` stay co-located for
-      now — only e2e was asked to move. Revisit if integration tests should follow the same pattern.
-- [ ] **Exit gate:** `pnpm test:full` green (CI on PR #64506 after this push).
+- [x] Move the 12 `*.integration.test.ts` the same way (product owner: integration tests should also live
+      under `tests/`). Same mirror (`src/ingestion/<p>` -> `tests/ingestion/<p>`), same `./` -> `~/`
+      rewrite (including two `jest.mock('./session-feature-recorder')` paths). Files span
+      `common/event-filters`, `framework`, `lanes/{ai,logs,session-replay}`, `steps/event-processing`, and
+      `utils/overflow-redirect`. No snapshots, all leaves, no fs-path hazards, no test-script changes
+      needed. All `*.e2e`/`*.integration` ingestion tests now live under `tests/ingestion/`; unit tests
+      stay beside source.
+- [x] **Exit gate:** e2e relocation confirmed green on PR #64506 (`6553b743`: Node.js Tests 1/3+2/3+3/3,
+      Build, Code quality, Rust e2e, "Node.js Tests Pass" gate). Integration relocation pushed on top for
+      CI to confirm.
 
 ### Phase 4 — restructure ingestion folder (lanes/ + semantic groups)
 
@@ -583,6 +590,17 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
   import-resolution 0 broken (catches any master file referencing a moved path), guard 0, eslint 0 (incl.
   the new `../` ban), prettier clean, tsc 15 errors all the pre-existing `src/cdp` hogvm/cyclotron baseline
   (0 in ingestion/tests). Pushing the merge to clear `dirty` and re-trigger the full CI.
-- Phase 6 (CI per-lane test selection) DEFERRED to a follow-up PR (product-owner decision). This PR's scope
-  is now final: Phases 0–5 + the Phase 3 e2e relocation. Phase 6 (a `.github/workflows/` change) ships
-  separately so it can be reviewed on its own and kept backwards-compatible with unrebased PRs.
+- Phase 6 (CI per-lane test selection) DEFERRED to a follow-up PR (product-owner decision). Phase 6 (a
+  `.github/workflows/` change) ships separately so it can be reviewed on its own and kept
+  backwards-compatible with unrebased PRs.
+- e2e relocation confirmed GREEN on `6553b743` (full Node.js suite: Tests 1/3+2/3+3/3, Build, Code quality,
+  Rust e2e, "Node.js Tests Pass"). The relocated e2e suites run + pass from `tests/ingestion/` against real
+  infra. (A local-only tracker tick recording this was lost when the session resumed re-cloned the branch —
+  it was never pushed; harmless, re-recorded here. Lesson: don't hold commits locally across session
+  boundaries in an ephemeral env.)
+- Integration tests relocated too (product owner extended the ask): moved all 12 `*.integration.test.ts`
+  from `src/ingestion/...` to `tests/ingestion/...` via the same `git mv` + `./`->`~/` rewrite (two
+  `jest.mock('./session-feature-recorder')` paths included). Local gates green: static import-resolution 0
+  broken, guard 0, eslint 0, prettier clean, no fs-path hazards, master merge still conflict-free. With this,
+  every infra-dependent ingestion test (e2e + integration) lives under `tests/ingestion/` mirroring src so
+  Phase 6 can still attribute by lane; unit tests stay co-located. Pushing for CI to confirm.

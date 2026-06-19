@@ -14,15 +14,14 @@ import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
+import { EventPipelineRunnerOptions } from '~/ingestion/steps/event-processing/event-pipeline-options'
+import { ProcessPersonsInput, createProcessPersonsStep } from '~/ingestion/steps/event-processing/process-persons-step'
 import { PluginEvent } from '~/plugin-scaffold'
 import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Person, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { normalizeEvent, normalizeProcessPerson } from '~/utils/event'
 import { UUIDT } from '~/utils/utils'
-
-import { EventPipelineRunnerOptions } from './event-pipeline-options'
-import { ProcessPersonsInput, createProcessPersonsStep } from './process-persons-step'
 
 describe('createProcessPersonsStep', () => {
     let hub: Hub

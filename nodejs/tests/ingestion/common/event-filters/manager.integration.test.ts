@@ -1,12 +1,11 @@
 import { v4 } from 'uuid'
 
 import { defaultConfig } from '~/config/config'
+import { evaluateFilterTree } from '~/ingestion/common/event-filters/evaluate'
+import { EventFilterManager, EventFilterManagerComponent } from '~/ingestion/common/event-filters/manager'
+import { and, cond, not, or } from '~/ingestion/common/event-filters/test-helpers'
 import { createOrganization, createTeam, insertRow, resetTestDatabase } from '~/tests/helpers/sql'
 import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
-
-import { evaluateFilterTree } from './evaluate'
-import { EventFilterManager, EventFilterManagerComponent } from './manager'
-import { and, cond, not, or } from './test-helpers'
 
 async function insertFilter(
     postgres: PostgresRouter,
