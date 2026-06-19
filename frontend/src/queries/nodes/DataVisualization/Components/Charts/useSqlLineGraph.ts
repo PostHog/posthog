@@ -14,8 +14,10 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { LineGraphProps } from './LineGraph'
 import {
+    SqlLineSeriesMeta,
     buildLineChartConfig,
     buildSeries,
     capYSeriesData,
@@ -24,13 +26,15 @@ import {
 } from './sqlLineGraphAdapter'
 
 export interface SqlLineGraphModel {
-    series: Series[]
+    series: Series<SqlLineSeriesMeta>[]
     labels: string[]
     theme: ChartTheme
     config: TimeSeriesLineChartConfig
     legendItems: LegendItem[]
     hiddenKeys: string[]
     toggleSeries: (key: string) => void
+    /** Settings of the first (left-axis) series — used to format the tooltip's total row. */
+    totalFormatterSettings?: AxisSeriesSettings
 }
 
 export function useSqlLineGraph({
@@ -92,5 +96,14 @@ export function useSqlLineGraph({
         return null
     }
 
-    return { series, labels: xData.data, theme, config, legendItems, hiddenKeys, toggleSeries }
+    return {
+        series,
+        labels: xData.data,
+        theme,
+        config,
+        legendItems,
+        hiddenKeys,
+        toggleSeries,
+        totalFormatterSettings: ySeriesData[0]?.settings,
+    }
 }

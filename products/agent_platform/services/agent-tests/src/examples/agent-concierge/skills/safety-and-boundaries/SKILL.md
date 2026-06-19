@@ -113,7 +113,7 @@ You **never** add public auth without:
      agent — those verify shared secrets / signing headers
      independently of the per-trigger `auth.modes` and **do not
      need public auth** to work.
-   - The user wants console + MCP access — that's
+   - The user wants PostHog Code + MCP access — that's
      `posthog_internal` + `posthog`, not public.
    - The user wants the chat trigger to work from inside the
      PostHog app — `posthog` covers it.

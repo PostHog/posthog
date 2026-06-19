@@ -853,16 +853,23 @@ export interface EndExperimentApi {
 }
 
 /**
- * * `manual` - manual
- * * `experiment_launch` - experiment_launch
- * * `experiment_stop` - experiment_stop
- * * `experiment_update` - experiment_update
+ * * `manual` - Manual
+ * * `cold_run` - Cold Run
+ * * `stale_refresh` - Stale Refresh
+ * * `auto_refresh` - Auto Refresh
+ * * `config_change` - Config Change
+ * * `experiment_launch` - Experiment Launch
+ * * `experiment_stop` - Experiment Stop
+ * * `experiment_update` - Experiment Update
  */
-export type RecalculateMetricsRequestTriggerEnumApi =
-    (typeof RecalculateMetricsRequestTriggerEnumApi)[keyof typeof RecalculateMetricsRequestTriggerEnumApi]
+export type TriggerEnumApi = (typeof TriggerEnumApi)[keyof typeof TriggerEnumApi]
 
-export const RecalculateMetricsRequestTriggerEnumApi = {
+export const TriggerEnumApi = {
     Manual: 'manual',
+    ColdRun: 'cold_run',
+    StaleRefresh: 'stale_refresh',
+    AutoRefresh: 'auto_refresh',
+    ConfigChange: 'config_change',
     ExperimentLaunch: 'experiment_launch',
     ExperimentStop: 'experiment_stop',
     ExperimentUpdate: 'experiment_update',
@@ -874,11 +881,15 @@ export const RecalculateMetricsRequestTriggerEnumApi = {
 export interface RecalculateMetricsRequestApi {
     /** What triggered this recalculation (manual is the default for user-initiated runs)
      *
-     * * `manual` - manual
-     * * `experiment_launch` - experiment_launch
-     * * `experiment_stop` - experiment_stop
-     * * `experiment_update` - experiment_update */
-    trigger?: RecalculateMetricsRequestTriggerEnumApi
+     * * `manual` - Manual
+     * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
+     * * `auto_refresh` - Auto Refresh
+     * * `config_change` - Config Change
+     * * `experiment_launch` - Experiment Launch
+     * * `experiment_stop` - Experiment Stop
+     * * `experiment_update` - Experiment Update */
+    trigger?: TriggerEnumApi
 }
 
 /**
@@ -895,22 +906,6 @@ export const ExperimentMetricsRecalculationStatusEnumApi = {
     InProgress: 'in_progress',
     Completed: 'completed',
     Failed: 'failed',
-} as const
-
-/**
- * * `manual` - Manual
- * * `experiment_launch` - Experiment Launch
- * * `experiment_stop` - Experiment Stop
- * * `experiment_update` - Experiment Update
- */
-export type ExperimentMetricsRecalculationTriggerEnumApi =
-    (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
-
-export const ExperimentMetricsRecalculationTriggerEnumApi = {
-    Manual: 'manual',
-    ExperimentLaunch: 'experiment_launch',
-    ExperimentStop: 'experiment_stop',
-    ExperimentUpdate: 'experiment_update',
 } as const
 
 /**
@@ -974,10 +969,14 @@ export interface ExperimentMetricsRecalculationApi {
     /** What triggered this recalculation
      *
      * * `manual` - Manual
+     * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
+     * * `auto_refresh` - Auto Refresh
+     * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update */
-    readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
+    readonly trigger: TriggerEnumApi
     /** When the job was created */
     readonly created_at: string
     /**
@@ -990,6 +989,11 @@ export interface ExperimentMetricsRecalculationApi {
      * @nullable
      */
     readonly completed_at: string | null
+    /**
+     * Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts
+     * @nullable
+     */
+    readonly query_to: string | null
     /** True if returning an existing job rather than a newly created one */
     readonly is_existing: boolean
     /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */

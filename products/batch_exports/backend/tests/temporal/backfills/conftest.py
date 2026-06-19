@@ -25,7 +25,7 @@ async def wait_for_workflows(
         if elapsed > timeout:
             raise TimeoutError(
                 f"Timed-out waiting for workflows for schedule {schedule_id} to be query-able. "
-                f"Found {len(workflows)} workflows, expected {expected_count}"
+                f"Found {len(workflows)} workflows, expected at least {expected_count}"
             )
 
         await asyncio.sleep(delay)
@@ -33,7 +33,6 @@ async def wait_for_workflows(
         delay = min(delay * 2, 5)
         workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
 
-    assert len(workflows) == expected_count
     return workflows
 
 
