@@ -79,8 +79,8 @@ describe('TimeSeriesComboChart', () => {
                     <Probe />
                 </TimeSeriesComboChart>
             )
-            expect(observed).not.toBeUndefined()
-            expect(observed?.('2024-06-10', 0)).toMatch(/Jun \d+|June/)
+            const formatter = observed as (value: string, index: number) => string | null
+            expect(formatter('2024-06-10', 0)).toMatch(/Jun \d+|June/)
         })
     })
 
@@ -122,17 +122,16 @@ describe('TimeSeriesComboChart', () => {
     })
 
     describe('config.goalLines', () => {
-        it.each([
-            ['omitted', undefined],
-            ['empty', [] as never[]],
-        ])('does not render reference lines when goalLines is %s', (_, goalLines) => {
+        it('does not render reference lines when config is omitted', () => {
             const { chart } = renderHogChart(
-                <TimeSeriesComboChart
-                    series={BAR_AND_LINE}
-                    labels={LABELS}
-                    theme={THEME}
-                    config={goalLines === undefined ? undefined : { goalLines }}
-                />
+                <TimeSeriesComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} />
+            )
+            expect(chart.referenceLines()).toHaveLength(0)
+        })
+
+        it('does not render reference lines when goalLines is empty', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} config={{ goalLines: [] }} />
             )
             expect(chart.referenceLines()).toHaveLength(0)
         })
@@ -166,16 +165,20 @@ describe('TimeSeriesComboChart', () => {
     })
 
     describe('config.valueLabels', () => {
-        it.each([
-            ['omitted', undefined],
-            ['false', false as const],
-        ])('does not render value labels when %s', (_, valueLabels) => {
+        it('does not render value labels when config is omitted', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} />
+            )
+            expect(chart.valueLabels()).toHaveLength(0)
+        })
+
+        it('does not render value labels when valueLabels is false', () => {
             const { chart } = renderHogChart(
                 <TimeSeriesComboChart
                     series={BAR_AND_LINE}
                     labels={LABELS}
                     theme={THEME}
-                    config={valueLabels === undefined ? undefined : { valueLabels }}
+                    config={{ valueLabels: false }}
                 />
             )
             expect(chart.valueLabels()).toHaveLength(0)
@@ -196,16 +199,37 @@ describe('TimeSeriesComboChart', () => {
     })
 
     describe('config.barLayout', () => {
-        it.each(['stacked', 'grouped'] as const)('renders ticks for %s layout', (barLayout) => {
-            const series: Series[] = [
-                { key: 'a', label: 'A', data: [10, 20, 30], type: 'bar' },
-                { key: 'b', label: 'B', data: [5, 15, 25], type: 'bar' },
-                { key: 'l', label: 'L', data: [40, 50, 60], type: 'line' },
-            ]
+        // Two bar series (per-band sums up to 55) plus a small line, so the bars — not the line —
+        // drive the value axis and stacked vs grouped produce a visibly different y-domain top.
+        const STACKABLE: Series[] = [
+            { key: 'a', label: 'A', data: [10, 20, 30], type: 'bar' },
+            { key: 'b', label: 'B', data: [5, 15, 25], type: 'bar' },
+            { key: 'l', label: 'L', data: [1, 1, 1], type: 'line' },
+        ]
+        const maxTick = (ticks: string[]): number => Math.max(...ticks.map(Number))
+
+        it('stacks bar segments so the y-axis spans the stacked total', () => {
             const { chart } = renderHogChart(
-                <TimeSeriesComboChart series={series} labels={LABELS} theme={THEME} config={{ barLayout }} />
+                <TimeSeriesComboChart
+                    series={STACKABLE}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked' }}
+                />
             )
-            expect(chart.yTicks().length).toBeGreaterThan(0)
+            expect(maxTick(chart.yTicks())).toBeGreaterThanOrEqual(55)
+        })
+
+        it('groups bars so the y-axis spans only the tallest single value', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesComboChart
+                    series={STACKABLE}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'grouped' }}
+                />
+            )
+            expect(maxTick(chart.yTicks())).toBeLessThan(55)
         })
     })
 

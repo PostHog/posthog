@@ -31,8 +31,7 @@ export type SqlLineYSeries = AxisSeries<number | null> | AxisBreakdownSeries<num
 export const isAreaSeries = (visualizationType: ChartDisplayType, settings: AxisSeriesSettings | undefined): boolean =>
     visualizationType === ChartDisplayType.ActionsAreaGraph || settings?.display?.displayType === 'area'
 
-/** Per-series quill `type`, derived from the column's `displayType` override and falling back to the
- *  chart-level visualization type for `auto`/unset. Drives mixed-type rendering on {@link ComboChart}. */
+/** Per-series quill `type` that drives mixed-type rendering on {@link ComboChart}. */
 export function seriesDisplayType(
     visualizationType: ChartDisplayType,
     settings: AxisSeriesSettings | undefined
