@@ -322,16 +322,16 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.goalLines?.[0]).toMatchObject({ value: 100, label: 'Target' })
         })
 
-        it('wires trend lines from series that opt in, keyed to match buildSeries', () => {
-            const ySeriesData = [ySeries('a', [1, 2], { display: { trendLine: true } }), ySeries('b', [3, 4])]
+        it.each<[string, SqlLineYSeries[], TrendLineConfig[]]>([
+            [
+                'wires trend lines from series that opt in, keyed to match buildSeries',
+                [ySeries('a', [1, 2], { display: { trendLine: true } }), ySeries('b', [3, 4])],
+                [{ seriesKey: 'a-0', kind: 'linear' }],
+            ],
+            ['omits trend lines when no series opts in', [ySeries('a', [1, 2]), ySeries('b', [3, 4])], []],
+        ])('%s', (_name, ySeriesData, expected) => {
             const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', ySeriesData })
-            expect(config.trendLines).toEqual([{ seriesKey: 'a-0', kind: 'linear' }])
-        })
-
-        it('omits trend lines when no series opts in', () => {
-            const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4])]
-            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', ySeriesData })
-            expect(config.trendLines).toEqual([])
+            expect(config.trendLines).toEqual(expected)
         })
     })
 
