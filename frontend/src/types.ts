@@ -3355,6 +3355,9 @@ export interface FunnelStep {
     data?: number[]
     days?: string[]
 
+    /** Set by the funnel compare orchestrator to tag which period a step belongs to. */
+    compare_label?: 'current' | 'previous'
+
     /** Url that you can GET to retrieve the people that converted in this step */
     converted_people_url: string
 
@@ -5287,6 +5290,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'postgresql',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -6297,11 +6301,12 @@ export type BatchExportServiceS3Compatible = {
 
 export type BatchExportServicePostgres = {
     type: 'Postgres'
+    integration?: number
     config: {
-        user: string
-        password: string
-        host: string
-        port: number
+        user?: string
+        password?: string
+        host?: string
+        port?: number
         database: string
         schema: string
         table_name: string

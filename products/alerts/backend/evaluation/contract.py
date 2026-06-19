@@ -35,11 +35,25 @@ class ExtractionResult:
     interval_type: IntervalType | None = None  # breach-message interval framing (time-series trends only)
     subject: str = "The insight value"  # breach-message subject
     framed: bool = True  # include the "(label) for current/previous interval" framing
-    # Detector path only: the query returned zero rows, so the metric is genuinely 0. An empty
-    # ``series`` with this False instead means rows existed but none were long enough to score —
+    # Detector-path-only: True means the query returned zero rows, so the metric is genuinely 0. An
+    # empty ``series`` with this False instead means rows existed but none were long enough to score —
     # the detector reports that as an uncomputed value (None). Threshold extractors never set this
     # (they emit a zero sentinel series) and the comparator ignores it.
     empty_query_result: bool = False
+    # When True, every breaching series is reported (capped) instead of stopping at the first —
+    # any-row SQL alerts use this so the notification names all violating rows. Trends breakdowns
+    # keep first-breach-only for parity with their historical messages.
+    aggregate_breaches: bool = False
+
+
+def zero_sentinel_series() -> ComparableSeries:
+    """The shared empty-result sentinel: two zero points so relative conditions compute
+    0 - 0 = 0 rather than skipping for lack of a previous point; absolute reads 0 at the anchor."""
+    return ComparableSeries(
+        label="empty result",
+        points=[SeriesPoint(date=None, value=0.0), SeriesPoint(date=None, value=0.0)],
+        current_index=1,
+    )
 
 
 class AlertExtractionError(Exception):

@@ -197,7 +197,9 @@ export function InsightMeta({
             : true
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
+        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
+    })
 
     const canToggleDisplayLabels = isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight
     const canToggleLegend = isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight
