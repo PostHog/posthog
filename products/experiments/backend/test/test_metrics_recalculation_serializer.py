@@ -9,6 +9,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentMetricsRecalculationSerializer,
     MetricRecalculationResultSerializer,
     RecalculateMetricsRequestSerializer,
+    RetryMetricRequestSerializer,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -109,6 +110,18 @@ class TestRecalculateMetricsRequestSerializer(BaseTest):
         s = RecalculateMetricsRequestSerializer(data={"trigger": "nonsense"})
         assert not s.is_valid()
         assert "trigger" in s.errors
+
+
+class TestRetryMetricRequestSerializer(BaseTest):
+    def test_requires_metric_uuid(self):
+        s = RetryMetricRequestSerializer(data={})
+        assert not s.is_valid()
+        assert "metric_uuid" in s.errors
+
+    def test_accepts_metric_uuid(self):
+        s = RetryMetricRequestSerializer(data={"metric_uuid": "m1"})
+        assert s.is_valid(), s.errors
+        assert s.validated_data["metric_uuid"] == "m1"
 
 
 class TestMetricRecalculationResultSerializer(BaseTest):

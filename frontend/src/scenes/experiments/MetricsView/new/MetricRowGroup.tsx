@@ -120,6 +120,7 @@ interface CollapsibleBreakdownSectionProps {
     scale: ReturnType<typeof useAxisScale>
     onRemoveBreakdown: (index: number) => void
     onRetry: () => void
+    retrying?: boolean
     query?: Record<string, any>
     handleTooltipMouseEnter: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
     handleTooltipMouseLeave: (e: React.MouseEvent) => void
@@ -139,6 +140,7 @@ function CollapsibleBreakdownSection({
     scale,
     onRemoveBreakdown,
     onRetry,
+    retrying,
     query,
     handleTooltipMouseEnter,
     handleTooltipMouseLeave,
@@ -253,7 +255,10 @@ function CollapsibleBreakdownSection({
                                                                             experimentStarted={isLaunched(experiment)}
                                                                             metric={metric}
                                                                             query={query}
-                                                                            onRetry={onRetry}
+                                                                            onRetry={
+                                                                                isRecalculating ? undefined : onRetry
+                                                                            }
+                                                                            retrying={retrying}
                                                                         />
                                                                     )}
                                                                 </td>
@@ -595,18 +600,16 @@ export function MetricRowGroup({
 
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric, refreshExperimentResults } =
-        useActions(experimentLogic)
+    const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric } = useActions(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { isRecalculating } = useValues(experimentMetricsLogic({ experiment }))
-    const { triggerRecalculation } = useActions(experimentMetricsLogic({ experiment }))
+    const { isRecalculating, retryingMetrics } = useValues(experimentMetricsLogic({ experiment }))
+    const { retryMetric } = useActions(experimentMetricsLogic({ experiment }))
 
-    // On the recalculation flow, retrying a single metric just re-runs the whole recalculation (plus
-    // exposures) — same as the manual reload. The legacy flow retries the single metric in place.
+    // On the recalculation flow, retry just this metric within the existing run (reusing its query_to)
+    // instead of re-running every metric. The legacy flow retries the single metric in place.
     const handleRetry = (): void => {
         if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-            triggerRecalculation()
-            refreshExperimentResults(true, 'manual')
+            retryMetric(metric.uuid as string)
             return
         }
         if (isSecondary) {
@@ -615,6 +618,8 @@ export function MetricRowGroup({
             retryPrimaryMetric(metricIndex)
         }
     }
+
+    const isThisMetricRetrying = !!metric?.uuid && retryingMetrics.includes(metric.uuid as string)
 
     // Build query for debugger link
     const debugQuery = metric
@@ -764,7 +769,8 @@ export function MetricRowGroup({
                                 metric={metric}
                                 error={error}
                                 query={debugQuery}
-                                onRetry={handleRetry}
+                                onRetry={isRecalculating ? undefined : handleRetry}
+                                retrying={isThisMetricRetrying}
                             />
                         )}
                     </td>
@@ -1074,6 +1080,7 @@ export function MetricRowGroup({
                     scale={scale}
                     onRemoveBreakdown={onRemoveBreakdown}
                     onRetry={handleRetry}
+                    retrying={isThisMetricRetrying}
                     query={debugQuery}
                     handleTooltipMouseEnter={handleTooltipMouseEnter}
                     handleTooltipMouseLeave={handleTooltipMouseLeave}

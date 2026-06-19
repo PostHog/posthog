@@ -907,6 +907,14 @@ export interface ExperimentMetricsRecalculationApi {
     readonly results: readonly MetricRecalculationResultApi[]
 }
 
+/**
+ * Request body for retrying a single failed metric within an existing recalculation.
+ */
+export interface RetryMetricRequestApi {
+    /** UUID of the failed metric to recompute within the existing recalculation run. */
+    metric_uuid: string
+}
+
 export interface ShipVariantApi {
     /** The conclusion of the experiment.
      *

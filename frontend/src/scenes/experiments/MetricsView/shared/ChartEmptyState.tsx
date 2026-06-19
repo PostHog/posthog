@@ -15,6 +15,7 @@ interface ChartEmptyStateProps {
     error?: any
     query?: Record<string, any>
     onRetry?: () => void
+    retrying?: boolean
 }
 
 export function ChartEmptyState({
@@ -24,6 +25,7 @@ export function ChartEmptyState({
     metric,
     query,
     onRetry,
+    retrying = false,
 }: ChartEmptyStateProps): JSX.Element | null {
     /**
      * early return if experiment has not started
@@ -69,7 +71,14 @@ export function ChartEmptyState({
                 <ErrorChecklist error={error} metric={metric} />
             ) : (
                 // Use rich error state for all other errors
-                <MetricErrorState error={error} metric={metric} query={query} onRetry={onRetry} height={height} />
+                <MetricErrorState
+                    error={error}
+                    metric={metric}
+                    query={query}
+                    onRetry={onRetry}
+                    retrying={retrying}
+                    height={height}
+                />
             )}
         </div>
     )

@@ -57,6 +57,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
     RecalculateMetricsRequestSerializer,
+    RetryMetricRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
     ShipVariantSerializer,
@@ -67,6 +68,7 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
+    request_single_metric_retry,
 )
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
@@ -78,6 +80,7 @@ from products.experiments.backend.running_time_calculator import (
 )
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
+    ExperimentSingleMetricRetryWorkflowInputs as SingleMetricRetryInputs,
 )
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
@@ -935,6 +938,47 @@ class EnterpriseExperimentsViewSet(
         if recalc is None:
             return Response({"detail": "Recalculation not found"}, status=404)
         return Response(_serialize_recalculation(recalc))
+
+    @extend_schema(
+        request=RetryMetricRequestSerializer,
+        responses={200: ExperimentMetricsRecalculationSerializer, 404: None},
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path=r"metrics_recalculation/(?P<recalculation_id>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/retry_metric",
+        required_scopes=["experiment:write"],
+    )
+    def retry_metric(self, request: Request, recalculation_id: str, *args: Any, **kwargs: Any) -> Response:
+        """Recompute a single failed metric within an existing recalculation, reusing the run's query_to.
+
+        Returns the recalculation payload (still `failed` while the retry runs). Clients poll
+        `GET metrics_recalculation/{id}/` to see the metric's result/error update.
+        """
+        experiment: Experiment = self.get_object()
+        recalc = get_recalculation_by_id(experiment, recalculation_id)
+        if recalc is None:
+            return Response({"detail": "Recalculation not found"}, status=404)
+
+        request_serializer = RetryMetricRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        metric_uuid = request_serializer.validated_data["metric_uuid"]
+
+        result = request_single_metric_retry(experiment, recalc, metric_uuid)
+
+        # No rollback-to-FAILED here (unlike the batch create path): the run is already terminal, so a
+        # failed-to-start retry leaves it exactly as it was. Surface the error to the caller.
+        temporal = sync_connect()
+        asyncio.run(
+            temporal.start_workflow(
+                "experiment-single-metric-retry-workflow",
+                SingleMetricRetryInputs(recalculation_id=str(recalc.id), metric_uuid=metric_uuid),
+                id=f"experiment-metric-retry-{recalc.id}-{metric_uuid}",
+                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            )
+        )
+
+        return Response(ExperimentMetricsRecalculationSerializer(result).data, status=200)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:

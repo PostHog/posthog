@@ -15,6 +15,7 @@ import {
     experimentsMetricsRecalculationCreate,
     experimentsMetricsRecalculationLatestRetrieve,
     experimentsMetricsRecalculationRetrieve,
+    experimentsMetricsRecalculationRetryMetricCreate,
 } from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentMetricsRecalculationApi,
@@ -139,6 +140,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         setPrimaryMetricsResultsErrors: (errors: (unknown | null)[]) => ({ errors }),
         setSecondaryMetricsResultsErrors: (errors: (unknown | null)[]) => ({ errors }),
         setRecalculationLoading: (loading: boolean) => ({ loading }),
+        retryMetric: (metricUuid: string) => ({ metricUuid }),
+        startMetricRetry: (metricUuid: string) => ({ metricUuid }),
+        finishMetricRetry: (metricUuid: string) => ({ metricUuid }),
     }),
     reducers({
         currentRecalculation: [
@@ -179,6 +183,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 setSecondaryMetricsResultsErrors: (_, { errors }) => errors,
             },
         ],
+        // metric_uuids with an in-flight single-metric retry. A set, so independent metrics retry concurrently.
+        retryingMetrics: [
+            [] as string[],
+            {
+                startMetricRetry: (state, { metricUuid }) =>
+                    state.includes(metricUuid) ? state : [...state, metricUuid],
+                finishMetricRetry: (state, { metricUuid }) => state.filter((uuid) => uuid !== metricUuid),
+            },
+        ],
     }),
     selectors({
         // True while a recalculation is being fetched or is still running.
@@ -197,6 +210,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             }),
         ],
         lastRefresh: [(s) => [s.currentRecalculation], (recalc): string | null => recalc?.query_to ?? null],
+        isMetricRetrying: [
+            (s) => [s.retryingMetrics],
+            (retryingMetrics): ((metricUuid: string) => boolean) =>
+                (metricUuid) =>
+                    retryingMetrics.includes(metricUuid),
+        ],
     }),
     listeners(({ actions, values, props, cache }) => {
         const flagEnabled = (): boolean => !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
@@ -478,6 +497,58 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     lemonToast.error(
                         `${recalculation.failed_metrics} of ${recalculation.total_metrics} metrics failed to load`
                     )
+                }
+            },
+            /**
+             * Recompute a single failed metric within the existing run, reusing its query_to. Sets a per-metric
+             * loading flag, then polls the run until that metric's slot resolves (a completed result or a fresh
+             * error). Each poll re-applies the whole payload (idempotent, positional), so only the retried cell
+             * changes. breakpoint cancels the poll if a newer retry of the same metric fires or the logic unmounts.
+             */
+            retryMetric: async ({ metricUuid }, breakpoint) => {
+                if (!flagEnabled() || !experimentIsLaunched()) {
+                    return
+                }
+                const recalc = values.currentRecalculation
+                const resolvedIds = ids()
+                if (!recalc || !resolvedIds || values.retryingMetrics.includes(metricUuid)) {
+                    return
+                }
+                const { projectId, experimentId } = resolvedIds
+                actions.startMetricRetry(metricUuid)
+                try {
+                    await experimentsMetricsRecalculationRetryMetricCreate(String(projectId), experimentId, recalc.id, {
+                        metric_uuid: metricUuid,
+                    })
+
+                    // Poll until this metric's slot is no longer pending: a completed result OR a fresh error.
+                    for (let attempt = 0; attempt < MAX_POLL_RETRIES; attempt++) {
+                        await breakpoint(RECALCULATION_POLL_INTERVAL_MS)
+                        let updated: ExperimentMetricsRecalculationApi
+                        try {
+                            updated = await experimentsMetricsRecalculationRetrieve(
+                                String(projectId),
+                                experimentId,
+                                recalc.id
+                            )
+                        } catch {
+                            continue
+                        }
+                        actions.setCurrentRecalculation(updated)
+                        applyResults(updated)
+
+                        const hasResult = (updated.results ?? []).some(
+                            (r) => r.metric_uuid === metricUuid && r.status === 'completed'
+                        )
+                        const hasError = !!(updated.metric_errors as Record<string, unknown> | null)?.[metricUuid]
+                        if (hasResult || hasError) {
+                            break
+                        }
+                    }
+                } catch (error: any) {
+                    lemonToast.error(error?.detail || 'Failed to retry metric')
+                } finally {
+                    actions.finishMetricRetry(metricUuid)
                 }
             },
         }

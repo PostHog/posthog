@@ -705,6 +705,14 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     )
 
 
+class RetryMetricRequestSerializer(serializers.Serializer):
+    """Request body for retrying a single failed metric within an existing recalculation."""
+
+    metric_uuid = serializers.CharField(
+        help_text="UUID of the failed metric to recompute within the existing recalculation run."
+    )
+
+
 class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     """Serializer for metrics recalculation status responses."""
 

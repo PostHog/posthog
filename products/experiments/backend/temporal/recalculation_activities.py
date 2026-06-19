@@ -52,3 +52,26 @@ async def calculate_experiment_metric_for_recalculation(
     return await _calculate_experiment_metric_for_recalculation_sync(
         experiment_id, metric_uuid, recalculation_id, query_to, metric_type
     )
+
+
+@temporalio.activity.defn
+async def resolve_single_metric_retry_context(recalculation_id: str, metric_uuid: str) -> dict:
+    """Resolve experiment_id / query_to / metric_type for a single-metric retry from the run row.
+
+    Runs before the calc activity in the retry workflow, since the workflow can't read the DB directly.
+    """
+    # Deferred import to break a load-time cycle: recalculation.py imports recalculation_logic.py, and the
+    # worker registry imports this activities module, so importing recalculation.py at top would partially
+    # initialize it during codegen/startup. noqa: PLC0415 — justified circular-import break.
+    from products.experiments.backend.recalculation import resolve_single_metric_retry_context as _impl  # noqa: PLC0415
+
+    return await _impl(recalculation_id, metric_uuid)
+
+
+@temporalio.activity.defn
+async def finalize_single_metric_retry(recalculation_id: str, metric_uuid: str) -> None:
+    """Reconcile the run row after a single-metric retry: clear the metric's error on success, recompute status."""
+    # Deferred import to break a load-time cycle (see resolve_single_metric_retry_context above).
+    from products.experiments.backend.recalculation import finalize_single_metric_retry as _impl  # noqa: PLC0415
+
+    return await _impl(recalculation_id, metric_uuid)

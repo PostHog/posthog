@@ -18,10 +18,12 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import (
+    _finalize_single_metric_retry_sync,
     get_latest_recalculation,
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
+    request_single_metric_retry,
 )
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -325,3 +327,136 @@ class TestRecalculationService(BaseTest):
         exp = self._launched_experiment()
         recalc = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
         assert get_run_results(recalc) == []
+
+
+@pytest.mark.django_db(transaction=True)
+class TestSingleMetricRetry(BaseTest):
+    def _flag(self, key: str) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=key,
+            name=f"Flag for {key}",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+    def _experiment_with_metrics(self, flag_key: str, metric_uuids: list[str]) -> Experiment:
+        exp = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=self._flag(flag_key),
+            name="exp",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        exp.metrics = [_mean_metric(uuid) for uuid in metric_uuids]
+        exp.save()
+        return exp
+
+    def _recalc_fp(self, exp: Experiment, recalc: ExperimentMetricsRecalculation, metric_uuid: str) -> str:
+        metric_dict = next(m for m in exp.metrics if m["uuid"] == metric_uuid)
+        config_fp = compute_metric_fingerprint(
+            metric_dict,
+            exp.start_date,
+            get_experiment_stats_method(exp),
+            exp.exposure_criteria,
+            only_count_matured_users=exp.only_count_matured_users,
+        )
+        return compute_recalc_fingerprint(config_fp, str(recalc.id))
+
+    def _failed_recalc(
+        self,
+        flag_key: str,
+        metric_uuids: list[str],
+        *,
+        query_to: datetime | None,
+        failing: list[str],
+    ) -> tuple[Experiment, ExperimentMetricsRecalculation]:
+        exp = self._experiment_with_metrics(flag_key, metric_uuids)
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="failed",
+            metric_uuids=metric_uuids,
+            query_to=query_to,
+            metric_errors={uuid: {"step": "calculation", "message": "boom"} for uuid in failing},
+        )
+        if query_to is not None:
+            for uuid in metric_uuids:
+                is_failing = uuid in failing
+                ExperimentMetricResult.objects.create(
+                    experiment=exp,
+                    metric_uuid=uuid,
+                    fingerprint=self._recalc_fp(exp, recalc, uuid),
+                    query_from=exp.start_date,
+                    query_to=query_to,
+                    status="failed" if is_failing else "completed",
+                    result=None if is_failing else {"ok": True},
+                    error_message="boom" if is_failing else None,
+                )
+        return exp, recalc
+
+    def _store_completed(self, exp: Experiment, recalc: ExperimentMetricsRecalculation, metric_uuid: str) -> None:
+        # Simulate the retry's calc activity overwriting the failed row with a completed one.
+        ExperimentMetricResult.objects.update_or_create(
+            experiment=exp,
+            metric_uuid=metric_uuid,
+            fingerprint=self._recalc_fp(exp, recalc, metric_uuid),
+            query_to=recalc.query_to,
+            defaults={
+                "query_from": exp.start_date,
+                "status": "completed",
+                "result": {"ok": True},
+                "error_message": None,
+            },
+        )
+
+    def test_request_rejects_metric_not_in_run(self):
+        exp, recalc = self._failed_recalc("r1", ["m1"], query_to=timezone.now(), failing=["m1"])
+        with self.assertRaises(ValidationError):
+            request_single_metric_retry(exp, recalc, "not-in-run")
+
+    def test_request_rejects_when_metric_not_failed(self):
+        exp, recalc = self._failed_recalc("r2", ["m1"], query_to=timezone.now(), failing=[])
+        with self.assertRaises(ValidationError):
+            request_single_metric_retry(exp, recalc, "m1")
+
+    def test_request_rejects_when_query_to_missing(self):
+        exp, recalc = self._failed_recalc("r3", ["m1"], query_to=None, failing=["m1"])
+        with self.assertRaises(ValidationError):
+            request_single_metric_retry(exp, recalc, "m1")
+
+    def test_request_returns_payload_for_failed_metric(self):
+        exp, recalc = self._failed_recalc("r4", ["m1"], query_to=timezone.now(), failing=["m1"])
+        payload = request_single_metric_retry(exp, recalc, "m1")
+        assert payload["id"] == str(recalc.id)
+        assert payload["status"] == "failed"
+
+    def test_finalize_clears_error_and_completes_when_last_failure(self):
+        exp, recalc = self._failed_recalc("r5", ["m1"], query_to=timezone.now(), failing=["m1"])
+        self._store_completed(exp, recalc, "m1")
+
+        _finalize_single_metric_retry_sync(str(recalc.id), "m1")
+
+        recalc.refresh_from_db()
+        assert "m1" not in (recalc.metric_errors or {})
+        assert recalc.status == ExperimentMetricsRecalculation.Status.COMPLETED
+
+    def test_finalize_keeps_failed_when_another_metric_still_failing(self):
+        exp, recalc = self._failed_recalc("r6", ["m1", "m2"], query_to=timezone.now(), failing=["m1", "m2"])
+        self._store_completed(exp, recalc, "m1")  # only m1 recovers
+
+        _finalize_single_metric_retry_sync(str(recalc.id), "m1")
+
+        recalc.refresh_from_db()
+        assert "m1" not in (recalc.metric_errors or {})
+        assert "m2" in (recalc.metric_errors or {})
+        assert recalc.status == ExperimentMetricsRecalculation.Status.FAILED
+
+    def test_finalize_keeps_error_when_retry_failed_again(self):
+        # No completed result stored: the retry's calc wrote a fresh FAILED row + error.
+        exp, recalc = self._failed_recalc("r7", ["m1"], query_to=timezone.now(), failing=["m1"])
+
+        _finalize_single_metric_retry_sync(str(recalc.id), "m1")
+
+        recalc.refresh_from_db()
+        assert recalc.status == ExperimentMetricsRecalculation.Status.FAILED

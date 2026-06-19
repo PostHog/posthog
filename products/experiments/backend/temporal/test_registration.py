@@ -1,6 +1,9 @@
 from products.experiments.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.experiments.backend.temporal.canary_workflow import ExperimentPrecomputeCanaryWorkflow
-from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
+from products.experiments.backend.temporal.recalculation_workflow import (
+    ExperimentMetricsRecalculationWorkflow,
+    ExperimentSingleMetricRetryWorkflow,
+)
 
 
 def test_activities_registered():
@@ -9,6 +12,8 @@ def test_activities_registered():
         "discover_experiment_metrics",
         "calculate_experiment_metric_for_recalculation",
         "update_recalculation_progress",
+        "resolve_single_metric_retry_context",
+        "finalize_single_metric_retry",
         "sample_experiment_canary_targets",
         "run_experiment_metric_canary",
         "report_experiment_canary_results",
@@ -16,4 +21,8 @@ def test_activities_registered():
 
 
 def test_workflow_registered():
-    assert WORKFLOWS == [ExperimentMetricsRecalculationWorkflow, ExperimentPrecomputeCanaryWorkflow]
+    assert WORKFLOWS == [
+        ExperimentMetricsRecalculationWorkflow,
+        ExperimentSingleMetricRetryWorkflow,
+        ExperimentPrecomputeCanaryWorkflow,
+    ]

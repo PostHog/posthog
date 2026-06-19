@@ -589,6 +589,95 @@ describe('experimentMetricsLogic', () => {
         })
     })
 
+    describe('retryMetric', () => {
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        // The retry succeeds: the failed primary metric now has a result and its error is cleared.
+        const retriedRun = {
+            ...partialFailureRecalculation,
+            status: 'completed',
+            failed_metrics: 0,
+            metric_errors: {},
+            results: [
+                { metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null },
+                {
+                    metric_uuid: SECONDARY_METRIC_UUID,
+                    status: 'completed',
+                    result: secondaryResult,
+                    error_message: null,
+                },
+            ],
+        }
+
+        it('calls retry, marks the metric retrying, then polls until it resolves and clears its error', async () => {
+            let retryBody: any
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [200, retriedRun],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, pendingRecalculation],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/retry_metric/': async ({
+                        request,
+                    }) => {
+                        retryBody = await request.json()
+                        return [200, partialFailureRecalculation]
+                    },
+                },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+            await jest.advanceTimersByTimeAsync(0)
+
+            // Seed a terminal failed run with the primary metric failed, then retry just that metric.
+            logic.actions.setCurrentRecalculation(partialFailureRecalculation as any)
+            logic.actions.retryMetric(PRIMARY_METRIC_UUID)
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.retryingMetrics).toContain(PRIMARY_METRIC_UUID)
+
+            for (let i = 0; i < 2; i++) {
+                await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            }
+
+            expect(retryBody).toEqual({ metric_uuid: PRIMARY_METRIC_UUID })
+            expect(logic.values.retryingMetrics).not.toContain(PRIMARY_METRIC_UUID)
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            expect(logic.values.primaryMetricsResultsErrors[0]).toBeNull()
+        })
+
+        it('does not start a second retry for a metric already retrying', async () => {
+            const retryMock = jest.fn(() => [200, partialFailureRecalculation])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        partialFailureRecalculation,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, pendingRecalculation],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/retry_metric/': retryMock,
+                },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+            await jest.advanceTimersByTimeAsync(0)
+
+            logic.actions.setCurrentRecalculation(partialFailureRecalculation as any)
+            logic.actions.retryMetric(PRIMARY_METRIC_UUID)
+            await jest.advanceTimersByTimeAsync(0)
+            // Second dispatch while the first is in flight is a no-op (guarded on retryingMetrics).
+            logic.actions.retryMetric(PRIMARY_METRIC_UUID)
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(retryMock).toHaveBeenCalledTimes(1)
+        })
+    })
+
     describe('tab focus does not clobber a loaded run', () => {
         it('does not reload latest on focus once a run is already loaded', async () => {
             const latestMock = jest.fn(() => [200, completedRecalculation])
