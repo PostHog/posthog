@@ -10,7 +10,7 @@ export const worker: ReturnType<typeof setupWorker> = setupWorker(...handlers)
 
 export const useStorybookMocks = (mocks: Mocks): void => worker.use(...mocksToHandlers(mocks))
 
-export const mswDecorator = (mocks: Mocks): Decorator => {
+export const mswDecorator = (mocks: Mocks): Decorator<any> => {
     return function StoryMock(Story, { parameters }): JSX.Element {
         // merge the default mocks provided in `preview.tsx` with any provided by the story
         // allow the story to override defaults
