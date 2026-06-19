@@ -128,10 +128,13 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion, team_
             "type": "object",
             "description": "Error response body.",
             "properties": {
-                "type": {"type": "string", "description": "Error category, e.g. 'validation_error'."},
+                "type": {
+                    "type": "string",
+                    "description": "Coarse error category (e.g. 'validation_error', 'server_error'). Branch on `code`, not `type`.",
+                },
                 "code": {
                     "type": "string",
-                    "description": "Stable machine-readable error code, e.g. 'query_timeout' or 'query_capacity'.",
+                    "description": "Stable machine-readable error code to branch on, e.g. 'query_timeout' or 'query_capacity'.",
                 },
                 "detail": {"type": "string", "description": "Human-readable explanation and remediation."},
                 "attr": {
