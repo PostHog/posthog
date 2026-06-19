@@ -8,8 +8,8 @@ import api, { ApiConfig, getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { clearSession, isOAuthMode } from 'lib/oauth/oauthClient'
-import { getAppContext, setOAuthContextIds } from 'lib/utils/getAppContext'
+import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'

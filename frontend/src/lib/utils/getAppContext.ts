@@ -1,4 +1,4 @@
-import { isOAuthMode } from 'lib/oauth/oauthClient'
+import { getOAuthContextIds, isOAuthMode } from 'lib/oauth/oauthClient'
 
 import { AppContext, OrganizationType, PathType, TeamType, UserType } from '~/types'
 
@@ -7,22 +7,6 @@ declare global {
         POSTHOG_APP_CONTEXT?: AppContext
         STRIPE_PUBLIC_KEY?: string
     }
-}
-
-interface OAuthContextIds {
-    teamId?: TeamType['id']
-    organizationId?: OrganizationType['id']
-    userId?: UserType['uuid']
-}
-
-// In OAuth mode getAppContext() has no server-rendered context, so these bootstrap ids are
-// pushed here from userLogic once the remote user loads. Kept local (rather than read from
-// ApiConfig in the heavy lib/api) so this module stays a leaf import — importing lib/api here
-// creates a module-init cycle that crashes under non-bundler loaders (e.g. the Playwright runner).
-let oauthContextIds: OAuthContextIds | null = null
-
-export function setOAuthContextIds(ids: OAuthContextIds | null): void {
-    oauthContextIds = ids
 }
 
 export function getAppContext(): AppContext | undefined {
@@ -63,7 +47,7 @@ export function getDefaultEventLabel(): string {
 // NOTE: Any changes to the teamId trigger a full page load so we don't use the logic
 // This helps avoid circular imports
 export function getCurrentTeamId(): TeamType['id'] {
-    const maybeTeamId = getAppContext()?.current_team?.id ?? (isOAuthMode() ? oauthContextIds?.teamId : undefined)
+    const maybeTeamId = getAppContext()?.current_team?.id ?? (isOAuthMode() ? getOAuthContextIds()?.teamId : undefined)
     if (!maybeTeamId) {
         throw new Error(`Project ID is not known.${getAppContext()?.anonymous ? ' User is anonymous.' : ''}`)
     }
@@ -71,13 +55,14 @@ export function getCurrentTeamId(): TeamType['id'] {
 }
 
 export function getCurrentTeamIdOrNone(): TeamType['id'] | null {
-    return getAppContext()?.current_team?.id ?? (isOAuthMode() ? (oauthContextIds?.teamId ?? null) : null)
+    return getAppContext()?.current_team?.id ?? (isOAuthMode() ? (getOAuthContextIds()?.teamId ?? null) : null)
 }
 
 // NOTE: Any changes to the userId trigger a full page load so we don't use the logic
 // This helps avoid circular imports
 export function getCurrentUserId(): UserType['uuid'] {
-    const maybeUserId = getAppContext()?.current_user?.uuid ?? (isOAuthMode() ? oauthContextIds?.userId : undefined)
+    const maybeUserId =
+        getAppContext()?.current_user?.uuid ?? (isOAuthMode() ? getOAuthContextIds()?.userId : undefined)
     if (!maybeUserId) {
         throw new Error(`User ID is not known.${getAppContext()?.anonymous ? ' User is anonymous.' : ''}`)
     }
@@ -85,14 +70,15 @@ export function getCurrentUserId(): UserType['uuid'] {
 }
 
 export function getCurrentUserIdOrNone(): UserType['uuid'] | null {
-    return getAppContext()?.current_user?.uuid ?? (isOAuthMode() ? (oauthContextIds?.userId ?? null) : null)
+    return getAppContext()?.current_user?.uuid ?? (isOAuthMode() ? (getOAuthContextIds()?.userId ?? null) : null)
 }
 
 // NOTE: Any changes to the organizationId trigger a full page load so we don't use the logic
 // This helps avoid circular imports
 export function getCurrentOrganizationId(): OrganizationType['id'] {
     const maybeOrgId =
-        getAppContext()?.current_team?.organization ?? (isOAuthMode() ? oauthContextIds?.organizationId : undefined)
+        getAppContext()?.current_team?.organization ??
+        (isOAuthMode() ? getOAuthContextIds()?.organizationId : undefined)
     if (!maybeOrgId) {
         throw new Error(`Organization ID is not known.${getAppContext()?.anonymous ? ' User is anonymous.' : ''}`)
     }
