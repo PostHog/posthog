@@ -544,6 +544,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
+        ai_stage: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -567,6 +568,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             sandbox_resources=sandbox_resources,
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
+            ai_stage=ai_stage,
         )
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
