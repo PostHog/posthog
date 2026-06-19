@@ -24,6 +24,8 @@ export interface ResetOpts {
 
 // Truncated in FK-safe order (CASCADE handles the rest).
 const AGENT_TABLES = [
+    'agent_identity_link_state',
+    'agent_identity_credential',
     'agent_tool_approval_request',
     'agent_session_credential',
     'agent_sandbox_instance',
@@ -72,6 +74,13 @@ CREATE INDEX "atar_app_idx" ON "agent_tool_approval_request" ("application_id", 
 CREATE INDEX "atar_session_idx" ON "agent_tool_approval_request" ("session_id", "created_at" DESC);
 ALTER TABLE "agent_user" ADD CONSTRAINT "agent_user_unique_natural_key" UNIQUE ("application_id", "principal_kind", "principal_id");
 CREATE INDEX "agent_user_team_id_4702652f" ON "agent_user" ("team_id");
+CREATE TABLE "agent_identity_credential" ("id" uuid NOT NULL PRIMARY KEY, "team_id" bigint NOT NULL, "application_id" uuid NOT NULL, "agent_user_id" uuid NOT NULL, "provider" text NOT NULL, "encrypted_credentials" text NOT NULL, "scopes" text[] DEFAULT '{}' NOT NULL, "state" text DEFAULT 'active' NOT NULL, "access_expires_at" timestamp with time zone NULL, "created_at" timestamp with time zone DEFAULT (STATEMENT_TIMESTAMP()) NOT NULL, "updated_at" timestamp with time zone DEFAULT (STATEMENT_TIMESTAMP()) NOT NULL, "revoked_at" timestamp with time zone NULL);
+ALTER TABLE "agent_identity_credential" ADD CONSTRAINT "agent_identity_credential_unique_user_provider" UNIQUE ("agent_user_id", "provider");
+CREATE INDEX "aic_application_idx" ON "agent_identity_credential" ("application_id");
+CREATE INDEX "agent_identity_credential_team_id" ON "agent_identity_credential" ("team_id");
+CREATE TABLE "agent_identity_link_state" ("id" uuid NOT NULL PRIMARY KEY, "team_id" bigint NOT NULL, "application_id" uuid NOT NULL, "agent_user_id" uuid NOT NULL, "provider" text NOT NULL, "scopes" text[] DEFAULT '{}' NOT NULL, "code_verifier" text NOT NULL, "redirect_uri" text NOT NULL, "expires_at" timestamp with time zone NOT NULL, "used_at" timestamp with time zone NULL, "created_at" timestamp with time zone DEFAULT (STATEMENT_TIMESTAMP()) NOT NULL);
+CREATE INDEX "ails_expires_idx" ON "agent_identity_link_state" ("expires_at");
+CREATE INDEX "agent_identity_link_state_team_id" ON "agent_identity_link_state" ("team_id");
 `
 
 /**
