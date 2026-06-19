@@ -64,7 +64,7 @@ class FunnelsExtractor:
             analytics_props={"source": EventSource.ALERT},
         )
 
-        breakdowns = _steps_per_breakdown(calculation_result.result, alert)
+        breakdowns = _steps_per_breakdown(_current_period_only(calculation_result.result), alert)
         series = [
             ComparableSeries(
                 label=_breakdown_label(steps),
@@ -80,6 +80,26 @@ class FunnelsExtractor:
             framed=False,
             unit="%",  # conversion rates are 0–100 percentages; match the configure-time UI
         )
+
+
+def _is_previous_period_row(row: Any) -> bool:
+    return isinstance(row, dict) and row.get("compare_label") == "previous"
+
+
+def _current_period_only(result: Any) -> Any:
+    """Drop previous-period rows from a compare-enabled funnel result before normalizing.
+
+    When the insight has compare-to-previous on, the funnel runner concatenates the current and
+    previous period rows into one result, each tagged with ``compare_label``. Funnel alerts evaluate
+    the current period, so the previous rows must be removed — otherwise ``funnel_step: null`` (the
+    default) would resolve to the last row, which is a previous-period step, and the conversion rate
+    would mix periods. No-op when compare is off (rows carry no ``compare_label``).
+    """
+    if not isinstance(result, list):
+        return result
+    if result and isinstance(result[0], list):
+        return [[row for row in steps if not _is_previous_period_row(row)] for steps in result]
+    return [row for row in result if not _is_previous_period_row(row)]
 
 
 def _steps_per_breakdown(result: Any, alert: AlertConfiguration) -> list[list[dict[str, Any]]]:

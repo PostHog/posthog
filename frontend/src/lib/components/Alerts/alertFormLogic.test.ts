@@ -752,6 +752,20 @@ describe('alertFormLogic', () => {
                     hasBounds: true,
                 },
             ],
+            [
+                'compared funnel evaluates the current period only',
+                {
+                    result: [
+                        { order: 0, count: 1000, compare_label: 'current', breakdown_value: null },
+                        { order: 1, count: 100, compare_label: 'current', breakdown_value: null },
+                        { order: 0, count: 800, compare_label: 'previous', breakdown_value: null },
+                        { order: 1, count: 120, compare_label: 'previous', breakdown_value: null },
+                    ],
+                },
+                FROM_START,
+                undefined,
+                { status: 'ok', values: [value(null, 10, false)], isBreakdown: false, hasBounds: false },
+            ],
         ])('%s', (_name, insightData, config, bounds, expected) => {
             expect(
                 deriveFunnelAlertPreview(insightData as Record<string, any> | null, config as any, bounds as any)

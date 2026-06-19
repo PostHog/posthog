@@ -3,21 +3,14 @@ import { InsightsThresholdBounds } from '~/queries/schema/schema-general'
 import { hasThresholdBounds, valueBreachesBounds } from './alertPreviewShared'
 import { AlertConfig, isFunnelsAlertConfig } from './types'
 
-/** One conversion rate the alert would evaluate right now, with whether it breaches the threshold. */
 export interface FunnelAlertPreviewValue {
-    /** Breakdown value label; null for a non-breakdown funnel. */
-    label: string | null
-    /** Conversion rate, 0–100. */
-    rate: number
-    /** Whether this rate breaches the configured absolute bounds right now. */
+    label: string | null // breakdown value; null for a non-breakdown funnel
+    rate: number // 0–100
     breaching: boolean
 }
 
-/** What a funnel alert would evaluate right now — the conversion rate(s) at the configured step, plus
- * whether each breaches the current threshold. Mirrors the backend `_conversion_rate`/`_steps_per_breakdown`
- * (products/alerts/backend/evaluation/funnels.py) so the modal can preview the value (and a fires/ok
- * read-out) before the first run. Advisory only — the extractor is the evaluation-time authority; if you
- * change the backend math, update this too. */
+/** Advisory preview, mirroring the backend `_conversion_rate`/`_steps_per_breakdown`
+ * (products/alerts/backend/evaluation/funnels.py) — keep in sync if you change the backend math. */
 export type FunnelAlertPreview =
     | { status: 'no-data' }
     | { status: 'ok'; values: FunnelAlertPreviewValue[]; isBreakdown: boolean; hasBounds: boolean }
@@ -48,6 +41,18 @@ const _breakdownLabel = (steps: FunnelStep[]): string | null => {
     return Array.isArray(breakdown) ? breakdown.join(', ') : String(breakdown)
 }
 
+const _isPreviousPeriodRow = (row: any): boolean =>
+    row != null && typeof row === 'object' && row.compare_label === 'previous'
+
+/** Strip previous-period rows from a compare-enabled funnel result (mirror of the backend's
+ * `_current_period_only`); no-op when compare is off. */
+function _currentPeriodOnly(result: any[]): any[] {
+    if (Array.isArray(result[0])) {
+        return result.map((steps) => (Array.isArray(steps) ? steps.filter((row) => !_isPreviousPeriodRow(row)) : steps))
+    }
+    return result.filter((row) => !_isPreviousPeriodRow(row))
+}
+
 export function deriveFunnelAlertPreview(
     insightData: Record<string, any> | null,
     config: AlertConfig | null | undefined,
@@ -56,9 +61,15 @@ export function deriveFunnelAlertPreview(
     if (!isFunnelsAlertConfig(config)) {
         return null
     }
-    const result = insightData?.result
-    if (!Array.isArray(result) || result.length === 0) {
+    const rawResult = insightData?.result
+    if (!Array.isArray(rawResult) || rawResult.length === 0) {
         return null // No result loaded yet — fall back to the static hint
+    }
+    // Compare-enabled funnels concatenate current + previous period rows (tagged compare_label).
+    // Alerts evaluate the current period, so drop previous rows before normalizing (mirrors the backend).
+    const result = _currentPeriodOnly(rawResult)
+    if (result.length === 0) {
+        return null
     }
     // A non-breakdown funnel returns list[step]; a breakdown funnel returns list[list[step]].
     const isBreakdown = Array.isArray(result[0])
