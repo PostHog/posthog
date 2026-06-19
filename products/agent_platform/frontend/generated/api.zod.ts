@@ -167,6 +167,13 @@ export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
 
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecIntegrationsDefault = []
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
+
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemTwoBindingDefault = `principal`
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemTwoScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersDefault = []
 
 export const agentApplicationsRevisionsCreateBodySpecSecretsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsDefault = 50
@@ -493,6 +500,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                         ),
                                 })
                                 .optional(),
+                            requires_identity: zod.string().optional(),
                         }),
                         zod.object({
                             kind: zod.literal('custom_template'),
@@ -533,6 +541,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         auth: zod
                             .object({
                                 integration: zod.string().optional(),
+                                provider: zod.string().optional(),
                             })
                             .optional(),
                         secrets: zod
@@ -602,6 +611,45 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
             integrations: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecIntegrationsDefault),
+            identity_providers: zod
+                .array(
+                    zod.union([
+                        zod.object({
+                            kind: zod.literal('posthog'),
+                            id: zod
+                                .string()
+                                .min(1)
+                                .default(agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneIdDefault),
+                            binding: zod
+                                .enum(['principal', 'agent'])
+                                .default(
+                                    agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneBindingDefault
+                                ),
+                            scopes: zod
+                                .array(zod.string())
+                                .default(agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneScopesDefault),
+                            client_id: zod.string().optional(),
+                        }),
+                        zod.object({
+                            kind: zod.literal('oauth2'),
+                            id: zod.string().min(1),
+                            binding: zod
+                                .enum(['principal', 'agent'])
+                                .default(
+                                    agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemTwoBindingDefault
+                                ),
+                            authorize_url: zod.url(),
+                            token_url: zod.url(),
+                            client_id: zod.string().min(1),
+                            client_secret_ref: zod.string().optional(),
+                            scopes: zod
+                                .array(zod.string())
+                                .default(agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemTwoScopesDefault),
+                            userinfo_url: zod.url().optional(),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsCreateBodySpecIdentityProvidersDefault),
             secrets: zod
                 .array(
                     zod.union([
@@ -750,6 +798,13 @@ export const agentApplicationsRevisionsUpdateBodySpecSkillsItemVersionMin = 0
 
 export const agentApplicationsRevisionsUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecIntegrationsDefault = []
+export const agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
+
+export const agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
+export const agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemOneScopesDefault = []
+export const agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemTwoBindingDefault = `principal`
+export const agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemTwoScopesDefault = []
+export const agentApplicationsRevisionsUpdateBodySpecIdentityProvidersDefault = []
 
 export const agentApplicationsRevisionsUpdateBodySpecSecretsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecLimitsMaxTurnsDefault = 50
@@ -1076,6 +1131,7 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                                         ),
                                 })
                                 .optional(),
+                            requires_identity: zod.string().optional(),
                         }),
                         zod.object({
                             kind: zod.literal('custom_template'),
@@ -1116,6 +1172,7 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                         auth: zod
                             .object({
                                 integration: zod.string().optional(),
+                                provider: zod.string().optional(),
                             })
                             .optional(),
                         secrets: zod
@@ -1185,6 +1242,45 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(agentApplicationsRevisionsUpdateBodySpecSkillsDefault),
             integrations: zod.array(zod.string()).default(agentApplicationsRevisionsUpdateBodySpecIntegrationsDefault),
+            identity_providers: zod
+                .array(
+                    zod.union([
+                        zod.object({
+                            kind: zod.literal('posthog'),
+                            id: zod
+                                .string()
+                                .min(1)
+                                .default(agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemOneIdDefault),
+                            binding: zod
+                                .enum(['principal', 'agent'])
+                                .default(
+                                    agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemOneBindingDefault
+                                ),
+                            scopes: zod
+                                .array(zod.string())
+                                .default(agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemOneScopesDefault),
+                            client_id: zod.string().optional(),
+                        }),
+                        zod.object({
+                            kind: zod.literal('oauth2'),
+                            id: zod.string().min(1),
+                            binding: zod
+                                .enum(['principal', 'agent'])
+                                .default(
+                                    agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemTwoBindingDefault
+                                ),
+                            authorize_url: zod.url(),
+                            token_url: zod.url(),
+                            client_id: zod.string().min(1),
+                            client_secret_ref: zod.string().optional(),
+                            scopes: zod
+                                .array(zod.string())
+                                .default(agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemTwoScopesDefault),
+                            userinfo_url: zod.url().optional(),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsUpdateBodySpecIdentityProvidersDefault),
             secrets: zod
                 .array(
                     zod.union([
@@ -1356,6 +1452,13 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemTwoBindingDefault = `principal`
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemTwoScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersDefault = []
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsDefault = 50
@@ -1696,6 +1799,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                         ),
                                 })
                                 .optional(),
+                            requires_identity: zod.string().optional(),
                         }),
                         zod.object({
                             kind: zod.literal('custom_template'),
@@ -1738,6 +1842,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         auth: zod
                             .object({
                                 integration: zod.string().optional(),
+                                provider: zod.string().optional(),
                             })
                             .optional(),
                         secrets: zod
@@ -1809,6 +1914,51 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
             integrations: zod
                 .array(zod.string())
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault),
+            identity_providers: zod
+                .array(
+                    zod.union([
+                        zod.object({
+                            kind: zod.literal('posthog'),
+                            id: zod
+                                .string()
+                                .min(1)
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneIdDefault
+                                ),
+                            binding: zod
+                                .enum(['principal', 'agent'])
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneBindingDefault
+                                ),
+                            scopes: zod
+                                .array(zod.string())
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneScopesDefault
+                                ),
+                            client_id: zod.string().optional(),
+                        }),
+                        zod.object({
+                            kind: zod.literal('oauth2'),
+                            id: zod.string().min(1),
+                            binding: zod
+                                .enum(['principal', 'agent'])
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemTwoBindingDefault
+                                ),
+                            authorize_url: zod.url(),
+                            token_url: zod.url(),
+                            client_id: zod.string().min(1),
+                            client_secret_ref: zod.string().optional(),
+                            scopes: zod
+                                .array(zod.string())
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemTwoScopesDefault
+                                ),
+                            userinfo_url: zod.url().optional(),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersDefault),
             secrets: zod
                 .array(
                     zod.union([

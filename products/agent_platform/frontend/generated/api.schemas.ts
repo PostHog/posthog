@@ -392,6 +392,7 @@ export type AgentRevisionApiSpecToolsItem =
               ttl_ms?: number
               allow_agent_approver?: boolean
           }
+          requires_identity?: string
       }
     | {
           kind: 'custom_template'
@@ -418,6 +419,7 @@ export type AgentRevisionApiSpecToolsItem =
 
 export type AgentRevisionApiSpecMcpsItemAuth = {
     integration?: string
+    provider?: string
 }
 
 export type AgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
@@ -460,6 +462,29 @@ export type AgentRevisionApiSpecSkillsItem = {
     /** @minimum 0 */
     version?: number
 }
+
+export type AgentRevisionApiSpecIdentityProvidersItem =
+    | {
+          kind: 'posthog'
+          /** @minLength 1 */
+          id?: string
+          binding?: 'principal' | 'agent'
+          scopes?: string[]
+          client_id?: string
+      }
+    | {
+          kind: 'oauth2'
+          /** @minLength 1 */
+          id: string
+          binding?: 'principal' | 'agent'
+          authorize_url: string
+          token_url: string
+          /** @minLength 1 */
+          client_id: string
+          client_secret_ref?: string
+          scopes?: string[]
+          userinfo_url?: string
+      }
 
 export type AgentRevisionApiSpecSecretsItem =
     | string
@@ -532,6 +557,7 @@ export type AgentRevisionApiSpec = {
     mcps: AgentRevisionApiSpecMcpsItem[]
     skills: AgentRevisionApiSpecSkillsItem[]
     integrations: string[]
+    identity_providers?: AgentRevisionApiSpecIdentityProvidersItem[]
     secrets: AgentRevisionApiSpecSecretsItem[]
     limits: AgentRevisionApiSpecLimits
     entrypoint: string
@@ -752,6 +778,7 @@ export type PatchedAgentRevisionApiSpecToolsItem =
               ttl_ms?: number
               allow_agent_approver?: boolean
           }
+          requires_identity?: string
       }
     | {
           kind: 'custom_template'
@@ -778,6 +805,7 @@ export type PatchedAgentRevisionApiSpecToolsItem =
 
 export type PatchedAgentRevisionApiSpecMcpsItemAuth = {
     integration?: string
+    provider?: string
 }
 
 export type PatchedAgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
@@ -820,6 +848,29 @@ export type PatchedAgentRevisionApiSpecSkillsItem = {
     /** @minimum 0 */
     version?: number
 }
+
+export type PatchedAgentRevisionApiSpecIdentityProvidersItem =
+    | {
+          kind: 'posthog'
+          /** @minLength 1 */
+          id?: string
+          binding?: 'principal' | 'agent'
+          scopes?: string[]
+          client_id?: string
+      }
+    | {
+          kind: 'oauth2'
+          /** @minLength 1 */
+          id: string
+          binding?: 'principal' | 'agent'
+          authorize_url: string
+          token_url: string
+          /** @minLength 1 */
+          client_id: string
+          client_secret_ref?: string
+          scopes?: string[]
+          userinfo_url?: string
+      }
 
 export type PatchedAgentRevisionApiSpecSecretsItem =
     | string
@@ -914,6 +965,7 @@ export type PatchedAgentRevisionApiSpec = {
     mcps: PatchedAgentRevisionApiSpecMcpsItem[]
     skills: PatchedAgentRevisionApiSpecSkillsItem[]
     integrations: string[]
+    identity_providers?: PatchedAgentRevisionApiSpecIdentityProvidersItem[]
     secrets: PatchedAgentRevisionApiSpecSecretsItem[]
     limits: PatchedAgentRevisionApiSpecLimits
     entrypoint: string
@@ -1233,6 +1285,8 @@ export interface AgentApprovalRequestApi {
     team_id: number
     /** Revision the gated call was proposed against. */
     revision_id: string
+    /** Mirrors the owning session's `is_preview`. True when the request originated from a draft revision running in preview mode — render a preview badge in the approvals queue so reviewers can tell author-iteration approvals apart from production traffic. */
+    is_preview: boolean
     /** Turn number within the session that emitted the call. */
     turn: number
     /** pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result. */
@@ -1453,6 +1507,8 @@ export interface AgentSessionSummaryApi {
      */
     preview: string | null
     retry_count: number
+    /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on the row so authors can distinguish iteration from live traffic. */
+    is_preview: boolean
     created_at: string
     updated_at: string
 }
@@ -1568,6 +1624,8 @@ export interface AgentApplicationSessionsRetrieveResponseApi {
     pending_inputs: AgentConversationMessageApi[]
     /** Times the janitor has re-queued this session after a stuck-running detection. */
     retry_count: number
+    /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on session detail so authors can distinguish iteration from live traffic. */
+    is_preview: boolean
     created_at: string
     updated_at: string
     /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
@@ -1606,6 +1664,37 @@ export interface AgentAggregateStatsApi {
     pendingApprovalsCount: number
 }
 
+export interface AgentUserConnectionApi {
+    id: string
+    provider: string
+    scopes: string[]
+    /** active | revoked */
+    state: string
+    /** @nullable */
+    subject?: string | null
+    /** @nullable */
+    access_expires_at?: string | null
+    created_at: string
+    updated_at: string
+    /** @nullable */
+    revoked_at?: string | null
+}
+
+export interface AgentUserWithConnectionsApi {
+    id: string
+    /** Edge-identity kind: slack | jwt | posthog | service | … */
+    principal_kind: string
+    principal_id: string
+    metadata?: unknown
+    created_at: string
+    connections: AgentUserConnectionApi[]
+}
+
+export interface AgentUsersListApi {
+    count: number
+    results: AgentUserWithConnectionsApi[]
+}
+
 /**
  * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
  * @nullable
@@ -1634,6 +1723,8 @@ export interface AgentFleetLiveSessionSummaryApi {
      * @nullable
      */
     preview: string | null
+    /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Render a preview badge on the row so author iteration is distinguishable from live traffic. */
+    is_preview: boolean
     created_at: string
     updated_at: string
 }
@@ -1797,6 +1888,13 @@ export const AgentApplicationsPreviewProxyFormat = {
 } as const
 
 export type AgentApplicationsPreviewTokenParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string
+}
+
+export type AgentApplicationsPreviewTokenMintParams = {
     /**
      * Target draft revision. Must belong to this application and not be live.
      */

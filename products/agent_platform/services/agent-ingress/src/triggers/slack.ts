@@ -155,7 +155,13 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             res.json({ ok: true, dropped: 'mention_only' })
             return
         }
-        const existing = await deps.queue.findByExternalKey(resolved.application.id, externalKey)
+        // Mention-only continuity is per-scope: a preview mention into a
+        // thread that only has a live owned session must not short-circuit,
+        // and vice versa. Same discriminator as `enqueueOrResume`.
+        const existing = await deps.queue.findByExternalKey(resolved.application.id, externalKey, {
+            isPreview: resolved.isPreview,
+            revisionId: resolved.revision.id,
+        })
         if (!existing) {
             log.info(
                 { slug: resolved.application.slug, channel: event.channel, thread_ts: event.thread_ts },
@@ -171,23 +177,34 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     // resolution + enqueue — so the user sees the emoji within Slack's 3s ack
     // window. Fails open: a revoked/missing bot token, a slack.com 5xx, an
     // `already_reacted`, or a missing channel must NOT break the handler.
+    //
+    // Preview-mode short-circuit: a draft revision must never write to a real
+    // Slack workspace. Matches the contract enforced by the runner-side native
+    // slack tools (see `isPreviewSideEffect`).
     if (ackReaction) {
-        void postAckReaction(deps, resolved.application, resolved.revision, {
-            channel: event.channel,
-            ts: event.ts,
-            name: ackReaction,
-        }).catch((err) => {
-            log.warn(
-                {
-                    slug: resolved.application.slug,
-                    channel: event.channel,
-                    ts: event.ts,
-                    reaction: ackReaction,
-                    err: err instanceof Error ? err.message : String(err),
-                },
-                'ack_reaction_threw'
+        if (resolved.isPreview) {
+            log.info(
+                { slug: resolved.application.slug, channel: event.channel, ts: event.ts, reaction: ackReaction },
+                'ack_reaction_skipped_preview'
             )
-        })
+        } else {
+            void postAckReaction(deps, resolved.application, resolved.revision, {
+                channel: event.channel,
+                ts: event.ts,
+                name: ackReaction,
+            }).catch((err) => {
+                log.warn(
+                    {
+                        slug: resolved.application.slug,
+                        channel: event.channel,
+                        ts: event.ts,
+                        reaction: ackReaction,
+                        err: err instanceof Error ? err.message : String(err),
+                    },
+                    'ack_reaction_threw'
+                )
+            })
+        }
     } else {
         log.debug({ slug: resolved.application.slug }, 'ack_reaction_not_configured')
     }
@@ -254,6 +271,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
                 ts: event.ts,
                 thread_ts: event.thread_ts ?? event.ts,
             },
+            isPreview: resolved.isPreview,
         }
     )
     if (outcome.kind === 'elevation_required') {
@@ -261,13 +279,27 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         // own. The message is parked as an elevation request; tell them
         // in-thread why nothing happened. Awaited so the reply lands before we
         // ack, but error-swallowed so it can never break the 200 Slack needs.
-        await postThreadMessage(deps, resolved.application, resolved.revision, {
-            channel: event.channel,
-            thread_ts: event.thread_ts ?? event.ts,
-            text:
-                'I can only act on messages from the person who started this thread. ' +
-                '@-mention me in a new message to start your own.',
-        })
+        //
+        // Preview-mode short-circuit: no real Slack write from a draft session.
+        if (resolved.isPreview) {
+            log.info(
+                {
+                    slug: resolved.application.slug,
+                    channel: event.channel,
+                    thread_ts: event.thread_ts ?? event.ts,
+                    elevation_request_id: outcome.elevationRequestId,
+                },
+                'elevation_message_skipped_preview'
+            )
+        } else {
+            await postThreadMessage(deps, resolved.application, resolved.revision, {
+                channel: event.channel,
+                thread_ts: event.thread_ts ?? event.ts,
+                text:
+                    'I can only act on messages from the person who started this thread. ' +
+                    '@-mention me in a new message to start your own.',
+            })
+        }
         res.json({
             ok: true,
             session_id: outcome.sessionId,

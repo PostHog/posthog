@@ -20,6 +20,7 @@ import type {
     AgentApplicationsListParams,
     AgentApplicationsPreviewProxyGetParams,
     AgentApplicationsPreviewProxyParams,
+    AgentApplicationsPreviewTokenMintParams,
     AgentApplicationsPreviewTokenParams,
     AgentApplicationsRevisionsListParams,
     AgentApplicationsSessionLogsParams,
@@ -53,6 +54,7 @@ import type {
     AgentRevisionValidateResponseApi,
     AgentTableRowsResponseApi,
     AgentTablesListResponseApi,
+    AgentUsersListApi,
     CloneFromRequestApi,
     DecideApprovalRequestApi,
     NewDraftRevisionRequestApi,
@@ -1758,18 +1760,15 @@ export const getAgentApplicationsPreviewTokenUrl = (
 }
 
 /**
- * Mint a short-lived JWT for talking to a non-live revision
- * directly via the public ingress URL. The caller attaches it as
- * the `x-agent-preview-token` header (or `?preview_token=` query
- * param for `EventSource`). See `_mint_preview_jwt` for the
- * payload + claim binding.
- *
- * The response also includes `endpoints`, `auth`, and
- * `preview_proxy` blocks so the caller can wire a preview
- * invocation without grepping the agent-ingress source for which
- * path each trigger exposes or which header name carries the
- * token. This is the "self-describing" half of preview-mode —
- * every piece of info you need to hit ingress is in one response.
+ * Read-scoped GET sibling of `preview_token_mint`. Same body
+ * and response shape — exists because `EventSource` can't set
+ * headers, so SSE callers fetch the token via GET and then
+ * attach `?preview_token=` to the ingress URL. Behind the same
+ * URL (`url_path="preview-token"`) thanks to DRF's
+ * `@<action>.mapping.get`; DRF resolves it to a distinct
+ * `view.action` so the scope map can keep this in
+ * `scope_object_read_actions` while the POST sibling above
+ * lives in `scope_object_write_actions`.
  */
 export const agentApplicationsPreviewToken = async (
     projectId: string,
@@ -1782,6 +1781,60 @@ export const agentApplicationsPreviewToken = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getAgentApplicationsPreviewTokenMintUrl = (
+    projectId: string,
+    id: string,
+    params: AgentApplicationsPreviewTokenMintParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${id}/preview-token/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${id}/preview-token/`
+}
+
+/**
+ * Mint a short-lived JWT for talking to a non-live revision
+ * directly via the public ingress URL. The caller attaches it as
+ * the `x-agent-preview-token` header (or `?preview_token=` query
+ * param for `EventSource`). See `_mint_preview_jwt` for the
+ * payload + claim binding.
+ *
+ * The response also includes `endpoints`, `auth`, and
+ * `preview_proxy` blocks so the caller can wire a preview
+ * invocation without grepping the agent-ingress source for which
+ * path each trigger exposes or which header name carries the
+ * token. This is the "self-describing" half of preview-mode —
+ * every piece of info you need to hit ingress is in one response.
+ *
+ * POST is the canonical, write-scoped verb — minting credentials
+ * for downstream `run`/`send`/`cancel` is a write-class
+ * capability. A read-scoped GET sibling exists at the same URL
+ * for `EventSource` callers and pre-split clients.
+ */
+export const agentApplicationsPreviewTokenMint = async (
+    projectId: string,
+    id: string,
+    params: AgentApplicationsPreviewTokenMintParams,
+    options?: RequestInit
+): Promise<AgentApplicationPreviewTokenResponseApi> => {
+    return apiMutator<AgentApplicationPreviewTokenResponseApi>(
+        getAgentApplicationsPreviewTokenMintUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'POST',
         }
     )
 }
@@ -1942,6 +1995,49 @@ export const agentApplicationsStats = async (
     return apiMutator<AgentAggregateStatsApi>(getAgentApplicationsStatsUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAgentApplicationsUsersListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/users/`
+}
+
+/**
+ * List this agent's end-users (the stable identities behind inbound principals) and each user's linked external connections. Connection metadata only — credential material is never returned.
+ */
+export const agentApplicationsUsersList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AgentUsersListApi> => {
+    return apiMutator<AgentUsersListApi>(getAgentApplicationsUsersListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsUsersConnectionDeleteUrl = (
+    projectId: string,
+    id: string,
+    agentUserId: string,
+    provider: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/users/${agentUserId}/connections/${provider}/`
+}
+
+/**
+ * Revoke one of an end-user's linked connections. The credential is marked revoked (kept for audit), so the agent can no longer act as that user on the provider.
+ */
+export const agentApplicationsUsersConnectionDelete = async (
+    projectId: string,
+    id: string,
+    agentUserId: string,
+    provider: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAgentApplicationsUsersConnectionDeleteUrl(projectId, id, agentUserId, provider), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
