@@ -911,51 +911,6 @@ class UserAccessControl:
     # Filtering querysets
     # ------------------------------------------------------------
 
-    @cached_property
-    def blocked_resource_ids_by_scope(self) -> dict[APIScopeObject, set[str]]:
-        """
-        Per-resource object IDs the user is denied access to. Empty for org admins.
-        Explicit (member/role) rules win over defaults. Mirrors filter_queryset_by_access_level.
-        Used by the HogQL printer guard and the HogQL cache-key fingerprint.
-        One query: pulls every per-object row this user is subject to across all resources.
-        """
-        if not EE_AVAILABLE or not self._team:
-            return {}
-        if not posthoganalytics.feature_enabled(
-            "hogql-object-access-control",
-            str(self._team.uuid),
-            groups={"organization": str(self._team.organization_id), "project": str(self._team.id)},
-            group_properties={
-                "organization": {"id": str(self._team.organization_id)},
-                "project": {"id": str(self._team.id)},
-            },
-            send_feature_flag_events=False,
-        ):
-            return {}
-
-        org_membership = self._organization_membership
-        if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-            return {}
-
-        rows = list(
-            AccessControl.objects.filter(self._filter_options({"team_id": self._team.id, "resource_id__isnull": False}))
-        )
-        if not rows:
-            return {}
-
-        by_key: dict[tuple[APIScopeObject, str], list[_AccessControl]] = defaultdict(list)
-        for ac in rows:
-            by_key[(ac.resource, ac.resource_id)].append(ac)
-
-        # TODO: refactor filter_queryset_by_access_level to share the same logic
-        result: dict[APIScopeObject, set[str]] = defaultdict(set)
-        for (resource, resource_id), acs in by_key.items():
-            explicit = [ac for ac in acs if ac.role_id or ac.organization_member_id]
-            winning_tier = explicit or acs
-            if all(ac.access_level == NO_ACCESS_LEVEL for ac in winning_tier):
-                result[resource].add(resource_id)
-        return dict(result)
-
     def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin: bool = False) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access
         # but may have specific object access
@@ -1037,6 +992,51 @@ class UserAccessControl:
                 blocked_resource_ids.add(resource_id)
 
         return blocked_resource_ids, allowed_resource_ids
+
+    @cached_property
+    def blocked_resource_ids_by_scope(self) -> dict[APIScopeObject, set[str]]:
+        """Per-resource set of object IDs the user is denied (effective access resolves to
+        "none"), built from the single preload via the canonical object resolver
+        (``_blocked_and_allowed_object_ids``) so it stays in lockstep with
+        ``filter_queryset_by_access_level`` instead of reimplementing the precedence rules.
+
+        Consumed by HogQL object-level access control (schema filtering / printer guard) and by
+        the query cache fingerprint. Gated behind the ``hogql-object-access-control`` flag so the
+        feature can be rolled out independently; empty for org admins (they bypass object AC) and
+        when there is no team / EE / entitlement. Gating here (rather than at the call sites) keeps
+        the cache fingerprint and the printer guard consistent and avoids stale cached results when
+        the flag flips.
+        """
+        if not EE_AVAILABLE or not self._team or self.is_organization_admin:
+            return {}
+
+        if not self.access_controls_supported:
+            # Without the entitlement, stale rules in the DB must be ignored, not enforced
+            return {}
+
+        if not posthoganalytics.feature_enabled(
+            "hogql-object-access-control",
+            str(self._team.uuid),
+            groups={"organization": str(self._team.organization_id), "project": str(self._team.id)},
+            group_properties={
+                "organization": {"id": str(self._team.organization_id)},
+                "project": {"id": str(self._team.id)},
+            },
+            send_feature_flag_events=False,
+        ):
+            return {}
+
+        object_rows_by_resource: dict[APIScopeObject, list[_AccessControl]] = defaultdict(list)
+        for ac in self._cached_access_controls:
+            if ac.resource_id is not None:
+                object_rows_by_resource[cast(APIScopeObject, ac.resource)].append(ac)
+
+        result: dict[APIScopeObject, set[str]] = {}
+        for resource, acs in object_rows_by_resource.items():
+            blocked, _allowed = self._blocked_and_allowed_object_ids(acs)
+            if blocked:
+                result[resource] = blocked
+        return result
 
     def has_resource_access(self, resource: APIScopeObject) -> bool:
         """Whether the user has any resource-level access (level is set and not "none")"""

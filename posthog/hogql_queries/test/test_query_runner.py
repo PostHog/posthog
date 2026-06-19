@@ -346,45 +346,6 @@ class TestQueryRunner(BaseTest):
 
         assert "restricted_objects" not in runner.get_cache_payload()
 
-    @mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
-    def test_cache_key_differs_when_user_is_restricted_from_object(self):
-        """
-        Cache-poisoning guard: a restricted user's cache key must differ from an
-        unrestricted user's. Only HogQL runners can touch ``system.*`` tables, so we
-        exercise the override on ``QueryRunnerWithHogQLContext`` directly — the base
-        ``QueryRunner._get_object_access_restrictions`` returns ``None``.
-        """
-        from posthog.constants import AvailableFeature
-        from posthog.models import OrganizationMembership
-
-        from ee.models import AccessControl
-
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
-        ]
-        self.organization.save()
-
-        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
-        membership.level = OrganizationMembership.Level.MEMBER
-        membership.save()
-
-        # ``QueryRunnerWithHogQLContext`` is abstract via its ``QueryRunner`` chain;
-        # ``setup_test_query_runner_class`` clears ``__abstractmethods__`` on the subclass it
-        # returns, so the abstract-class check here is a false positive.
-        TestHogQLRunner = self.setup_test_query_runner_class(base=QueryRunnerWithHogQLContext)  # type: ignore[type-abstract]
-
-        baseline_runner = TestHogQLRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
-        baseline_key = baseline_runner.get_cache_key()
-        assert "restricted_objects" not in baseline_runner.get_cache_payload()
-
-        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="42", access_level="none")
-
-        restricted_runner = TestHogQLRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
-        restricted_payload = restricted_runner.get_cache_payload()
-
-        assert restricted_payload["restricted_objects"] == {"dashboard": ["42"]}
-        assert restricted_runner.get_cache_key() != baseline_key
-
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -1350,7 +1311,9 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert scopes <= restricted
 
     @parameterized.expand(RUNNER_BASES)
+    @mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
     def test_object_grant_changes_cache_key(self, _name, base):
+        # Object-level cache partitioning is gated behind the hogql-object-access-control flag.
         from products.notebooks.backend.models import Notebook
 
         # Resource-level access granted so we isolate the object-level effect.
@@ -1463,7 +1426,9 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
         assert len(ac_queries) == 1, ac_queries
 
+    @mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
     def test_object_level_deny_on_queried_resource_partitions_cache(self):
+        # Object-level cache partitioning is gated behind the hogql-object-access-control flag.
         from products.notebooks.backend.models import Notebook
 
         # Resource-level access granted so we isolate the object-level effect.
@@ -1483,7 +1448,9 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert runner.get_cache_payload().get("restricted_objects", {}).get("notebook") == [str(notebook.id)]
         assert runner.get_cache_key() != key_unblocked
 
+    @mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
     def test_object_level_deny_on_unqueried_resource_is_ignored(self):
+        # Object-level cache partitioning is gated behind the hogql-object-access-control flag.
         from products.notebooks.backend.models import Notebook
 
         # Deny a specific notebook object, but the query reads surveys - the deny is irrelevant.

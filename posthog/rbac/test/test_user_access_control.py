@@ -1263,7 +1263,10 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_2.id in filtered_ids
         assert self.notebook_3.id in filtered_ids
 
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_blocked_resource_ids_by_scope_ignores_rules_without_entitlement(self):
+        # blocked_resource_ids_by_scope gates HogQL object access control behind a flag; enable it
+        # here so this test isolates the entitlement (ACCESS_CONTROL) dimension.
         # Member-level "none" rule blocking notebook_2 for the user
         self._create_access_control(
             resource="notebook",
@@ -1955,7 +1958,7 @@ class TestBlockedResourceIdsByScope(BaseTest):
         from posthog.constants import AvailableFeature
 
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 
