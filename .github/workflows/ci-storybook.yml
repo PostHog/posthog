@@ -41,6 +41,7 @@ jobs:
                 ${{
                     github.event_name == 'push'
                     || (steps.filter.outputs.frontend == 'true'
+                        && steps.exclude.outputs.outside_agent_services == 'true'
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
                            > fromJSON(steps.filter.outputs.frontend_generated_count || '0')
                         && !(github.event_name == 'pull_request'
@@ -81,6 +82,24 @@ jobs:
                         - 'products/**/frontend/generated/**'
                       snapshots:
                         - 'frontend/snapshots.yml'
+
+            # The `frontend` filter's `products/**/*.{ts,tsx}` rule matches the
+            # Node-only agent-platform services/packages, which contain no stories
+            # and aren't in the bundle. dorny's default `some` quantifier ignores a
+            # plain `!` negation (see the output comment above), so we use a second
+            # `predicate-quantifier: every` filter: true only when some changed file
+            # lives OUTSIDE those dirs. AND-ed into the `frontend` output so a
+            # services-only PR skips the visual-regression suite.
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: exclude
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  predicate-quantifier: 'every'
+                  filters: |
+                      outside_agent_services:
+                        - '!products/agent_platform/services/**'
+                        - '!products/agent_platform/packages/**'
 
             # Build the visual-regression matrix.
             # On PRs, only run chromium shards — no story currently opts into webkit snapshots

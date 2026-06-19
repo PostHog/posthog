@@ -31,8 +31,12 @@ jobs:
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
-            frontend: ${{ steps.filter.outputs.frontend || 'true' }}
-            frontend_code: ${{ steps.filter.outputs.frontend_code || 'true' }}
+            # AND the broad filter with `exclude` (below): a PR that touches only
+            # the Node-only agent-platform services/packages must not trigger
+            # frontend CI — they have their own suite (ci-agents.yml) and are
+            # excluded from jest (frontend/jest.config.ts) and the bundle.
+            frontend: ${{ (steps.filter.outputs.frontend || 'true') == 'true' && (steps.exclude.outputs.outside_agent_services || 'true') == 'true' }}
+            frontend_code: ${{ (steps.filter.outputs.frontend_code || 'true') == 'true' && (steps.exclude.outputs.outside_agent_services || 'true') == 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -107,6 +111,25 @@ jobs:
                         - tsconfig.*.json
                         - webpack.config.js
                         - stylelint*
+
+            # dorny's default `some` quantifier OR-matches patterns, so a plain
+            # `!products/agent_platform/services/**` negation in the filter above
+            # would be silently ignored — the broad `products/**/*.ts` rule still
+            # matches (same gotcha documented in
+            # ci-migrations-service-separation-check.yml). With
+            # `predicate-quantifier: every` this filter is true only when some
+            # changed file lives OUTSIDE the agent-platform Node services/packages;
+            # AND-ed into the outputs above so a services-only PR skips frontend CI.
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: exclude
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  predicate-quantifier: 'every'
+                  filters: |
+                      outside_agent_services:
+                        - '!products/agent_platform/services/**'
+                        - '!products/agent_platform/packages/**'
 
     # Pick which jest tests to run on draft PRs by passing changed files to
     # `jest --findRelatedTests` (jest's resolver walks the import graph for us).
