@@ -2163,7 +2163,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Visual review',
         intents: [ProductKey.VISUAL_REVIEW],
-        category: ProductItemCategory.UNRELEASED,
+        category: ProductItemCategory.TOOLS,
         href: urls.visualReviewRuns(),
         iconType: 'visual_review' as FileSystemIconType,
         flag: FEATURE_FLAGS.VISUAL_REVIEW,

@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -51,10 +51,6 @@ export function VisualReviewIndexScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <p className="text-muted max-w-2xl">
-                No visual review repos yet. Connect one from <Link to={urls.visualReviewSettings()}>Settings</Link> to
-                get started.
-            </p>
         </SceneContent>
     )
 }
