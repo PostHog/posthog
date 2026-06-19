@@ -31,19 +31,60 @@ def enabled_scout_count(team_id: int, *, exclude_skill: str | None = None) -> in
     return queryset.count()
 
 
-def register_missing_configs(team_id: int) -> set[str]:
-    """Auto-create a default-schedule config for each scout skill lacking a row.
+def _resolve_seed_posture(seed_config: dict | None) -> tuple[set[str] | None, int | None]:
+    """Parse the optional seed posture from a resolved per-team config blob.
+
+    Returns `(enabled_skills, enabled_interval_minutes)`:
+    - `enabled_skills`: the allowlist of canonical scouts that auto-enable on seed; everything
+      else registers disabled. `None` means "no allowlist" — every scout enables, the historical
+      behaviour.
+    - `enabled_interval_minutes`: cadence stamped on the auto-enabled rows, or `None` to keep the
+      model default.
+
+    The blob is arbitrary flag JSON, so both keys are validated; a malformed value is treated as
+    absent (falls back to historical behaviour) rather than failing the seed.
+    """
+    if not seed_config:
+        return None, None
+
+    enabled_skills: set[str] | None = None
+    raw_skills = seed_config.get("enabled_skills")
+    if isinstance(raw_skills, list) and all(isinstance(s, str) for s in raw_skills):
+        enabled_skills = {str(s) for s in raw_skills}
+
+    enabled_interval: int | None = None
+    raw_interval = seed_config.get("enabled_interval_minutes")
+    if isinstance(raw_interval, int) and not isinstance(raw_interval, bool) and raw_interval > 0:
+        enabled_interval = raw_interval
+
+    return enabled_skills, enabled_interval
+
+
+def register_missing_configs(team_id: int, seed_config: dict | None = None) -> set[str]:
+    """Auto-create a config for each scout skill lacking a row, honouring an optional seed posture.
 
     Idempotent — `get_or_create` keyed on the `(team, skill_name)` unique constraint, so
     concurrent callers (coordinator tick racing an API call) converge on one row. Returns
     the set of live `signals-scout-*` skill names for the team, so the caller can skip
     dispatching configs whose skill is gone.
 
-    New rows default to enabled until the team hits `MAX_ENABLED_SCOUTS_PER_TEAM`; past
-    the cap they register disabled, so the scout is still visible and tunable but never
-    silently adds spend. The check is best-effort (count + create, no lock) — a race can
-    briefly overshoot by one, which the coordinator's per-tick caps still bound.
+    `seed_config` is the team's resolved flag config (`default_team_config` merged with its
+    `team_configs` override). When it carries an `enabled_skills` allowlist, only those scouts
+    auto-enable (at `enabled_interval_minutes` if set) and the rest register disabled — the
+    launch posture (e.g. general-only, once a day). With no allowlist the historical behaviour
+    holds: every scout enables at the model-default schedule. Either way, a scout disabled at seed
+    stays visible and tunable but adds no spend.
+
+    Posture only shapes rows at creation (forward-only) — existing configs are never re-stamped,
+    so flipping the flag later doesn't disturb teams already seeded, and a user enabling a scout
+    won't be reverted on the next tick.
+
+    The per-team `MAX_ENABLED_SCOUTS_PER_TEAM` cap is an independent second gate: even an
+    allowlisted scout registers disabled once the team is at the cap. Both checks are best-effort
+    (count + create, no lock) — a race can briefly overshoot by one, which the coordinator's
+    per-tick caps still bound.
     """
+    enabled_skills, enabled_interval = _resolve_seed_posture(seed_config)
     skill_names = set(
         LLMSkill.objects.filter(
             team_id=team_id,
@@ -61,20 +102,25 @@ def register_missing_configs(team_id: int) -> set[str]:
     enabled = enabled_scout_count(team_id)
     for name in missing:
         at_cap = enabled >= MAX_ENABLED_SCOUTS_PER_TEAM
+        in_allowlist = enabled_skills is None or name in enabled_skills
+        seed_enabled = in_allowlist and not at_cap
+
+        defaults: dict = {} if seed_enabled else {"enabled": False}
+        if seed_enabled and enabled_interval is not None:
+            defaults["run_interval_minutes"] = enabled_interval
+
         # `team_id` must be passed as a kwarg: `get_or_create` builds the created row from
         # kwargs/defaults only — the queryset's team filter does not propagate into `create`.
-        _, created = configs.get_or_create(
-            team_id=team_id,
-            skill_name=name,
-            defaults={"enabled": False} if at_cap else {},
-        )
-        if created and at_cap:
+        _, created = configs.get_or_create(team_id=team_id, skill_name=name, defaults=defaults)
+        if not created:
+            continue
+        if seed_enabled:
+            enabled += 1
+        elif in_allowlist and at_cap:
             logger.info(
                 "signals_scout: enabled-scout cap reached, auto-registered config disabled",
                 team_id=team_id,
                 skill_name=name,
                 cap=MAX_ENABLED_SCOUTS_PER_TEAM,
             )
-        elif created:
-            enabled += 1
     return skill_names

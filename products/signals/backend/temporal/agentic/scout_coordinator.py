@@ -190,6 +190,7 @@ def _collect_planned_runs(
     """
     now = timezone.now()
     team_configs = _canonicalize_team_config_keys(team_configs or {})
+    default_team_config = default_team_config or {}
     due: list[_DueRun] = []
     for team in _participating_teams(enrolled_team_ids):
         # Sync canonical scouts so a freshly-enrolled team has skills to register on.
@@ -205,7 +206,11 @@ def _collect_planned_runs(
                 "signals_scout coordinator: canonical skill sync failed for team; continuing",
                 team_id=team.id,
             )
-        live_skills = register_missing_configs(team.id)
+        # Resolve this team's seed posture the same way as the tick cap: its own `team_configs`
+        # override layered over the fleet-wide `default_team_config`. Drives which scouts
+        # auto-enable (and at what cadence) when the team is first seeded.
+        seed_config = {**default_team_config, **(team_configs.get(team.id) or {})}
+        live_skills = register_missing_configs(team.id, seed_config)
         # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.

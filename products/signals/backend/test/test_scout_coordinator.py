@@ -622,6 +622,93 @@ async def test_auto_register_past_enabled_cap_creates_disabled_config(ateam):
     assert sorted(p.skill_name for p in planned) == ["signals-scout-existing"]
 
 
+# ── Seed posture via the flag (enabled_skills allowlist + interval) ───────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_seed_enabled_skills_allowlist_enables_only_listed(ateam):
+    # default_team_config.enabled_skills allowlists one scout: only it seeds enabled, the rest
+    # register disabled (visible, no spend), and only the enabled one is planned this tick.
+    for name in ["signals-scout-general", "signals-scout-errors", "signals-scout-surveys"]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"enabled_skills": ["signals-scout-general"]},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    rows = await database_sync_to_async(
+        lambda: {c.skill_name: c.enabled for c in SignalScoutConfig.all_teams.filter(team_id=ateam.id)}
+    )()
+    assert rows == {
+        "signals-scout-general": True,
+        "signals-scout-errors": False,
+        "signals-scout-surveys": False,
+    }
+    assert [p.skill_name for p in planned] == ["signals-scout-general"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_seed_enabled_interval_stamps_listed_scout(ateam):
+    # enabled_interval_minutes sets the cadence on auto-enabled rows (e.g. daily for launch).
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-general")
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"enabled_skills": ["signals-scout-general"], "enabled_interval_minutes": 1440},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        await _run_activity()
+
+    general = await database_sync_to_async(
+        lambda: SignalScoutConfig.all_teams.get(team_id=ateam.id, skill_name="signals-scout-general")
+    )()
+    assert general.enabled is True
+    assert general.run_interval_minutes == 1440
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_no_seed_config_enables_all_scouts(ateam):
+    # Back-compat: with no enabled_skills allowlist (autouse payload has none), every authored
+    # scout seeds enabled — unchanged from before the seed posture existed.
+    for name in ["signals-scout-general", "signals-scout-errors"]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+
+    planned = await _run_activity()
+
+    assert sorted(p.skill_name for p in planned) == ["signals-scout-errors", "signals-scout-general"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_per_team_seed_config_overrides_default_allowlist(ateam):
+    # A per-team team_configs.enabled_skills widens the fleet default for one team (the
+    # close-partner case): general plus error-tracking enable, surveys stays disabled.
+    for name in ["signals-scout-general", "signals-scout-errors", "signals-scout-surveys"]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"enabled_skills": ["signals-scout-general"]},
+            "team_configs": {str(ateam.id): {"enabled_skills": ["signals-scout-general", "signals-scout-errors"]}},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    assert sorted(p.skill_name for p in planned) == ["signals-scout-errors", "signals-scout-general"]
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_planned_runs_sorted_by_team_then_skill(ateam, aother_team):
