@@ -65,8 +65,8 @@ if [ -n "$changed_helpers" ]; then
     while IFS= read -r helper; do
         [ -z "$helper" ] && continue
         helper_basename=$(basename "$helper" .ts)
-        # Find spec files that reference this helper by its module name
-        consuming=$(grep -rl --include='*.spec.ts' "$helper_basename" \
+        # Find spec files that import this helper (anchored to import/require patterns)
+        consuming=$(grep -Erl --include='*.spec.ts' "(from|require).*['\"/]${helper_basename}['\"]" \
             playwright/e2e/ products/*/frontend/e2e/ 2>/dev/null || true)
         if [ -n "$consuming" ]; then
             num_consuming=$(echo "$consuming" | wc -l | tr -d ' ')
