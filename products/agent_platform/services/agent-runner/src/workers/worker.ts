@@ -496,10 +496,9 @@ export class Worker {
                 }
             }
             // Resolve the full priority-ordered model list once per session.
-            // `modelPolicyToList` handles back-compat (legacy `spec.model` → a
-            // 1-element list) and the auto/medium default. Each entry resolves
-            // through the same path as before (gateway or direct), carrying its
-            // per-entry reasoning so the fallback wrapper can apply it per attempt.
+            // `modelPolicyToList` expands the policy (auto level or manual list).
+            // Each entry resolves through the same path as before (gateway or
+            // direct), carrying its per-entry reasoning for the fallback wrapper.
             const resolveModel = this.deps.resolveModel ?? resolveModelCached
             const models = modelPolicyToList(rev.spec).map((entry) => ({
                 model: resolveModel(entry.model),

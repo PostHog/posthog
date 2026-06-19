@@ -134,14 +134,11 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
-        # Legacy single model; optional now. Prefer `model_policy`. Mirror
-        # `AgentSpecSchema.model` (.optional()) in spec.ts.
-        "model": {"type": "string", "minLength": 1},
-        # Auto level or manual priority list; wins over `model`. Mirror
-        # `ModelPolicySchema` (discriminated union on `mode`) in spec.ts.
-        # auto: platform resolves `level` to a cross-provider list at runtime.
-        # manual: author's explicit priority list (provider-diverse fallbacks).
+        # Model selection (mirrors `AgentSpecSchema.model_policy`, default
+        # auto/medium). auto: platform resolves `level` to a cross-provider list
+        # at runtime. manual: author's explicit priority list.
         "model_policy": {
+            "default": {"mode": "auto", "level": "medium"},
             "oneOf": [
                 {
                     "type": "object",
@@ -604,6 +601,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
     # auto/medium default) covers the model choice. Mirror
     # `AgentSpecSchema.model` (.optional()) in spec.ts.
     "required": [
+        "model_policy",
         "triggers",
         "tools",
         "mcps",

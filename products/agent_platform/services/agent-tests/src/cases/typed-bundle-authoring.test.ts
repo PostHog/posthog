@@ -39,7 +39,7 @@ export default {
 // (which auto-freezes); we use them directly to keep the revision draft.
 function defaultSpec(): Record<string, unknown> {
     return {
-        model: 'faux/faux',
+        model_policy: { mode: 'manual', models: [{ model: 'faux/faux' }] },
         triggers: [
             { type: 'chat', config: {}, auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
         ],
@@ -126,7 +126,7 @@ describe('typed bundle authoring API: real e2e', () => {
                     },
                 ],
                 spec: {
-                    model: 'faux/faux',
+                    model_policy: { mode: 'manual', models: [{ model: 'faux/faux' }] },
                     triggers: [
                         {
                             type: 'chat',
@@ -243,12 +243,12 @@ describe('typed bundle authoring API: real e2e', () => {
             })
             const newSpec = {
                 ...defaultSpec(),
-                model: 'faux/changed',
+                model_policy: { mode: 'manual', models: [{ model: 'faux/changed' }] },
             }
             const put = await request(c.janitor).put(`/revisions/${rid}/spec`).send({ spec: newSpec })
             expect(put.status).toBe(200)
             const get = await request(c.janitor).get(`/revisions/${rid}/bundle`)
-            expect(get.body.bundle.spec.model).toBe('faux/changed')
+            expect(get.body.bundle.spec.model_policy).toEqual({ mode: 'manual', models: [{ model: 'faux/changed' }] })
             expect(get.body.bundle.skills).toHaveLength(1)
             expect(get.body.bundle.tools).toHaveLength(1)
         })

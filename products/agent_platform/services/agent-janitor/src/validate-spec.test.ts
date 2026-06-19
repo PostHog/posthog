@@ -46,7 +46,7 @@ function mkRev(spec: Partial<z.input<typeof AgentSpecSchema>> = {}): AgentRevisi
         bundle_uri: 'mem://',
         bundle_sha256: null,
         spec: AgentSpecSchema.parse({
-            model: 'anthropic/claude-haiku-4-5',
+            model_policy: { mode: 'manual', models: [{ model: 'anthropic/claude-haiku-4-5' }] },
             triggers: [
                 { type: 'chat', config: {}, auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
             ],

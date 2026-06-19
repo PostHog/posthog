@@ -9,8 +9,8 @@ import {
 
 describe('AgentSpecSchema', () => {
     it('parses a minimal spec with defaults', () => {
-        const parsed = AgentSpecSchema.parse({ model: 'claude-opus-4-7' })
-        expect(parsed.model).toBe('claude-opus-4-7')
+        const parsed = AgentSpecSchema.parse({})
+        expect(parsed.model_policy).toEqual({ mode: 'auto', level: 'medium' })
         expect(parsed.triggers).toEqual([])
         expect(parsed.tools).toEqual([])
         expect(parsed.entrypoint).toBe('agent.md')
@@ -19,7 +19,7 @@ describe('AgentSpecSchema', () => {
 
     it('parses a fully-populated spec', () => {
         const spec: AgentSpec = AgentSpecSchema.parse({
-            model: 'claude-opus-4-7',
+            model_policy: { mode: 'auto', level: 'high' },
             triggers: [
                 { type: 'slack', config: { channel_id: 'C01', mention_only: true, trusted_workspaces: '*' } },
                 { type: 'webhook', config: { path: '/hook' }, auth: { modes: [{ type: 'posthog_internal' }] } },
@@ -42,7 +42,7 @@ describe('AgentSpecSchema', () => {
 
     describe('limits.max_output_tokens', () => {
         it('defaults to undefined (runner picks a reasoning-aware default)', () => {
-            const parsed = AgentSpecSchema.parse({ model: 'x' })
+            const parsed = AgentSpecSchema.parse({})
             expect(parsed.limits.max_output_tokens).toBeUndefined()
         })
 

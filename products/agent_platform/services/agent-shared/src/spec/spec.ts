@@ -629,7 +629,7 @@ export const ModelEntrySchema = z.object({
 export const ModelLevelSchema = z.enum(['low', 'medium', 'high'])
 
 /** `auto`: platform resolves `level` to a priority-ordered list at runtime.
- *  `manual`: author's explicit priority list. Legacy `spec.model` → manual. */
+ *  `manual`: author's explicit priority list. */
 export const ModelPolicySchema = z.discriminatedUnion('mode', [
     z.object({
         mode: z.literal('auto'),
@@ -710,10 +710,8 @@ export const ResumeConfigSchema = z.object({
 })
 
 export const AgentSpecSchema = z.object({
-    /** Legacy single model; prefer `model_policy`. Resolve via `modelPolicyToList`, don't read directly. */
-    model: ModelIdSchema.optional(),
-    /** Auto level or manual priority list; wins over `model`. */
-    model_policy: ModelPolicySchema.optional(),
+    /** Model selection: auto level (default) or manual priority list. Resolve via `modelPolicyToList`. */
+    model_policy: ModelPolicySchema.default({ mode: 'auto', level: 'medium' }),
     triggers: z.array(TriggerSchema).default([]),
     tools: z.array(ToolRefSchema).default([]),
     mcps: z.array(McpRefSchema).default([]),
@@ -738,20 +736,9 @@ export type ModelEntry = z.infer<typeof ModelEntrySchema>
 export type ModelLevel = z.infer<typeof ModelLevelSchema>
 export type ModelPolicy = z.infer<typeof ModelPolicySchema>
 
-/** Effective policy: explicit `model_policy`, else legacy `model` as manual, else auto/medium. */
-export function resolveModelPolicy(spec: Pick<AgentSpec, 'model' | 'model_policy'>): ModelPolicy {
-    if (spec.model_policy) {
-        return spec.model_policy
-    }
-    if (spec.model) {
-        return { mode: 'manual', models: [{ model: spec.model }] }
-    }
-    return { mode: 'auto', level: 'medium' }
-}
-
 /** Priority-ordered models the runner tries (primary first). Reasoning: per-entry → auto override → spec default. */
-export function modelPolicyToList(spec: Pick<AgentSpec, 'model' | 'model_policy' | 'reasoning'>): ModelEntry[] {
-    const policy = resolveModelPolicy(spec)
+export function modelPolicyToList(spec: Pick<AgentSpec, 'model_policy' | 'reasoning'>): ModelEntry[] {
+    const policy = spec.model_policy
     if (policy.mode === 'manual') {
         return policy.models.map((m) => ({ model: m.model, reasoning: m.reasoning ?? spec.reasoning }))
     }

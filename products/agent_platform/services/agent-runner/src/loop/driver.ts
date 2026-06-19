@@ -90,8 +90,7 @@ import { providerSafeName } from './provider-safe-names'
 export interface RunSessionDeps {
     /**
      * Priority-ordered models the loop tries (primary first, fallbacks after).
-     * Resolved once per session from `modelPolicyToList(rev.spec)` — a legacy
-     * `spec.model` collapses to a 1-element list (no fallback). On a
+     * Resolved once per session from `modelPolicyToList(rev.spec)`. On a
      * fallback-eligible provider failure the wrapper retries the next entry.
      */
     models: ResolvedModel[]

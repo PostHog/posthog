@@ -39,9 +39,6 @@ The model lives in `spec.model_policy`, a discriminated union on
 ] } }
 ```
 
-(Legacy single-string `spec.model` still parses — it's treated as a
-one-entry manual list. Prefer `model_policy` on anything new.)
-
 ## The cost / quality axes
 
 Three independent dials in roughly increasing cost:

@@ -184,7 +184,7 @@ GROUP BY agent
 
 Then explain the delta in terms of the spec:
 
-- Different model? Check `spec.model`.
+- Different model? Check `spec.model_policy`.
 - Different reasoning level? Check `spec.reasoning` — a higher level
   (`high` / `xhigh`) adds deliberation tokens on thinking-heavy turns.
 - More turns? Likely a prompt issue — `max($agent_turn)` per session,
@@ -222,7 +222,7 @@ Useful to know when someone asks "how do I make it cheaper?":
 
 | Lever                              | Effect                                                              |
 | ---------------------------------- | ------------------------------------------------------------------- |
-| Model (`spec.model`)               | Biggest factor — claude-haiku is ~1/5 sonnet, gpt-4-mini is similar |
+| Model (`spec.model_policy`)        | Biggest factor — claude-haiku is ~1/5 sonnet, gpt-4-mini is similar |
 | Reasoning level (`spec.reasoning`) | Higher levels (`high` / `xhigh`) add deliberation tokens            |
 | Skills layout                      | Many skills loaded per turn means a fatter system prompt every turn |
 | Custom tool egress                 | Tools that fetch large pages inflate input tokens on the next turn  |

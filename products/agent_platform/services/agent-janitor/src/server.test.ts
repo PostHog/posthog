@@ -594,7 +594,7 @@ describe('janitor HTTP', () => {
             created_by_id: null,
             bundle_uri: 'mem://b',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model_policy: { mode: 'manual', models: [{ model: 'x' }] },
                 triggers: [
                     {
                         type: 'chat',
@@ -646,7 +646,7 @@ describe('janitor HTTP', () => {
             created_by_id: null,
             bundle_uri: 'mem://b',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model_policy: { mode: 'manual', models: [{ model: 'x' }] },
                 triggers: [
                     {
                         type: 'cron',
@@ -683,7 +683,7 @@ describe('janitor HTTP', () => {
             created_by_id: null,
             bundle_uri: 'mem://b',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model_policy: { mode: 'manual', models: [{ model: 'x' }] },
                 triggers: [
                     {
                         type: 'cron',
@@ -809,7 +809,7 @@ describe('janitor HTTP', () => {
                 apps[0].id,
                 revisionId,
                 JSON.stringify({
-                    model: 'x',
+                    model_policy: { mode: 'manual', models: [{ model: 'x' }] },
                     triggers: [{ type: 'chat', config: {} }], // missing `auth`
                 }),
             ]
@@ -838,7 +838,7 @@ describe('janitor HTTP', () => {
                 apps[0].id,
                 revisionId,
                 JSON.stringify({
-                    model: 'x',
+                    model_policy: { mode: 'manual', models: [{ model: 'x' }] },
                     triggers: [{ type: 'chat', config: {} }], // missing `auth`
                 }),
             ]
@@ -850,7 +850,7 @@ describe('janitor HTTP', () => {
                 skills: [],
                 tools: [],
                 spec: {
-                    model: 'y',
+                    model_policy: { mode: 'manual', models: [{ model: 'y' }] },
                     triggers: [
                         {
                             type: 'chat',
@@ -865,7 +865,7 @@ describe('janitor HTTP', () => {
         // parse it strictly, so a successful read proves the merge wrote a
         // valid spec.
         const after = await revisions.getRevision(draftId)
-        expect(after?.spec.model).toBe('y')
+        expect(after?.spec.model_policy).toEqual({ mode: 'manual', models: [{ model: 'y' }] })
     })
 
     it('returns 503 when the revision/bundle stores are not configured', async () => {
@@ -950,7 +950,7 @@ describe('janitor HTTP', () => {
                 created_by_id: null,
                 bundle_uri: 'mem://b',
                 spec: AgentSpecSchema.parse({
-                    model: 'x',
+                    model_policy: { mode: 'manual', models: [{ model: 'x' }] },
                     triggers: [
                         {
                             type: 'chat',

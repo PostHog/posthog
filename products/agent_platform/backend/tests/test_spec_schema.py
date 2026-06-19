@@ -52,7 +52,7 @@ def _with_auth(spec: dict) -> dict:
 @pytest.mark.parametrize(
     ("name", "spec"),
     [
-        ("minimal", {"model": "anthropic/claude-haiku-4-5"}),
+        ("minimal", {}),
         # `model` is optional — auto/medium is the runner's default, so a spec
         # may omit it entirely.
         ("no_model", {}),
@@ -76,14 +76,12 @@ def _with_auth(spec: dict) -> dict:
         (
             "with_chat_trigger",
             {
-                "model": "x",
                 "triggers": [{"type": "chat", "config": {}}],
             },
         ),
         (
             "kitchen_sink",
             {
-                "model": "x",
                 "triggers": [
                     {"type": "chat", "config": {}},
                     {"type": "webhook", "config": {"path": "/hook"}},
@@ -100,14 +98,12 @@ def _with_auth(spec: dict) -> dict:
         (
             "slack_omits_mention_only",
             {
-                "model": "x",
                 "triggers": [{"type": "slack", "config": {"trusted_workspaces": "*"}}],
             },
         ),
         (
             "cron_omits_timezone",
             {
-                "model": "x",
                 "triggers": [
                     {"type": "cron", "config": {"name": "hourly", "schedule": "0 * * * *", "prompt": "run it"}}
                 ],
@@ -116,7 +112,6 @@ def _with_auth(spec: dict) -> dict:
         (
             "mcp_omits_config",
             {
-                "model": "x",
                 "triggers": [{"type": "mcp", "config": {}}],
             },
         ),
@@ -125,7 +120,6 @@ def _with_auth(spec: dict) -> dict:
         (
             "external_mcp_unique_tools",
             {
-                "model": "x",
                 "mcps": [
                     {
                         "id": "linear",
@@ -141,7 +135,6 @@ def _with_auth(spec: dict) -> dict:
         (
             "external_mcp_byo_headers_with_secret",
             {
-                "model": "x",
                 "secrets": ["GITHUB_TOKEN"],
                 "mcps": [
                     {
@@ -163,7 +156,6 @@ def _with_auth(spec: dict) -> dict:
         (
             "skill_from_template",
             {
-                "model": "x",
                 "skills": [
                     {
                         "id": "research",
@@ -178,7 +170,6 @@ def _with_auth(spec: dict) -> dict:
         (
             "custom_template_tool",
             {
-                "model": "x",
                 "tools": [
                     {
                         "kind": "custom_template",
@@ -192,25 +183,24 @@ def _with_auth(spec: dict) -> dict:
         # max_output_tokens is optional; runner picks a reasoning-aware default.
         (
             "limits_max_output_tokens",
-            {"model": "x", "limits": {"max_output_tokens": 16384}},
+            {"limits": {"max_output_tokens": 16384}},
         ),
         # Bare-string secrets keep parsing (back-compat path); the runtime
         # http-request refuses to substitute them, but the spec itself is
         # still valid.
         (
             "secrets_bare_string",
-            {"model": "x", "secrets": ["GITHUB_TOKEN"]},
+            {"secrets": ["GITHUB_TOKEN"]},
         ),
         # Object-form secret with allowed_hosts — the egress-binding shape.
         (
             "secrets_with_allowed_hosts",
-            {"model": "x", "secrets": [{"name": "GH_PAT", "allowed_hosts": ["api.github.com"]}]},
+            {"secrets": [{"name": "GH_PAT", "allowed_hosts": ["api.github.com"]}]},
         ),
         # Mixed bare + object forms in the same spec — common during migration.
         (
             "secrets_mixed_forms",
             {
-                "model": "x",
                 "secrets": ["LEGACY", {"name": "GH_PAT", "allowed_hosts": ["api.github.com", "*.github.com"]}],
             },
         ),
@@ -230,36 +220,35 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         ("app_row_shaped", {"name": "Hedgebox Helper"}, "name"),
         # `model` is optional, but when present must be a non-empty string. zod
         # uses min(1); JSON Schema mirrors that via minLength.
-        ("empty_model", {"model": ""}, "model"),
         # model_policy is a discriminated union on `mode`; an unknown mode
         # matches neither auto nor manual arm.
         ("model_policy_bad_mode", {"model_policy": {"mode": "cheapest"}}, "model_policy"),
         # manual mode requires a non-empty `models` list.
         ("model_policy_manual_empty", {"model_policy": {"mode": "manual", "models": []}}, "model_policy"),
         # `triggers` must be an array if present, not a string.
-        ("triggers_wrong_type", {"model": "x", "triggers": "all"}, "triggers"),
+        ("triggers_wrong_type", {"triggers": "all"}, "triggers"),
         # Discriminated union: an unknown trigger type doesn't match any of
         # the chat/slack/webhook/cron/mcp variants.
         (
             "unknown_trigger_type",
-            {"model": "x", "triggers": [{"type": "carrier_pigeon", "config": {}}]},
+            {"triggers": [{"type": "carrier_pigeon", "config": {}}]},
             "triggers",
         ),
         # Top-level `additionalProperties: false` should reject extra keys —
         # exactly the `name` / `description` case I tripped earlier.
-        ("extra_top_level_key", {"model": "x", "description": "agent"}, "description"),
+        ("extra_top_level_key", {"description": "agent"}, "description"),
         # Non-defaulted nested fields must still be rejected when missing —
         # the relaxation only removes required-with-defaults, not all required.
         # jsonschema's `oneOf` error doesn't surface which arm failed for what
         # reason; we just assert the trigger element itself is flagged.
         (
             "slack_missing_trusted_workspaces",
-            {"model": "x", "triggers": [{"type": "slack", "config": {"mention_only": False}}]},
+            {"triggers": [{"type": "slack", "config": {"mention_only": False}}]},
             "triggers.0",
         ),
         (
             "cron_missing_schedule",
-            {"model": "x", "triggers": [{"type": "cron", "config": {"timezone": "UTC"}}]},
+            {"triggers": [{"type": "cron", "config": {"timezone": "UTC"}}]},
             "triggers.0",
         ),
         # Duplicate tool names in `mcps[].external.tools[]` — JSON Schema can't
@@ -268,7 +257,6 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         (
             "external_mcp_duplicate_tool_strings",
             {
-                "model": "x",
                 "mcps": [
                     {
                         "id": "linear",
@@ -284,7 +272,6 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         (
             "external_mcp_duplicate_tool_string_and_object",
             {
-                "model": "x",
                 "mcps": [
                     {
                         "id": "linear",
@@ -301,12 +288,12 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         # spec never reaches the DB in the first place.
         (
             "cron_missing_prompt",
-            {"model": "x", "triggers": [{"type": "cron", "config": {"name": "sweep", "schedule": "0 9 * * *"}}]},
+            {"triggers": [{"type": "cron", "config": {"name": "sweep", "schedule": "0 9 * * *"}}]},
             "triggers.0",
         ),
         (
             "cron_missing_name",
-            {"model": "x", "triggers": [{"type": "cron", "config": {"schedule": "0 9 * * *", "prompt": "go"}}]},
+            {"triggers": [{"type": "cron", "config": {"schedule": "0 9 * * *", "prompt": "go"}}]},
             "triggers.0",
         ),
         # spec.secrets[] object form must declare allowed_hosts. An object
@@ -315,7 +302,7 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         # explicit way to say that.
         (
             "secrets_object_missing_allowed_hosts",
-            {"model": "x", "secrets": [{"name": "GH_PAT"}]},
+            {"secrets": [{"name": "GH_PAT"}]},
             "secrets",
         ),
         # An empty allowed_hosts means "bound to nothing" — not what an
@@ -323,7 +310,7 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         # bare-string form.
         (
             "secrets_empty_allowed_hosts",
-            {"model": "x", "secrets": [{"name": "GH_PAT", "allowed_hosts": []}]},
+            {"secrets": [{"name": "GH_PAT", "allowed_hosts": []}]},
             "secrets",
         ),
     ],
@@ -335,7 +322,6 @@ def test_validate_spec_rejects_invalid_payloads(name: str, spec: dict, expected_
 
 
 _SLACK_SPEC = {
-    "model": "x",
     "triggers": [{"type": "slack", "config": {"trusted_workspaces": "*"}}],
 }
 
@@ -363,7 +349,7 @@ def test_missing_required_secrets_for_slack_trigger(name: str, env: dict, expect
 
 
 def test_missing_required_secrets_skips_triggers_without_requirements() -> None:
-    spec = {"model": "x", "triggers": [{"type": "chat", "config": {}}]}
+    spec = {"triggers": [{"type": "chat", "config": {}}]}
     assert missing_required_secrets(spec, {}) == []
 
 
