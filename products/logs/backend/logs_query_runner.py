@@ -209,6 +209,7 @@ class LogsFilterBuilder:
         team: "Team",
         query_date_range: QueryDateRange,
         exclude_facet_field: str | None = None,
+        exclude_resource_attribute: str | None = None,
     ):
         self.query = query
         self.team = team
@@ -217,6 +218,9 @@ class LogsFilterBuilder:
         # from the WHERE clause so facet counts reflect every *other* active filter — the standard
         # faceted-search behaviour where selecting a value doesn't zero out its siblings.
         self.exclude_facet_field = exclude_facet_field
+        # The resource-attribute equivalent: when faceting on a resource attribute key, omit that
+        # key's own log_resource_attribute filter so the facet doesn't zero out its own siblings.
+        self.exclude_resource_attribute = exclude_resource_attribute
 
         self.resource_attribute_filters: list[LogPropertyFilter] = []
         self.resource_attribute_negative_filters: list[LogPropertyFilter] = []
@@ -275,6 +279,14 @@ class LogsFilterBuilder:
                     property_filter.key = f"{property_filter.key}__{property_type}"
 
                     self.attribute_filters.insert(0, property_filter)
+
+        if self.exclude_resource_attribute is not None:
+            self.resource_attribute_filters = [
+                f for f in self.resource_attribute_filters if f.key != self.exclude_resource_attribute
+            ]
+            self.resource_attribute_negative_filters = [
+                f for f in self.resource_attribute_negative_filters if f.key != self.exclude_resource_attribute
+            ]
 
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []

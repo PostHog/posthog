@@ -337,7 +337,17 @@ class _LogsFacetValuesResponseSerializer(serializers.Serializer):
 class _LogsFacetValuesBodySerializer(serializers.Serializer):
     facetField = serializers.ChoiceField(
         choices=["severity_text", "service_name"],
-        help_text="Column to facet on. Its own filter is excluded so counts reflect the other active filters.",
+        required=False,
+        allow_null=True,
+        help_text="Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. "
+        "Its own filter is excluded so counts reflect the other active filters.",
+    )
+    facetResourceAttribute = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of "
+        "facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts "
+        "reflect the other active filters.",
     )
     dateRange = _DateRangeSerializer(required=False, help_text="Date range. Defaults to last hour.")
     severityLevels = serializers.ListField(
@@ -837,7 +847,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query_data = request.data.get("query", {})
 
         facet_field = query_data.get("facetField")
-        if facet_field not in FACET_FIELDS:
+        facet_resource_attribute = query_data.get("facetResourceAttribute")
+        if bool(facet_field) == bool(facet_resource_attribute):
+            raise ParseError("Provide exactly one of facetField or facetResourceAttribute")
+        if facet_field and facet_field not in FACET_FIELDS:
             raise ParseError(f"facetField must be one of {sorted(FACET_FIELDS)}")
 
         date_range_data = query_data.get("dateRange")
@@ -852,7 +865,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = LogFacetValuesQueryRunner(
-            team=self.team, query=query, facet_field=facet_field, facet_search=query_data.get("facetSearch")
+            team=self.team,
+            query=query,
+            facet_field=facet_field or None,
+            facet_resource_attribute=facet_resource_attribute or None,
+            facet_search=query_data.get("facetSearch"),
         )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
