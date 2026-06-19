@@ -23,9 +23,9 @@ from products.tasks.backend.constants import (
     INITIAL_PERMISSION_MODE_CHOICES,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.contracts import SandboxEnvironmentDTO, UserBasicInfo
+from products.tasks.backend.facade.contracts import SandboxEnvironmentDTO, TaskAutomationDTO, UserBasicInfo
 from products.tasks.backend.logic.services.title_generator import generate_task_title
-from products.tasks.backend.models import Task, TaskAutomation, TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
@@ -1512,20 +1512,11 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
     )
 
 
-class TaskAutomationSerializer(serializers.ModelSerializer):
-    name = serializers.CharField(max_length=255)
-    prompt = serializers.CharField()
-    repository = serializers.CharField(max_length=255)
-    github_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.filter(kind="github"),
-        required=False,
-        allow_null=True,
-    )
-    last_task_id = serializers.SerializerMethodField()
-    last_task_run_id = serializers.SerializerMethodField()
+class TaskAutomationSerializer(DataclassSerializer):
+    """Detail/create/update/run response for a task automation."""
 
     class Meta:
-        model = TaskAutomation
+        dataclass = TaskAutomationDTO
         fields = [
             "id",
             "name",
@@ -1544,22 +1535,38 @@ class TaskAutomationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = [
-            "id",
-            "last_run_at",
-            "last_run_status",
-            "last_task_id",
-            "last_task_run_id",
-            "last_error",
-            "created_at",
-            "updated_at",
-        ]
 
-    def get_last_task_id(self, instance: TaskAutomation) -> str | None:
-        return str(instance.task_id)
 
-    def get_last_task_run_id(self, instance: TaskAutomation) -> str | None:
-        return str(instance.last_task_run_id) if instance.last_task_run_id else None
+class TaskAutomationWriteSerializer(serializers.Serializer):
+    """Request body for creating or updating a task automation."""
+
+    name = serializers.CharField(max_length=255, help_text="Display name (stored as the backing task's title).")
+    prompt = serializers.CharField(help_text="The automation prompt (stored as the backing task's description).")
+    repository = serializers.CharField(
+        max_length=255, help_text="Target repository in the format organization/repository."
+    )
+    github_integration = TeamScopedPrimaryKeyRelatedField(
+        queryset=Integration.objects.filter(kind="github"),
+        required=False,
+        allow_null=True,
+        help_text="GitHub integration to run as. Defaults to the team's GitHub integration when omitted.",
+    )
+    cron_expression = serializers.CharField(
+        max_length=100, help_text="Standard 5-field cron expression (minute hour day month weekday)."
+    )
+    timezone = serializers.CharField(
+        max_length=128, required=False, default="UTC", help_text="IANA timezone the schedule runs in."
+    )
+    template_id = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional template identifier this automation was created from.",
+    )
+    enabled = serializers.BooleanField(
+        required=False, default=True, help_text="Whether the schedule is active; paused when false."
+    )
 
     def validate_github_integration(self, value):
         if value and value.team_id != self.context["team"].id:
@@ -1591,52 +1598,6 @@ class TaskAutomationSerializer(serializers.ModelSerializer):
         if value not in available_timezones():
             raise serializers.ValidationError(f"'{value}' is not a valid IANA timezone.")
         return value
-
-    def create(self, validated_data):
-        if not validated_data.get("github_integration"):
-            default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
-            if default_integration:
-                validated_data["github_integration"] = default_integration
-
-        with transaction.atomic():
-            task = Task.objects.create(
-                team=self.context["team"],
-                created_by=self.context["request"].user,
-                title=validated_data.pop("name"),
-                description=validated_data.pop("prompt"),
-                origin_product=Task.OriginProduct.AUTOMATION,
-                repository=validated_data.pop("repository"),
-                github_integration=validated_data.pop("github_integration", None),
-            )
-            return TaskAutomation.objects.create(task=task, **validated_data)
-
-    def update(self, instance, validated_data):
-        task_fields = {
-            "name": "title",
-            "prompt": "description",
-            "repository": "repository",
-            "github_integration": "github_integration",
-        }
-        task_updates = {}
-        for serializer_field, task_field in task_fields.items():
-            if serializer_field in validated_data:
-                task_updates[task_field] = validated_data.pop(serializer_field)
-
-        with transaction.atomic():
-            automation = super().update(instance, validated_data)
-
-            if task_updates:
-                task = automation.task
-                fields_to_update = []
-                for field, value in task_updates.items():
-                    if getattr(task, field) != value:
-                        setattr(task, field, value)
-                        fields_to_update.append(field)
-                if fields_to_update:
-                    fields_to_update.append("updated_at")
-                    task.save(update_fields=fields_to_update)
-
-        return automation
 
 
 class SandboxEnvironmentSerializer(DataclassSerializer):

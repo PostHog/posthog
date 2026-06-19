@@ -42,12 +42,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.tasks.backend.automation_service import (
-    delete_automation_schedule,
-    run_task_automation,
-    sync_automation_schedule,
-    update_automation_run_result,
-)
+from products.tasks.backend.automation_service import update_automation_run_result
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -83,14 +78,7 @@ from products.tasks.backend.metrics import (
     observe_stream_resume_gap,
     origin_product_label,
 )
-from products.tasks.backend.models import (
-    TASK_PRESENCE_TTL_SECONDS,
-    SandboxEnvironment,
-    Task,
-    TaskAutomation,
-    TaskPresence,
-    TaskRun,
-)
+from products.tasks.backend.models import TASK_PRESENCE_TTL_SECONDS, SandboxEnvironment, Task, TaskPresence, TaskRun
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
@@ -102,6 +90,7 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
     TaskAutomationSerializer,
+    TaskAutomationWriteSerializer,
     TaskListQuerySerializer,
     TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
@@ -157,7 +146,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     resolve_user_github_integration_for_task,
     user_github_integration_is_usable,
 )
-from products.tasks.backend.visibility import task_run_visibility_q, task_visibility_q
+from products.tasks.backend.visibility import task_visibility_q
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -1187,43 +1176,76 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 
 @extend_schema(tags=["task-automations"])
-class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    serializer_class = TaskAutomationSerializer
+class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """API for managing scheduled task automations."""
+
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    queryset = TaskAutomation.objects.all()
-    filter_rewrite_rules = {"team_id": "task__team_id"}
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
-    def safely_get_queryset(self, queryset):
-        return (
-            queryset.filter(task__team=self.team)
-            .filter(task_run_visibility_q(getattr(self.request.user, "id", None)))
-            .order_by("task__title", "-created_at")
+    def _write_serializer(self, data, *, partial: bool = False) -> TaskAutomationWriteSerializer:
+        serializer = TaskAutomationWriteSerializer(
+            data=data, partial=partial, context={"team": self.team, "team_id": self.team.id}
         )
+        serializer.is_valid(raise_exception=True)
+        return serializer
 
-    def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
+    @staticmethod
+    def _facade_kwargs(validated_data: dict) -> dict:
+        """Translate the resolved ``github_integration`` instance to its id for the facade."""
+        kwargs = dict(validated_data)
+        if "github_integration" in kwargs:
+            integration = kwargs.pop("github_integration")
+            kwargs["github_integration_id"] = integration.id if integration is not None else None
+        return kwargs
 
-    def perform_create(self, serializer):
-        automation = serializer.save()
-        sync_automation_schedule(automation)
+    @extend_schema(responses={200: TaskAutomationSerializer(many=True)})
+    def list(self, request, **kwargs):
+        automations = tasks_facade.list_task_automations(self.team_id, getattr(request.user, "id", None))
+        page = self.paginate_queryset(automations)
+        if page is not None:
+            return self.get_paginated_response(TaskAutomationSerializer(page, many=True).data)
+        return Response(TaskAutomationSerializer(automations, many=True).data)
 
-    def perform_update(self, serializer):
-        automation = serializer.save()
-        sync_automation_schedule(automation)
+    @extend_schema(responses={200: TaskAutomationSerializer})
+    def retrieve(self, request, pk=None, **kwargs):
+        automation = tasks_facade.get_task_automation(pk, self.team_id, getattr(request.user, "id", None))
+        if automation is None:
+            raise NotFound()
+        return Response(TaskAutomationSerializer(automation).data)
 
-    def perform_destroy(self, instance):
-        automation = cast(TaskAutomation, instance)
-        delete_automation_schedule(automation)
-        automation.delete()
+    @extend_schema(request=TaskAutomationWriteSerializer, responses={201: TaskAutomationSerializer})
+    def create(self, request, **kwargs):
+        serializer = self._write_serializer(request.data)
+        automation = tasks_facade.create_task_automation(
+            self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
+        )
+        return Response(TaskAutomationSerializer(automation).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(request=TaskAutomationWriteSerializer, responses={200: TaskAutomationSerializer})
+    def partial_update(self, request, pk=None, **kwargs):
+        serializer = self._write_serializer(request.data, partial=True)
+        automation = tasks_facade.update_task_automation(
+            pk, self.team_id, getattr(request.user, "id", None), **self._facade_kwargs(serializer.validated_data)
+        )
+        if automation is None:
+            raise NotFound()
+        return Response(TaskAutomationSerializer(automation).data)
+
+    @extend_schema(responses={204: None})
+    def destroy(self, request, pk=None, **kwargs):
+        if not tasks_facade.delete_task_automation(pk, self.team_id, getattr(request.user, "id", None)):
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(responses={200: TaskAutomationSerializer})
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
-        automation = cast(TaskAutomation, self.get_object())
-        run_task_automation(str(automation.id))
-        automation.refresh_from_db()
-        return Response(TaskAutomationSerializer(automation, context=self.get_serializer_context()).data)
+        automation = tasks_facade.run_task_automation_now(pk, self.team_id, getattr(request.user, "id", None))
+        if automation is None:
+            raise NotFound()
+        return Response(TaskAutomationSerializer(automation).data)
 
 
 @extend_schema(tags=["task-runs", "tasks"])

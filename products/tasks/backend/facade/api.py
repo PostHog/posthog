@@ -28,6 +28,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.models import User
+from posthog.models.integration import Integration
 
 from products.tasks.backend.models import (
     CodeInvite,
@@ -35,9 +36,10 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
+    TaskAutomation,
     TaskRun,
 )
-from products.tasks.backend.visibility import task_visibility_q
+from products.tasks.backend.visibility import task_run_visibility_q, task_visibility_q
 
 from . import contracts
 
@@ -73,24 +75,30 @@ __all__ = [
     "create_run",
     "create_sandbox_connection_token",
     "create_sandbox_environment",
+    "create_task_automation",
     "delete_sandbox_environment",
+    "delete_task_automation",
     "fail_task_run",
     "get_latest_pr_url_by_task",
     "get_latest_run_by_task",
     "get_sandbox_environment",
     "get_sandbox_snapshot",
     "get_stale_queued_task_run_ids",
+    "get_task_automation",
     "get_task_run",
     "is_task_visible_to_user",
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_url_subquery",
     "list_sandbox_environments",
+    "list_task_automations",
     "redeem_code_invite",
+    "run_task_automation_now",
     "send_cancel",
     "send_user_message",
     "task_exists",
     "task_run_pr_url_exists_subquery",
     "update_sandbox_environment",
+    "update_task_automation",
     "update_task_run_state",
     "upsert_internal_sandbox_env",
 ]
@@ -638,6 +646,178 @@ def delete_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -
         return False
     env.delete()
     return True
+
+
+# --- Task automations (presentation CRUD) ---
+# Visibility mirrors the task-run visibility filter traversed via the automation's ``task`` FK
+# (creator, legacy unowned tasks, and signals-pipeline tasks). Most read fields proxy off the
+# linked ``Task``; the schedule (Temporal) is kept in sync from inside the write functions.
+
+
+def _task_automation_to_dto(automation: TaskAutomation) -> contracts.TaskAutomationDTO:
+    return contracts.TaskAutomationDTO(
+        id=automation.id,
+        name=automation.name,
+        prompt=automation.prompt,
+        repository=automation.repository,
+        github_integration=automation.github_integration_id,
+        cron_expression=automation.cron_expression,
+        timezone=automation.timezone,
+        template_id=automation.template_id,
+        enabled=automation.enabled,
+        last_run_at=automation.last_run_at,
+        last_run_status=automation.last_run_status,
+        last_task_id=str(automation.task_id),
+        last_task_run_id=str(automation.last_task_run_id) if automation.last_task_run_id else None,
+        last_error=automation.last_error,
+        created_at=automation.created_at,
+        updated_at=automation.updated_at,
+    )
+
+
+def _visible_task_automations(team_id: int, user_id: int | None):
+    return TaskAutomation.objects.filter(task__team_id=team_id).filter(task_run_visibility_q(user_id))
+
+
+def list_task_automations(team_id: int, user_id: int | None) -> list[contracts.TaskAutomationDTO]:
+    """Automations for the team visible to the user, ordered by task title then newest first."""
+    automations = _visible_task_automations(team_id, user_id).order_by("task__title", "-created_at")
+    return [_task_automation_to_dto(automation) for automation in automations]
+
+
+def get_task_automation(
+    automation_id: str | UUID, team_id: int, user_id: int | None
+) -> contracts.TaskAutomationDTO | None:
+    """A single automation visible to the user. Returns ``None`` if not found/visible."""
+    automation = _visible_task_automations(team_id, user_id).filter(pk=automation_id).first()
+    return _task_automation_to_dto(automation) if automation is not None else None
+
+
+def create_task_automation(
+    team_id: int,
+    user_id: int | None,
+    *,
+    name: str,
+    prompt: str,
+    repository: str,
+    github_integration_id: int | None = None,
+    cron_expression: str,
+    timezone: str = "UTC",
+    template_id: str | None = None,
+    enabled: bool = True,
+) -> contracts.TaskAutomationDTO:
+    """Create an automation (and its backing task) and sync its Temporal schedule.
+
+    Falls back to the team's default GitHub integration when none is supplied, mirroring the
+    original serializer behavior.
+    """
+    if github_integration_id is None:
+        default_integration = Integration.objects.filter(team_id=team_id, kind="github").first()
+        github_integration_id = default_integration.id if default_integration else None
+
+    with transaction.atomic():
+        task = Task.objects.create(
+            team_id=team_id,
+            created_by_id=user_id,
+            title=name,
+            description=prompt,
+            origin_product=Task.OriginProduct.AUTOMATION,
+            repository=repository,
+            github_integration_id=github_integration_id,
+        )
+        automation = TaskAutomation.objects.create(
+            task=task,
+            cron_expression=cron_expression,
+            timezone=timezone,
+            template_id=template_id,
+            enabled=enabled,
+        )
+
+    _sync_automation_schedule(automation)
+    return _task_automation_to_dto(automation)
+
+
+def update_task_automation(
+    automation_id: str | UUID, team_id: int, user_id: int | None, **fields
+) -> contracts.TaskAutomationDTO | None:
+    """Partially update a visible automation (and its backing task) and re-sync its schedule.
+
+    Returns ``None`` if the automation is not found/visible. The ``github_integration_id``
+    key (when present) updates the backing task's GitHub integration.
+    """
+    automation = _visible_task_automations(team_id, user_id).filter(pk=automation_id).first()
+    if automation is None:
+        return None
+
+    task_field_map = {
+        "name": "title",
+        "prompt": "description",
+        "repository": "repository",
+        "github_integration_id": "github_integration_id",
+    }
+    task_updates = {task_field_map[key]: fields.pop(key) for key in list(fields) if key in task_field_map}
+
+    with transaction.atomic():
+        for key, value in fields.items():
+            setattr(automation, key, value)
+        automation.save()
+
+        if task_updates:
+            task = automation.task
+            fields_to_update = []
+            for field, value in task_updates.items():
+                if getattr(task, field) != value:
+                    setattr(task, field, value)
+                    fields_to_update.append(field)
+            if fields_to_update:
+                fields_to_update.append("updated_at")
+                task.save(update_fields=fields_to_update)
+
+    _sync_automation_schedule(automation)
+    return _task_automation_to_dto(automation)
+
+
+def delete_task_automation(automation_id: str | UUID, team_id: int, user_id: int | None) -> bool:
+    """Delete a visible automation and its Temporal schedule. Returns whether a row was deleted."""
+    automation = _visible_task_automations(team_id, user_id).filter(pk=automation_id).first()
+    if automation is None:
+        return False
+
+    from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
+        delete_automation_schedule,
+    )
+
+    delete_automation_schedule(automation)
+    automation.delete()
+    return True
+
+
+def run_task_automation_now(
+    automation_id: str | UUID, team_id: int, user_id: int | None
+) -> contracts.TaskAutomationDTO | None:
+    """Trigger an automation run immediately and return the refreshed automation DTO.
+
+    Returns ``None`` if the automation is not found/visible.
+    """
+    automation = _visible_task_automations(team_id, user_id).filter(pk=automation_id).first()
+    if automation is None:
+        return None
+
+    from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
+        run_task_automation,
+    )
+
+    run_task_automation(str(automation.id))
+    automation.refresh_from_db()
+    return _task_automation_to_dto(automation)
+
+
+def _sync_automation_schedule(automation: TaskAutomation) -> None:
+    from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
+        sync_automation_schedule,
+    )
+
+    sync_automation_schedule(automation)
 
 
 # --- Id-based bridges to the sandbox/agent-command surface ---
