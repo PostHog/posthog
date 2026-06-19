@@ -77,6 +77,19 @@ pub(super) const CAPTURE_V1_PAYLOAD_SIZE: &str = "capture_v1_payload_size_bytes"
 /// configured in prometheus.rs (CLOCK_SKEW_SECONDS).
 pub(super) const CAPTURE_V1_CLOCK_SKEW_SECONDS: &str = "capture_v1_clock_skew_seconds";
 
+/// Histogram of batch serialize wall-time (label: batch_size bucket). Sink- and
+/// product-agnostic by design — faceting comes from the per-mode service
+/// deployment (capture-analytics / capture-replay / capture-ai).
+pub(super) const CAPTURE_V1_SERIALIZE_DURATION_SECONDS: &str =
+    "capture_v1_serialize_duration_seconds";
+
+/// Counter of events that failed to serialize (non-panic, fatal/non-retriable).
+pub(super) const CAPTURE_V1_SERIALIZE_FAILED_TOTAL: &str = "capture_v1_serialize_failed_total";
+
+/// Counter of events whose serialization panicked. The panic is isolated per
+/// event (caught), so the rest of the batch still serializes and publishes.
+pub(super) const CAPTURE_V1_SERIALIZE_PANIC_TOTAL: &str = "capture_v1_serialize_panic_total";
+
 // ---------------------------------------------------------------------------
 // Fallback values
 // ---------------------------------------------------------------------------
