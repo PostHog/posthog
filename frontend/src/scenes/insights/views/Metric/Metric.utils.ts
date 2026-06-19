@@ -95,3 +95,12 @@ export function computeMetricSummaryChange(
     }
     return computeMetricChange(current.data)
 }
+
+// Plain-language description of what the change pill compares, for a tooltip — keyed to the branches in
+// `computeMetricSummaryChange`. `total`/`average` apply only with a comparison period; otherwise (and
+// always for `latest`) the pill is the within-period first→last movement.
+export const METRIC_CHANGE_TOOLTIPS = {
+    total: "Comparing this period's total to the previous period's total.",
+    average: "Comparing this period's average to the previous period's average.",
+    firstToLatest: 'Comparing the first value in this period to the most recent value.',
+}

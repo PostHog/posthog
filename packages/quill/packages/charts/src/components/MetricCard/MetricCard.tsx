@@ -44,6 +44,8 @@ export interface MetricCardProps {
     changeSize?: 'sm' | 'md'
     /** Render the change pill inline next to the headline instead of in the header row. */
     changeInline?: boolean
+    /** Native tooltip (title attribute) on the change pill, e.g. explaining what it compares. */
+    changeTooltip?: string
     positiveColor?: ChangeColor
     negativeColor?: ChangeColor
     /** Caption under the headline. Defaults to `labels[activeIndex]` when a sparkline is present.
@@ -101,6 +103,7 @@ function MetricCardInner({
     goodDirection = 'up',
     changeSize = 'sm',
     changeInline = false,
+    changeTooltip,
     positiveColor = DEFAULT_POSITIVE_COLOR,
     negativeColor = DEFAULT_NEGATIVE_COLOR,
     subtitle,
@@ -174,6 +177,7 @@ function MetricCardInner({
                             label={headerDelta.label}
                             colors={pillColors}
                             size={changeSize}
+                            tooltip={changeTooltip}
                         />
                     )}
                 </div>
@@ -182,7 +186,13 @@ function MetricCardInner({
             {changeInline && delta != null ? (
                 <div className="flex items-center justify-between gap-2">
                     {renderedHeadline}
-                    <ChangePill positive={positive} label={delta.label} colors={pillColors} size={changeSize} />
+                    <ChangePill
+                        positive={positive}
+                        label={delta.label}
+                        colors={pillColors}
+                        size={changeSize}
+                        tooltip={changeTooltip}
+                    />
                 </div>
             ) : (
                 renderedHeadline
@@ -249,15 +259,17 @@ interface ChangePillProps {
     label: React.ReactNode
     colors: ChangeColor
     size?: 'sm' | 'md'
+    tooltip?: string
 }
 
-function ChangePill({ positive, label, colors, size = 'sm' }: ChangePillProps): React.ReactElement {
+function ChangePill({ positive, label, colors, size = 'sm', tooltip }: ChangePillProps): React.ReactElement {
     const sizeClasses = size === 'md' ? 'gap-1.5 px-2.5 py-1 text-sm' : 'gap-1 px-2 py-0.5 text-xs'
     return (
         <div
             className={`inline-flex items-center rounded-full font-medium transition-colors ${sizeClasses}`}
             style={{ background: colors.background, color: colors.foreground }}
             data-attr="metric-card-change-pill"
+            title={tooltip}
         >
             <Chevron up={positive} size={size === 'md' ? 12 : 10} />
             <span className="tabular-nums">{label}</span>

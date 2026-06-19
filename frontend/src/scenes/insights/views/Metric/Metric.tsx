@@ -17,6 +17,7 @@ import { insightLogic } from '../../insightLogic'
 import {
     computeMetricSummary,
     computeMetricSummaryChange,
+    METRIC_CHANGE_TOOLTIPS,
     METRIC_COLOR_BY_DIRECTION_DEFAULT,
     METRIC_DEFAULT_DECREASE_COLOR,
     METRIC_DEFAULT_INCREASE_COLOR,
@@ -59,6 +60,8 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
         { total: resultSeries.count, data: resultSeries.data },
         previousSeries
     )
+    const changeTooltip =
+        previousSeries && summary !== 'latest' ? METRIC_CHANGE_TOOLTIPS[summary] : METRIC_CHANGE_TOOLTIPS.firstToLatest
 
     const isIncrease = (change?.value ?? 0) >= 0
     const pillColors = {
@@ -87,6 +90,7 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
                 changeSize="md"
                 changeInline
                 change={change}
+                changeTooltip={changeTooltip}
                 hoverChangeFromPreviousPoint
                 {...pillColors}
                 restingSubtitle={METRIC_SUMMARY_LABELS[summary]}
