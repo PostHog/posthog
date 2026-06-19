@@ -557,9 +557,16 @@ const AssistantTrendsFilter = z.object({
     metricShowChange: z.coerce
         .boolean()
         .describe(
-            'Only applies when `display` is `Metric`. Show the change pill next to the big number — the percentage change from the first to the last point of the series over the selected date range.'
+            'Only applies when `display` is `Metric`. Show the change pill next to the big number. What it compares follows `metricSummary`: `total`/`average` compare against the previous period when "compare to previous" is on (otherwise first→last of the series), and `latest` is always first→last of the series.'
         )
         .default(true)
+        .optional(),
+    metricSummary: z
+        .enum(['total', 'average', 'latest'])
+        .describe(
+            'Only applies when `display` is `Metric`. Which summary the resting big number shows: `total` (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the sparkline always shows the hovered point\'s value regardless of this setting. Also drives the change pill: `total`/`average` compare against the previous period when "compare to previous" is on; `latest` compares first→last of the series.'
+        )
+        .default('total')
         .optional(),
     showAlertThresholdLines: z.coerce
         .boolean()
