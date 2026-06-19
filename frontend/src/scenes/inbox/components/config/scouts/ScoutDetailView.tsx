@@ -95,6 +95,7 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
     const { emissionRows, emissionsLoading, emissionsLoadFailed, runsWindowLoadedOnce, runsWindowComplete } = useValues(
         scoutDetailLogic({ skillName })
     )
+    const { selectedScoutFindingId } = useValues(inboxSceneLogic)
 
     // "Loading" until the fleet's runs window has settled once AND this scout's emissions have
     // resolved — otherwise a fresh deep-link would flash the empty state before we know the
@@ -123,7 +124,14 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
             ) : (
                 <>
                     {emissionRows.map(({ emission, run, report }) => (
-                        <ScoutEmissionCard key={emission.id} emission={emission} run={run} report={report} />
+                        <ScoutEmissionCard
+                            key={emission.id}
+                            skillName={skillName}
+                            emission={emission}
+                            run={run}
+                            report={report}
+                            isDeepLinked={selectedScoutFindingId === emission.finding_id}
+                        />
                     ))}
                     {!runsWindowComplete && (
                         <span className="text-xs text-muted">
