@@ -1171,9 +1171,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         source_cdc_enabled = bool(source.job_inputs.get("cdc_enabled"))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
-        # xmin is Postgres-only — name Postgres in the gate rather than relying on the flag's implicit
-        # False, so the capability can never leak to another SQL source.
-        xmin_available = schema.supports_xmin if source.source_type == ExternalDataSourceType.POSTGRES else None
+        # xmin is Postgres-only AND flag-gated, mirroring the database_schema endpoint.
+        xmin_available = (
+            schema.supports_xmin
+            if (source.source_type == ExternalDataSourceType.POSTGRES and is_xmin_enabled_for_team(self.team))
+            else None
+        )
 
         data = {
             "incremental_fields": schema.incremental_fields,
