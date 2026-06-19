@@ -860,7 +860,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // below still falls back to the `interval < x` comparison reading
             // when the tag parse doesn't pan out.
             TokenKind::Keyword(Kw::Interval)
-                if can_start_interval_value(self.peek_next()) || self.peek_next_starts_hogqlx_tag() =>
+                if can_start_interval_value(self.peek_next())
+                    || self.peek_next_starts_hogqlx_tag() =>
             {
                 if self.peek_next() == TokenKind::String {
                     self.parse_interval_expr().map_err(ParseError::into_fatal)
@@ -1537,13 +1538,17 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         };
         let mut probe = Lexer::with_pos(self.src, self.peek0.start);
         loop {
-            let Ok(t) = probe.next_token() else { return false };
+            let Ok(t) = probe.next_token() else {
+                return false;
+            };
             match t.kind {
                 k if is_unit(k) => return true,
                 TokenKind::LParen | TokenKind::LBracket => {
                     let mut depth: i32 = 1;
                     while depth > 0 {
-                        let Ok(inner) = probe.next_token() else { return false };
+                        let Ok(inner) = probe.next_token() else {
+                            return false;
+                        };
                         match inner.kind {
                             TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
                                 depth += 1
@@ -5093,8 +5098,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     // the WIDE/hoist case can't (last_consumed_end overshoots past the hoist), so it
                     // stamps the high operand's end directly. The high node `end` is paren-stripped,
                     // so recover a parenthesized high's trailing `)` via `high_operand_paren_end`.
-                    let high_end =
-                        high_operand_paren_end(self, &high).or_else(|| self.emit.get_field(&high, "end"));
+                    let high_end = high_operand_paren_end(self, &high)
+                        .or_else(|| self.emit.get_field(&high, "end"));
                     let between_inner = self.emit.between(prev, low, high, true);
                     let mut between = if hoisted.is_empty() {
                         self.wrap_pos(between_inner, lhs_start)
@@ -5165,8 +5170,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 // high operand's end directly, recovering a parenthesized high's
                 // trailing `)` via `high_operand_paren_end` (the node `end` is
                 // paren-stripped).
-                let high_end =
-                    high_operand_paren_end(self, &high).or_else(|| self.emit.get_field(&high, "end"));
+                let high_end = high_operand_paren_end(self, &high)
+                    .or_else(|| self.emit.get_field(&high, "end"));
                 let between_inner = self.emit.between(prev, low, high, false);
                 let mut between = if hoisted.is_empty() {
                     self.wrap_pos(between_inner, lhs_start)

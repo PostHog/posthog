@@ -441,7 +441,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// modes, so `a-b` lexes as `Ident a`, `Dash`, `Ident b`; stitch
     /// them back together here when the dash is followed immediately
     /// by an ident-like token with no intervening whitespace.
-    fn parse_hogqlx_identifier(&mut self, what: &str, allow_quoted: bool) -> Result<String, ParseError> {
+    fn parse_hogqlx_identifier(
+        &mut self,
+        what: &str,
+        allow_quoted: bool,
+    ) -> Result<String, ParseError> {
         let head = self.bump()?;
         // A tag/attr name is an `identifier` (grammar `hogqlxTagElement` /
         // `hogqlxTagAttribute`), so a keyword head is only valid when it is a
