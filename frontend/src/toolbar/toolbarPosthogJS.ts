@@ -46,6 +46,23 @@ if (runningOnPosthog && window.JS_POSTHOG_SELF_CAPTURE) {
     toolbarPosthogJS.debug()
 }
 
+/**
+ * True for benign client-side network failures that are outside PostHog's control —
+ * ad-blockers, CORS rejections, offline/transient connectivity, and request timeouts.
+ * `fetch` rejects with a `TypeError` for any network or CORS failure (the message varies
+ * by browser: "Failed to fetch", "Load failed", "NetworkError when attempting to fetch
+ * resource") and with an `AbortError`/`TimeoutError` `DOMException` when the request is
+ * aborted or times out. None of these indicate a toolbar defect, so callers log them but
+ * must not `captureException` them — doing so opens net-new error-tracking issues on
+ * customer sites for conditions we can't fix.
+ */
+export function isClientNetworkError(error: unknown): boolean {
+    if (error instanceof TypeError) {
+        return true
+    }
+    return error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')
+}
+
 /** Capture an exception with a required toolbar context tag for filtering. */
 export function captureToolbarException(
     error: unknown,

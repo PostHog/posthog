@@ -8,6 +8,7 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import { isClientNetworkError, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
@@ -1337,6 +1338,47 @@ describe('toolbar toolbarConfigLogic', () => {
             ['not a url', null],
         ])('canonicalizeApiHost(%p) === %p', (input, expected) => {
             expect(canonicalizeApiHost(input as any)).toBe(expected)
+        })
+    })
+
+    describe('isClientNetworkError', () => {
+        it.each([
+            // benign client-side failures — suppressed from error tracking
+            [new TypeError('Failed to fetch'), true],
+            [new TypeError('Load failed'), true],
+            [new TypeError('NetworkError when attempting to fetch resource'), true],
+            [new DOMException('aborted', 'AbortError'), true],
+            [new DOMException('timed out', 'TimeoutError'), true],
+            // genuine errors — still captured
+            [new Error('Failed to fetch'), false],
+            [new Error('HTTP 500'), false],
+            [new DOMException('boom', 'SyntaxError'), false],
+            ['Failed to fetch', false],
+            [null, false],
+            [undefined, false],
+        ])('isClientNetworkError(%p) === %p', (input, expected) => {
+            expect(isClientNetworkError(input)).toBe(expected)
+        })
+    })
+
+    describe('reachability check error capture', () => {
+        // Regression: a network/CORS failure on the visitor's browser must not open a net-new
+        // error-tracking issue — the reachability HEAD failing is the expected "unreachable" signal.
+        it('does not captureException when the reachability check fails with a network error', async () => {
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation()
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://selfhosted.example.com',
+                apiURL: 'https://selfhosted.example.com',
+            } as any)
+            ;(global.fetch as jest.Mock).mockRejectedValue(new TypeError('Failed to fetch'))
+
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            expect(logic.values.authStatus).toBe('error')
+            captureExceptionSpy.mockRestore()
         })
     })
 

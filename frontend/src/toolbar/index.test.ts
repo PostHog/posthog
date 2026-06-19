@@ -90,6 +90,70 @@ describe('Toolbar flag loading', () => {
         consoleErrorSpy.mockRestore()
     })
 
+    it('should swallow client-network failures without logging an error', async () => {
+        // A 'Failed to fetch' TypeError is the signature of an ad-blocker / CORS / transient
+        // network failure on the visitor's browser — it must not surface as a tracked exception
+        // (captureToolbarException is gated on toolbarLogger.error, which writes console.error).
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: {
+                overrideFeatureFlags: jest.fn(),
+            },
+        }
+
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            toolbarFlagsKey: 'test-key-123',
+            token: 'test-token',
+        }
+
+        mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+
+        // Downgraded to a warn, never an error (which is what drives exception capture)
+        expect(consoleWarnSpy).toHaveBeenCalledWith(
+            expect.stringContaining('Network error fetching toolbar feature flags')
+        )
+        expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+            expect.stringContaining('Error fetching toolbar feature flags')
+        )
+        expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
+
+        consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
+    })
+
+    it('should still log an error for non-network fetch failures', async () => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: {
+                overrideFeatureFlags: jest.fn(),
+            },
+        }
+
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            toolbarFlagsKey: 'test-key-123',
+            token: 'test-token',
+        }
+
+        mockFetch.mockRejectedValueOnce(new Error('boom'))
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+
+        expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Error fetching toolbar feature flags'))
+
+        consoleErrorSpy.mockRestore()
+    })
+
     it('should handle non-ok responses gracefully', async () => {
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
 

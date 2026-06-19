@@ -17,7 +17,7 @@ import { ToolbarApp } from '~/toolbar/ToolbarApp'
 import { canonicalizeApiHost } from '~/toolbar/toolbarConfigLogic'
 import { posthogToolbarController, setToolbarRefs } from '~/toolbar/toolbarController'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, isClientNetworkError } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarParams } from '~/types'
 
 interface InitKeaProps {
@@ -112,6 +112,13 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
                 }
             })
             .catch((error) => {
+                if (isClientNetworkError(error)) {
+                    // Ad-blocker, CORS, or transient connectivity on the visitor's browser — outside
+                    // our control and not a toolbar defect. The toolbar still loads. Log it, but don't
+                    // capture it as an exception (which would open a net-new error-tracking issue).
+                    toolbarLogger.warn('flags', 'Network error fetching toolbar feature flags, ignoring')
+                    return
+                }
                 toolbarLogger.error('flags', 'Error fetching toolbar feature flags')
                 captureToolbarException(error, 'preloaded_flags_fetch')
             })
