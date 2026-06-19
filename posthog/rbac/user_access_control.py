@@ -486,7 +486,7 @@ class UserAccessControl:
 
         return {"team_id": self._team.id, "resource": resource, "resource_id": None}  # type: ignore
 
-    def access_controls_filters_for_queryset(self, resource: APIScopeObject) -> dict:
+    def _access_controls_filters_for_queryset(self, resource: APIScopeObject) -> dict:
         """
         Used to filter out IDs from a queryset based on access controls where the specific resource is denied access
         """
@@ -562,7 +562,7 @@ class UserAccessControl:
         if resource_id:
             filter_groups.append(self._access_controls_filters_for_object(resource, resource_id=resource_id))
         else:
-            filter_groups.append(self.access_controls_filters_for_queryset(resource))
+            filter_groups.append(self._access_controls_filters_for_queryset(resource))
 
         self._preload_filter_groups(filter_groups)
 
@@ -854,7 +854,7 @@ class UserAccessControl:
             return False
 
         # Get all object-level access controls for this resource type
-        filters = self.access_controls_filters_for_queryset(resource)
+        filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
         # These are already pre-loaded so filter what's in memory - read the FK id columns, not the
@@ -925,7 +925,7 @@ class UserAccessControl:
 
         model_has_creator = hasattr(model, "created_by")
 
-        filters = self.access_controls_filters_for_queryset(resource)
+        filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
         blocked_resource_ids, allowed_resource_ids = self._blocked_and_allowed_object_ids(access_controls)
