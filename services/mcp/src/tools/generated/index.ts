@@ -2,6 +2,7 @@
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
 import { GENERATED_TOOLS as actions } from './actions'
+import { GENERATED_TOOLS as agent_memory } from './agent_memory'
 import { GENERATED_TOOLS as agent_platform } from './agent_platform'
 import { GENERATED_TOOLS as ai_observability } from './ai_observability'
 import { GENERATED_TOOLS as alerts } from './alerts'
@@ -55,6 +56,7 @@ import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     ...actions,
+    ...agent_memory,
     ...agent_platform,
     ...ai_observability,
     ...alerts,

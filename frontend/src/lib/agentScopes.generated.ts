@@ -14,6 +14,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'activity_log:read',
     'agents:read',
     'agents:write',
+    'agent_memory:read',
+    'agent_memory:write',
     'alert:read',
     'alert:write',
     'annotation:read',

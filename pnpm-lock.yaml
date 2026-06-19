@@ -615,6 +615,9 @@ importers:
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
+      '@posthog/products-agent-memory':
+        specifier: workspace:*
+        version: link:../products/agent_memory
       '@posthog/products-ai-observability':
         specifier: workspace:*
         version: link:../products/ai_observability
@@ -2205,6 +2208,21 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+
+  products/agent_memory:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/react':
+        specifier: '*'
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.390.2)(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   products/agent_platform: {}
 

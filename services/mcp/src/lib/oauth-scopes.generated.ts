@@ -23,6 +23,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'agents:write',
     'agent_approvals:read',
     'agent_approvals:write',
+    'agent_memory:read',
+    'agent_memory:write',
     'alert:read',
     'alert:write',
     'annotation:read',
