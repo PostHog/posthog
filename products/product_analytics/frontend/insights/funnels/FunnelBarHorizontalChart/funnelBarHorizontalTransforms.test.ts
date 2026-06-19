@@ -319,21 +319,47 @@ describe('buildFunnelBarHorizontalData', () => {
             expect(result.map((s) => s.bars[1].series[1].data[0])).toEqual([20, 60])
         })
 
-        it('does not force the current step-0 bar to 100 when the previous period is larger', () => {
-            const previousLeads: FunnelStepWithConversionMetrics[] = [
-                makeStep({
-                    count: 80,
-                    fromBasisStep: 0.8,
-                    compare_label: 'current',
-                    nested_breakdown: [
-                        makeStep({ count: 80, fromBasisStep: 0.8, compare_label: 'current' }),
-                        makeStep({ count: 100, fromBasisStep: 1, compare_label: 'previous' }),
-                    ],
-                }),
+        it.each([
+            {
+                description: 'does not force the current step-0 bar to 100 when the previous period is larger',
+                nested_breakdown: [
+                    makeStep({ count: 80, fromBasisStep: 0.8, compare_label: 'current' }),
+                    makeStep({ count: 100, fromBasisStep: 1, compare_label: 'previous' }),
+                ],
+                // current sits below the shared baseline; previous fills the track
+                expectedBars: [
+                    { segment: [80], filler: [20], breakdownIndex: 0 },
+                    { segment: [100], filler: [0], breakdownIndex: 1 },
+                ],
+            },
+            {
+                description: 'renders a zeroed previous period as an empty track without error',
+                nested_breakdown: [
+                    makeStep({ count: 100, fromBasisStep: 1, compare_label: 'current' }),
+                    makeStep({ count: 0, fromBasisStep: 0, compare_label: 'previous' }),
+                ],
+                expectedBars: [
+                    { segment: [100], filler: [0], breakdownIndex: 0 },
+                    { segment: [0], filler: [100], breakdownIndex: 1 },
+                ],
+            },
+            {
+                description: 'renders a single bar when the step has no previous-period series',
+                nested_breakdown: [makeStep({ count: 100, fromBasisStep: 1, compare_label: 'current' })],
+                expectedBars: [{ segment: [100], filler: [0], breakdownIndex: 0 }],
+            },
+        ])('$description', ({ nested_breakdown, expectedBars }) => {
+            const steps: FunnelStepWithConversionMetrics[] = [
+                makeStep({ count: 100, fromBasisStep: 1, compare_label: 'current', nested_breakdown }),
             ]
-            const [step] = buildFunnelBarHorizontalCompareData(previousLeads, options)
-            expect(step.bars[0].series[0].data).toEqual([80]) // current sits below the shared baseline
-            expect(step.bars[1].series[0].data).toEqual([100]) // previous fills the track
+            const [step] = buildFunnelBarHorizontalCompareData(steps, options)
+
+            expect(step.bars).toHaveLength(expectedBars.length)
+            expectedBars.forEach((expected, barIndex) => {
+                expect(step.bars[barIndex].series[0].data).toEqual(expected.segment)
+                expect(step.bars[barIndex].series[1].data).toEqual(expected.filler)
+                expect(step.bars[barIndex].series[0].meta?.breakdownIndex).toBe(expected.breakdownIndex)
+            })
         })
 
         it('colors each bar from the current step’s own variant, dimming the previous period', () => {
@@ -356,37 +382,6 @@ describe('buildFunnelBarHorizontalData', () => {
             expect(step.bars[0].series[1].meta).toEqual({ isDropOff: true, breakdownIndex: 0 })
             expect(step.bars[1].series[0].meta).toEqual({ isDropOff: false, breakdownIndex: 1 })
             expect(step.bars[1].series[1].meta).toEqual({ isDropOff: true, breakdownIndex: 1 })
-        })
-
-        it('renders a zeroed previous period as an empty track without error', () => {
-            const zeroedPrevious: FunnelStepWithConversionMetrics[] = [
-                makeStep({
-                    count: 100,
-                    fromBasisStep: 1,
-                    compare_label: 'current',
-                    nested_breakdown: [
-                        makeStep({ count: 100, fromBasisStep: 1, compare_label: 'current' }),
-                        makeStep({ count: 0, fromBasisStep: 0, compare_label: 'previous' }),
-                    ],
-                }),
-            ]
-            const [step] = buildFunnelBarHorizontalCompareData(zeroedPrevious, options)
-            expect(step.bars[1].series[0].data).toEqual([0])
-            expect(step.bars[1].series[1].data).toEqual([100])
-        })
-
-        it('renders a single bar when the step has no previous-period series', () => {
-            const noPrevious: FunnelStepWithConversionMetrics[] = [
-                makeStep({
-                    count: 100,
-                    fromBasisStep: 1,
-                    compare_label: 'current',
-                    nested_breakdown: [makeStep({ count: 100, fromBasisStep: 1, compare_label: 'current' })],
-                }),
-            ]
-            const [step] = buildFunnelBarHorizontalCompareData(noPrevious, options)
-            expect(step.bars).toHaveLength(1)
-            expect(step.bars[0].series[0].meta?.breakdownIndex).toBe(0)
         })
     })
 

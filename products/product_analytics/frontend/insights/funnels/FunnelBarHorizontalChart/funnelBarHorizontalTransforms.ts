@@ -89,7 +89,6 @@ function buildBreakdownSegments(
  *  rather than two segments sharing one track. `bars[0]` is current, `bars[1]` previous; previous is
  *  omitted only when the backend sent no previous-period series for the step. */
 export interface FunnelBarHorizontalCompareStep {
-    label: string
     bars: FunnelBarHorizontalStepData[]
 }
 
@@ -116,7 +115,7 @@ export function buildFunnelBarHorizontalCompareData(
                 series: [segment, buildFunnelBarHorizontalFiller([segment], options.fillerColor, breakdownIndex)],
             }
         })
-        return { label: String(stepIndex), bars }
+        return { bars }
     })
 }
 
