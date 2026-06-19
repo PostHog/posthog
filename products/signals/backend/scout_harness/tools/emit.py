@@ -362,7 +362,9 @@ def _resolve_task_id(run: SignalScoutRun) -> str | None:
     run. None when the run isn't bridged to a TaskRun yet. Sync-only — wrap callers in async paths."""
     if not run.task_run_id:
         return None
-    task_id = TaskRun.objects.filter(id=run.task_run_id).values_list("task_id", flat=True).first()
+    # Team-scope the lookup: the bridge run is already team-owned, but scoping the TaskRun query keeps
+    # the resolution fail-closed against cross-team ids.
+    task_id = TaskRun.objects.filter(id=run.task_run_id, team_id=run.team_id).values_list("task_id", flat=True).first()
     return str(task_id) if task_id else None
 
 
