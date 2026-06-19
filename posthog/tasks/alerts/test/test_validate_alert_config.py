@@ -354,6 +354,15 @@ class TestValidateAlertConfig:
                 "daily",
                 r"funnel_step 5 is out of range \(funnel has 2 steps\)",
             ),
+            (
+                "funnels_non_steps_viz_rejected",
+                {**_funnels_query(), "funnelsFilter": {"funnelVizType": "time_to_convert"}},
+                _base_condition("absolute_value"),
+                _funnels_config(),
+                _base_threshold(),
+                "daily",
+                "Funnel alerts require a steps funnel",
+            ),
         ]
     )
     def test_validate_alert_config(
