@@ -9,6 +9,17 @@ from posthog.models.team.team import Team
 
 
 class TestDataColorTheme(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The global "Default Theme" is seeded by migration 0537, but a
+        # TransactionTestCase flush earlier on the same shard truncates migration
+        # data and nothing restores it (ensure_migration_defaults is a manual
+        # command, not a test hook). Recreate it idempotently so these tests don't
+        # silently depend on what ran before them. The guard matches the migration
+        # so a non-flushed run still sees exactly one global theme.
+        if not DataColorTheme.objects.filter(team__isnull=True, name="Default Theme").exists():
+            DataColorTheme.objects.create(name="Default Theme", colors=[], team=None)
+
     def test_can_fetch_public_themes(self) -> None:
         response = self.client.get(f"/api/environments/{self.team.pk}/data_color_themes")
 
