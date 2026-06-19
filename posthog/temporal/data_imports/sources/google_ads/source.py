@@ -163,6 +163,21 @@ class GoogleAdsSource(
                     SourceFieldOauthConfig(
                         name="google_ads_integration_id", label="Google Ads account", required=True, kind="google-ads"
                     ),
+                    SourceFieldInputConfig(
+                        name="conversion_lookback_days",
+                        label="Conversion lookback window (days)",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder="30",
+                        caption=(
+                            "Google Ads keeps updating conversions and conversion value for days after the "
+                            "original click. On each sync we re-fetch the most recent N days of stats so those "
+                            "delayed updates are merged in — set this to match your Google Ads conversion window "
+                            "(e.g. 30 days). **A larger window re-syncs more rows every run and increases sync cost.** "
+                            "Leave blank to disable (only rows for newly seen dates are synced)."
+                        ),
+                        secret=False,
+                    ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
                         label="Using MCC account?",

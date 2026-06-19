@@ -1289,6 +1289,9 @@ class GoogleAdManagerSourceConfig(config.Config):
 class GoogleAdsSourceConfig(config.Config):
     customer_id: str
     google_ads_integration_id: int = config.value(converter=config.str_to_int)
+    conversion_lookback_days: int | None = config.value(
+        converter=config.str_to_optional_int, default_factory=lambda: None
+    )
     is_mcc_account: GoogleAdsIsMccAccountConfig | None = None
 
 

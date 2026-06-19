@@ -401,7 +401,17 @@ def google_ads_source(
             else:
                 last_value = db_incremental_field_last_value
 
-            if isinstance(last_value, dt.datetime) or isinstance(last_value, dt.date):
+            # Google Ads revises conversions/conversion value for days after the click. A strict
+            # `date >= cursor` would freeze those days once the cursor passes them, so roll the
+            # cursor back by the configured lookback to re-fetch and merge the recent window on
+            # every run. Merge over `primary_keys` (which includes `segments.date`) updates the
+            # re-fetched rows in place rather than duplicating them. Date cursors only; the legacy
+            # service-account config doesn't expose the field, so it stays on the strict cursor.
+            lookback_days = config.conversion_lookback_days if isinstance(config, GoogleAdsSourceConfig) else None
+            if lookback_days and lookback_days > 0 and isinstance(last_value, (dt.datetime, dt.date)):
+                last_value = last_value - dt.timedelta(days=lookback_days)
+
+            if isinstance(last_value, (dt.datetime, dt.date)):
                 last_value = f"'{last_value.isoformat()}'"
 
             query += f" WHERE {incremental_field} >= {last_value}"

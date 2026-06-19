@@ -1,3 +1,4 @@
+import datetime as dt
 from types import SimpleNamespace
 
 import pytest
@@ -10,14 +11,21 @@ from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
-from posthog.temporal.data_imports.sources.google_ads.configs import GoogleAdsResumeConfig, clean_customer_id
+from posthog.temporal.data_imports.sources.google_ads.configs import (
+    GoogleAdsResumeConfig,
+    GoogleAdsServiceAccountSourceConfig,
+    clean_customer_id,
+)
 from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsColumn,
     GoogleAdsTable,
     _is_invalid_page_token_error,
     _search_as_arrow_tables,
+    google_ads_source,
 )
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
@@ -357,6 +365,90 @@ class _FakeResumableManager:
 
     def save_state(self, data: GoogleAdsResumeConfig) -> None:
         self.saved_states.append(data.page_token)
+
+
+def _stats_table() -> GoogleAdsTable:
+    return GoogleAdsTable(
+        name="campaign_stats",
+        alias="campaign_stats",
+        columns=[_string_column("segments.date"), _string_column("metrics.conversions_value")],
+        parents=None,
+        requires_filter=True,
+        primary_key=["campaign.id", "segments.date"],
+        should_sync_default=True,
+        description=None,
+        partition_keys=["segments.date"],
+    )
+
+
+def _capture_incremental_query(config, db_incremental_field_last_value: dt.date) -> str:
+    """Build a stats-table source response and return the query its fetch loop issues.
+
+    Mocks out the SDK (`get_schemas`, `google_ads_client`) and intercepts
+    `_search_as_arrow_tables` so we can assert on the WHERE clause without a live API.
+    """
+    captured: dict[str, str] = {}
+
+    def _capture(*, query: str, **_kwargs):
+        captured["query"] = query
+        return iter(())
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_ads.google_ads.get_schemas",
+            return_value={"campaign_stats": _stats_table()},
+        ),
+        mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_ads.google_ads._search_as_arrow_tables",
+            side_effect=_capture,
+        ),
+    ):
+        response = google_ads_source(
+            config=config,
+            resource_name="campaign_stats",
+            team_id=1,
+            resumable_source_manager=mock.MagicMock(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            incremental_field="segments.date",
+            incremental_field_type=IncrementalFieldType.Date,
+        )
+        list(response.items())
+
+    return captured["query"]
+
+
+class TestConversionLookback:
+    @pytest.mark.parametrize(
+        "lookback_days, expected_lower_bound",
+        [
+            (None, "2026-06-01"),  # unset → strict cursor, backwards compatible
+            (0, "2026-06-01"),  # zero / negative are treated as disabled
+            (1, "2026-05-31"),
+            (30, "2026-05-02"),
+        ],
+    )
+    def test_lookback_rolls_cursor_back(self, lookback_days, expected_lower_bound):
+        config = GoogleAdsSourceConfig(
+            customer_id="1234567890",
+            google_ads_integration_id=1,
+            conversion_lookback_days=lookback_days,
+        )
+
+        query = _capture_incremental_query(config, db_incremental_field_last_value=dt.date(2026, 6, 1))
+
+        assert f"segments.date >= '{expected_lower_bound}'" in query
+        assert "segments.date < '2100-01-01'" in query
+
+    def test_legacy_service_account_config_is_unaffected(self):
+        # The legacy service-account config has no `conversion_lookback_days` field; the
+        # `getattr` fallback must leave the strict cursor untouched rather than raising.
+        config = GoogleAdsServiceAccountSourceConfig(customer_id="1234567890")
+
+        query = _capture_incremental_query(config, db_incremental_field_last_value=dt.date(2026, 6, 1))
+
+        assert "segments.date >= '2026-06-01'" in query
 
 
 class TestInvalidPageTokenDetection:
