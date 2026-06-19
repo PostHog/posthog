@@ -9,6 +9,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.models.user import User
@@ -107,7 +108,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
         max_length=255,
         help_text="Human-readable action name. Unique within the team.",
     )
-    scanner = serializers.PrimaryKeyRelatedField(
+    scanner = TeamScopedPrimaryKeyRelatedField(
         queryset=ReplayScanner.objects.all(),
         help_text="Scanner whose observations this action operates on. Must belong to the same team.",
     )
@@ -193,13 +194,6 @@ class VisionActionSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_at",
         ]
-
-    def validate_scanner(self, value: ReplayScanner) -> ReplayScanner:
-        # IDOR guard: a user must not bind another team's scanner to their action.
-        team = self.context["get_team"]()
-        if value.team_id != team.id:
-            raise serializers.ValidationError("Scanner not found.")
-        return value
 
     def validate_trigger_type(self, value: str) -> str:
         if value == TriggerType.THRESHOLD:
