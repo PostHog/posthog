@@ -1,3 +1,4 @@
+import { type EventSourceMessage, createParser } from 'eventsource-parser'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
@@ -73,36 +74,6 @@ export const SANDBOX_INITIAL_PERMISSION_MODE: TaskRunBootstrapCreateRequestIniti
 
 /** The crash-error string the in-sandbox agent server writes on a fatal exception. */
 const AGENT_CRASH_PREFIX = 'Agent server crashed'
-
-/**
- * HMR-stable registry of the single live `EventSource` per stream key, hung off a global that
- * survives module re-evaluation.
- *
- * The connection normally lives in `cache.disposables` and is torn down when the logic unmounts.
- * But `cache` is recreated whenever this module is hot-reloaded, and a reload orphans the previous
- * build's `EventSource`: editing the logic cascades a rebuild up through `maxThreadLogic`, which
- * mounts the new build at the same keyed path *before* the old one unmounts — so the disposables
- * plugin's `isMounted()` guard is still true and the old connection is never closed. The orphan
- * keeps firing `onmessage` with a stale closure and races the new build's reset-then-replay
- * bootstrap, defeating the content-dedup and re-folding the whole thread once per reload, so
- * duplicates pile up across multiple reloads.
- *
- * Keying the handle to a global (instead of the per-build `cache`) lets each build close the
- * connection a prior build left open — before opening or resetting its own — guaranteeing exactly
- * one live stream per key no matter how many times the module reloads. Exported for tests.
- */
-export const liveEventSourcesByStreamKey: Map<string, EventSource> = ((
-    globalThis as unknown as { __sandboxLiveEventSources?: Map<string, EventSource> }
-).__sandboxLiveEventSources ??= new Map<string, EventSource>())
-
-/** Close and forget any `EventSource` a prior build (or an earlier open) registered for this key. */
-function closeLiveEventSource(streamKey: string): void {
-    const existing = liveEventSourcesByStreamKey.get(streamKey)
-    if (existing) {
-        existing.close()
-        liveEventSourcesByStreamKey.delete(streamKey)
-    }
-}
 
 const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled'])
 
@@ -901,17 +872,18 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
 }
 
 /**
- * Owns the `EventSource` to the products/tasks stream endpoint, parses the ACP wire format, and
- * produces thread-shaped state the renderer consumes. Coexistence sibling to `maxThreadLogic`'s
- * SSE loop — the sandbox path never enters the LangGraph EventSource loop.
+ * Owns the SSE connection to the products/tasks stream endpoint (a `fetch` reader driven by
+ * `eventsource-parser`, so a reconnect can resume via a Last-Event-ID header), parses the ACP wire
+ * format, and produces thread-shaped state the renderer consumes. Coexistence sibling to
+ * `maxThreadLogic`'s streaming loop — the sandbox path never enters the LangGraph stream loop.
  *
  * Covers open/close, `data.type === 'notification'` → `ingestAcpFrame` dispatch, terminal status,
- * and stream-error capture, plus the reconnect/backoff loop on SSE drops, content-dedup against
- * the `logs/` replay, HTTP-status error mapping, and the `bootstrapRun` history-replay-then-SSE
- * helper.
+ * and stream-error capture, plus the reconnect/backoff loop on SSE drops, the keyed idempotent log
+ * store the projection folds, HTTP-status error mapping, and the `bootstrapRun`
+ * history-replay-then-SSE helper.
  *
  * Keyed by `streamKey` (the conversation id for PostHog AI, the task id for a generic task viewer)
- * so concurrent streams keep independent stream state and EventSource connections.
+ * so concurrent streams keep independent stream state and connections.
  */
 export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     props({} as SandboxStreamLogicProps),
@@ -1374,88 +1346,134 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             actions.sseConnecting()
             cache.disposables.dispose('reconnect-backoff')
 
-            // Replace any prior connection — including one orphaned by a hot reload, whose `cache`
-            // (and thus this disposable) was discarded before the connection was ever closed.
+            // Route one parsed SSE event. `eventsource-parser` unifies the old `onmessage` (default
+            // data channel — `event` undefined) and `addEventListener('error')` (named `error`
+            // envelope) split into one callback keyed off the `event` field.
+            const handleSseEvent = ({ id, event, data }: EventSourceMessage): void => {
+                if (id) {
+                    // The Redis stream id. Stamped so a reconnect resumes exactly after it via the
+                    // Last-Event-ID header — and it keys this frame in the store identically on any
+                    // re-read, so even a re-broadcast upserts the same key and never doubles the thread.
+                    cache.lastEventId = id
+                }
+                if (event === 'error') {
+                    // Named error envelope — surface verbatim. Real backend frames carry only `error`,
+                    // so the title/retryable fall back to the generic stream-failure defaults.
+                    try {
+                        const envelope: SseErrorFrameData = JSON.parse(data)
+                        actions.handleStreamError({
+                            errorTitle: envelope.errorTitle ?? 'Cloud stream failed',
+                            errorMessage: envelope.errorMessage,
+                            retryable: envelope.retryable ?? true,
+                        })
+                    } catch {
+                        actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
+                    }
+                    return
+                }
+                // keepalive (and any other named, non-data event) carries nothing to fold.
+                if (event && event !== 'message') {
+                    return
+                }
+                let parsed: unknown
+                try {
+                    parsed = JSON.parse(data)
+                } catch {
+                    return
+                }
+                if (isNotificationFrame(parsed)) {
+                    actions.ingestAcpFrame(parsed, 'live', id || undefined)
+                } else if (isPermissionRequestFrame(parsed)) {
+                    // requestId-keyed dedup: this top-level envelope isn't a notification, so a
+                    // reconnect's resume could re-deliver it verbatim.
+                    const record = parsePermissionRequestFrame(parsed)
+                    if (
+                        record &&
+                        !values.seenPermissionRequestIds.has(record.requestId) &&
+                        !values.resolvedPermissionRequestIds.has(record.requestId)
+                    ) {
+                        actions.routePermissionRequest(record)
+                    }
+                } else if (isTaskRunStateFrame(parsed)) {
+                    // `stage` is dropped by handleTerminalStatus's status-only path; track it
+                    // separately for a future richer status surface. Generally unset for PHAI.
+                    if (parsed.stage !== undefined) {
+                        actions.setCurrentStage(parsed.stage ?? null)
+                    }
+                    actions.handleTerminalStatus({
+                        status: parsed.status as SandboxRunStatus,
+                        errorMessage: parsed.error_message ?? null,
+                    })
+                }
+                // unknown frame types are ignored.
+            }
+
+            // Open the stream as a fetch response and pump its body through the parser. A native
+            // `EventSource` can't set request headers; a fetch can, so a reconnect resumes exactly
+            // after `cache.lastEventId` via the Last-Event-ID header instead of re-broadcasting the
+            // whole stream. A clean EOF or read error (not an abort) is a drop → run the recovery
+            // loop; an aborted signal (teardown) is silent.
+            const streamRun = async (signal: AbortSignal): Promise<void> => {
+                let response: Response
+                try {
+                    response = await api.tasks.runs.openStream(taskId, runId, {
+                        signal,
+                        lastEventId: cache.lastEventId as string | undefined,
+                        startLatest,
+                    })
+                } catch {
+                    if (!signal.aborted) {
+                        actions.sseDropped()
+                    }
+                    return
+                }
+                if (signal.aborted) {
+                    return
+                }
+                const reader = response.body?.getReader()
+                if (!reader) {
+                    actions.sseDropped()
+                    return
+                }
+                // Headers received and a body to read → the connection is open.
+                actions.sseOpened()
+                const decoder = new TextDecoder()
+                const parser = createParser({ onEvent: handleSseEvent })
+                try {
+                    for (;;) {
+                        const { done, value } = await reader.read()
+                        if (value) {
+                            parser.feed(decoder.decode(value, { stream: true }))
+                        }
+                        if (done) {
+                            break
+                        }
+                    }
+                } catch {
+                    if (!signal.aborted) {
+                        actions.sseDropped()
+                    }
+                    return
+                }
+                // Clean EOF: the server closed the stream. A terminal frame would already have torn
+                // us down (dispose → abort); otherwise this is a drop, so refetch status and decide.
+                if (!signal.aborted) {
+                    actions.sseDropped()
+                }
+            }
+
+            // Replace any prior connection. A hot reload can orphan the previous build's reader (its
+            // `cache`, and thus this disposable, is discarded before teardown runs), but the keyed
+            // log store makes duplicate ingestion idempotent — a lingering orphan can no longer
+            // double the thread, so the old `EventSource` registry is gone.
             cache.disposables.dispose('event-source')
-            closeLiveEventSource(props.streamKey)
-            // pauseOnPageHidden: false — a live SSE connection must survive tab hides; re-running
-            // setup on show would replay the stream from the top and duplicate thread state.
+            // pauseOnPageHidden: false — a live stream must survive tab hides; re-running setup on
+            // show would reopen the stream and re-fold thread state.
             cache.disposables.add(
                 (): (() => void) => {
-                    const start = startLatest ? '?start=latest' : ''
-                    const url = `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/stream/${start}`
-                    const eventSource = new EventSource(url, { withCredentials: true })
-                    // Register as the live connection for this key so a later build (post-HMR) can
-                    // find and close it even after this build's `cache` is gone.
-                    liveEventSourcesByStreamKey.set(props.streamKey, eventSource)
-
-                    eventSource.onopen = (): void => actions.sseOpened()
-                    eventSource.onmessage = (event: MessageEvent<string>): void => {
-                        let data: unknown
-                        try {
-                            data = JSON.parse(event.data)
-                        } catch {
-                            return
-                        }
-                        if (isNotificationFrame(data)) {
-                            // The SSE `id:` (the Redis stream id) keys this frame in the log — stable
-                            // across any re-read, so a reconnect's full re-broadcast upserts the same
-                            // key and never doubles the thread.
-                            actions.ingestAcpFrame(data, 'live', event.lastEventId || undefined)
-                        } else if (isPermissionRequestFrame(data)) {
-                            // requestId-keyed dedup: this top-level envelope isn't a notification, so a
-                            // reconnect's full replay re-delivers it verbatim.
-                            const record = parsePermissionRequestFrame(data)
-                            if (
-                                record &&
-                                !values.seenPermissionRequestIds.has(record.requestId) &&
-                                !values.resolvedPermissionRequestIds.has(record.requestId)
-                            ) {
-                                actions.routePermissionRequest(record)
-                            }
-                        } else if (isTaskRunStateFrame(data)) {
-                            // `stage` is dropped by handleTerminalStatus's status-only path; track it
-                            // separately for a future richer status surface. Generally unset for PHAI.
-                            if (data.stage !== undefined) {
-                                actions.setCurrentStage(data.stage ?? null)
-                            }
-                            actions.handleTerminalStatus({
-                                status: data.status as SandboxRunStatus,
-                                errorMessage: data.error_message ?? null,
-                            })
-                        }
-                        // keepalive arrives as a named event, never here; unknown frame types are ignored.
-                    }
-                    // `EventSource` fires `error` both for named `event: error` envelopes (carrying
-                    // `data`) and for transient connection drops (no `data`). Surface the former
-                    // verbatim; treat the latter as a drop and run the refetch + backoff loop.
-                    eventSource.addEventListener('error', (event: MessageEvent<string>): void => {
-                        if (typeof event.data === 'string' && event.data.length > 0) {
-                            try {
-                                const envelope: SseErrorFrameData = JSON.parse(event.data)
-                                actions.handleStreamError({
-                                    errorTitle: envelope.errorTitle ?? 'Cloud stream failed',
-                                    errorMessage: envelope.errorMessage,
-                                    retryable: envelope.retryable ?? true,
-                                })
-                            } catch {
-                                actions.handleStreamError({ errorTitle: 'Cloud stream failed', retryable: true })
-                            }
-                            return
-                        }
-                        // Connection drop — take over manual reconnection (the native auto-retry would
-                        // bypass our refetch + capped-backoff logic).
-                        actions.sseDropped()
-                    })
-
-                    return () => {
-                        eventSource.close()
-                        // Only clear the registry if we're still the registered connection — a newer
-                        // (post-HMR) build may have already replaced us.
-                        if (liveEventSourcesByStreamKey.get(props.streamKey) === eventSource) {
-                            liveEventSourcesByStreamKey.delete(props.streamKey)
-                        }
-                    }
+                    const controller = new AbortController()
+                    void streamRun(controller.signal)
+                    return () => controller.abort()
                 },
                 'event-source',
                 { pauseOnPageHidden: false }
@@ -1472,7 +1490,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             if (!activeRun) {
                 return
             }
-            // Stop the native EventSource so its built-in auto-retry doesn't race our loop.
+            // Abort the in-flight reader so its clean-EOF/error handler can't also schedule a
+            // reconnect while this loop owns recovery.
             cache.disposables.dispose('event-source')
 
             // First refetch the run to detect terminal state.
@@ -1521,10 +1540,12 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.disposables.add(
                 (): (() => void) => {
                     const timer = window.setTimeout(() => {
-                        // Reopen with a full replay (no start=latest): frames emitted while
-                        // disconnected are re-delivered and the content-dedup drops the
-                        // already-ingested ones, so the gap is filled losslessly.
-                        actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: false })
+                        // Resume from `cache.lastEventId` via the Last-Event-ID header (set inside
+                        // openSseForRun) — the backend replays exactly the frames after it, filling
+                        // the gap with no re-broadcast. `startLatest: true` only matters if no frame
+                        // was ever seen (dropped before the first one): then resume from the head
+                        // rather than re-streaming from `0`.
+                        actions.openSseForRun({ taskId: activeRun.taskId, runId: activeRun.runId, startLatest: true })
                     }, delayMs)
                     return () => clearTimeout(timer)
                 },
@@ -1706,9 +1727,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         },
         closeSse: () => {
             cache.activeRun = undefined
+            cache.lastEventId = undefined
             cache.disposables.dispose('reconnect-backoff')
+            // Aborts the in-flight fetch reader (its signal); the reader loop sees `aborted` and
+            // exits without scheduling a reconnect.
             cache.disposables.dispose('event-source')
-            closeLiveEventSource(props.streamKey)
         },
         reset: () => {
             // `logStore` clears via its own reducer on `reset`, so the projection empties with it.
@@ -1717,11 +1740,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.isBootstrapping = false
             cache.sseConnectedAtMs = undefined
             cache.replayOccCounts = undefined
+            // Drop the resume cursor so the next bootstrap opens fresh (start=latest) instead of
+            // resuming a prior run's stream.
+            cache.lastEventId = undefined
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
-            // Kill any connection a prior hot-reload build orphaned, before the caller's bootstrap
-            // replays history — otherwise the stale stream races the replay and doubles the thread.
-            closeLiveEventSource(props.streamKey)
         },
         pushHumanMessage: ({ content }) => {
             // The echo is always a live turn (replayed human turns render straight from the log), so
