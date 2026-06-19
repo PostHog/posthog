@@ -9,6 +9,12 @@ RUNNING_STATUSES = frozenset({"queued", "in_progress"})
 
 RUNNING_STALE_THRESHOLD_MS = 30 * 60 * 1000
 
+# A normal PR is never headed from a repo's default branch, so these are always treated as base
+# branches when resolving a run to a PR by branch (see build_workstreams). If this ever needs to
+# cover non-standard defaults, derive the branch from the GitHub integration rather than growing
+# this set.
+DEFAULT_BASE_BRANCHES = frozenset({"master", "main"})
+
 
 @dataclass
 class TaskInput:
@@ -115,12 +121,14 @@ def build_workstreams(
     now: int,
     pr_by_branch: Optional[Mapping[tuple[str, str], PrInput]] = None,
 ) -> WorkstreamsResult:
-    # Branches that serve as a base for some task working on a *different* branch are real base
-    # branches (master, main, …). Resolving those to a PR would let unrelated base-branch runs
-    # collapse into whatever PR happens to be headed from that base. A follow-up run on a feature
-    # branch has branch == base_branch (the quick action passes the feature branch as the base),
-    # so it is never flagged here and still resolves.
-    base_branches = {t.base_branch for t in tasks if t.base_branch and t.base_branch != t.branch}
+    # A run sitting on a base branch must not resolve to whatever PR is headed from it. A branch is
+    # a base branch if some sibling task uses it as a base while on a *different* branch, or if it's
+    # a conventional default (folded in so a *lone* base-branch run, with no sibling to mark it, is
+    # still caught). A feature-branch follow-up has branch == base_branch, so it is never flagged
+    # and still resolves — real feature branches are never named like the defaults.
+    base_branches = {
+        t.base_branch for t in tasks if t.base_branch and t.base_branch != t.branch
+    } | DEFAULT_BASE_BRANCHES
 
     def pr_of(task: TaskInput) -> Optional[PrInput]:
         # A task's own PR wins; otherwise resolve via the branch it ran on so a

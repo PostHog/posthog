@@ -227,6 +227,18 @@ def test_base_branch_task_does_not_resolve_to_base_headed_pr():
     assert {t.id for t in workstreams[0].tasks} == {"a"}
 
 
+def test_lone_base_branch_task_does_not_resolve_to_base_headed_pr():
+    # Even with no sibling feature task to mark "master" a base branch, a lone run on the default
+    # branch must not collapse into a PR that happens to be headed from "master".
+    task = _task(id="a", repo_full_path="posthog/posthog", branch="master", base_branch="master", cloud_pr_url=None)
+    pr_by_branch = {
+        ("posthog/posthog", "master"): _pr(url="https://github.com/posthog/posthog/pull/2", head_branch="master")
+    }
+    result = build_workstreams([task], {}, NOW, pr_by_branch)
+    workstreams = result.needs_attention + result.in_progress
+    assert not workstreams
+
+
 def test_quick_action_is_carried_onto_workstream_task():
     task = _task(id="a", quick_action="Fix CI")
     result = build_workstreams([task], {task.id: _pr(ci_status="failing")}, NOW)
