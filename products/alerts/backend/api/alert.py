@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
 from django.db.models import OuterRef, QuerySet, Subquery
@@ -991,6 +991,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 detector_config=detector_config,
                 series_index=series_index,
                 date_from=date_from,
+                user=cast(User, request.user),
             )
         except (ValueError, IndexError) as e:
             raise ValidationError(str(e))
