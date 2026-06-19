@@ -12,6 +12,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::config::Config;
+use crate::discovery::DiscoveryMode;
 use crate::dispatcher::Dispatcher;
 use crate::transport::HttpTransport;
 use crate::types::SerializedKafkaMessage;
@@ -112,8 +113,14 @@ impl IngestionConsumer {
         transport: Arc<HttpTransport>,
         handle: Handle,
     ) -> anyhow::Result<Self> {
-        let worker_urls = config.worker_urls();
-        if worker_urls.is_empty() {
+        // In endpointslice mode the worker set comes from discovery, so there is
+        // no static readiness list — main gates startup on the first discovered
+        // worker. In static mode we keep the configured list for readiness.
+        let worker_urls = match config.worker_discovery_mode {
+            DiscoveryMode::Static => config.worker_urls(),
+            DiscoveryMode::EndpointSlice => Vec::new(),
+        };
+        if config.worker_discovery_mode == DiscoveryMode::Static && worker_urls.is_empty() {
             anyhow::bail!("No worker addresses configured");
         }
 

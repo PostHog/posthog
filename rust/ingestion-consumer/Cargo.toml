@@ -11,6 +11,8 @@ common-alloc = { path = "../common/alloc" }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
+k8s-openapi = { version = "0.24", features = ["latest"] }
+kube = { version = "0.98", features = ["client", "runtime"] }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }

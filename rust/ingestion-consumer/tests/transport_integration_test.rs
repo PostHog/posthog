@@ -316,23 +316,22 @@ async fn transport_fails_on_unreachable_worker() {
 }
 
 #[tokio::test]
-async fn transport_rejects_send_to_unknown_worker() {
-    // Caller bug: send_batch invoked with a URL that wasn't registered at
-    // construction. We bail with UnknownWorker rather than silently bypassing
-    // the semaphore.
-    let urls = vec!["http://known-worker:9001".to_string()];
-    let transport = HttpTransport::new(Duration::from_secs(1), 0, None, &urls, 1);
+async fn transport_lazily_creates_semaphore_for_unseeded_worker() {
+    // Dynamic membership: a worker not seeded at construction (discovered at
+    // runtime) gets a semaphore created on first send and is served normally.
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let (url, _handle) = start_mock_worker(received.clone()).await;
+
+    // Construct with an empty worker set — the target is "unknown" at build time.
+    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &[], 1);
 
     let messages = vec![make_message("tok", "user", 0, "{}")];
-    let err = transport
-        .send_batch("http://unknown-worker:9999", "batch-x", messages)
+    let accepted = transport
+        .send_batch(&url, "batch-lazy", messages)
         .await
-        .unwrap_err();
+        .expect("send to an unseeded worker should succeed via lazy semaphore creation");
 
-    assert!(
-        matches!(err, TransportError::UnknownWorker(_)),
-        "expected UnknownWorker, got {err:?}"
-    );
+    assert_eq!(accepted, 1);
 }
 
 #[tokio::test]
