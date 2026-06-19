@@ -209,7 +209,15 @@ class TestExternalDataSchema(APIBaseTest):
                     "nullable": True,
                     # Table has no index on `id`, so the warning UI will fire for this field.
                     "is_indexed": False,
-                }
+                },
+                # xmin is synthetic: advertised for any ordinary PG13+ table, unindexed by definition.
+                {
+                    "label": "xmin",
+                    "type": "xid",
+                    "field": "xmin",
+                    "field_type": "xid",
+                    "is_indexed": False,
+                },
             ],
             "incremental_available": True,
             "append_available": True,
