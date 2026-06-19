@@ -565,9 +565,9 @@ snapshots:
     components-hogcharts-combochart--dual-y-axis-bar-and-line--light:
         hash: v1.k794b7964.6a9f32434af77dc1d31226a9da134cf4acf6755aa1f17d2e1e48128b5196e042.Jv1n1TWojcqnGkdkJgNBxSYE_wrY6qH3sXe4XSqeJk4
     components-hogcharts-combochart--empty--dark:
-        hash: v1.k794b7964.f4a02c6786a1fc031877e1581c74c93043890f855bfeec936e129b325f49f76b.21F6xAcfwYF6PdHfpIqr3VCoc7Eqv3hTqu8hFJmxGLU
+        hash: v1.k794b7964.cc46b9978c9f27c17947fd11fbca57d40464c82b5d53c181c698155289c9a01c.wUmvK_uy40IjKtTwnT85ak3m8MX7aU6Y6yrA6sL5n5Q
     components-hogcharts-combochart--empty--light:
-        hash: v1.k794b7964.8003169247a00bdd087cdb86efd11744f27c426f7dcbd0f8fc46ccace7ec5de1.r0Z_eyPmkICfKYBEAZR-I3S-Lof7ljfkGLhHtLjMGVs
+        hash: v1.k794b7964.6420a1aa7258004ec0c39d69ac3b4f3c2274a9e2ee3744030772eaea59b8a3b7.RvNDz29ZdKIdOK4m13394cMLe8R_Br1OvdOLwGKFbYA
     components-hogcharts-combochart--grouped-bars-and-line--dark:
         hash: v1.k794b7964.8a550c027166e56da8c962f6bfd2e958e227fcbafde6eff9f3f8fef2d70c4f25.6kjnUQTu2QGNSGd30u0gSrtC8roD4JvbuESkTctefGs
     components-hogcharts-combochart--grouped-bars-and-line--light:
@@ -657,9 +657,9 @@ snapshots:
     components-hogcharts-linechart--dual-y-axis--light:
         hash: v1.k794b7964.50a657f97d6ca765cbd8480dcf8e76c82016de5f7763bac8b77dc9fa21779a99.nG8oIwGO3pRm3A_SaynxlJRr4MveziW83GOJP2U7Kaw
     components-hogcharts-linechart--empty--dark:
-        hash: v1.k794b7964.ab16f8d4f555a949074c9c1423fa273a8315f147be8a7552e0e4177f3c4a08e9.e6SrqIlxHqrfzUpC4L9N6d5BNxa9ew3dKSF8Fw39gs4
+        hash: v1.k794b7964.93f219b5136f447a39913dba3c0fce4715b520b14c3e803a7d3ebef607537e14.HVIEx8NssY14Mve40sKT_oi9ixJUc4xPuSwnglAfuwY
     components-hogcharts-linechart--empty--light:
-        hash: v1.k794b7964.de2c4548e86b72f409c9eb6cb968915aa3d56f14ebb66947a81eff76a2569ed1.T1jDtKGrJPRIdx4gTNJyr7q4UNFL_b2J7Xkma1zva-E
+        hash: v1.k794b7964.801fa37054d7b46316704bee247012680b2a7d405c262ce07a3b3217fa064a1f.3rAM7c_PIfFCQ_OAnQB_eoQ5TCaSmJ1fz4GmVrqCr9g
     components-hogcharts-linechart--error-boundary--dark:
         hash: v1.k794b7964.985e4fee358d8b78e99b9f44e36cb47d031c9acf2d5fcbeeedfd9df922fc2325.WdrzatVDLo9cB3tkcFBe8jUY0A4WAmYlhFJFdjmOqVM
     components-hogcharts-linechart--error-boundary--light:
@@ -4158,6 +4158,10 @@ snapshots:
         hash: v1.k794b7964.6d00ea357f1a270a0b0a6a4d61339c00a298f946d4f7a8fe9ed70b289aa3b60b.6ijtbv39zAumhoMFY5BSCxCkLHO9rYpeBUjUykvvgK8
     mcp-apps-retention-actors--daily--light:
         hash: v1.k794b7964.0a701acbd2d9dac54c345d22841a6d92b6c2b3728421e8fa5fd574a769514e04.Rhb4Qb0bfRbA3ZB2_4f4WM5507JnwCgoox1RbE9y8Ks
+    mcp-apps-stickiness--multiple-series--light:
+        hash: v1.k794b7964.9ffcba3452bbcd678c11f0d873b02a32a97ad071d5fc55f2c00681df9bdc7141.0G-r5IrknmUdR0cBBeCfTQjKKC2nBiE3-F4F0PgX9FQ
+    mcp-apps-stickiness--single-series--light:
+        hash: v1.k794b7964.d1536728712178593de0eeb14f682a2bd5ccccd7b9d693d0605a4e738dace476.NeZoFm3eCYh_b5vTlASuNX6vM7aoJgZd-V09STOVp9o
     mcp-apps-surveys--active-popover--light:
         hash: v1.k794b7964.c47633461e9a437f0761e09f795eb793b02ed0bac4489ce757a5837dbaa3f847.wclUgXFjBkoHXJLNP2R3ncawfRArgVyVEUWbIiQve0o
     mcp-apps-surveys--completed--light:
@@ -5568,6 +5572,10 @@ snapshots:
         hash: v1.k794b7964.486007121c9a82df768c7474916477a3e46e69b49b83401da0fa51bdd6279300.UTIVI6M2LJyrUd-l5ym6crCCsGmzZ8xrdtoI1TfBrDA
     scenes-app-insights-sqllinechart--sql-line-chart-breakdown--light:
         hash: v1.k794b7964.c11566cd09e1284b866c92a29482b1fdc6cf206b0b5e1fb46f2e553c19549a57.Xk4vP5_LzV-5_uSJWDNKR9YIEzfduyKuetdlsGn3FIs
+    scenes-app-insights-sqllinechart--sql-line-chart-trend-line-quill--dark:
+        hash: v1.k794b7964.576ceec72a168753a7fb85e57c7e1c7f45660ae22926efcd3c1ab99141e5508d.AZaZxEtUZgaYwWWuutcC6gIFyyRh3cH7CFmVuquQOeE
+    scenes-app-insights-sqllinechart--sql-line-chart-trend-line-quill--light:
+        hash: v1.k794b7964.00048bccb76c666facae706fc4884b75e8bf6caf39329fb2fb77d8ce8820829c.CkTMrfpT9rk-hAjJY_sB8dNew8PsEo_CGQSlg6u36NM
     scenes-app-insights-trendsboxplot--trends-box-plot--dark:
         hash: v1.k794b7964.9421d408ac158259cf9c8120e5a4df7e79c87c38f48ff2fb096528ab4c21ccaa.kTH1yU4rwh9ATB6Xt9KnTZi2ZhBZM2uG_hsgwQ47kVY
     scenes-app-insights-trendsboxplot--trends-box-plot--light:

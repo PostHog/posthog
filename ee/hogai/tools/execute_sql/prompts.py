@@ -25,6 +25,22 @@ Use this tool to generate a HogQL query, which is PostHog's variant of SQL that 
 # Events and properties
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
 
+# LLM / AI observability events
+For LLM events ($ai_generation, $ai_trace, $ai_span, $ai_embedding, etc.) the heavy content keys are NOT stored on `events.properties` — they live as native columns on a dedicated table, referenced as `posthog.ai_events` (a bare `FROM ai_events` errors with "Unknown table"):
+
+| `events` property    | `posthog.ai_events` column |
+| -------------------- | -------------------------- |
+| $ai_input            | input                      |
+| $ai_output           | output                     |
+| $ai_output_choices   | output_choices             |
+| $ai_input_state      | input_state                |
+| $ai_output_state     | output_state               |
+| $ai_tools            | tools                      |
+
+Metadata (token counts, costs, model, $ai_trace_id, latency, error flags) stays on `events` and is safe to query there. `posthog.ai_events` is `ORDER BY (team_id, trace_id, timestamp)`, so anchor on `trace_id`, never scan by timestamp. Rows are dropped after the retention period (30 days by default), so an empty result means the content aged out, not that nothing happened.
+- Single trace: `SELECT input, output_choices FROM posthog.ai_events WHERE trace_id = '<id>' ORDER BY timestamp`
+- Batch: filter the timestamp-indexed `events` table for trace IDs first, then fetch content from `posthog.ai_events` anchored on `trace_id`.
+
 # Linked tables
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
 

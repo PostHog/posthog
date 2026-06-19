@@ -4,6 +4,7 @@ import {
     type Series,
     type TimeSeriesBarChartConfig,
     type TimeSeriesLineChartConfig,
+    type TrendLineConfig,
     type XAxisConfig,
     type YAxisConfig,
     createXAxisTickCallback,
@@ -33,8 +34,21 @@ const getSeriesLabel = (series: SqlLineYSeries): string => ('name' in series ? s
 const getSeriesKey = (series: SqlLineYSeries, index: number): string =>
     'breakdownValue' in series ? series.breakdownValue : `${series.column.name}-${index}`
 
+/** Shares {@link getSeriesKey} with {@link buildSeries} so each trend line's `seriesKey` matches its source series. */
+export function buildTrendLineConfigs(ySeriesData: SqlLineYSeries[] | null | undefined): TrendLineConfig[] {
+    if (!ySeriesData) {
+        return []
+    }
+    return ySeriesData.reduce<TrendLineConfig[]>((configs, series, index) => {
+        if (series.settings?.display?.trendLine) {
+            configs.push({ seriesKey: getSeriesKey(series, index), kind: 'linear' })
+        }
+        return configs
+    }, [])
+}
+
 /**
- * Plain line/area charts — including goal lines — render here. Trend lines, mixed line/bar series,
+ * Plain line/area charts — including goal lines and trend lines — render here. Mixed line/bar series
  * and right y-axis series aren't ported yet, so those fall back to the legacy chart.js path.
  */
 export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
@@ -47,9 +61,6 @@ export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
         return false
     }
     if (yData?.some((series) => series.settings?.display?.displayType === 'bar')) {
-        return false
-    }
-    if (yData?.some((series) => series.settings?.display?.trendLine)) {
         return false
     }
     // quill applies a single tick formatter/scale to both gutters, so a right axis can't honor its
@@ -74,6 +85,7 @@ export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
     ) {
         return false
     }
+    // quill's TimeSeriesBarChart has no trend-line support yet — fall back until it does.
     if (yData?.some((series) => series.settings?.display?.trendLine)) {
         return false
     }
@@ -146,6 +158,7 @@ interface BuildConfigArgs {
     chartSettings: ChartSettings
     timezone: string
     goalLines?: GoalLine[]
+    ySeriesData?: SqlLineYSeries[] | null
 }
 
 export interface BuildBarConfigArgs extends BuildConfigArgs {
@@ -185,11 +198,13 @@ export function buildLineChartConfig({
     chartSettings,
     timezone,
     goalLines,
+    ySeriesData,
 }: BuildConfigArgs): TimeSeriesLineChartConfig {
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
         yAxis: buildYAxisConfig(chartSettings),
         goalLines: schemaGoalLinesToConfigs(goalLines),
+        trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         tooltip: { enabled: true, pinnable: true },
     }

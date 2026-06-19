@@ -1,10 +1,11 @@
-import { connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
-import { SignalScoutEmission, SignalScoutRunSummary } from '../types'
+import { LinkedSignalReport, SignalScoutEmission, SignalScoutEmissionReportLink, SignalScoutRunSummary } from '../types'
 import type { scoutDetailLogicType } from './scoutDetailLogicType'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
@@ -18,10 +19,21 @@ export interface ScoutDetailLogicProps {
 // findings live on in the inbox reports they produced.
 const MAX_EMITTED_RUNS = 50
 
-/** An emitted finding paired with the run that produced it (for the run-level task link). */
+// Report linkage is eventually consistent: a finding's signal is grouped into a report asynchronously
+// after the run emits it, so the reverse lookup can return `report: null` right after emission and
+// resolve minutes later. The emissions themselves are stable once a run completes, so the
+// `emittedRunsKey` subscription never refires for them — but the report links need to keep retrying.
+// We re-fetch them on the fleet's existing 60s runs-window poll, but only while a *recent* finding is
+// still unlinked. Past this window the remaining nulls are findings that will never group (deduped,
+// deleted, or below the report threshold), so we stop polling for them.
+const REPORT_LINK_RETRY_WINDOW_MINUTES = 30
+
+/** An emitted finding paired with the run that produced it (for the run-level task link) and the
+ * inbox report its signal grouped into, if any (for the "In report" deep-link chip). */
 export interface ScoutEmissionRow {
     emission: SignalScoutEmission
     run: SignalScoutRunSummary
+    report: LinkedSignalReport | null
 }
 
 /**
@@ -68,6 +80,38 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                 },
             },
         ],
+        // The reverse "which inbox report did this finding land in" lookup, fetched per emitted run
+        // off the same window as the emissions themselves. Best-effort and non-blocking: a finding
+        // with no resolved report (not yet grouped, deduped, deleted) simply gets no chip, and a
+        // failed fetch leaves the cards as-is rather than erroring the whole section.
+        emissionReports: [
+            [] as SignalScoutEmissionReportLink[],
+            {
+                loadEmissionReports: async () => {
+                    const runs = values.emittedRuns
+                    if (runs.length === 0) {
+                        return []
+                    }
+                    // Retains the prior round's links per run on failure: this loader is re-run by the
+                    // runs-window poll, so blindly keeping only the fulfilled responses would drop a
+                    // failed run's already-resolved chips (and an all-rejected retry would clear them
+                    // all). source_id is `run:<run_id>:finding:<id>`, so prior links for a run are the
+                    // ones prefixed with its run_id.
+                    const previous = values.emissionReports
+                    const settled = await Promise.allSettled(
+                        runs.map((run) => api.signalScout.runs.emissionReports(run.run_id))
+                    )
+                    return runs.flatMap((run, index) => {
+                        const result = settled[index]
+                        if (result.status === 'fulfilled') {
+                            return result.value
+                        }
+                        const prefix = `run:${run.run_id}:`
+                        return previous.filter((link) => link.source_id.startsWith(prefix))
+                    })
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -107,15 +151,28 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     .sort()
                     .join(','),
         ],
-        // Join fetched emissions back to their run (for the per-row task-run link), newest first.
+        // source_id -> linked inbox report, for findings that resolved to one. Keyed on source_id
+        // (the deterministic `run:<run_id>:finding:<id>` join), which is unique per emission and the
+        // exact field the backend reverse-lookup keys on. Findings with a null report are skipped.
+        reportBySourceId: [
+            (s) => [s.emissionReports],
+            (emissionReports): Map<string, LinkedSignalReport> =>
+                new Map(
+                    emissionReports
+                        .filter((link) => link.report !== null)
+                        .map((link) => [link.source_id, link.report as LinkedSignalReport])
+                ),
+        ],
+        // Join fetched emissions back to their run (for the per-row task-run link) and to the inbox
+        // report they grouped into (for the "In report" chip), newest first.
         emissionRows: [
-            (s) => [s.emissions, s.emittedRuns],
-            (emissions, emittedRuns): ScoutEmissionRow[] => {
+            (s) => [s.emissions, s.emittedRuns, s.reportBySourceId],
+            (emissions, emittedRuns, reportBySourceId): ScoutEmissionRow[] => {
                 const runsById = new Map(emittedRuns.map((run) => [run.run_id, run]))
                 return emissions
                     .map((emission) => {
                         const run = runsById.get(emission.run_id)
-                        return run ? { emission, run } : null
+                        return run ? { emission, run, report: reportBySourceId.get(emission.source_id) ?? null } : null
                     })
                     .filter((row): row is ScoutEmissionRow => row !== null)
                     .sort((a, b) => (b.emission.emitted_at ?? '').localeCompare(a.emission.emitted_at ?? ''))
@@ -128,6 +185,24 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
         // emitted runs changes; the string key holds equal across no-op polls so we don't refetch.
         emittedRunsKey: () => {
             actions.loadEmissions()
+            actions.loadEmissionReports()
+        },
+    })),
+
+    listeners(({ actions, values }) => ({
+        // Report grouping resolves asynchronously after emission, so ride the fleet's 60s runs-window
+        // poll to keep refetching the links — but only while a recently-emitted finding is still
+        // unlinked. Computed fresh here (not a memoized selector) so the recency cutoff advances with
+        // wall-clock time and a never-grouping finding stops the poll once it ages out of the window.
+        [scoutFleetLogic.actionTypes.loadRunsWindowSuccess]: () => {
+            const cutoff = dayjs().subtract(REPORT_LINK_RETRY_WINDOW_MINUTES, 'minute')
+            const hasRecentUnlinked = values.emissionRows.some(
+                (row) =>
+                    row.report === null && row.emission.emitted_at && dayjs(row.emission.emitted_at).isAfter(cutoff)
+            )
+            if (hasRecentUnlinked) {
+                actions.loadEmissionReports()
+            }
         },
     })),
 ])

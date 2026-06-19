@@ -10,6 +10,7 @@ from uuid import UUID
 from django.core import mail
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
+from django.db.models import F
 from django.db.models.fields.json import JSONField
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -46,7 +47,7 @@ from products.conversations.backend.models import (
     TeamConversationsTeamsChannelSync,
     TeamConversationsTeamsConfig,
 )
-from products.conversations.backend.models.constants import ChannelDetail, Status
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.slack import (
     get_slack_client,
@@ -70,9 +71,11 @@ from products.conversations.backend.teams import (
     _is_bot_mention,
     create_or_update_teams_ticket,
     graph_message_to_activity,
+    graph_reply_to_activity,
     handle_teams_mention,
     handle_teams_message,
     is_shared_membership_type,
+    parse_teams_root_message_id,
     post_help_card,
     post_teams_channel_message_via_graph,
 )
@@ -856,7 +859,7 @@ def post_reply_to_teams_via_graph(
     if author_name:
         reply_html = f"<p><b>{html_mod.escape(author_name)}</b></p>{reply_html}"
 
-    status = post_teams_channel_message_via_graph(
+    status, _message_id = post_teams_channel_message_via_graph(
         team=team,
         teams_team_id=teams_team_id,
         channel_id=channel_id,
@@ -900,6 +903,158 @@ def _parse_graph_datetime(value: str | None) -> datetime | None:
 # in a single run. Remaining pages resume on subsequent every-minute runs.
 TEAMS_DELTA_MAX_PAGES_PER_RUN = 20
 TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS = 30
+TEAMS_REPLIES_MAX_PAGES_PER_TICKET = 5
+# Cap the number of tickets whose threads we poll per channel per run.
+# Oldest-synced tickets are polled first so the sweep round-robins through
+# the backlog across successive every-minute runs.
+TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL = 20
+# Only poll threads on tickets created within this window.
+TEAMS_REPLIES_TICKET_AGE_DAYS = 30
+
+
+def _sync_one_ticket_thread_replies(
+    *,
+    team: Team,
+    tenant_id: str,
+    token: str,
+    teams_team_id: str,
+    channel_id: str,
+    service_url: str,
+    ticket: Ticket,
+) -> None:
+    """Ingest new thread replies for one shared-channel ticket via Graph."""
+    root_message_id = parse_teams_root_message_id(ticket.teams_conversation_id)
+    if not root_message_id:
+        return
+
+    watermark = ticket.teams_thread_replies_synced_at or ticket.created_at
+    latest_synced_at = ticket.teams_thread_replies_synced_at
+
+    url: str | None = (
+        f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages/{root_message_id}/replies?$top=200"
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+    pages = 0
+
+    while url and pages < TEAMS_REPLIES_MAX_PAGES_PER_TICKET:
+        pages += 1
+        resp = requests.get(url, headers=headers, timeout=TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS)
+
+        if resp.status_code in (401, 402, 403, 404, 429):
+            logger.warning(
+                "poll_teams_shared_channel_replies_denied",
+                team_id=team.id,
+                channel_id=channel_id,
+                ticket_id=str(ticket.id),
+                status=resp.status_code,
+            )
+            return
+        if resp.status_code != 200:
+            logger.warning(
+                "poll_teams_shared_channel_replies_error",
+                team_id=team.id,
+                channel_id=channel_id,
+                ticket_id=str(ticket.id),
+                status=resp.status_code,
+            )
+            return
+
+        data = resp.json()
+        replies = data.get("value") or []
+
+        page_had_failure = False
+        for reply in replies:
+            msg_created = _parse_graph_datetime(reply.get("createdDateTime"))
+            if msg_created and msg_created < watermark:
+                continue
+
+            activity = graph_reply_to_activity(reply, channel_id, root_message_id, service_url)
+            if activity is None:
+                continue
+
+            try:
+                result = create_or_update_teams_ticket(
+                    team=team,
+                    activity=activity,
+                    tenant_id=tenant_id,
+                    is_thread_reply=True,
+                )
+            except Exception:
+                logger.exception(
+                    "poll_teams_shared_channel_reply_ingest_failed",
+                    team_id=team.id,
+                    channel_id=channel_id,
+                    ticket_id=str(ticket.id),
+                )
+                page_had_failure = True
+                continue
+
+            if result and msg_created and (latest_synced_at is None or msg_created > latest_synced_at):
+                latest_synced_at = msg_created
+
+        if page_had_failure:
+            break
+
+        url = data.get("@odata.nextLink")
+
+    new_watermark = latest_synced_at or timezone.now()
+    if new_watermark != ticket.teams_thread_replies_synced_at:
+        Ticket.objects.filter(id=ticket.id, team=team).update(teams_thread_replies_synced_at=new_watermark)
+
+
+def _sync_shared_channel_thread_replies(
+    *,
+    team: Team,
+    tenant_id: str,
+    token: str,
+    teams_team_id: str,
+    channel_id: str,
+    service_url: str,
+) -> None:
+    """Pull new thread replies for every Teams ticket in a shared channel."""
+    sync = TeamConversationsTeamsChannelSync.objects.for_team(team.id).filter(channel_id=channel_id).first()
+    if not sync or not sync.primed:
+        return
+
+    age_cutoff = timezone.now() - timedelta(days=TEAMS_REPLIES_TICKET_AGE_DAYS)
+    tickets = (
+        Ticket.objects.filter(
+            team=team,
+            channel_source=Channel.TEAMS,
+            teams_channel_id=channel_id,
+            created_at__gte=age_cutoff,
+        )
+        .exclude(teams_conversation_id__isnull=True)
+        .exclude(teams_conversation_id="")
+        .exclude(status=Status.RESOLVED)
+        .order_by(F("teams_thread_replies_synced_at").asc(nulls_first=True))[:TEAMS_REPLIES_MAX_TICKETS_PER_CHANNEL]
+    )
+
+    for ticket in tickets:
+        try:
+            _sync_one_ticket_thread_replies(
+                team=team,
+                tenant_id=tenant_id,
+                token=token,
+                teams_team_id=teams_team_id,
+                channel_id=channel_id,
+                service_url=service_url,
+                ticket=ticket,
+            )
+        except requests.RequestException:
+            logger.warning(
+                "poll_teams_shared_channel_replies_network_error",
+                team_id=team.id,
+                channel_id=channel_id,
+                ticket_id=str(ticket.id),
+            )
+        except Exception:
+            logger.exception(
+                "poll_teams_shared_channel_replies_unexpected",
+                team_id=team.id,
+                channel_id=channel_id,
+                ticket_id=str(ticket.id),
+            )
 
 
 def _poll_one_shared_channel(
@@ -1085,6 +1240,14 @@ def poll_team_shared_channels(team_id: int) -> None:
             continue
         try:
             _poll_one_shared_channel(
+                team=team,
+                tenant_id=tenant_id,
+                token=token,
+                teams_team_id=teams_team_id,
+                channel_id=channel_id,
+                service_url=service_url,
+            )
+            _sync_shared_channel_thread_replies(
                 team=team,
                 tenant_id=tenant_id,
                 token=token,
