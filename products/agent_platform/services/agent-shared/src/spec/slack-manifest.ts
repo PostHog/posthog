@@ -117,6 +117,14 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
         scopes.add('im:history')
         scopes.add('mpim:history')
     }
+    const blockExternalSharedChannels = config.block_external_shared_channels ?? false
+    if (blockExternalSharedChannels) {
+        // `conversations.info` (the share-status check the ingress runs before
+        // enqueuing) needs read access to the channel: `channels:read` for
+        // public channels, `groups:read` for private ones.
+        scopes.add('channels:read')
+        scopes.add('groups:read')
+    }
 
     // Interactivity is only used by approval-gated tools (the elevation buttons).
     const hasApprovalGatedTool = input.tools.some(
@@ -135,6 +143,13 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
     )
     if (allowDms) {
         notes.push("Direct messages enabled — users can DM the bot from the app's Messages tab.")
+    }
+    if (blockExternalSharedChannels) {
+        notes.push(
+            'External shared channels are blocked — the bot drops events from Slack Connect / ' +
+                'externally shared channels (it calls conversations.info, which needs the ' +
+                'channels:read + groups:read scopes added above).'
+        )
     }
 
     const manifest: SlackAppManifest = {

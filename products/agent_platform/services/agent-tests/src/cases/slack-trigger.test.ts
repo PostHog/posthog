@@ -1002,6 +1002,235 @@ describe('slack trigger: real e2e', () => {
         })
     })
 
+    describe('block_external_shared_channels', () => {
+        /** The gate calls `conversations.info` to learn a channel's share
+         *  status, so these tests need their own cluster + http recorder. The
+         *  recorder answers `conversations.info` from a per-test channel map and
+         *  returns `{ok:true}` for any other slack.com call (users.info bridge,
+         *  reactions, postMessage). `infoStatus='fail'` simulates a slack.com
+         *  error / missing scope so we can assert the fail-closed path. */
+        type ChannelInfo = { is_shared?: boolean; is_ext_shared_channel?: boolean; is_pending_ext_shared?: boolean }
+        async function externalCheckCluster(opts: {
+            channels?: Record<string, ChannelInfo>
+            infoStatus?: 'ok' | 'fail'
+        }): Promise<{ cc: Cluster; slackCalls: Array<{ url: string }> }> {
+            const slackCalls: Array<{ url: string }> = []
+            const recorder = {
+                fetch: (input: string | URL): Promise<Response> => {
+                    const url = typeof input === 'string' ? input : input.toString()
+                    if (url.includes('slack.com/api/conversations.info')) {
+                        slackCalls.push({ url })
+                        if (opts.infoStatus === 'fail') {
+                            return Promise.resolve({
+                                ok: true,
+                                status: 200,
+                                json: async () => ({ ok: false, error: 'channel_not_found' }),
+                                text: async () => '{"ok":false,"error":"channel_not_found"}',
+                            } as unknown as Response)
+                        }
+                        const channelId = new URL(url).searchParams.get('channel') ?? ''
+                        const channel = opts.channels?.[channelId] ?? {}
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({ ok: true, channel }),
+                            text: async () => JSON.stringify({ ok: true, channel }),
+                        } as unknown as Response)
+                    }
+                    if (url.includes('slack.com/api/')) {
+                        slackCalls.push({ url })
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({ ok: true }),
+                            text: async () => '{"ok":true}',
+                        } as unknown as Response)
+                    }
+                    return Promise.reject(new Error(`unexpected fetch in test: ${url}`))
+                },
+            }
+            const cc = await buildCluster({ http: recorder })
+            return { cc, slackCalls }
+        }
+
+        function slackSpec(config: Record<string, unknown>): Record<string, unknown> {
+            return {
+                triggers: [
+                    {
+                        type: 'chat',
+                        config: {},
+                        auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+                    },
+                    { type: 'slack', config: { mention_only: false, trusted_workspaces: '*', ...config } },
+                ],
+                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+            }
+        }
+
+        it('drops events from an externally shared (Slack Connect) channel', async () => {
+            const { cc, slackCalls } = await externalCheckCluster({
+                channels: { CEXT: { is_ext_shared_channel: true } },
+            })
+            try {
+                await cc.deployAgent({
+                    slug: 'no-ext',
+                    spec: slackSpec({ block_external_shared_channels: true }),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-noext' },
+                })
+                const res = await cc.slackPost(
+                    'no-ext',
+                    'events',
+                    slackEvent({ eventType: 'app_mention', channel: 'CEXT', text: '<@U0BOT> hi' }),
+                    SLACK_SECRET
+                )
+                expect(res.status).toBe(200)
+                expect(res.body.dropped).toBe('external_shared_channel')
+                expect(res.body.session_id).toBeUndefined()
+                expect(slackCalls.some((c) => c.url.includes('conversations.info'))).toBe(true)
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('treats is_shared (any shared channel) as external and drops it', async () => {
+            const { cc } = await externalCheckCluster({ channels: { CSHARE: { is_shared: true } } })
+            try {
+                await cc.deployAgent({
+                    slug: 'no-shared',
+                    spec: slackSpec({ block_external_shared_channels: true }),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-noshared' },
+                })
+                const res = await cc.slackPost(
+                    'no-shared',
+                    'events',
+                    slackEvent({ eventType: 'app_mention', channel: 'CSHARE', text: '<@U0BOT> hi' }),
+                    SLACK_SECRET
+                )
+                expect(res.body.dropped).toBe('external_shared_channel')
+                expect(res.body.session_id).toBeUndefined()
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('allows an internal (non-shared) channel through', async () => {
+            const { cc, slackCalls } = await externalCheckCluster({
+                channels: { CINT: { is_shared: false, is_ext_shared_channel: false } },
+            })
+            try {
+                cc.setScript([fauxText('hi back')])
+                await cc.deployAgent({
+                    slug: 'int-ok',
+                    spec: slackSpec({ block_external_shared_channels: true }),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-intok' },
+                })
+                const res = await cc.slackPost(
+                    'int-ok',
+                    'events',
+                    slackEvent({ eventType: 'app_mention', channel: 'CINT', text: '<@U0BOT> hi' }),
+                    SLACK_SECRET
+                )
+                expect(res.status).toBe(200)
+                expect(res.body.session_id).toBeTruthy()
+                expect(res.body.dropped).toBeUndefined()
+                expect(slackCalls.some((c) => c.url.includes('conversations.info'))).toBe(true)
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('fails closed: a conversations.info lookup error drops the event', async () => {
+            const { cc } = await externalCheckCluster({ infoStatus: 'fail' })
+            try {
+                await cc.deployAgent({
+                    slug: 'fail-closed',
+                    spec: slackSpec({ block_external_shared_channels: true }),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-failclosed' },
+                })
+                const res = await cc.slackPost(
+                    'fail-closed',
+                    'events',
+                    slackEvent({ eventType: 'app_mention', channel: 'CWAT', text: '<@U0BOT> hi' }),
+                    SLACK_SECRET
+                )
+                expect(res.status).toBe(200)
+                expect(res.body.dropped).toBe('channel_share_status_unknown')
+                expect(res.body.session_id).toBeUndefined()
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('fails closed: no SLACK_BOT_TOKEN means the share status is unverifiable → dropped', async () => {
+            const { cc, slackCalls } = await externalCheckCluster({ channels: { CINT: {} } })
+            try {
+                await cc.deployAgent({
+                    slug: 'no-token',
+                    spec: slackSpec({ block_external_shared_channels: true }),
+                    encrypted_env: SLACK_ENV, // no SLACK_BOT_TOKEN
+                })
+                const res = await cc.slackPost(
+                    'no-token',
+                    'events',
+                    slackEvent({ eventType: 'app_mention', channel: 'CINT', text: '<@U0BOT> hi' }),
+                    SLACK_SECRET
+                )
+                expect(res.body.dropped).toBe('channel_share_status_unknown')
+                expect(res.body.session_id).toBeUndefined()
+                // Can't even attempt the lookup without a token.
+                expect(slackCalls.some((c) => c.url.includes('conversations.info'))).toBe(false)
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('default (flag off): external channel still enqueues and no conversations.info call is made', async () => {
+            const { cc, slackCalls } = await externalCheckCluster({
+                channels: { CEXT: { is_ext_shared_channel: true } },
+            })
+            try {
+                cc.setScript([fauxText('hi')])
+                await cc.deployAgent({
+                    slug: 'flag-off',
+                    spec: slackSpec({}),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-flagoff' },
+                })
+                const res = await cc.slackPost(
+                    'flag-off',
+                    'events',
+                    slackEvent({ eventType: 'app_mention', channel: 'CEXT', text: '<@U0BOT> hi' }),
+                    SLACK_SECRET
+                )
+                expect(res.body.session_id).toBeTruthy()
+                expect(slackCalls.some((c) => c.url.includes('conversations.info'))).toBe(false)
+            } finally {
+                await cc.teardown()
+            }
+        })
+
+        it('DMs bypass the check entirely (a DM is never an external channel)', async () => {
+            const { cc, slackCalls } = await externalCheckCluster({})
+            try {
+                cc.setScript([fauxText('dm reply')])
+                await cc.deployAgent({
+                    slug: 'dm-bypass',
+                    spec: slackSpec({ block_external_shared_channels: true, allow_direct_messages: true }),
+                    encrypted_env: { ...SLACK_ENV, SLACK_BOT_TOKEN: 'xoxb-dmbypass' },
+                })
+                const res = await cc.slackPost(
+                    'dm-bypass',
+                    'events',
+                    slackEvent({ eventType: 'message', channel: 'D01', channel_type: 'im', text: 'hi' }),
+                    SLACK_SECRET
+                )
+                expect(res.body.session_id).toBeTruthy()
+                expect(slackCalls.some((c) => c.url.includes('conversations.info'))).toBe(false)
+            } finally {
+                await cc.teardown()
+            }
+        })
+    })
+
     describe('ack_reaction', () => {
         /** Tests need their own cluster + http recorder so we can intercept
          *  the fire-and-forget `reactions.add` call before it hits slack.com.

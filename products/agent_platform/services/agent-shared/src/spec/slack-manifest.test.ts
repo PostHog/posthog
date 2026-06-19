@@ -96,6 +96,21 @@ describe('buildSlackManifest', () => {
         expect(manifest.oauth_config.scopes.bot).toContain('reactions:write')
     })
 
+    it('block_external_shared_channels=true → adds channels:read + groups:read and a note', () => {
+        const { manifest, notes } = build({
+            triggers: [slackTrigger({ mention_only: true, block_external_shared_channels: true })],
+        })
+        expect(manifest.oauth_config.scopes.bot).toContain('channels:read')
+        expect(manifest.oauth_config.scopes.bot).toContain('groups:read')
+        expect(notes.some((n) => n.toLowerCase().includes('external shared channels are blocked'))).toBe(true)
+    })
+
+    it('block_external_shared_channels default false → no channels:read/groups:read (back-compat)', () => {
+        const { manifest } = build({ triggers: [slackTrigger({ mention_only: true })] })
+        expect(manifest.oauth_config.scopes.bot).not.toContain('channels:read')
+        expect(manifest.oauth_config.scopes.bot).not.toContain('groups:read')
+    })
+
     it("unions the agent's @posthog/slack-* tool scopes (and ignores non-slack tools)", () => {
         const { manifest } = build({
             triggers: [slackTrigger({ mention_only: true })],

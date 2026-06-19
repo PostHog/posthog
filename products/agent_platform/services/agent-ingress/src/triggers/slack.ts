@@ -65,6 +65,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
                   auto_resume_threads?: boolean
                   allow_workspace_participants?: boolean
                   allow_direct_messages?: boolean
+                  block_external_shared_channels?: boolean
                   ack_reaction?: string
               })
             : ({} as {
@@ -73,6 +74,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
                   auto_resume_threads?: boolean
                   allow_workspace_participants?: boolean
                   allow_direct_messages?: boolean
+                  block_external_shared_channels?: boolean
                   ack_reaction?: string
               })
     const trusted = slackConfig.trusted_workspaces
@@ -163,6 +165,30 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             return
         }
         resumedOwnedThread = true
+    }
+
+    // External-shared-channel gate. When the agent opts into
+    // `block_external_shared_channels`, refuse to act in channels shared with
+    // an outside org (Slack Connect / externally shared) so the bot can't be
+    // @-mentioned in a customer/partner channel it happens to be in. DMs are
+    // never externally shared, so they skip the check (and its Slack API call).
+    // Runs before the ack reaction + identity write so a blocked event costs
+    // one `conversations.info` call and nothing more. Fails CLOSED: if we can't
+    // confirm the channel is internal, we drop — see the spec field doc.
+    const blockExternalSharedChannels = slackConfig.block_external_shared_channels ?? false
+    if (blockExternalSharedChannels && !isDm) {
+        const shareStatus = await getChannelShareStatus(deps, resolved.application, event.channel)
+        if (shareStatus !== 'internal') {
+            log.info(
+                { slug: resolved.application.slug, channel: event.channel, share_status: shareStatus },
+                'slack_event_dropped_external_shared_channel'
+            )
+            res.json({
+                ok: true,
+                dropped: shareStatus === 'external' ? 'external_shared_channel' : 'channel_share_status_unknown',
+            })
+            return
+        }
     }
 
     // Fire-and-forget ack reaction. Posted to Slack now — before identity
@@ -410,6 +436,69 @@ interface SlackInteractivityPayload {
     team?: { id?: string }
     user?: { id?: string; team_id?: string }
     actions?: Array<{ action_id?: string; value?: string }>
+}
+
+/**
+ * Resolve whether a channel is shared with an external organization, for the
+ * `block_external_shared_channels` gate. Calls `conversations.info` with the
+ * agent's bot token and reads Slack's share flags:
+ *   - `is_ext_shared_channel` — a live Slack Connect / externally shared channel.
+ *   - `is_pending_ext_shared` — an external share invite is outstanding.
+ *   - `is_shared` — shared channel (covers the legacy/internal-org-shared case;
+ *     we treat any "shared" as external for a "keep me out of shared channels"
+ *     gate, which is the conservative reading the flag's author asked for).
+ *
+ * Returns:
+ *   - `'internal'` — confirmed not shared; safe to proceed.
+ *   - `'external'` — confirmed shared/external; block.
+ *   - `'unknown'`  — couldn't confirm (no token, missing http client, missing
+ *      scope, slack.com error, non-JSON body). The caller fails CLOSED on this.
+ */
+async function getChannelShareStatus(
+    deps: TriggerDeps,
+    application: AgentApplication,
+    channel: string
+): Promise<'internal' | 'external' | 'unknown'> {
+    const token = await deps.signingSecretResolver.resolve(SLACK_BOT_TOKEN_KEY, application)
+    if (!token || !deps.http) {
+        log.warn(
+            { slug: application.slug, channel, has_token: Boolean(token), has_http: Boolean(deps.http) },
+            'channel_share_status_unknown_no_credentials'
+        )
+        return 'unknown'
+    }
+    try {
+        const res = await deps.http.fetch(
+            `https://slack.com/api/conversations.info?channel=${encodeURIComponent(channel)}`,
+            { method: 'GET', headers: { Authorization: `Bearer ${token}` } }
+        )
+        let body: {
+            ok?: boolean
+            error?: string
+            channel?: { is_shared?: boolean; is_ext_shared_channel?: boolean; is_pending_ext_shared?: boolean }
+        } = {}
+        try {
+            body = (await res.json()) as typeof body
+        } catch {
+            // Non-JSON response — slack.com hiccup / proxy. Treat as unknown.
+        }
+        if (!res.ok || body.ok === false || !body.channel) {
+            log.warn(
+                { slug: application.slug, channel, status: res.status, slack_error: body.error ?? null },
+                'channel_share_status_lookup_failed'
+            )
+            return 'unknown'
+        }
+        const ch = body.channel
+        const external = Boolean(ch.is_ext_shared_channel || ch.is_pending_ext_shared || ch.is_shared)
+        return external ? 'external' : 'internal'
+    } catch (err) {
+        log.warn(
+            { slug: application.slug, channel, err: err instanceof Error ? err.message : String(err) },
+            'channel_share_status_lookup_threw'
+        )
+        return 'unknown'
+    }
 }
 
 /**
