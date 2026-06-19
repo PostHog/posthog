@@ -1435,9 +1435,7 @@ def _capture_xmin_ceiling(
             "Choose a different sync type for this table."
         )
 
-    cursor.execute(
-        sql.SQL("SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint")
-    )
+    cursor.execute(sql.SQL("SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint"))
     row = cursor.fetchone()
     if row is None or row[0] is None:
         raise XminUnsupportedError("Could not read the xmin snapshot ceiling from the source database.")
