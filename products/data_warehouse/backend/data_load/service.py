@@ -400,6 +400,17 @@ def is_cdc_enabled_for_team(team: Team) -> bool:
     )
 
 
+def is_xmin_enabled_for_team(team: Team) -> bool:
+    import posthoganalytics
+
+    return posthoganalytics.feature_enabled(
+        "dwh-postgres-xmin",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+
 # ---------------------------------------------------------------------------
 # CDC extraction scheduling (source-level)
 # ---------------------------------------------------------------------------
