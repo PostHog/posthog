@@ -1252,6 +1252,19 @@ class TestPrinter(BaseTest):
         # of raising "Cannot parse boolean value here" and failing the whole query.
         self.assertEqual(self._expr(expr), expected)
 
+    @parameterized.expand(
+        [
+            ("toFloat", "toFloat('1.3')"),
+            ("toFloatOrNull", "toFloatOrNull('1.3')"),
+            ("toFloat64OrNull", "toFloat64OrNull('1.3')"),
+        ]
+    )
+    def test_to_float_aliases(self, _name: str, expr: str) -> None:
+        # toFloatOrNull / toFloat64OrNull are accepted ClickHouse-name aliases of toFloat,
+        # all routing through accurateCastOrNull so unparseable input becomes NULL.
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
@@ -2953,6 +2966,32 @@ class TestPrinter(BaseTest):
         query = parse_select("SELECT col1 FROM csv_table")
         printed, _ = prepare_and_print_ast(query, context, "clickhouse")
         assert "format_csv_allow_double_quotes=1" in printed
+
+    @parameterized.expand(["Parquet", "Delta", "DeltaS3Wrapper"])
+    def test_warehouse_parquet_table_disables_prewhere_scoped(self, fmt: str):
+        from posthog.hogql.database.models import TableNode
+        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+
+        parquet_table = HogQLDataWarehouseTable(
+            name="parquet_table",
+            url="https://example.com/test.parquet",
+            format=fmt,
+            fields={"col1": StringDatabaseField(name="col1")},
+            structure="`col1` String",
+        )
+        db = Database()
+        root = TableNode()
+        root.add_child(TableNode(name="parquet_table", table=parquet_table))
+        db._add_warehouse_tables(root)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query = parse_select("SELECT col1 FROM parquet_table")
+        printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        # PREWHERE is disabled only inside the subquery wrapping the read, so the
+        # surrounding query keeps PREWHERE. The read renders as s3() for Parquet/
+        # DeltaS3Wrapper and deltaLake() for Delta, so assert on the wrap, not the function.
+        assert "(SELECT * FROM " in printed
+        assert "SETTINGS optimize_move_to_prewhere = 0)" in printed
+        assert printed.count("optimize_move_to_prewhere") == 1
 
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")
@@ -5931,17 +5970,33 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(self._expr("null"), "NULL")
 
     def test_json_properties_render_as_postgres_json_access(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
-            self._expr("properties.a.b.c.$browser"),
-            "((((events.properties) -> 'a') -> 'b') -> 'c') ->> '$browser'",
+            self._expr("properties.a.b.c.$browser", context=context),
+            "((((events.properties) -> %(hogql_val_0)s) -> %(hogql_val_1)s) -> %(hogql_val_2)s) ->> %(hogql_val_3)s",
         )
+        self.assertEqual(list(context.values.values()), ["a", "b", "c", "$browser"])
 
     def test_json_properties_in_select_render_as_postgres_json_access(self):
-        printed = self._select("SELECT properties.detail.name FROM events")
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select("SELECT properties.detail.name FROM events", context=context)
 
         self.assertIn("(events.properties) ->", printed)
-        self.assertIn("->> 'name'", printed)
+        self.assertIn("->> %(hogql_val", printed)
         self.assertIn('AS "properties.detail.name"', printed)
+        self.assertIn("name", context.values.values())
+
+    def test_json_property_key_injection_is_parameterized_not_inlined(self):
+        # A property key containing a single quote must not break out of the string literal.
+        # The ClickHouse ``\'`` escape does not work in Postgres (standard_conforming_strings=on),
+        # so the key must be parameterized rather than escape-inlined.
+        # The doubled '' is an escaped single quote in HogQL, so the key value contains a literal '.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._expr("properties['x''); DROP TABLE users; --']", context=context)
+
+        self.assertNotIn("DROP TABLE", printed)
+        self.assertNotIn("\\'", printed)
+        self.assertIn("x'); DROP TABLE users; --", context.values.values())
 
     def test_allows_dollar_identifiers(self):
         printed = self._select("SELECT event AS $value FROM events")
@@ -6787,3 +6842,130 @@ class TestDuckDBPrinter(BaseTest):
         for printer in (DuckDBPrinter(context=ctx), PostgresPrinter(context=ctx)):
             with self.assertRaisesMessage(QueryError, 'is not permitted as it contains the "%" character'):
                 printer._print_identifier("bad%name")
+
+
+class TestMySQLPrinter(BaseTest):
+    maxDiff = None
+
+    def _expr(
+        self,
+        query: ast.Expr | str,
+        context: Optional[HogQLContext] = None,
+    ) -> str:
+        node = parse_expr(query, backend="cpp-json") if isinstance(query, str) else query
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="mysql", stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="mysql",
+            stack=[prepared_select_query],
+        )
+
+    @parameterized.expand(
+        [
+            ("is_null", "event is null", "(events.event IS NULL)"),
+            ("is_not_null", "event is not null", "(events.event IS NOT NULL)"),
+            ("ilike", "event ilike 'a'", "(LOWER(events.event) LIKE LOWER(%(hogql_val_0)s))"),
+            ("not_ilike", "event not ilike 'a'", "(LOWER(events.event) NOT LIKE LOWER(%(hogql_val_0)s))"),
+            ("regex", "event =~ 'a.*'", "REGEXP_LIKE(events.event, %(hogql_val_0)s, 'c')"),
+            ("not_regex", "event !~ 'a.*'", "(NOT REGEXP_LIKE(events.event, %(hogql_val_0)s, 'c'))"),
+            ("iregex", "event =~* 'a.*'", "REGEXP_LIKE(events.event, %(hogql_val_0)s, 'i')"),
+            ("null_safe_eq", "event <=> 'a'", "(events.event <=> %(hogql_val_0)s)"),
+            ("is_not_distinct_from", "event is not distinct from 'a'", "(events.event <=> %(hogql_val_0)s)"),
+            ("is_distinct_from", "event is distinct from 'a'", "(NOT (events.event <=> %(hogql_val_0)s))"),
+            ("modulo", "1 % 2", "MOD(1, 2)"),
+        ]
+    )
+    def test_mysql_operators(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("start_of_day", "toStartOfDay(timestamp)", "CAST(DATE(events.timestamp) AS DATETIME)"),
+            ("start_of_year", "toStartOfYear(timestamp)", "MAKEDATE(YEAR(events.timestamp), 1)"),
+            (
+                "start_of_month",
+                "toStartOfMonth(timestamp)",
+                "DATE_SUB(DATE(events.timestamp), INTERVAL (DAYOFMONTH(events.timestamp) - 1) DAY)",
+            ),
+            (
+                "start_of_week",
+                "toStartOfWeek(timestamp, 3)",
+                "DATE_SUB(DATE(events.timestamp), INTERVAL WEEKDAY(events.timestamp) DAY)",
+            ),
+            ("date_diff", "dateDiff('day', timestamp, now())", "TIMESTAMPDIFF(DAY, events.timestamp, NOW())"),
+            (
+                "date_trunc",
+                "date_trunc('hour', timestamp)",
+                "DATE_ADD(DATE(events.timestamp), INTERVAL HOUR(events.timestamp) HOUR)",
+            ),
+            ("to_year", "toYear(timestamp)", "EXTRACT(YEAR FROM events.timestamp)"),
+            ("to_unix", "toUnixTimestamp(timestamp)", "UNIX_TIMESTAMP(events.timestamp)"),
+            ("add_days", "addDays(timestamp, 7)", "DATE_ADD(events.timestamp, INTERVAL (7) DAY)"),
+            ("interval_add", "timestamp + toIntervalDay(1)", "(events.timestamp + INTERVAL (1) DAY)"),
+        ]
+    )
+    def test_mysql_date_functions(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("to_string", "CAST(1 AS TEXT)", "CAST(1 AS CHAR)"),
+            ("to_int", "CAST('1' AS BIGINT)", "CAST(%(hogql_val_0)s AS SIGNED)"),
+            ("to_float", "CAST('1' AS FLOAT)", "CAST(%(hogql_val_0)s AS DOUBLE)"),
+            ("to_datetime", "CAST('2020-01-01' AS TIMESTAMP)", "CAST(%(hogql_val_0)s AS DATETIME)"),
+        ]
+    )
+    def test_mysql_casts(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_mysql_cast_unsupported_type(self):
+        with self.assertRaisesMessage(QueryError, "Unsupported CAST target"):
+            self._expr("CAST(1 AS Array(String))")
+
+    @parameterized.expand(
+        [
+            ("count_if", "countIf(1 = 1)", "COUNT(CASE WHEN (1 = 1) THEN 1 END)"),
+            ("sum_if", "sumIf(1, 2 = 2)", "SUM(CASE WHEN (2 = 2) THEN 1 END)"),
+            ("uniq", "uniq(event)", "COUNT(DISTINCT events.event)"),
+            ("if_null", "ifNull(event, 'a')", "IFNULL(events.event, %(hogql_val_0)s)"),
+            ("if_", "if(1 = 1, 'a', 'b')", "CASE WHEN (1 = 1) THEN %(hogql_val_0)s ELSE %(hogql_val_1)s END"),
+            (
+                "starts_with",
+                "startsWith(event, 'a')",
+                "(LEFT(events.event, CHAR_LENGTH(%(hogql_val_0)s)) = %(hogql_val_0)s)",
+            ),
+            ("position", "position(event, 'a')", "LOCATE(%(hogql_val_0)s, events.event)"),
+        ]
+    )
+    def test_mysql_functions(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_mysql_unsupported_function_raises(self):
+        with self.assertRaisesMessage(QueryError, "is not supported in the MySQL dialect"):
+            self._expr("arrayJoin([1])")
+
+    def test_mysql_percentile_raises(self):
+        with self.assertRaisesMessage(QueryError, "not supported in the MySQL dialect"):
+            self._expr("percentile_cont(0.5) WITHIN GROUP (ORDER BY timestamp)")
+
+    def test_mysql_identifier_escaping(self):
+        from posthog.hogql.printer.mysql import MySQLPrinter
+
+        printer = MySQLPrinter(context=HogQLContext(team_id=self.team.pk))
+        self.assertEqual(printer._print_identifier("foo"), "foo")
+        self.assertEqual(printer._print_identifier("select"), "`select`")
+        self.assertEqual(printer._print_identifier("weird name"), "`weird name`")
+        self.assertEqual(printer._print_identifier("back`tick"), "`back``tick`")
+
+    def test_mysql_percent_in_identifier_rejected(self):
+        from posthog.hogql.printer.mysql import MySQLPrinter
+
+        printer = MySQLPrinter(context=HogQLContext(team_id=self.team.pk))
+        with self.assertRaisesMessage(QueryError, 'is not permitted as it contains the "%" character'):
+            printer._print_identifier("bad%name")

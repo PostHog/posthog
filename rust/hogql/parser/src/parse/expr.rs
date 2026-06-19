@@ -414,6 +414,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         | TokenKind::LtEq
                         | TokenKind::Gt
                         | TokenKind::GtEq
+                        | TokenKind::NullSafeEq
                         | TokenKind::RegexSingle
                         | TokenKind::RegexDouble
                         | TokenKind::IRegexSingle
@@ -2257,7 +2258,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     }
 
     pub(crate) fn set_lexer_pos(&mut self, pos: usize) -> Result<(), ParseError> {
+        // Carry the HogQLX tag-mode flag across the re-seek — restores /
+        // text-boundary re-seeks happen mid-tag and must keep lexing
+        // `#` the tag-mode way.
+        let in_tag = self.lexer.in_hogqlx_tag();
         self.lexer = Lexer::with_pos(self.src, pos);
+        self.lexer.set_in_hogqlx_tag(in_tag);
         self.peek0 = self.lexer.next_token()?;
         self.peek1 = self.lexer.next_token()?;
         Ok(())
@@ -2414,6 +2420,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             | TokenKind::LtEq
             | TokenKind::Gt
             | TokenKind::GtEq
+            | TokenKind::NullSafeEq
             | TokenKind::RegexSingle
             | TokenKind::RegexDouble
             | TokenKind::IRegexSingle
@@ -4218,6 +4225,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 | TokenKind::LtEq
                 | TokenKind::Gt
                 | TokenKind::GtEq
+                | TokenKind::NullSafeEq
                 | TokenKind::Arrow
                 | TokenKind::ColonEquals
                 | TokenKind::Concat
@@ -5321,6 +5329,7 @@ pub(crate) fn is_pure_infix_op(tok: TokenKind) -> bool {
             | TokenKind::LtEq
             | TokenKind::Gt
             | TokenKind::GtEq
+            | TokenKind::NullSafeEq
             | TokenKind::Slash
             | TokenKind::Percent
             | TokenKind::RegexSingle

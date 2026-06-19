@@ -4389,6 +4389,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_insight_access_control_filtering(self) -> None:
         """Test that insights are properly filtered based on access control."""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
 
         user2 = self._create_user("test2@posthog.com")
 
@@ -4531,6 +4535,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         from posthog.models.organization import OrganizationMembership
 
         from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
 
         # Create insights with different access levels
         filter_dict = {"events": [{"id": "$pageview"}]}

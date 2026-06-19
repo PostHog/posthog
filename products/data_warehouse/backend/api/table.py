@@ -11,7 +11,7 @@ from rest_framework import filters, parsers, request, response, serializers, sta
 from posthog.schema import DatabaseSerializedFieldType
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, SerializedField, serialize_fields
+from posthog.hogql.database.database import Database, SerializedField, get_data_warehouse_table_name, serialize_fields
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -200,11 +200,20 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
 class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     columns = serializers.SerializerMethodField(read_only=True)
+    hogql_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Dotted name the table is queried by in HogQL (e.g. `googleanalytics.devices` or "
+        "`postgres.<prefix>.<table>`), as opposed to `name`, which is the underlying storage identifier.",
+    )
 
     class Meta:
         model = DataWarehouseTable
-        fields = ["id", "name", "columns", "row_count", "user_access_level"]
-        read_only_fields = ["id", "name", "columns", "row_count", "user_access_level"]
+        fields = ["id", "name", "hogql_name", "columns", "row_count", "user_access_level"]
+        read_only_fields = ["id", "name", "hogql_name", "columns", "row_count", "user_access_level"]
+
+    @extend_schema_field(serializers.CharField())
+    def get_hogql_name(self, table: DataWarehouseTable) -> str:
+        return get_data_warehouse_table_name(table.external_data_source, table.name)
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)

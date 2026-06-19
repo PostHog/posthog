@@ -10,7 +10,8 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -25,9 +26,10 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest, SetPersonVersionFloorResponse, SplitPersonRequest,
+    SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use std::time::Duration;
 use tonic::codec::CompressionEncoding;
@@ -279,11 +281,32 @@ impl PersonHogBackend for ReplicaBackend {
         retry_call!(self, delete_persons_batch_for_team, request)
     }
 
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        request: DeletePersonlessDistinctIdsBatchForTeamRequest,
+    ) -> Result<DeletePersonlessDistinctIdsBatchForTeamResponse, Status> {
+        retry_call!(self, delete_personless_distinct_ids_batch_for_team, request)
+    }
+
     async fn split_person(
         &self,
         request: SplitPersonRequest,
     ) -> Result<SplitPersonResponse, Status> {
         retry_call!(self, split_person, request)
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        request: SetPersonDistinctIdVersionFloorRequest,
+    ) -> Result<SetPersonDistinctIdVersionFloorResponse, Status> {
+        retry_call!(self, set_person_distinct_id_version_floor, request)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        request: SetPersonVersionFloorRequest,
+    ) -> Result<SetPersonVersionFloorResponse, Status> {
+        retry_call!(self, set_person_version_floor, request)
     }
 
     async fn check_cohort_membership(

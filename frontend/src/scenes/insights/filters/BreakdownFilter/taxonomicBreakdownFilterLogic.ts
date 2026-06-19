@@ -123,13 +123,13 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             },
         ],
         localNormalizeBreakdownURL: [
-            true as boolean,
+            undefined as boolean | undefined,
             {
                 setNormalizeBreakdownURL: (_, { normalizeBreakdownURL }) => normalizeBreakdownURL,
             },
         ],
         localPathCleaningEnabled: [
-            false as boolean,
+            undefined as boolean | undefined,
             {
                 setPathCleaningEnabled: (_, { pathCleaningEnabled }) => pathCleaningEnabled,
             },

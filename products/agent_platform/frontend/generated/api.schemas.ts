@@ -556,6 +556,7 @@ export interface AgentRevisionApi {
     /** @nullable */
     parent_revision?: string | null
     readonly state: AgentRevisionStateEnumApi
+    /** Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint. */
     bundle_uri?: string
     /** @nullable */
     readonly bundle_sha256: string | null
@@ -937,6 +938,7 @@ export interface PatchedAgentRevisionApi {
     /** @nullable */
     parent_revision?: string | null
     readonly state?: AgentRevisionStateEnumApi
+    /** Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint. */
     bundle_uri?: string
     /** @nullable */
     readonly bundle_sha256?: string | null
@@ -1022,6 +1024,40 @@ export interface AgentRevisionCronFireResponseApi {
     idempotency_key: string
     /** The request id the firing used (echoed back, or freshly minted). */
     request_id: string
+}
+
+export interface AgentRevisionEnvKeysResponseApi {
+    /** Names of env variables currently set on the revision. Values are never returned. */
+    keys: string[]
+}
+
+export interface AgentRevisionEnvKeyStatusApi {
+    key: string
+    /** True if the key is present in the env block. The value itself is never returned. */
+    is_set: boolean
+}
+
+/**
+ * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+ *
+ * The view merges `{KEY: value}` into the existing encrypted env block
+ * without touching other keys, so callers can set or rotate one secret
+ * without needing to read the whole block back.
+ */
+export interface SetEnvKeyRequestApi {
+    value: string
+}
+
+export type SetEnvRequestApiEnv = { [key: string]: string }
+
+/**
+ * Body shape for AgentApplicationViewSet.set_env.
+ *
+ * `env` is a JSON object of string→string. The view encrypts it via the
+ * same Fernet schedule the worker uses to decrypt.
+ */
+export interface SetEnvRequestApi {
+    env: SetEnvRequestApiEnv
 }
 
 export interface AgentRevisionSlackManifestResponseApi {
@@ -1292,26 +1328,22 @@ export interface AgentApprovalsDecideResponseApi {
     state: string
 }
 
-export interface AgentApplicationEnvKeysResponseApi {
-    /** Names of env variables currently set on the application. Values are never returned. */
-    keys: string[]
-}
-
-export interface AgentApplicationEnvKeyStatusApi {
-    key: string
-    /** True if the key is present in the env block. The value itself is never returned. */
-    is_set: boolean
-}
-
 /**
- * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+ * Body forwarded verbatim to the agent ingress for a *preview* invoke of a
+ * non-live revision. The meaningful shape depends on the `rest` path segment:
  *
- * The view merges `{KEY: value}` into the existing encrypted env block
- * without touching other keys, so callers can set or rotate one secret
- * without needing to read the whole block back.
+ * - `run` — `{ message }`: the user message that starts a new session.
+ * - `send` — `{ session_id, message }`: append a message to a running session.
+ * - `cancel` / `listen` — no body.
+ *
+ * Documents `message` / `session_id` so the generated MCP tool exposes them;
+ * any extra keys are still forwarded as-is to ingress.
  */
-export interface SetEnvKeyRequestApi {
-    value: string
+export interface PreviewProxyInvokeRequestApi {
+    /** User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`. */
+    message?: string
+    /** Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created). */
+    session_id?: string
 }
 
 export interface AgentApplicationPreviewTokenResponseApi {
@@ -1554,18 +1586,6 @@ export interface LogEntryApi {
 
 export interface AgentApplicationSessionLogsResponseApi {
     results: LogEntryApi[]
-}
-
-export type SetEnvRequestApiEnv = { [key: string]: string }
-
-/**
- * Body shape for AgentApplicationViewSet.set_env.
- *
- * `env` is a JSON object of string→string. The view encrypts it via the
- * same Fernet schedule the worker uses to decrypt.
- */
-export interface SetEnvRequestApi {
-    env: SetEnvRequestApiEnv
 }
 
 export interface AgentAggregateStatsApi {

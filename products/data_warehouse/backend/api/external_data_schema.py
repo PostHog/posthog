@@ -16,7 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
-from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
+from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter, source_type_supports_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
 from posthog.temporal.data_imports.sources.common.sql import (
@@ -36,12 +36,14 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
+from products.data_warehouse.backend.direct_mysql import hide_direct_mysql_table
 from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
     reconcile_webhook_events,
 )
+from products.data_warehouse.backend.mysql_helpers import reproject_direct_mysql_table
 from products.data_warehouse.backend.postgres_helpers import (
     get_postgres_source_location,
     reproject_direct_postgres_table,
@@ -197,6 +199,18 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Data type of the incremental field.",
     )
+    incremental_field_lookback_seconds = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=5_184_000,  # 60 days — larger windows defeat incremental efficiency
+        help_text=(
+            "Seconds to subtract from the stored incremental watermark at sync time, so each "
+            "incremental run re-reads a rolling overlap window and catches late or backdated rows. "
+            "Applies to timestamp/date incremental fields only. The stored watermark is unchanged. "
+            "Maximum 5184000 (60 days)."
+        ),
+    )
     sync_frequency = serializers.ChoiceField(
         choices=[
             ("never", "never"),
@@ -281,6 +295,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "sync_type",
             "incremental_field",
             "incremental_field_type",
+            "incremental_field_lookback_seconds",
             "sync_frequency",
             "sync_time_of_day",
             "description",
@@ -406,6 +421,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         ret["incremental_field_type"] = (
             instance.sync_type_config.get("incremental_field_type") if instance.sync_type_config else None
         )
+        ret["incremental_field_lookback_seconds"] = instance.incremental_field_lookback_seconds
         ret["primary_key_columns"] = instance.primary_key_columns
         ret["cdc_table_mode"] = instance.cdc_table_mode
         return ret
@@ -445,6 +461,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         validated_data.pop("sync_time_of_day", None)
         validated_data.pop("incremental_field", None)
         validated_data.pop("incremental_field_type", None)
+        validated_data.pop("incremental_field_lookback_seconds", None)
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
 
@@ -541,6 +558,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 payload["incremental_field"] = incremental_field
             if "incremental_field_type" in data:
                 payload["incremental_field_type"] = data.get("incremental_field_type")
+
+            # Lookback only applies to incremental — merge-by-PK makes re-reading the overlap window
+            # idempotent. `null` clears it.
+            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and "incremental_field_lookback_seconds" in data:
+                payload["incremental_field_lookback_seconds"] = data.get("incremental_field_lookback_seconds")
 
             if incremental_field_changed:
                 if instance.table is not None and isinstance(incremental_field, str):
@@ -670,21 +692,27 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["enabled_columns"] != instance.enabled_columns
         )
 
-        if source.is_direct_postgres:
+        if source.is_direct_query:
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
             # (1) row is being re-exposed (should_sync flipping False → True);
             # (2) the column-picker selection changed on an already-exposed row.
             newly_exposed = should_sync is True and instance.should_sync is False
             projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
             if newly_exposed or projection_needs_refresh:
-                validated_data["table"] = reproject_direct_postgres_table(
+                reproject = (
+                    reproject_direct_postgres_table if source.is_direct_postgres else reproject_direct_mysql_table
+                )
+                validated_data["table"] = reproject(
                     instance,
                     source=source,
                     enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
                 )
 
             if should_sync is False and instance.should_sync is True:
-                hide_direct_postgres_table(instance.table)
+                if source.is_direct_postgres:
+                    hide_direct_postgres_table(instance.table)
+                else:
+                    hide_direct_mysql_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
             # Warehouse mode: hide newly-disabled columns from HogQL immediately. Restoration
             # (reset to None or re-enabling a column) is deferred to the next sync — Delta may
@@ -704,7 +732,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         is_cdc = (sync_type == ExternalDataSchema.SyncType.CDC) or (
             sync_type is None and instance.sync_type == ExternalDataSchema.SyncType.CDC
         )
-        if is_cdc and source.source_type == ExternalDataSourceType.POSTGRES:
+        if is_cdc and source_type_supports_cdc(source.source_type):
             self._handle_cdc_publication_change(instance, source, should_sync, sync_type)
 
         if trigger_refresh:
@@ -942,10 +970,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return context
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.exclude(deleted=True).prefetch_related("created_by")
+        # `table__external_data_source` is read on every schema serialization (SimpleTableSerializer
+        # derives the dotted HogQL name from it), so join it for all actions to avoid a per-row query.
+        queryset = (
+            queryset.exclude(deleted=True).prefetch_related("created_by").select_related("table__external_data_source")
+        )
         if self.action == "retrieve":
-            # retrieve serializes the source summary + table; pull them in one round-trip.
-            queryset = queryset.select_related("source", "table__credential", "table__external_data_source")
+            # retrieve additionally embeds the source summary + table credential.
+            queryset = queryset.select_related("source", "table__credential")
         return queryset.order_by(self.ordering)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1053,8 +1085,11 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_data(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
-        if instance.source.is_direct_postgres:
-            hide_direct_postgres_table(instance.table)
+        if instance.source.is_direct_query:
+            if instance.source.is_direct_postgres:
+                hide_direct_postgres_table(instance.table)
+            else:
+                hide_direct_mysql_table(instance.table)
             instance.should_sync = False
             instance.save(update_fields=["should_sync", "updated_at"])
             return Response(status=status.HTTP_200_OK)

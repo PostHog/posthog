@@ -224,13 +224,22 @@ export const experimentsMetricsRecalculationCreateBodyTriggerDefault = `manual`
 export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
     .object({
         trigger: zod
-            .enum(['manual', 'experiment_launch', 'experiment_stop', 'experiment_update'])
+            .enum([
+                'manual',
+                'cold_run',
+                'stale_refresh',
+                'auto_refresh',
+                'config_change',
+                'experiment_launch',
+                'experiment_stop',
+                'experiment_update',
+            ])
             .describe(
-                '\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+                '\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')

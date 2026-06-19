@@ -1388,6 +1388,11 @@ export interface CredentialApi {
  * * `Clarifai` - Clarifai
  * * `Adapty` - Adapty
  * * `Braintrust` - Braintrust
+ * * `StreamElements` - StreamElements
+ * * `Streamlabs` - Streamlabs
+ * * `Datorama` - Datorama
+ * * `Ahrefs` - Ahrefs
+ * * `Lightfield` - Lightfield
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -2015,6 +2020,11 @@ export const ExternalDataSourceTypeEnumApi = {
     Clarifai: 'Clarifai',
     Adapty: 'Adapty',
     Braintrust: 'Braintrust',
+    StreamElements: 'StreamElements',
+    Streamlabs: 'Streamlabs',
+    Datorama: 'Datorama',
+    Ahrefs: 'Ahrefs',
+    Lightfield: 'Lightfield',
     Custom: 'Custom',
 } as const
 

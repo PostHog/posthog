@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import unittest
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
@@ -30,6 +31,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
+from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 
@@ -366,6 +368,162 @@ class TestExperimentCRUD(APILicensedTest):
 
         # Query count must stay flat as rows grow — five experiments must not cost more than one.
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
+
+    def _create_experiment_with_action_metrics(self, index: int) -> tuple[Experiment, Action]:
+        action = Action.objects.create(team=self.team, name=f"Action {index}", steps_json=[{"event": f"event_{index}"}])
+        flag = FeatureFlag.objects.create(team=self.team, key=f"action-metric-flag-{index}", created_by=self.user)
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name=f"Action metric experiment {index}",
+            feature_flag=flag,
+            created_by=self.user,
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+            ],
+            metrics_secondary=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+            ],
+        )
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name=f"Saved action metric {index}",
+            created_by=self.user,
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "ActionsNode", "id": action.id},
+            },
+        )
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+        return experiment, action
+
+    def test_listing_experiments_with_action_metrics_is_not_nplus1(self) -> None:
+        # The list serializer omits metrics, so no per-metric Action lookups happen during
+        # serialization. Query count must stay flat as rows grow.
+        self._create_experiment_with_action_metrics(0)
+
+        with CaptureQueriesContext(connection) as single_row:
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 1)
+
+        for i in range(1, 5):
+            self._create_experiment_with_action_metrics(i)
+
+        with CaptureQueriesContext(connection) as five_rows:
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 5)
+
+        self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
+
+    def test_list_query_defers_heavy_metric_columns(self) -> None:
+        # Omitting the metric fields lets the list query defer the heavy JSON columns — they must not
+        # be SELECTed from posthog_experiment. metrics/metrics_secondary are the exception: the
+        # is_legacy annotation references them in its predicate (see list_is_legacy_annotation), so
+        # they appear in the WHERE/CASE but never in the SELECT output — the response still omits them
+        # (test_list_omits_heavy_metric_fields_kept_on_detail). The other deferred columns stay absent.
+        self._create_experiment_with_action_metrics(0)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment_selects = [
+            query["sql"] for query in ctx.captured_queries if 'FROM "posthog_experiment"' in query["sql"]
+        ]
+        self.assertTrue(experiment_selects, "expected at least one SELECT against posthog_experiment")
+        # Inspected by the is_legacy predicate, so allowed in the SQL (but not in the SELECT output).
+        predicate_columns = {"metrics", "metrics_secondary"}
+        for sql in experiment_selects:
+            for column in LIST_DEFERRED_FIELDS:
+                if column in predicate_columns:
+                    continue
+                # Table-qualified so a same-named column on a joined table (e.g. feature_flag.filters)
+                # doesn't trigger a false positive.
+                self.assertNotIn(f'"posthog_experiment"."{column}"', sql)
+
+    def test_list_reports_is_legacy(self) -> None:
+        # is_legacy must survive the metric omission — it's computed in SQL on the list path so the
+        # frontend badge/duplicate/copy guards keep working without loading the deferred metric JSON.
+        # Cover the inline-metric path and the saved-metric (EXISTS) path, plus a non-legacy control.
+        non_legacy, action = self._create_experiment_with_action_metrics(0)
+
+        legacy_inline = Experiment.objects.create(
+            team=self.team,
+            name="Legacy inline",
+            feature_flag=FeatureFlag.objects.create(team=self.team, key="legacy-inline", created_by=self.user),
+            created_by=self.user,
+            metrics=[{"kind": "ExperimentTrendsQuery"}],
+        )
+
+        legacy_via_saved = Experiment.objects.create(
+            team=self.team,
+            name="Legacy via saved metric",
+            feature_flag=FeatureFlag.objects.create(team=self.team, key="legacy-saved", created_by=self.user),
+            created_by=self.user,
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+            ],
+        )
+        legacy_saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Legacy saved metric",
+            created_by=self.user,
+            query={"kind": "ExperimentFunnelsQuery"},
+        )
+        ExperimentToSavedMetric.objects.create(experiment=legacy_via_saved, saved_metric=legacy_saved_metric)
+
+        results = self.client.get(f"/api/projects/{self.team.id}/experiments").json()["results"]
+        by_id = {r["id"]: r for r in results}
+
+        self.assertFalse(by_id[non_legacy.id]["is_legacy"])
+        self.assertTrue(by_id[legacy_inline.id]["is_legacy"])
+        self.assertTrue(by_id[legacy_via_saved.id]["is_legacy"])
+
+    def test_detail_reports_is_legacy(self) -> None:
+        experiment, _ = self._create_experiment_with_action_metrics(0)
+        Experiment.objects.filter(pk=experiment.pk).update(metrics=[{"kind": "ExperimentTrendsQuery"}])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_legacy"])
+
+    def test_retrieving_experiment_refreshes_action_names(self) -> None:
+        # Action-name refresh lives on the detail response — the list endpoint no longer
+        # returns metrics (see ExperimentBasicSerializer).
+        experiment, action = self._create_experiment_with_action_metrics(0)
+        action.name = "Renamed action"
+        action.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result = response.json()
+
+        self.assertEqual(result["metrics"][0]["source"]["name"], "Renamed action")
+        self.assertEqual(result["metrics_secondary"][0]["source"]["name"], "Renamed action")
+        self.assertEqual(result["saved_metrics"][0]["query"]["source"]["name"], "Renamed action")
+
+    def test_list_omits_heavy_metric_fields_kept_on_detail(self) -> None:
+        # The list view never renders metric definitions, so they're excluded from the list
+        # response (letting the query defer the JSON columns and skip the saved-metric prefetch).
+        # The detail response still includes them.
+        experiment, _ = self._create_experiment_with_action_metrics(0)
+
+        list_result = next(
+            r
+            for r in self.client.get(f"/api/projects/{self.team.id}/experiments").json()["results"]
+            if r["id"] == experiment.id
+        )
+        for omitted in ["metrics", "metrics_secondary", "saved_metrics"]:
+            self.assertNotIn(omitted, list_result)
+        # Fields the list view does use are still present.
+        for kept in ["name", "status", "feature_flag", "parameters"]:
+            self.assertIn(kept, list_result)
+
+        detail_result = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}").json()
+        for present in ["metrics", "metrics_secondary", "saved_metrics"]:
+            self.assertIn(present, detail_result)
 
     def test_creating_updating_basic_experiment(self):
         ff_key = "a-b-tests"
@@ -7032,3 +7190,52 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
     def test_invalid_input_rejected(self, _name: str, payload: dict):
         response = self._calculate(payload)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+
+class TestExperimentSerializerSuperset(unittest.TestCase):
+    """Structural guard: ExperimentBasicSerializer must stay a subset of ExperimentSerializer.
+
+    ExperimentBasicApi is a structural subset of ExperimentApi in generated frontend types.
+    If a field is added to the detail serializer but forgotten in the basic one the superset
+    invariant holds — but the reverse (basic grows a field not in detail) would break it, and
+    a mismatched read_only/required on a shared field would produce divergent nullability.
+    """
+
+    def test_basic_fields_are_subset_of_full_fields(self) -> None:
+        from products.experiments.backend.presentation.serializers import (
+            ExperimentBasicSerializer,
+            ExperimentSerializer,
+        )
+
+        basic = ExperimentBasicSerializer()
+        full = ExperimentSerializer()
+        basic_field_names = set(basic.fields.keys())
+        full_field_names = set(full.fields.keys())
+        extra = basic_field_names - full_field_names
+        self.assertFalse(
+            extra,
+            f"ExperimentBasicSerializer has fields not present in ExperimentSerializer: {extra}. "
+            "ExperimentBasicApi must remain a structural subset of ExperimentApi.",
+        )
+
+    def test_shared_fields_have_matching_read_only_and_required(self) -> None:
+        from products.experiments.backend.presentation.serializers import (
+            ExperimentBasicSerializer,
+            ExperimentSerializer,
+        )
+
+        basic = ExperimentBasicSerializer()
+        full = ExperimentSerializer()
+        shared = set(basic.fields.keys()) & set(full.fields.keys())
+        mismatches: list[str] = []
+        for name in sorted(shared):
+            b_field = basic.fields[name]
+            f_field = full.fields[name]
+            if b_field.read_only != f_field.read_only:
+                mismatches.append(f"{name}: read_only basic={b_field.read_only} full={f_field.read_only}")
+            if b_field.required != f_field.required:
+                mismatches.append(f"{name}: required basic={b_field.required} full={f_field.required}")
+        self.assertFalse(
+            mismatches,
+            "Shared fields have mismatched read_only/required between serializers:\n" + "\n".join(mismatches),
+        )

@@ -40,6 +40,14 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text="Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled.",
     )
+    created_at = serializers.CharField(
+        help_text=(
+            "ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` "
+            "filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking "
+            "past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and "
+            "its bridge row aren't skipped."
+        ),
+    )
     started_at = serializers.CharField(help_text="ISO-8601 timestamp the TaskRun was created.")
     completed_at = serializers.CharField(
         allow_null=True,
@@ -204,7 +212,7 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         required=False,
         help_text=(
             "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result "
-            "cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run "
+            "cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run "
             "from the prior page)."
         ),
     )
@@ -1092,7 +1100,7 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         required=False,
         min_value=10,
         max_value=43200,
-        help_text="Minutes between runs (10–43200). Defaults to 60 (hourly).",
+        help_text="Minutes between runs (10–43200). Defaults to 180 (every 3 hours).",
     )
 
     def validate_skill_name(self, value: str) -> str:

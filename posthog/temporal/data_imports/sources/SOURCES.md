@@ -237,6 +237,7 @@ doesn't conflict with concurrent PRs.
 - adyen
 - agilecrm
 - aha
+- ahrefs
 - airbyte
 - akeneo
 - algolia
@@ -322,6 +323,7 @@ doesn't conflict with concurrent PRs.
 - customerly
 - databricks
 - datascope
+- datorama
 - db2
 - dbt
 - deputy
@@ -451,6 +453,7 @@ doesn't conflict with concurrent PRs.
 - lemlist
 - less_annoying_crm
 - lever
+- lightfield
 - linkedin_pages
 - linkrunner
 - linnworks
@@ -624,6 +627,8 @@ doesn't conflict with concurrent PRs.
 - stigg
 - stockdata
 - strava
+- streamelements
+- streamlabs
 - surveymonkey
 - surveysparrow
 - survicate

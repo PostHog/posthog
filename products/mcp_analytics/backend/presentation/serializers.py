@@ -123,7 +123,7 @@ class MCPFeedbackCreateSerializer(MCPAnalyticsSubmissionContextSerializer):
 
 
 class MCPToolCallSerializer(serializers.Serializer):
-    event_id = serializers.CharField(read_only=True, help_text="ClickHouse uuid of the mcp_tool_call event.")
+    event_id = serializers.CharField(read_only=True, help_text="ClickHouse uuid of the $mcp_tool_call event.")
     timestamp = serializers.DateTimeField(read_only=True, help_text="When the tool call was captured.")
     tool_name = serializers.CharField(read_only=True, help_text="Tool that was invoked ($mcp_tool_name).")
     intent = serializers.CharField(
@@ -141,16 +141,16 @@ class MCPToolCallSerializer(serializers.Serializer):
 
 class MCPSessionSerializer(serializers.Serializer):
     session_id = serializers.CharField(
-        read_only=True, help_text="$mcp_session_id grouping all mcp_tool_call events in the session."
+        read_only=True, help_text="$mcp_session_id grouping all $mcp_tool_call events in the session."
     )
     tool_calls = serializers.IntegerField(
-        read_only=True, help_text="Total number of mcp_tool_call events in the session."
+        read_only=True, help_text="Total number of $mcp_tool_call events in the session."
     )
     session_start = serializers.DateTimeField(
-        read_only=True, help_text="Timestamp of the first mcp_tool_call event in the session."
+        read_only=True, help_text="Timestamp of the first $mcp_tool_call event in the session."
     )
     session_end = serializers.DateTimeField(
-        read_only=True, help_text="Timestamp of the most recent mcp_tool_call event in the session."
+        read_only=True, help_text="Timestamp of the most recent $mcp_tool_call event in the session."
     )
     distinct_id_count = serializers.IntegerField(
         read_only=True, help_text="Number of distinct PostHog distinct_ids that produced events in the session."
@@ -255,7 +255,7 @@ class MCPIntentClusterSerializer(serializers.Serializer):
         read_only=True, help_text="Number of MCP sessions whose summarised intent belongs to this cluster."
     )
     call_count = serializers.IntegerField(
-        read_only=True, help_text="Total number of mcp_tool_call events represented by this cluster."
+        read_only=True, help_text="Total number of $mcp_tool_call events represented by this cluster."
     )
     error_count = serializers.IntegerField(
         read_only=True, help_text="Total number of error responses observed across the cluster."

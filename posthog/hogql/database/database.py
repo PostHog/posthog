@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import (
     DATA_WAREHOUSE,
     DATA_WAREHOUSE_EXPERIMENTS,
@@ -637,9 +637,7 @@ class Database(BaseModel):
 
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
-        return isinstance(table, FunctionCallTable) and not isinstance(
-            table, (DirectPostgresTable, PostgresTable, S3Table)
-        )
+        return isinstance(table, FunctionCallTable) and not isinstance(table, (DirectSQLTable, PostgresTable, S3Table))
 
     def _remove_lazy_joins_to_disallowed_tables(self, allowed_table_names: set[str]) -> None:
         def should_keep_join(field: LazyJoin) -> bool:
