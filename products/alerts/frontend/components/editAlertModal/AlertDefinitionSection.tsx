@@ -32,6 +32,15 @@ import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertI
 import { FunnelsDefinitionFields, HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
 import { getSimulationRangeOptions } from './editAlertModalUtils'
 
+export interface TrendsDefinitionProps {
+    /** Series in the alerted insight, for the series picker. */
+    alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
+    /** Formula nodes in the alerted insight, if any. */
+    formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
+    /** Whether the insight has a valid breakdown; drives the per-value monitoring banner. */
+    isBreakdownValid: boolean
+}
+
 export interface FunnelDefinitionProps {
     /** Funnel step labels (real event/series names) for the conversion picker. */
     stepLabels: string[]
@@ -54,11 +63,9 @@ export interface AlertDefinitionSectionProps {
     alertForm: AlertFormType
     alertMode: 'detector' | 'threshold'
     thresholdBoundsFormError?: string
-    isBreakdownValid: boolean
     isNonTimeSeriesDisplay: boolean
-    alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
-    formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
     // Kind-specific inputs, grouped so the shared section only carries the bundle for the active kind.
+    trends: TrendsDefinitionProps
     funnel: FunnelDefinitionProps
     hogql: HogQLDefinitionProps
     anomalyDetectionEnabled: boolean
@@ -82,10 +89,8 @@ export function AlertDefinitionSection({
     alertForm,
     alertMode,
     thresholdBoundsFormError,
-    isBreakdownValid,
     isNonTimeSeriesDisplay,
-    alertSeries,
-    formulaNodes,
+    trends,
     funnel,
     hogql,
     anomalyDetectionEnabled,
@@ -110,7 +115,7 @@ export function AlertDefinitionSection({
     return (
         <>
             {/* Trends-specific copy; funnels have their own breakdown messaging in the preview banner. */}
-            {isBreakdownValid && isTrendsAlertConfig(alertForm.config) && (
+            {trends.isBreakdownValid && isTrendsAlertConfig(alertForm.config) && (
                 <LemonBanner type="warning">
                     {alertMode === 'detector'
                         ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
@@ -119,9 +124,9 @@ export function AlertDefinitionSection({
             )}
             {isTrendsAlertConfig(alertForm.config) ? (
                 <TrendsDefinitionFields
-                    alertSeries={alertSeries}
-                    formulaNodes={formulaNodes}
-                    isBreakdownValid={isBreakdownValid}
+                    alertSeries={trends.alertSeries}
+                    formulaNodes={trends.formulaNodes}
+                    isBreakdownValid={trends.isBreakdownValid}
                     alertMode={alertMode}
                 />
             ) : isFunnelAlert ? (

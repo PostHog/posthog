@@ -270,10 +270,8 @@ export function EditAlertModal({
                                         alertForm={alertForm}
                                         alertMode={alertMode}
                                         thresholdBoundsFormError={thresholdBoundsFormError}
-                                        isBreakdownValid={isBreakdownValid}
                                         isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
-                                        alertSeries={alertSeries}
-                                        formulaNodes={formulaNodes}
+                                        trends={{ alertSeries, formulaNodes, isBreakdownValid }}
                                         funnel={{ stepLabels: funnelStepLabels, preview: funnelAlertPreview }}
                                         hogql={{
                                             preview: hogqlAlertPreview,
