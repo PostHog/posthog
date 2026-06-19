@@ -15525,7 +15525,7 @@ export namespace Schemas {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
-     * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -16157,7 +16157,7 @@ export namespace Schemas {
       Streamlabs: 'Streamlabs',
       Datorama: 'Datorama',
       Ahrefs: 'Ahrefs',
-      Lightfield: 'Lightfield',
+      Appstack: 'Appstack',
       Custom: 'Custom',
     } as const;
 
@@ -16796,7 +16796,7 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -21114,13 +21114,6 @@ export namespace Schemas {
        * * `objectid` - objectid
        * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
-      /**
-         * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
-         * @minimum 0
-         * @maximum 5184000
-         * @nullable
-         */
-      incremental_field_lookback_seconds?: number | null;
       /** How often to sync.
        *
        * * `never` - never
@@ -21877,7 +21870,7 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -35449,13 +35442,6 @@ export namespace Schemas {
        * * `objectid` - objectid
        * * `xid` - xid */
       incremental_field_type?: IncrementalFieldTypeEnum | null;
-      /**
-         * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
-         * @minimum 0
-         * @maximum 5184000
-         * @nullable
-         */
-      incremental_field_lookback_seconds?: number | null;
       /** How often to sync.
        *
        * * `never` - never
@@ -46435,7 +46421,7 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -47100,7 +47086,7 @@ export namespace Schemas {
        * * `Streamlabs` - Streamlabs
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
-       * * `Lightfield` - Lightfield
+       * * `Appstack` - Appstack
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
