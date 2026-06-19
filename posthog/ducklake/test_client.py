@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from django.conf import settings
+
 from psycopg import sql as psql
 
 from posthog.schema import HogQLQuery
@@ -118,9 +120,8 @@ class TestExecuteDuckLakeQuery:
 
 class TestExportDuckLakeTableToParquet:
     @mock.patch("posthog.ducklake.client.psycopg")
-    @mock.patch("posthog.ducklake.client.get_config", return_value={"DUCKLAKE_BUCKET": "ducklake-dev"})
     @mock.patch("posthog.ducklake.client.is_dev_mode", return_value=True)
-    def test_copies_live_set_to_parquet_and_returns_count(self, _mock_dev_mode, _mock_config, mock_psycopg):
+    def test_copies_live_set_to_parquet_and_returns_count(self, _mock_dev_mode, mock_psycopg):
         mock_cursor = mock.MagicMock()
         mock_cursor.fetchone.return_value = (3,)
         mock_conn = mock.MagicMock()
@@ -129,10 +130,10 @@ class TestExportDuckLakeTableToParquet:
         mock_psycopg.connect.return_value.__enter__ = mock.Mock(return_value=mock_conn)
         mock_psycopg.connect.return_value.__exit__ = mock.Mock(return_value=False)
 
-        result = export_ducklake_table_to_parquet(1, "shadow_1_models", "my_view")
+        result = export_ducklake_table_to_parquet(1, "shadow_1_models", "my_view", organization_id="org-456")
 
-        # latest-overwrite single-file destination keyed by team + table
-        assert result.destination == "s3://ducklake-dev/ch_export/team_1/my_view.parquet"
+        expected_destination = f"{settings.BUCKET_URL}/data_modeling_ducklake_export/org_org-456/team_1/my_view.parquet"
+        assert result.destination == expected_destination
         assert result.schema_name == "shadow_1_models"
         assert result.table_name == "my_view"
         assert result.row_count == 3
@@ -140,14 +141,13 @@ class TestExportDuckLakeTableToParquet:
         # COPY uses a quoted identifier and a literal destination — never string interpolation
         expected_copy = psql.SQL("COPY (SELECT * FROM {}) TO {} (FORMAT parquet)").format(
             psql.Identifier("shadow_1_models", "my_view"),
-            psql.Literal("s3://ducklake-dev/ch_export/team_1/my_view.parquet"),
+            psql.Literal(expected_destination),
         )
         assert mock_cursor.execute.call_args_list[0] == mock.call(expected_copy)
 
     @mock.patch("posthog.ducklake.client.psycopg")
-    @mock.patch("posthog.ducklake.client.get_org_config", return_value={"DUCKLAKE_BUCKET": "prod-ducklake"})
-    @mock.patch("posthog.ducklake.client.is_dev_mode", return_value=False)
-    def test_production_resolves_bucket_from_org_config(self, _mock_dev_mode, mock_org_config, mock_psycopg):
+    @mock.patch("posthog.ducklake.client.is_dev_mode", return_value=True)
+    def test_resolves_org_id_when_not_provided(self, _mock_dev_mode, mock_psycopg):
         mock_cursor = mock.MagicMock()
         mock_cursor.fetchone.return_value = (0,)
         mock_conn = mock.MagicMock()
@@ -156,11 +156,14 @@ class TestExportDuckLakeTableToParquet:
         mock_psycopg.connect.return_value.__enter__ = mock.Mock(return_value=mock_conn)
         mock_psycopg.connect.return_value.__exit__ = mock.Mock(return_value=False)
 
-        with mock.patch("posthog.ducklake.common._get_org_id_for_team", return_value="org-456"):
+        with mock.patch("posthog.ducklake.common._get_org_id_for_team", return_value="org-456") as mock_lookup:
             result = export_ducklake_table_to_parquet(1, "shadow_1_models", "my_view")
 
-        mock_org_config.assert_called_once_with("org-456")
-        assert result.destination == "s3://prod-ducklake/ch_export/team_1/my_view.parquet"
+        mock_lookup.assert_called_once_with(1)
+        assert (
+            result.destination
+            == f"{settings.BUCKET_URL}/data_modeling_ducklake_export/org_org-456/team_1/my_view.parquet"
+        )
 
 
 class TestCoerceLossyColumns:

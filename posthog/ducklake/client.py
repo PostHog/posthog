@@ -4,17 +4,13 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
+
 import psycopg
 from psycopg import sql as psql
 from psycopg.conninfo import make_conninfo
 
-from posthog.ducklake.common import (
-    get_config,
-    get_duckgres_config_for_org,
-    get_org_config,
-    is_dev_mode,
-    sanitize_ducklake_identifier,
-)
+from posthog.ducklake.common import get_duckgres_config_for_org, is_dev_mode, sanitize_ducklake_identifier
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQuery
@@ -272,17 +268,10 @@ class DuckLakeExportResult:
 def _ch_export_destination(team_id: int, safe_table: str, *, organization_id: str | None) -> str:
     from posthog.ducklake.common import _get_org_id_for_team
 
-    if is_dev_mode():
-        config = get_config()
-    else:
-        org_id = organization_id or _get_org_id_for_team(team_id)
-        config = get_org_config(org_id)
-    bucket = config.get("DUCKLAKE_BUCKET")
-    if not bucket:
-        raise ValueError("DUCKLAKE_BUCKET must be set")
-    # Single-file, latest-overwrite: the object is replaced atomically on each run, so a
-    # stale file can never linger for ClickHouse's read to over-count.
-    return f"s3://{bucket}/ch_export/team_{team_id}/{safe_table}.parquet"
+    org_id = organization_id or _get_org_id_for_team(team_id)
+    # Shared data warehouse bucket (not the DuckLake catalog bucket) so ClickHouse reads it via s3();
+    # the org/team prefix keeps the per-org duckgres IAM role scoped to its own data.
+    return f"{settings.BUCKET_URL}/data_modeling_ducklake_export/org_{org_id}/team_{team_id}/{safe_table}.parquet"
 
 
 def export_ducklake_table_to_parquet(
