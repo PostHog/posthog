@@ -78,6 +78,7 @@
           ExternalDataSourceType.APPFOLLOW: AppfollowSourceConfig,
           ExternalDataSourceType.APPLESEARCHADS: AppleSearchAdsSourceConfig,
           ExternalDataSourceType.APPSFLYER: AppsFlyerSourceConfig,
+          ExternalDataSourceType.APPSTACK: AppstackSourceConfig,
           ExternalDataSourceType.APPTIVO: ApptivoSourceConfig,
           ExternalDataSourceType.ASANA: AsanaSourceConfig,
           ExternalDataSourceType.ASHBY: AshbySourceConfig,
