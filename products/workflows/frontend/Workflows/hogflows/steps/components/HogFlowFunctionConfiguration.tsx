@@ -43,8 +43,15 @@ export function HogFlowFunctionConfiguration({
     const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
     useEffect(() => {
         // oxlint-disable-next-line exhaustive-deps
-        if (template && Object.keys(inputs ?? {}).length === 0) {
-            setInputs(templateToConfiguration(template).inputs ?? {})
+        if (template) {
+            // Seed template defaults for any inputs not already set, preserving values that were
+            // pre-filled when the action was added to the canvas (e.g. a dynamic external_id).
+            const defaults = templateToConfiguration(template).inputs ?? {}
+            const currentInputs = inputs ?? {}
+            const hasMissingDefaults = Object.keys(defaults).some((key) => !(key in currentInputs))
+            if (hasMissingDefaults) {
+                setInputs({ ...defaults, ...currentInputs })
+            }
         }
     }, [templateId])
 

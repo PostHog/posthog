@@ -1,8 +1,12 @@
-import './customer_analytics'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { GroupType, GroupTypeIndex } from '~/types'
+
 import { getRegisteredActionNodeCategories } from './actionNodeRegistry'
+import { buildAccountExternalIdInputs } from './customer_analytics'
+
+const groupTypesMap = (...entries: [GroupTypeIndex, string][]): Map<GroupTypeIndex, GroupType> =>
+    new Map(entries.map(([index, groupType]) => [index, { group_type: groupType, group_type_index: index }]))
 
 describe('customer analytics action registry', () => {
     const getCategory = (): ReturnType<typeof getRegisteredActionNodeCategories>[number] => {
@@ -71,6 +75,26 @@ describe('customer analytics action registry', () => {
         expect(node).toMatchObject({
             type: 'function',
             config: { template_id: 'template-posthog-update-account' },
+        })
+    })
+
+    it.each(['Get account', 'Update account'])('gives %s a dynamic external_id default resolver', (name) => {
+        const node = getCategory().nodes.find((n) => n.name === name)
+        expect(typeof node?.getDefaultInputs).toBe('function')
+    })
+
+    describe('buildAccountExternalIdInputs', () => {
+        it('builds a name-based group key expression from the account group type index', () => {
+            const inputs = buildAccountExternalIdInputs(2, groupTypesMap([0, 'project'], [2, 'organization']))
+            expect(inputs).toEqual({ external_id: { value: '{groups.organization.id}' } })
+        })
+
+        it.each([null, undefined])('returns undefined when the account group type index is %s', (index) => {
+            expect(buildAccountExternalIdInputs(index, groupTypesMap([0, 'organization']))).toBeUndefined()
+        })
+
+        it('returns undefined when the configured index has no matching group type', () => {
+            expect(buildAccountExternalIdInputs(3, groupTypesMap([0, 'organization']))).toBeUndefined()
         })
     })
 })
