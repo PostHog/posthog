@@ -75,6 +75,7 @@ class PostHogQueryProvider(PostHogVariableProvider, HogQLQueryProvider):
         team_id: int,
         readonly: bool,
     ) -> Any:
+        # nosemgrep: clickhouse-fstring-param-audit - compiled HogQL SQL with values passed separately; this only prefixes EXPLAIN
         return sync_execute(
             f"EXPLAIN {query}",
             values,
