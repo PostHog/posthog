@@ -258,10 +258,12 @@ class HoglandBackend(PreviewBackend):
         pointer + attribution. Idempotent and race-safe: a concurrent CI re-run
         that wins the create is simply found on the retry.
 
-        ``on_idle=hibernate`` / ``wake=on-request`` are recorded but inert today
-        — hibernate/wake orchestration is the next hogland server rung. They
-        encode the intent so it lights up for free when that lands; ``wake`` also
-        requires an exposed spec, which ``_pen_spec`` provides."""
+        ``on_idle=hibernate`` / ``wake=on-request`` are now enforced server-side:
+        hogland's idle-TTL reaper snapshots-and-sleeps an idle preview to S3
+        (zero node cost), and the box-front edge wakes it on the next request
+        behind a "waking up" interstitial. ``wake`` requires an exposed spec,
+        which ``_pen_spec`` provides; the idle window is the pen's
+        ``ttl_seconds``."""
         try:
             self._pen = self._client.get_pen(self.name)
             return
