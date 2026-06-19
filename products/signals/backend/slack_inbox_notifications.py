@@ -348,11 +348,13 @@ def _build_message_blocks(
                 "url": implementation_pr_url,
             }
         )
+    # Reports with an implementation PR live under the "pulls" tab; everything else under "reports".
+    inbox_tab = "pulls" if implementation_pr_url else "reports"
     action_elements.append(
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
-            "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
+            "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/{inbox_tab}/{report.id}",
         }
     )
     if dismiss_button_value:
