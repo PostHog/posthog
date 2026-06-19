@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models import ActivityLog
 
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
@@ -635,7 +637,7 @@ class TestSavedQuery(APIBaseTest):
         field = DataWarehouseSavedQuerySerializer().fields["sync_frequency"]
         self.assertFalse(field.read_only)
 
-    def test_update_sync_frequency_reflected_in_response(self):
+    def _create_saved_query(self) -> dict:
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
@@ -647,31 +649,32 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 201)
-        saved_query = response.json()
+        return response.json()
+
+    @parameterized.expand(
+        [
+            ("6hour", "6hour", timedelta(hours=6)),
+            ("1hour", "1hour", timedelta(hours=1)),
+            ("30day", "30day", timedelta(days=30)),
+            # "5min" is deprecated for saved queries and intentionally clamped to "15min".
+            ("5min", "15min", timedelta(minutes=15)),
+        ]
+    )
+    def test_update_sync_frequency_round_trip(self, sent: str, expected_value: str, expected_interval: timedelta):
+        saved_query = self._create_saved_query()
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
-            {"sync_frequency": "6hour"},
+            {"sync_frequency": sent},
         )
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json()["sync_frequency"], "6hour")
+        self.assertEqual(response.json()["sync_frequency"], expected_value)
 
         updated_query = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
-        self.assertEqual(updated_query.sync_frequency_interval, timedelta(hours=6))
+        self.assertEqual(updated_query.sync_frequency_interval, expected_interval)
 
     def test_update_sync_frequency_rejects_invalid_value(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events LIMIT 100",
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 201)
-        saved_query = response.json()
+        saved_query = self._create_saved_query()
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
