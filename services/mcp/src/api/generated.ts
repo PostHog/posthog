@@ -8012,6 +8012,20 @@ export namespace Schemas {
       tools: AgentNativeToolEntry[];
     }
 
+    export type AgentRevisionSpecModelPolicy = {
+      mode: 'auto';
+      level?: 'low' | 'medium' | 'high';
+      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+    } | {
+      mode: 'manual';
+      /** @minItems 1 */
+      models: ({
+      /** @minLength 1 */
+      model: string;
+      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+    })[];
+    };
+
     export type AgentRevisionSpecTriggersItem = {
       type: 'slack';
       config: {
@@ -8307,8 +8321,7 @@ export namespace Schemas {
     };
 
     export type AgentRevisionSpec = {
-      /** @minLength 1 */
-      model: string;
+      model_policy: AgentRevisionSpecModelPolicy;
       triggers: AgentRevisionSpecTriggersItem[];
       tools: AgentRevisionSpecToolsItem[];
       mcps: AgentRevisionSpecMcpsItem[];
@@ -33447,6 +33460,20 @@ export namespace Schemas {
       tags?: string[];
     }
 
+    export type PatchedAgentRevisionSpecModelPolicy = {
+      mode: 'auto';
+      level?: 'low' | 'medium' | 'high';
+      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+    } | {
+      mode: 'manual';
+      /** @minItems 1 */
+      models: ({
+      /** @minLength 1 */
+      model: string;
+      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+    })[];
+    };
+
     export type PatchedAgentRevisionSpecTriggersItem = {
       type: 'slack';
       config: {
@@ -33742,8 +33769,7 @@ export namespace Schemas {
     };
 
     export type PatchedAgentRevisionSpec = {
-      /** @minLength 1 */
-      model: string;
+      model_policy: PatchedAgentRevisionSpecModelPolicy;
       triggers: PatchedAgentRevisionSpecTriggersItem[];
       tools: PatchedAgentRevisionSpecToolsItem[];
       mcps: PatchedAgentRevisionSpecMcpsItem[];

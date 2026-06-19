@@ -157,6 +157,12 @@ export const AgentApplicationsRevisionsCreateParams = /* @__PURE__ */ zod.object
 })
 
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
+export const agentApplicationsRevisionsCreateBodySpecModelPolicyOneLevelDefault = `medium`
+
+export const agentApplicationsRevisionsCreateBodySpecModelPolicyDefault = {
+    mode: 'auto' as const,
+    level: 'medium' as const,
+}
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -271,7 +277,28 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model_policy: zod
+                .union([
+                    zod.object({
+                        mode: zod.literal('auto'),
+                        level: zod
+                            .enum(['low', 'medium', 'high'])
+                            .default(agentApplicationsRevisionsCreateBodySpecModelPolicyOneLevelDefault),
+                        reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+                    }),
+                    zod.object({
+                        mode: zod.literal('manual'),
+                        models: zod
+                            .array(
+                                zod.object({
+                                    model: zod.string().min(1),
+                                    reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+                                })
+                            )
+                            .min(1),
+                    }),
+                ])
+                .default(agentApplicationsRevisionsCreateBodySpecModelPolicyDefault),
             triggers: zod
                 .array(
                     zod.union([
@@ -809,6 +836,12 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
         ),
 })
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelPolicyOneLevelDefault = `medium`
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelPolicyDefault = {
+    mode: 'auto' as const,
+    level: 'medium' as const,
+}
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -923,7 +956,28 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model_policy: zod
+                .union([
+                    zod.object({
+                        mode: zod.literal('auto'),
+                        level: zod
+                            .enum(['low', 'medium', 'high'])
+                            .default(agentApplicationsRevisionsPartialUpdateBodySpecModelPolicyOneLevelDefault),
+                        reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+                    }),
+                    zod.object({
+                        mode: zod.literal('manual'),
+                        models: zod
+                            .array(
+                                zod.object({
+                                    model: zod.string().min(1),
+                                    reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+                                })
+                            )
+                            .min(1),
+                    }),
+                ])
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecModelPolicyDefault),
             triggers: zod
                 .array(
                     zod.union([

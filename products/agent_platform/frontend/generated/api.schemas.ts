@@ -221,6 +221,22 @@ export const AgentRevisionApiSpecFrameworkPromptOmitItem = {
     ReasoningHint: 'reasoning_hint',
 } as const
 
+export type AgentRevisionApiSpecModelPolicy =
+    | {
+          mode: 'auto'
+          level?: 'low' | 'medium' | 'high'
+          reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+      }
+    | {
+          mode: 'manual'
+          /** @minItems 1 */
+          models: {
+              /** @minLength 1 */
+              model: string
+              reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          }[]
+      }
+
 export type AgentRevisionApiSpecTriggersItem =
     | {
           type: 'slack'
@@ -525,8 +541,7 @@ export type AgentRevisionApiSpecResume = {
 }
 
 export type AgentRevisionApiSpec = {
-    /** @minLength 1 */
-    model: string
+    model_policy: AgentRevisionApiSpecModelPolicy
     triggers: AgentRevisionApiSpecTriggersItem[]
     tools: AgentRevisionApiSpecToolsItem[]
     mcps: AgentRevisionApiSpecMcpsItem[]
@@ -580,6 +595,22 @@ export interface PaginatedAgentRevisionListApi {
     previous?: string | null
     results: AgentRevisionApi[]
 }
+
+export type PatchedAgentRevisionApiSpecModelPolicy =
+    | {
+          mode: 'auto'
+          level?: 'low' | 'medium' | 'high'
+          reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+      }
+    | {
+          mode: 'manual'
+          /** @minItems 1 */
+          models: {
+              /** @minLength 1 */
+              model: string
+              reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          }[]
+      }
 
 export type PatchedAgentRevisionApiSpecTriggersItem =
     | {
@@ -907,8 +938,7 @@ export type PatchedAgentRevisionApiSpecResume = {
 }
 
 export type PatchedAgentRevisionApiSpec = {
-    /** @minLength 1 */
-    model: string
+    model_policy: PatchedAgentRevisionApiSpecModelPolicy
     triggers: PatchedAgentRevisionApiSpecTriggersItem[]
     tools: PatchedAgentRevisionApiSpecToolsItem[]
     mcps: PatchedAgentRevisionApiSpecMcpsItem[]
