@@ -1763,6 +1763,248 @@ describe('Workflows E2E (email queue)', () => {
         }, 10000)
     })
 
+    it('suppresses routing logs in both directions across an email → fetch → email ping-pong', async () => {
+        // Companion regression guard to the single-email test above, extended to the full
+        // ping-pong (`hogflow → email → hogflow → email → exit`). Both routing directions
+        // — `routeEmailToQueue` (hogflow → email) and `routeToQueue` (email → hogflow,
+        // taken when a fetch action follows an email send) — go through the same
+        // `finished: false` + nullish `queueScheduledAt` branch in HogFunctionHandler, so
+        // both set `routingOnlyReschedule` and both routing dequeues should be silent in
+        // the logs. This test asserts that on a four-action workflow with two emails and
+        // a fetch between them, we still see exactly one Executing line per action and
+        // zero Resuming-at-email/fetch lines.
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-workflows-e2e-fetch',
+            name: 'Workflows E2E Fetch',
+            code: `
+            let res := fetch(inputs.url, {'method': inputs.method});
+            print('Fetch result:', res.status);
+            `,
+            inputs_schema: [
+                { key: 'url', type: 'string', required: true },
+                { key: 'method', type: 'string', required: false },
+            ],
+        })
+
+        mockFetch.mockResolvedValue({
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+            json: () => Promise.resolve({ success: true }),
+            text: () => Promise.resolve(JSON.stringify({ success: true })),
+            dump: () => Promise.resolve(),
+        })
+
+        const emailAction = (label: string) => ({
+            type: 'function_email' as const,
+            config: {
+                template_id: 'template-workflows-e2e-email',
+                inputs: {
+                    email: {
+                        value: {
+                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                            subject: label,
+                            text: label,
+                            html: `<p>${label}</p>`,
+                        },
+                    },
+                },
+            },
+        })
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: emailAction('Ping-pong email 1'),
+                    fetch_1: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-fetch',
+                            inputs: {
+                                url: { value: 'https://example.com/ping-pong-fetch' },
+                                method: { value: 'POST' },
+                            },
+                        },
+                    },
+                    email_2: emailAction('Ping-pong email 2'),
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'fetch_1', type: 'continue' },
+                    { from: 'fetch_1', to: 'email_2', type: 'continue' },
+                    { from: 'email_2', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        // Wait for both emails sent + the workflow terminated, so all four routing
+        // reschedules have happened and all their logs are in Kafka.
+        await waitForExpect(() => {
+            const sumCounts = (filter: (m: any) => boolean) =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(filter)
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(2)
+        }, 15000)
+
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const terminal = jobs.filter(
+                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+            )
+            expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
+
+        const logMessages = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+            .map((m: any) => m.value.message as string)
+
+        // Sanity: both emails actually sent (not a vacuous pass where suppression broke the
+        // flow). The "Email sent" log lines are prefixed with `[Action:email_X]` via
+        // `actionIdForLogging`, so we substring-match instead of equality-match.
+        expect(logMessages.filter((msg) => msg.includes('Email sent to recipient@example.com'))).toHaveLength(2)
+
+        // Each routed action runs across two dequeues but only the "real" execution should log.
+        // - email_1 routes hogflow → email, sends on the email queue
+        // - fetch_1 routes email → hogflow (because the next step is a non-email function),
+        //   runs on the hogflow queue
+        // - email_2 routes hogflow → email, sends on the email queue
+        // - exit runs inline at the tail of email_2's dequeue.
+        // Trigger is NOT in this list: `ensureCurrentAction` advances `currentAction` past
+        // the trigger to its successor immediately, so the trigger action itself never
+        // reaches the "Executing action" log site.
+        for (const actionId of ['email_1', 'fetch_1', 'email_2', 'exit']) {
+            const executingLogs = logMessages.filter((msg) => msg === `Executing action [Action:${actionId}]`)
+            expect(executingLogs).toHaveLength(1)
+        }
+
+        // No `Resuming workflow execution at [Action:X]` lines for any of the routed actions.
+        // The first dequeue Starts at the trigger; subsequent transitions are all routing
+        // reschedules or in-loop next-action advances, none of which re-enter execute()
+        // with a non-suppressed flag for these actions.
+        for (const actionId of ['email_1', 'fetch_1', 'email_2']) {
+            const resumingLogs = logMessages.filter(
+                (msg) => msg.includes('Resuming workflow execution at') && msg.includes(`[Action:${actionId}]`)
+            )
+            expect(resumingLogs).toHaveLength(0)
+        }
+
+        // No `Workflow will pause until X` lines anywhere — the three routing reschedules
+        // (email_1, fetch_1, email_2) are all sub-millisecond and have to be silenced.
+        // The workflow has no delays or wait_until_condition steps so any pause log here
+        // would be the routing leak we're guarding against.
+        const pauseLogs = logMessages.filter((msg) => msg.startsWith('Workflow will pause until'))
+        expect(pauseLogs).toHaveLength(0)
+    })
+
+    it('keeps logging real pauses (delay before email) while still suppressing the routing reschedule', async () => {
+        // Counter-example test: the suppression must NOT silence real pauses. A workflow
+        // with `trigger → delay → email → exit` produces two reschedules:
+        //   1. The delay action returns an explicit `queueScheduledAt` 1s in the future
+        //      (real pause — must keep logging "Workflow will pause until X" and the
+        //      corresponding "Resuming workflow execution at [Action:delay_1]" on wake).
+        //   2. The email action returns no `queueScheduledAt` (routing-only — must be
+        //      silent in both directions).
+        // If the fix over-reaches and suppresses real delay pauses, this test fails.
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    delay_1: { type: 'delay', config: { delay_duration: '1s' } },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'After-delay email',
+                                        text: 'After-delay email',
+                                        html: '<p>After-delay email</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        await waitForExpect(() => {
+            const sumCounts = (filter: (m: any) => boolean) =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(filter)
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
+        }, 15000)
+
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const terminal = jobs.filter(
+                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+            )
+            expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
+
+        const logMessages = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+            .map((m: any) => m.value.message as string)
+
+        expect(logMessages.filter((msg) => msg.includes('Email sent to recipient@example.com'))).toHaveLength(1)
+
+        // The delay's pause log MUST fire — this is the regression guard against
+        // over-suppression. The only routing pause in this workflow (email_1 hopping onto
+        // the email queue) is sub-millisecond and silenced. So exactly one pause line
+        // should appear, and it must be the delay's.
+        const pauseLogs = logMessages.filter((msg) => msg.startsWith('Workflow will pause until'))
+        expect(pauseLogs).toHaveLength(1)
+
+        // The delay-wake Resuming log MUST fire — the workflow really did pause and resume.
+        // The delay handler returns `{ scheduledAt, nextAction: email_1 }` on the rescheduling
+        // dequeue, so `currentAction` is advanced to email_1 *before* the next dequeue. On
+        // wake we therefore see "Resuming workflow execution at [Action:email_1]", NOT at
+        // [Action:delay_1] — the delay is finished, email_1 is what's about to run. This must
+        // appear exactly once (the real wake from delay). The email's routing-continuation
+        // Resuming would be a SECOND identical line; the fix suppresses it, so length stays 1.
+        const resumingEmailLogs = logMessages.filter(
+            (msg) => msg.includes('Resuming workflow execution at') && msg.includes('[Action:email_1]')
+        )
+        expect(resumingEmailLogs).toHaveLength(1)
+    })
+
     it('wakes a wait_until_condition parked on the email queue after an email step', async () => {
         // Reproduces the prod bug: an email step routes the invocation to the email queue, so the
         // following wait_until_condition parks on the email queue (not hogflow). The matcher must

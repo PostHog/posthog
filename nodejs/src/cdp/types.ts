@@ -348,9 +348,17 @@ export type HogFlowInvocationContext = {
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
-        // continue the same action. Read and cleared at the top of the next execute() so the
-        // routing transition doesn't surface as a redundant "Resuming..." / "Workflow will
-        // pause until..." pair in customer-visible workflow logs.
+        // continue the same action. Consumed across three sites in hogflow-executor.service.ts
+        // to suppress the redundant log lines that would otherwise leak the routing into
+        // customer-visible workflow logs:
+        //   - `scheduleInvocation` on the dequeue that set it: skips the "Workflow will pause
+        //     until..." line (the pause is sub-millisecond and not a real workflow pause).
+        //   - Top of the next `execute()`: skips the "Resuming workflow execution at..." line.
+        //     The flag is *not* cleared here — it stays set so `executeCurrentAction` can
+        //     also act on it.
+        //   - `executeCurrentAction` on the same next dequeue: skips the "Executing action..."
+        //     debug line *and clears the flag* so any subsequent actions on the same dequeue
+        //     (the email handler's `nextAction: exit`, etc.) log normally.
         routingOnlyReschedule?: boolean
     }
     // Set by the subscription matcher consumer when an incoming event matched the
