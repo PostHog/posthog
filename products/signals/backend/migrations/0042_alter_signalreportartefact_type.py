@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("signals", "0041_alter_signalscoutconfig_run_interval_minutes"),
     ]
