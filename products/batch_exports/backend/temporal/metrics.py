@@ -2,6 +2,8 @@ import time
 import typing
 import asyncio
 import datetime as dt
+import functools
+import collections.abc
 from contextlib import contextmanager
 
 from django.conf import settings
@@ -477,3 +479,78 @@ class SLAWaiter:
             batch_export_id=self.batch_export_id,
             sla_seconds=self.sla.total_seconds(),
         )
+
+
+def get_or_create_counter(name: str, description: str, *, prefix: str = "batch_exports", **attributes) -> MetricCounter:
+    """Create a metric counter, or return a cached one if arguments match.
+
+    The underlying cached function requires hashable arguments, so this function
+    serves as an entrypoint that handles making arguments hashable.
+    """
+    default_attributes = {}
+
+    if activity.in_activity():
+        context = "activity"
+
+        default_attributes["workflow_type"] = activity.info().workflow_type
+        default_attributes["activity_type"] = activity.info().activity_type
+    elif workflow.in_workflow():
+        context = "workflow"
+
+        default_attributes["workflow_type"] = activity.info().workflow_type
+    else:
+        raise RuntimeError("Not within workflow or activity context")
+
+    full_name = _normalize_name(name, prefix)
+
+    full_attributes = {**default_attributes, **attributes}
+    attribute_pairs = tuple(sorted((k, v) for k, v in full_attributes.items() if v is not None))
+
+    return _get_or_create_counter_cached(full_name, description, attribute_pairs, context)
+
+
+def _normalize_name(name: str, prefix: str) -> str:
+    return "_".join((prefix, *name.lower().split(" ")))
+
+
+@functools.lru_cache
+def _get_or_create_counter_cached(
+    full_name: str,
+    description: str,
+    attribute_pairs: tuple[tuple[str, str | int | float | bool]],
+    # Needed so that we don't cache workflow and activity meters with same args
+    # under the same key.
+    _context: typing.Literal["activity", "workflow"],
+) -> MetricCounter:
+    """Cached function to return a counter."""
+    meter = get_metric_meter(dict(attribute_pairs))
+    return meter.create_counter(full_name, description)
+
+
+class IteratorBytesTracker:
+    """A tracker for async byte iterators.
+
+    Bytes yielded are tracked in a prometheus counter, created using name,
+    description, prefix, and any additional attributes.
+    """
+
+    def __init__(
+        self,
+        it: collections.abc.AsyncIterator[bytes],
+        *,
+        name: str,
+        description: str,
+        prefix: str = "batch_exports",
+        **attributes,
+    ) -> None:
+        self.it = it
+        self.counter = get_or_create_counter(name, description, prefix=prefix, **attributes)
+
+    def __aiter__(self) -> typing.Self:
+        return self
+
+    async def __anext__(self) -> bytes:
+        """Track bytes length and return them."""
+        chunk = await self.it.__anext__()
+        self.counter.add(len(chunk))
+        return chunk

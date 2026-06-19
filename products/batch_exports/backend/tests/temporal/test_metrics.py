@@ -10,6 +10,7 @@ from django.conf import settings
 import psycopg
 import pytest_asyncio
 import temporalio.client
+import temporalio.activity
 from structlog.testing import capture_logs
 from temporalio.common import RetryPolicy
 
@@ -17,7 +18,12 @@ from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_ba
 
 from products.batch_exports.backend.service import BatchExportModel
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import PostgresBatchExportInputs
-from products.batch_exports.backend.temporal.metrics import SLAWaiter
+from products.batch_exports.backend.temporal.metrics import (
+    IteratorBytesTracker,
+    SLAWaiter,
+    _normalize_name,
+    get_or_create_counter,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -163,3 +169,47 @@ async def test_sla_waiter():
             assert detector.is_over_sla() is False
 
     assert not cap_logs
+
+
+@pytest.mark.parametrize(
+    "name,description,prefix",
+    [
+        ("test", "Wow a test", "test_test"),
+        ("A not normalized name", "Wow a test", "test_test"),
+    ],
+)
+async def test_get_or_create_counter_in_activity(activity_environment, name: str, description: str, prefix: str):
+    @temporalio.activity.defn
+    async def test_activity():
+        return get_or_create_counter(name, description, prefix=prefix)
+
+    result = await activity_environment.run(test_activity)
+
+    assert result.name == _normalize_name(name, prefix)
+    assert result.description == description
+
+    another = await activity_environment.run(test_activity)
+
+    assert result is another
+
+
+async def test_iterator_bytes_tracker_activity(activity_environment):
+    chunks = [b"abc", b"def", b"12345", b"0"]
+    # Temporal returns a NoOp counter, so we need our own thing to ensure
+    # we are calling it.
+    magic_mock = mock.MagicMock()
+
+    @temporalio.activity.defn
+    async def test_activity():
+        async def iter_chunks():
+            for chunk in chunks:
+                yield chunk
+
+        tracked = IteratorBytesTracker(iter_chunks(), name="test", description="Test")
+        tracked.counter = magic_mock
+        return [chunk async for chunk in tracked]
+
+    result = await activity_environment.run(test_activity)
+
+    assert result == chunks
+    assert magic_mock.add.mock_calls == [mock.call(len(chunk)) for chunk in chunks]

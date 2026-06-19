@@ -8,6 +8,7 @@ from aiobotocore.response import StreamingBody
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.temporal.metrics import IteratorBytesTracker
 from products.batch_exports.backend.temporal.pipeline.internal_stage import get_base_s3_staging_folder, get_s3_client
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, slice_record_batch
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
@@ -111,7 +112,13 @@ class Producer:
             assert "Body" in s3_ob, "Body not found in S3 object"
             stream: StreamingBody = s3_ob["Body"]
             # read in 128KB chunks of data from S3
-            reader = asyncpa.AsyncRecordBatchReader(stream.iter_chunks(chunk_size=128 * 1024))
+            reader = asyncpa.AsyncRecordBatchReader(
+                IteratorBytesTracker(
+                    stream.iter_chunks(chunk_size=128 * 1024),
+                    name="bytes_streamed_from_internal_stage",
+                    description="Counter tracking bytes streamed from internal stage",
+                )
+            )
 
             async for batch in reader:
                 for record_batch_slice in slice_record_batch(batch, max_record_batch_size_bytes, min_records_per_batch):
