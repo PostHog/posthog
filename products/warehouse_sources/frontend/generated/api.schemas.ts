@@ -162,6 +162,13 @@ export interface ExternalDataSchemaApi {
      * * `objectid` - objectid
      * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
+    /**
+     * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
+     * @minimum 0
+     * @maximum 5184000
+     * @nullable
+     */
+    incremental_field_lookback_seconds?: number | null
     /** How often to sync.
      *
      * * `never` - never
@@ -295,6 +302,13 @@ export interface PatchedExternalDataSchemaApi {
      * * `objectid` - objectid
      * * `xid` - xid */
     incremental_field_type?: IncrementalFieldTypeEnumApi | null
+    /**
+     * Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).
+     * @minimum 0
+     * @maximum 5184000
+     * @nullable
+     */
+    incremental_field_lookback_seconds?: number | null
     /** How often to sync.
      *
      * * `never` - never
@@ -985,6 +999,7 @@ export const CreatedViaEnumApi = {
  * * `Streamlabs` - Streamlabs
  * * `Datorama` - Datorama
  * * `Ahrefs` - Ahrefs
+ * * `Lightfield` - Lightfield
  * * `Appstack` - Appstack
  * * `Custom` - Custom
  */
@@ -1617,6 +1632,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Streamlabs: 'Streamlabs',
     Datorama: 'Datorama',
     Ahrefs: 'Ahrefs',
+    Lightfield: 'Lightfield',
     Appstack: 'Appstack',
     Custom: 'Custom',
 } as const
@@ -2346,6 +2362,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
+     * * `Lightfield` - Lightfield
      * * `Appstack` - Appstack
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
@@ -3176,6 +3193,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
+     * * `Lightfield` - Lightfield
      * * `Appstack` - Appstack
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
@@ -3814,6 +3832,7 @@ export interface SourceSetupApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
+     * * `Lightfield` - Lightfield
      * * `Appstack` - Appstack
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
@@ -4490,6 +4509,7 @@ export interface SourceCredentialCreateApi {
      * * `Streamlabs` - Streamlabs
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
+     * * `Lightfield` - Lightfield
      * * `Appstack` - Appstack
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
