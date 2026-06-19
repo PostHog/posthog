@@ -50,7 +50,7 @@ function ActiveFiltersBanner(): JSX.Element | null {
 
     return (
         <LemonBanner type="info" action={{ children: 'Clear', onClick: () => clearFilters() }}>
-            Filters are applied - some reports may be hidden.
+            Filters are applied – some reports may be hidden.
         </LemonBanner>
     )
 }

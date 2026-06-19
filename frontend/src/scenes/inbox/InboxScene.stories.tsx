@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
+
 import { mswDecorator } from '~/mocks/browser'
 
 import {
@@ -70,4 +73,25 @@ export const Empty: Story = {
             },
         }),
     ],
+}
+
+// The active-filters banner shown above the list when a filter is set. Driven via the search input
+// because `searchQuery` is the one filter that isn't persisted to localStorage, so it can't leak into
+// the other stories' snapshots the way a persisted source/priority filter would.
+export const ActiveFiltersBanner: Story = {
+    play: async () => {
+        const searchInput = await waitFor(() => {
+            const el = document.querySelector<HTMLInputElement>('input[placeholder^="Search by title"]')
+            if (!el) {
+                throw new Error('Inbox search input not found')
+            }
+            return el
+        })
+        await userEvent.type(searchInput, 'checkout')
+        await waitFor(() => {
+            if (!document.body.textContent?.includes('some reports may be hidden')) {
+                throw new Error('Active-filters banner did not render')
+            }
+        })
+    },
 }
