@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconBell } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
@@ -21,16 +22,24 @@ export function AlertsButton({ insight, insightLogicProps, text, ...props }: Ale
     const { push } = useActions(router)
     const logic = insightAlertsLogic({ insightId: insight.id!, insightLogicProps })
     const { alerts } = useValues(logic)
+    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
+
+    const supported = areAlertsSupportedForInsight(insight.query, { hogqlAlertsEnabled })
+    // List only the insight types this account can actually alert on — naming a flag-gated type the
+    // user doesn't have would disclose an unreleased feature.
+    const availableTypes = ['trends', hogqlAlertsEnabled && 'SQL'].filter(Boolean).join(', ')
+    // Existing alerts must stay manageable even if the gating flag is later disabled —
+    // they keep evaluating server-side, so the user needs a way in to edit or disable them.
+    const disabledReason =
+        supported || (alerts?.length ?? 0) > 0
+            ? undefined
+            : `Alerts are only available for ${availableTypes} insights. Change the insight representation to add alerts.`
 
     return (
         <LemonButton
             data-attr="manage-alerts-button"
             onClick={() => push(urls.insightAlerts(insight.short_id!))}
-            disabledReason={
-                !areAlertsSupportedForInsight(insight.query)
-                    ? 'Alerts are only available for trends. Change the insight representation to add alerts.'
-                    : undefined
-            }
+            disabledReason={disabledReason}
             {...props}
             icon={
                 <IconWithCount count={alerts?.length} showZero={false}>
