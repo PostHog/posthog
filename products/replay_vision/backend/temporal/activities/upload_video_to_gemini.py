@@ -5,8 +5,6 @@ import asyncio
 import tempfile
 from datetime import UTC, datetime
 
-from django.conf import settings
-
 import structlog
 from asgiref.sync import sync_to_async
 from google.genai import (
@@ -16,11 +14,12 @@ from google.genai import (
 from temporalio import activity
 
 from posthog.storage import object_storage
-from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import track_uploaded_file
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
+from products.replay_vision.backend.temporal.gemini import gemini_api_key
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import track_uploaded_file
 from products.replay_vision.backend.temporal.types import UploadedVideo, UploadVideoToGeminiInputs
 
 logger = structlog.get_logger(__name__)
@@ -53,7 +52,7 @@ async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> 
             f"ExportedAsset {inputs.asset_id} produced empty video bytes", kind=FailureKind.INTERNAL_ERROR
         )
 
-    raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
+    raw_client = RawGenAIClient(api_key=gemini_api_key())
     # `tmp_file.write` / `flush` are blocking disk I/O; offload the whole tempfile+upload block off the event loop.
     uploaded_file = await asyncio.to_thread(
         _write_and_upload, raw_client, video_bytes, asset.export_format, workflow_id

@@ -7,12 +7,12 @@ import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/ev
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { dayjs } from 'lib/dayjs'
 import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
-import { isKeyOf } from 'lib/utils'
-import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
+import { isKeyOf } from 'lib/utils/guards'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
 import { EventType, RecordingEventType } from '~/types'
 
+import { AutocaptureImageTab, hasAutocaptureImage } from '../AutocapturePreviewImage/AutocapturePreviewImage'
 import { ErrorEventType } from '../Errors/types'
 
 export type ErrorPropertyTabEvent = EventType | RecordingEventType | ErrorEventType
@@ -188,7 +188,7 @@ export const EventPropertyTabs = ({
                   ),
               }
             : null,
-        event.elements && autocaptureToImage(event.elements)
+        event.elements && hasAutocaptureImage(event.elements)
             ? {
                   key: 'image',
                   label: 'Image',

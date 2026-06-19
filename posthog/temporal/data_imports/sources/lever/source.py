@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class LeverSource(ResumableSource[LeverSourceConfig, LeverResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.LEVER,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Lever",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Lever API key to automatically pull your Lever recruiting data into the PostHog Data warehouse.

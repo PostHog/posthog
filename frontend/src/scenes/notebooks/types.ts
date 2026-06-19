@@ -45,6 +45,7 @@ export type NotebookType = NotebookListItemType &
 
 export enum NotebookNodeType {
     Mention = RichContentNodeType.Mention,
+    MarkdownNotebook = 'ph-markdown-notebook',
     Query = 'ph-query',
     Python = 'ph-python',
     DuckSQL = 'ph-duck-sql',

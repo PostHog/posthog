@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
@@ -94,6 +95,81 @@ class TestSetupResourcesPreflight:
         assert error is not None and "boom" in error
         mock_drop.assert_called_once()
         assert mock_drop.call_args.args[1:] == ("s", "p")
+
+
+class TestRecreateSlot:
+    @patch(f"{_ADAPTER}.create_slot_and_publication")
+    @patch(f"{_ADAPTER}.create_slot", return_value="0/AA")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=True)
+    @patch(f"{_ADAPTER}.drop_slot")
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_drops_and_recreates_slot_against_existing_publication(
+        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_slot_and_pub
+    ) -> None:
+        source = _source(
+            cdc_enabled=True,
+            cdc_management_mode="posthog",
+            cdc_slot_name="posthog_slot",
+            cdc_publication_name="posthog_pub",
+        )
+
+        fields = PostgresCDCAdapter().recreate_slot(source, tables=["users", "orders"])
+
+        assert fields == {"cdc_consistent_point": "0/AA"}
+        mock_drop.assert_called_once()
+        assert mock_drop.call_args.args[1] == "posthog_slot"
+        mock_create.assert_called_once()
+        assert mock_create.call_args.args[1] == "posthog_slot"
+        mock_create_slot_and_pub.assert_not_called()
+
+    @patch(f"{_ADAPTER}.create_slot_and_publication", return_value="0/BB")
+    @patch(f"{_ADAPTER}.create_slot")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=False)
+    @patch(f"{_ADAPTER}.drop_slot")
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_recreates_publication_when_posthog_managed_and_missing(
+        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_slot_and_pub
+    ) -> None:
+        source = _source(
+            cdc_enabled=True,
+            cdc_management_mode="posthog",
+            cdc_slot_name="posthog_slot",
+            cdc_publication_name="posthog_pub",
+        )
+
+        fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
+
+        assert fields == {"cdc_consistent_point": "0/BB"}
+        mock_create_slot_and_pub.assert_called_once()
+        assert mock_create_slot_and_pub.call_args.args[1:3] == ("posthog_slot", "posthog_pub")
+        assert mock_create_slot_and_pub.call_args.kwargs["tables"] == ["users"]
+        mock_create.assert_not_called()
+
+    @patch(f"{_ADAPTER}.create_slot_and_publication")
+    @patch(f"{_ADAPTER}.create_slot")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=False)
+    @patch(f"{_ADAPTER}.drop_slot")
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_raises_when_self_managed_publication_missing(
+        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_slot_and_pub
+    ) -> None:
+        source = _source(
+            cdc_enabled=True,
+            cdc_management_mode="self_managed",
+            cdc_slot_name="posthog_slot",
+            cdc_publication_name="customer_pub",
+        )
+
+        with pytest.raises(RuntimeError, match="does not exist"):
+            PostgresCDCAdapter().recreate_slot(source, tables=["users"])
+
+        mock_create.assert_not_called()
+        mock_create_slot_and_pub.assert_not_called()
+
+    def test_raises_without_slot_name(self) -> None:
+        source = _source(cdc_enabled=True)
+        with pytest.raises(RuntimeError, match="no slot name"):
+            PostgresCDCAdapter().recreate_slot(source, tables=[])
 
 
 class TestAlterPublicationMembership:

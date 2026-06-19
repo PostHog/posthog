@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
+from posthog.api.file_system.folder_context_generation_service import clear_context_generation
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.folder_instructions import FileSystemFolderInstructions
 from posthog.models.user import User
@@ -62,7 +63,7 @@ def publish_folder_instructions(
         if current_latest is None:
             if base_version is not None and base_version != 0:
                 raise FolderInstructionsVersionConflictError(current_version=0)
-            return FileSystemFolderInstructions.objects.create(
+            published = FileSystemFolderInstructions.objects.create(
                 team=folder.team,
                 folder=folder,
                 content=content,
@@ -70,21 +71,25 @@ def publish_folder_instructions(
                 is_latest=True,
                 created_by=user,
             )
+        else:
+            if base_version is not None and base_version != current_latest.version:
+                raise FolderInstructionsVersionConflictError(current_version=current_latest.version)
+            if current_latest.version >= MAX_FOLDER_INSTRUCTIONS_VERSION:
+                raise FolderInstructionsVersionLimitError(max_version=MAX_FOLDER_INSTRUCTIONS_VERSION)
 
-        if base_version is not None and base_version != current_latest.version:
-            raise FolderInstructionsVersionConflictError(current_version=current_latest.version)
-        if current_latest.version >= MAX_FOLDER_INSTRUCTIONS_VERSION:
-            raise FolderInstructionsVersionLimitError(max_version=MAX_FOLDER_INSTRUCTIONS_VERSION)
+            FileSystemFolderInstructions.objects.filter(pk=current_latest.pk).update(is_latest=False)
+            published = FileSystemFolderInstructions.objects.create(
+                team=folder.team,
+                folder=folder,
+                content=content,
+                version=current_latest.version + 1,
+                is_latest=True,
+                created_by=user,
+            )
 
-        FileSystemFolderInstructions.objects.filter(pk=current_latest.pk).update(is_latest=False)
-        return FileSystemFolderInstructions.objects.create(
-            team=folder.team,
-            folder=folder,
-            content=content,
-            version=current_latest.version + 1,
-            is_latest=True,
-            created_by=user,
-        )
+        # Publishing produced a result, so drop the in-progress generation marker for this folder.
+        clear_context_generation(folder)
+        return published
 
 
 def ensure_blank_folder_instructions(
@@ -121,4 +126,6 @@ def delete_folder_instructions(folder: FileSystem) -> int:
             .filter(folder=folder, deleted=False)
             .update(deleted=True, is_latest=False)
         )
+        # No instructions remain, so the folder can't have a generation in progress.
+        clear_context_generation(folder)
     return count

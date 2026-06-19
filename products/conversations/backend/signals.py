@@ -14,13 +14,19 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
-from posthog.tasks.email import send_new_ticket_notification
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, Ticket
 from .models.constants import Channel
-from .tasks import post_reply_to_github, post_reply_to_slack, post_reply_to_teams, send_email_reply
+from .tasks import (
+    post_reply_to_github,
+    post_reply_to_slack,
+    post_reply_to_teams,
+    post_reply_to_teams_via_graph,
+    send_email_reply,
+)
+from .teams import parse_teams_root_message_id, resolve_shared_channel_team_id
 
 logger = structlog.get_logger(__name__)
 
@@ -147,6 +153,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 try:
                     conversations_settings = ticket.team.conversations_settings or {}
                     if conversations_settings.get("notification_recipients"):
+                        # posthog.tasks.__init__ eagerly imports every task module; this signal
+                        # module is wired at django.setup(), so import the task lazily.
+                        from posthog.tasks.email import send_new_ticket_notification  # noqa: PLC0415
+
                         send_new_ticket_notification.delay(
                             ticket_id=item_id,
                             team_id=team_id,
@@ -453,7 +463,7 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
                 channel_source=Channel.TEAMS,
             ).first()
 
-            if not ticket or not ticket.teams_conversation_id or not ticket.teams_service_url:
+            if not ticket or not ticket.teams_conversation_id:
                 return
 
             team = ticket.team
@@ -465,15 +475,33 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
             if created_by:
                 author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
 
-            cast(Any, post_reply_to_teams).delay(
-                ticket_id=str(ticket.id),
-                team_id=team_id,
-                content=content,
-                rich_content=rich_content,
-                author_name=author_name,
-                teams_service_url=ticket.teams_service_url,
-                teams_conversation_id=ticket.teams_conversation_id,
-            )
+            # Shared channels are written to via Graph (the bot connector can't post
+            # there); standard channels keep using the bot connector reply path.
+            shared_team_id = resolve_shared_channel_team_id(team, ticket.teams_channel_id)
+            if shared_team_id:
+                root_message_id = parse_teams_root_message_id(ticket.teams_conversation_id)
+                if not root_message_id:
+                    return
+                cast(Any, post_reply_to_teams_via_graph).delay(
+                    ticket_id=str(ticket.id),
+                    team_id=team_id,
+                    teams_team_id=shared_team_id,
+                    channel_id=ticket.teams_channel_id,
+                    root_message_id=root_message_id,
+                    content=content,
+                    rich_content=rich_content,
+                    author_name=author_name,
+                )
+            elif ticket.teams_service_url:
+                cast(Any, post_reply_to_teams).delay(
+                    ticket_id=str(ticket.id),
+                    team_id=team_id,
+                    content=content,
+                    rich_content=rich_content,
+                    author_name=author_name,
+                    teams_service_url=ticket.teams_service_url,
+                    teams_conversation_id=ticket.teams_conversation_id,
+                )
         except Exception:
             logger.exception("teams_reply_signal_failed", item_id=item_id)
 

@@ -2,6 +2,18 @@ import './styles/layers.css'
 
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './accordion'
 export {
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogOverlay,
+    AlertDialogPortal,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from './alert-dialog'
+export {
     Autocomplete,
     AutocompleteClear,
     AutocompleteCollection,
@@ -25,7 +37,7 @@ export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
 export { CardGroup } from './card-group'
 export { Checkbox, CheckboxIndicator } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'
-export { Collapsible, CollapsibleTrigger, CollapsibleContent } from './collapsible'
+export { Collapsible, CollapsibleHeader, CollapsibleTrigger, CollapsibleContent } from './collapsible'
 export { MenuLabel } from './menu-label'
 export {
     Combobox,

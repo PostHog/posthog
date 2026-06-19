@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class GoogleAdManagerSource(SimpleSource[GoogleAdManagerSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_AD_MANAGER,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["gam"],
             label="Google Ad Manager",
             iconPath="/static/services/google_ad_manager.png",
             fields=cast(list[FieldType], []),

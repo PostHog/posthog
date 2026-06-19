@@ -2,7 +2,6 @@ import { parse as parseYaml } from 'yaml'
 
 import { compileRecipe } from './compile/compiler'
 import anthropic from './default_recipes/anthropic.yaml?raw'
-import cajole from './default_recipes/cajole.yaml?raw'
 import compatArray from './default_recipes/compat_array.yaml?raw'
 import dispatcherEntry from './default_recipes/dispatcher_entry.yaml?raw'
 import langchain from './default_recipes/langchain.yaml?raw'
@@ -30,7 +29,6 @@ const RECIPE_SOURCES: readonly string[] = [
     anthropic,
     otel,
     wrappers,
-    cajole,
 ]
 
 const RECIPES: Recipe[] = []

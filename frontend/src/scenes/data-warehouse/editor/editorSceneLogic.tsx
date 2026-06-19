@@ -2,8 +2,8 @@ import equal from 'fast-deep-equal'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

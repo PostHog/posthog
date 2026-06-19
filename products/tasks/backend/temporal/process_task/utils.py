@@ -103,6 +103,13 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
     ),
+    "claude-fable-5": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+    ),
     "claude-sonnet-4-6": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
@@ -115,6 +122,11 @@ CODEX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.MEDIUM,
     ReasoningEffort.HIGH,
 )
+CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    *CODEX_REASONING_EFFORTS,
+    ReasoningEffort.XHIGH,
+)
+CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
 
 
 def get_provider_for_runtime_adapter(
@@ -141,6 +153,8 @@ def get_supported_reasoning_efforts(
     if adapter_value == RuntimeAdapter.CLAUDE.value:
         return CLAUDE_REASONING_EFFORTS_BY_MODEL.get(model, ())
     if adapter_value == RuntimeAdapter.CODEX.value:
+        if model.lower() in CODEX_XHIGH_REASONING_MODELS:
+            return CODEX_XHIGH_REASONING_EFFORTS
         return CODEX_REASONING_EFFORTS
 
     return ()
@@ -319,6 +333,7 @@ def get_sandbox_ph_mcp_configs(
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
     - eu.posthog.com → https://mcp-eu.posthog.com/mcp
+    - app.dev.posthog.dev → https://mcp.dev.posthog.dev/mcp
     - Other hosts → empty list (MCP not available)
     """
     url = _resolve_mcp_url()
@@ -348,6 +363,8 @@ def _resolve_mcp_url() -> str | None:
         return "https://mcp.posthog.com/mcp"
     if hostname == "eu.posthog.com":
         return "https://mcp-eu.posthog.com/mcp"
+    if hostname == "app.dev.posthog.dev":
+        return "https://mcp.dev.posthog.dev/mcp"
 
     # Local dev: point to the local wrangler dev MCP server via
     # host.docker.internal, since the sandbox runs in Docker.

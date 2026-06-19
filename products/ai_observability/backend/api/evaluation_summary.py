@@ -1,5 +1,5 @@
 """
-Django REST API endpoint for LLM evaluation results summarization.
+Django REST API endpoint for evaluation results summarization.
 
 This ViewSet provides AI-powered summarization of evaluation results,
 identifying patterns in passing and failing evaluations.
@@ -219,7 +219,7 @@ def _fetch_evaluation_runs(
 
 class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
-    ViewSet for LLM evaluation results summarization.
+    ViewSet for evaluation results summarization.
 
     Provides AI-powered analysis of evaluation runs to identify patterns
     in passing and failing evaluations. Fetches data server-side by ID

@@ -50,14 +50,13 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Skills',
-            intents: [ProductKey.LLM_PROMPTS],
+            intents: [ProductKey.SKILLS],
             category: ProductItemCategory.TOOLS,
             type: 'llm_skills',
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
             href: urls.skills(),
             flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
-            tags: ['beta'],
             sceneKey: 'Skills',
         },
     ],

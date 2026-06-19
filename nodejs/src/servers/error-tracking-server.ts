@@ -11,15 +11,13 @@ import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import {
-    KafkaIngestionProducerEnvConfig,
-    KafkaProducerEnvConfig,
-    KafkaWarpstreamProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { ProducerName } from '../ingestion/common/outputs'
-import { createProducerRegistry } from '../ingestion/common/outputs/registry'
+import { createIngestionProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     KafkaBrokerConfig,
@@ -65,9 +63,8 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     ErrorTrackingConsumerConfig &
     HogTransformerServiceConfig &
     KafkaBrokerConfig &
-    KafkaProducerEnvConfig &
-    KafkaWarpstreamProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
+    KafkaUpstreamProducerEnvConfig &
+    KafkaDownstreamProducerEnvConfig &
     ErrorTrackingOutputsConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -99,9 +96,8 @@ export class ErrorTrackingServer implements NodeServer {
     constructor(config: Partial<ErrorTrackingServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultErrorTrackingOutputsConfig()),
             ...config,
         }
@@ -132,7 +128,7 @@ export class ErrorTrackingServer implements NodeServer {
         logger.info('👍', 'Postgres Router ready')
 
         logger.info('🤔', 'Connecting to Kafka...')
-        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        this.producerRegistry = await createIngestionProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
         logger.info('👍', 'Kafka ready')
 

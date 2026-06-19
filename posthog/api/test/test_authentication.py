@@ -33,7 +33,7 @@ from rest_framework.test import APIRequestFactory
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
-from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
+from posthog.api.authentication import password_reset_token_generator, social_login_notification
 from posthog.auth import (
     InternalAPIUser,
     OAuthAccessTokenAuthentication,
@@ -51,6 +51,7 @@ from posthog.helpers.user_devices import (
 )
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
+from posthog.models.activity_logging.signal_handlers import post_login
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership

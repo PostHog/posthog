@@ -30,8 +30,8 @@ describe('projectsGridLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/:team/feature_flags/': (req) => {
-                        const offset = Number(req.url.searchParams.get('offset') ?? 0)
+                    '/api/projects/:team/feature_flags/': ({ request }) => {
+                        const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
                         const count = 40
                         const remaining = Math.max(0, count - offset)
                         const pageSize = Math.min(25, remaining)
@@ -93,8 +93,8 @@ describe('projectsGridLogic', () => {
                         next: null,
                         results: [buildFlag(1), buildFlag(2), buildFlag(3)],
                     },
-                    '/api/organizations/:org/feature_flags/:key/': async (req) => {
-                        const key = req.params.key as string
+                    '/api/organizations/:org/feature_flags/:key/': async ({ params }) => {
+                        const key = params.key as string
                         callOrder.push(key)
                         inFlight += 1
                         maxInFlight = Math.max(maxInFlight, inFlight)

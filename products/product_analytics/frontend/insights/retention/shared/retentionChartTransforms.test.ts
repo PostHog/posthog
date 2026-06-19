@@ -301,6 +301,23 @@ describe('retentionChartTransforms', () => {
             expect(model.series[0].data).toEqual([100, 50])
         })
 
+        it('keeps every cohort when maxCohorts is omitted', () => {
+            const cohorts = [
+                cohort('2024-01-01', [100, 50]),
+                cohort('2024-01-02', [80, 40]),
+                cohort('2024-01-03', [60, 30]),
+            ]
+            const model = buildRetentionChartModel(cohorts, {
+                aggregationType: 'count',
+                reference: 'total',
+                period: 'Day',
+                getColor: colorAt,
+            })
+
+            expect(model.totalCohorts).toBe(3)
+            expect(model.series).toHaveLength(3)
+        })
+
         it.each([
             { aggregationType: 'count', expectedLabel: 'Retention %', expectedFormat: 'percentage' },
             { aggregationType: 'sum', expectedLabel: 'Sum', expectedFormat: 'numeric' },

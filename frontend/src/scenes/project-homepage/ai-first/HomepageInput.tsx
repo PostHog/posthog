@@ -12,7 +12,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
@@ -56,9 +56,9 @@ function IdleInput(): JSX.Element {
                 htmlFor="homepage-input"
                 className="min-h-[40px] group input-like flex flex-col items-start relative w-full bg-fill-input border border-primary focus-within:ring-primary rounded-lg justify-stretch overflow-hidden"
             >
-                <div className="flex w-full py-1 px-2">
+                <div className="flex w-full py-1 px-1 max-h-[300px] items-end gap-1">
                     {!query && (
-                        <span className="text-tertiary pointer-events-none absolute left-3.5 top-2 flex items-center gap-1">
+                        <span className="text-tertiary pointer-events-none absolute left-2.5 top-2 flex items-center gap-1">
                             <span className="text-tertiary">What can I help you with?</span>
                             <span className="text-tertiary opacity-50 contrast-more:opacity-100 hidden @xl/main-content:inline">
                                 / for commands
@@ -69,7 +69,7 @@ function IdleInput(): JSX.Element {
                         ref={inputRef}
                         id="homepage-input"
                         data-attr="homepage-input"
-                        wrapperClassName="w-full"
+                        wrapperClassName="flex-1 min-w-0"
                         value={query}
                         onChange={(e) => {
                             const value = e.target.value
@@ -118,7 +118,7 @@ function IdleInput(): JSX.Element {
                         autoFocus
                     />
                     <div className="flex items-end shrink-0">
-                        <div className="flex items-center gap-1 ">
+                        <div className="flex items-center gap-1">
                             <ButtonPrimitive
                                 size="xs"
                                 className="text-tertiary hover:text-primary shrink-0"

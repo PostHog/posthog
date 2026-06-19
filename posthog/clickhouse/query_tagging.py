@@ -13,12 +13,12 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 # from posthog.clickhouse.client.connection import Workload
-# from posthog.schema import PersonsOnEventsMode
+# from posthog.schema_enums import PersonsOnEventsMode
 import structlog
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
-from posthog.schema import NodeKind, ProductKey
+from posthog.schema_enums import NodeKind, ProductKey
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +52,7 @@ class Product(StrEnum):
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
     ENDPOINTS = "endpoints"
+    ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
@@ -231,6 +232,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
             | NodeKind.TRACE_SPANS_TREE_QUERY
+            | NodeKind.TRACE_SPANS_ATTRIBUTE_BREAKDOWN_QUERY
+            | NodeKind.TRACE_SPANS_SYMBOL_STATS_QUERY
         ):
             return {"product": Product.LLM_ANALYTICS}
         case (
@@ -635,8 +638,39 @@ _TABLE_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
 )
 
 
+def _query_structure_fallback_tags(query: object, max_depth: int = 16) -> FallbackTags | None:
+    """Walk a query's `source` chain to the first node whose kind maps to a product.
+
+    Wrapper / drill-down nodes (DataTableNode, ActorsQuery, InsightActorsQuery, …) map to None in
+    `kind_fallback_tags` — "caller's product is what matters". When one of them runs as the
+    top-level request (e.g. "open as new insight" from an actors modal) there is no caller, so we
+    descend into `source` to find the wrapped insight (e.g. RetentionQuery → product_analytics).
+
+    Reads the canonical `kind` from `tags.query`, so it also resolves runners that pass a non-NodeKind
+    `query_type` label (e.g. marketing analytics' "marketing_analytics_table_query"). Accepts the raw
+    query dict stored on `tags.query` or a pydantic node.
+    """
+    current = query
+    for _ in range(max_depth):
+        if isinstance(current, dict):
+            kind_value, source = current.get("kind"), current.get("source")
+        else:
+            kind_value, source = getattr(current, "kind", None), getattr(current, "source", None)
+        if isinstance(kind_value, str):
+            try:
+                kind = NodeKind(kind_value)
+            except ValueError:
+                kind = None
+            if kind is not None and (mapped := kind_fallback_tags(kind)) is not None:
+                return mapped
+        if source is None:
+            return None
+        current = source
+    return None
+
+
 def add_fallback_query_tags(tags: QueryTags) -> None:
-    """Order: scene → kind → hogql features (HogQLQuery only) → mcp source. Never overrides set values."""
+    """Order: scene → kind → query structure → hogql features (HogQLQuery only) → mcp source. Never overrides set values."""
     if tags.scene and (scene_mapped := SCENE_TO_TAGS.get(tags.scene)) is not None:
         _apply_fallback_tags(tags, scene_mapped)
 
@@ -647,6 +681,10 @@ def add_fallback_query_tags(tags: QueryTags) -> None:
             kind = None
         if kind is not None and (kind_mapped := kind_fallback_tags(kind)) is not None:
             _apply_fallback_tags(tags, kind_mapped)
+
+    if tags.product is None and tags.query is not None:
+        if (query_mapped := _query_structure_fallback_tags(tags.query)) is not None:
+            _apply_fallback_tags(tags, query_mapped)
 
     if (
         tags.product is None

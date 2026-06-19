@@ -40,14 +40,21 @@ class TestWorkOSSource:
         [
             "401 Client Error: Unauthorized for url: https://api.workos.com",
             "403 Client Error: Forbidden for url: https://api.workos.com",
+            "422 Client Error: Unprocessable Entity for url: https://api.workos.com",
         ],
     )
     def test_non_retryable_errors_includes_workos_key(self, expected_key):
         errors = self.source.get_non_retryable_errors()
         assert expected_key in errors
 
-    def test_non_retryable_errors_matches_observed_error_message(self):
-        observed_error = "401 Client Error: Unauthorized for url: https://api.workos.com/organizations?limit=100"
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://api.workos.com/organizations?limit=100",
+            "422 Client Error: Unprocessable Entity for url: https://api.workos.com/directory_users?limit=100&order=desc",
+        ],
+    )
+    def test_non_retryable_errors_matches_observed_error_message(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 

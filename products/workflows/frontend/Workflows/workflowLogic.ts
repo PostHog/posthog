@@ -447,6 +447,7 @@ export const workflowLogic = kea<workflowLogicType>([
                             valid: true,
                             schema: null,
                             errors: {},
+                            warnings: {},
                         }
                         const schemaValidation = HogFlowActionSchema.safeParse(action)
 
@@ -513,6 +514,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 // stricter `from` check) is not clobbered by the generic validator.
                                 result.valid = result.valid && configValidation.valid
                                 result.errors = { ...configValidation.errors, ...result.errors }
+                                result.warnings = { ...result.warnings, ...configValidation.warnings }
                             }
                         }
 
