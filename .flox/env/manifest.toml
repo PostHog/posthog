@@ -119,6 +119,8 @@ bash = '''
   [ -f "$FLOX_ENV_CACHE/completions/hogli.bash" ] && source "$FLOX_ENV_CACHE/completions/hogli.bash"
   # Load phw worktree helper
   [ -f "$FLOX_ENV_PROJECT/bin/phw" ] && source "$FLOX_ENV_PROJECT/bin/phw" >/dev/null
+  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS
+  [ -f "$FLOX_ENV_PROJECT/bin/dev-sandbox-shims" ] && source "$FLOX_ENV_PROJECT/bin/dev-sandbox-shims"
 '''
 zsh = '''
   if [[ -f "$HOME/.zshrc" ]]; then
@@ -146,6 +148,8 @@ zsh = '''
   autoload -Uz compinit && compinit -i
   # Load phw worktree helper
   [[ -f "$FLOX_ENV_PROJECT/bin/phw" ]] && source "$FLOX_ENV_PROJECT/bin/phw" >/dev/null
+  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS
+  [[ -f "$FLOX_ENV_PROJECT/bin/dev-sandbox-shims" ]] && source "$FLOX_ENV_PROJECT/bin/dev-sandbox-shims"
 '''
 fish = '''
   set -e GOROOT
