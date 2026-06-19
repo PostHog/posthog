@@ -610,7 +610,9 @@ procs:
 
     storybook:
         sandbox: true
-        shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
+        # dev-open-when-ready is peeled out to run unsandboxed (it opens the browser
+        # once :6006 is up — a path the sandbox denies); the rest stays sandboxed.
+        shell: 'bin/dev-open-when-ready http://localhost:6006 && pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
         ready_pattern: 'Storybook *'
         groups:
