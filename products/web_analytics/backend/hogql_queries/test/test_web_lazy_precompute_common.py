@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
@@ -15,16 +17,29 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
+from posthog.hogql import ast
+
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    PerQueryOptedOut,
+    PerQueryOptInNotSet,
+    TooManyFilters,
+    UnsupportedFilterKey,
+    check_common_eligibility,
     compute_filters_eligibility_hash,
+    host_filter_expr,
     is_precompute_enabled_for_team,
+    is_precompute_unrestricted_for_team,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 _COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
+
+
+def _date_range() -> tuple[datetime, datetime]:
+    return (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC))
 
 
 class TestIsPrecomputeEnabledForTeam(BaseTest):
@@ -43,6 +58,102 @@ class TestIsPrecomputeEnabledForTeam(BaseTest):
     @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=False)
     def test_team_not_in_setting_with_flag_off_is_ineligible(self, _flag) -> None:
         assert is_precompute_enabled_for_team(self.team) is False
+
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=False)
+    def test_unrestricted_team_is_enrolled_without_being_in_enrollment_list(self, flag) -> None:
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            assert is_precompute_enabled_for_team(self.team) is True
+        flag.assert_not_called()
+
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[])
+    def test_team_not_in_unrestricted_list_is_restricted(self) -> None:
+        assert is_precompute_unrestricted_for_team(self.team) is False
+
+    def test_team_in_unrestricted_list_is_unrestricted(self) -> None:
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            assert is_precompute_unrestricted_for_team(self.team) is True
+
+
+class TestCheckCommonEligibilityUnrestricted(BaseTest):
+    def _check(self, *, use_precompute, properties=None) -> None:
+        check_common_eligibility(
+            team=self.team,
+            use_web_analytics_precompute=use_precompute,
+            conversion_goal=None,
+            sampling=None,
+            modifiers=None,
+            properties=properties or [],
+            resolve_date_range=_date_range,
+        )
+
+    def test_restricted_team_rejects_untouched_opt_in(self) -> None:
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
+        ):
+            with self.assertRaises(PerQueryOptInNotSet):
+                self._check(use_precompute=None)
+
+    def test_unrestricted_team_accepts_untouched_as_opt_out_default(self) -> None:
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._check(use_precompute=None)
+            self._check(use_precompute=True)
+
+    def test_unrestricted_team_rejects_explicit_opt_out(self) -> None:
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            with self.assertRaises(PerQueryOptedOut):
+                self._check(use_precompute=False)
+
+    def test_unrestricted_team_accepts_arbitrary_multi_filter(self) -> None:
+        props = [
+            EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT),
+            EventPropertyFilter(key="$os", value="Mac OS X", operator=PropertyOperator.IS_NOT),
+        ]
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._check(use_precompute=None, properties=props)
+
+    def test_restricted_team_rejects_multi_filter(self) -> None:
+        props = [
+            EventPropertyFilter(key="$host", value="a.com", operator=PropertyOperator.EXACT),
+            EventPropertyFilter(key="$host", value="b.com", operator=PropertyOperator.EXACT),
+        ]
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
+        ):
+            with self.assertRaises(TooManyFilters):
+                self._check(use_precompute=True, properties=props)
+
+    def test_restricted_team_rejects_non_host_filter(self) -> None:
+        props = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
+        ):
+            with self.assertRaises(UnsupportedFilterKey):
+                self._check(use_precompute=True, properties=props)
+
+
+class TestHostFilterExpr(BaseTest):
+    def test_empty_properties_is_true_constant(self) -> None:
+        expr = host_filter_expr([], team=self.team)
+        assert isinstance(expr, ast.Constant)
+        assert expr.value is True
+
+    def test_restricted_team_builds_single_host_equals(self) -> None:
+        props = [EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)]
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[]):
+            expr = host_filter_expr(props, team=self.team)
+        assert isinstance(expr, ast.Call)
+        assert expr.name == "equals"
+
+    def test_unrestricted_team_translates_arbitrary_filters(self) -> None:
+        props = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            expr = host_filter_expr(props, team=self.team)
+        # property_to_expr produces a comparison/AST node; it must not be the trivial True constant.
+        assert not (isinstance(expr, ast.Constant) and expr.value is True)
 
 
 def _overview(

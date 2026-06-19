@@ -105,6 +105,11 @@ test.describe('Retention', () => {
         })
 
         await test.step('click cohort row and verify persons modal', async () => {
+            // Dismiss any lingering chart tooltip from the previous step so it
+            // doesn't overlay and block the cohort row click.
+            await insight.retention.hoverAway()
+            await expect(insight.retention.tooltip).not.toBeVisible({ timeout: 5000 })
+
             await insight.retention.clickCohortRow(1)
             const personLinks = insight.retention.personsModal.locator('[data-attr="retention-person-link"]')
             await expect(personLinks).toHaveCount(10, { timeout: 30000 })

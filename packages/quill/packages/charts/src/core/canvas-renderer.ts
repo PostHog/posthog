@@ -574,6 +574,68 @@ export function withVerticalClip(
     }
 }
 
+export interface LineSeriesLayerOptions {
+    ctx: CanvasRenderingContext2D
+    dimensions: ChartDimensions
+    labels: string[]
+    /** Series to draw, in paint order. Excluded series are skipped. */
+    series: readonly ResolvedSeries[]
+    xScale: (label: string) => number | undefined
+    resolveYScale: (s: ResolvedSeries) => ScaleLinear<number, number> | ScaleLogarithmic<number, number>
+    /** y-values to plot for a series (e.g. stacked tops). Defaults to `series.data`. */
+    yValuesFor?: (s: ResolvedSeries) => number[] | undefined
+    /** Bottom edge for the area fill (stacked bottom or `fill.lowerData`). */
+    bottomFor?: (s: ResolvedSeries) => number[] | undefined
+    /** Whether to fill the area under a series. Defaults to `!!s.fill`. */
+    shouldFill?: (s: ResolvedSeries) => boolean
+    /** `per-series`: area then line+points per series (LineChart). `areas-first`: every area, then
+     *  every line+points (ComboChart) so a later area can't paint over an earlier line. */
+    zOrder?: 'per-series' | 'areas-first'
+}
+
+/** Draw a line/area layer (clipped vertically) — the per-series area/line/points orchestration shared
+ *  by LineChart and ComboChart. Callers supply the y-value source (raw vs stacked tops), the fill
+ *  predicate, and the z-order; the loop, clip, and primitive calls live here. */
+export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
+    const { ctx, dimensions, labels, series, xScale, resolveYScale } = options
+    const yValuesFor = options.yValuesFor ?? (() => undefined)
+    const bottomFor = options.bottomFor ?? ((s: ResolvedSeries) => s.fill?.lowerData)
+    const shouldFill = options.shouldFill ?? ((s: ResolvedSeries) => !!s.fill)
+    const zOrder = options.zOrder ?? 'per-series'
+    const visible = series.filter((s) => !s.visibility?.excluded)
+
+    const paintArea = (s: ResolvedSeries): void => {
+        if (!shouldFill(s)) {
+            return
+        }
+        drawArea({ ctx, dimensions, labels, xScale, yScale: resolveYScale(s) }, s, yValuesFor(s), bottomFor(s))
+    }
+    const paintLine = (s: ResolvedSeries): void => {
+        if (s.fill?.lowerData) {
+            return
+        }
+        const drawCtx: DrawContext = { ctx, dimensions, labels, xScale, yScale: resolveYScale(s) }
+        drawLine(drawCtx, s, yValuesFor(s))
+        drawPoints(drawCtx, s, yValuesFor(s))
+    }
+
+    withVerticalClip(ctx, dimensions, () => {
+        if (zOrder === 'areas-first') {
+            for (const s of visible) {
+                paintArea(s)
+            }
+            for (const s of visible) {
+                paintLine(s)
+            }
+            return
+        }
+        for (const s of visible) {
+            paintArea(s)
+            paintLine(s)
+        }
+    })
+}
+
 /** Draw hover highlight rings for line/area series at the hovered index. Skips excluded,
  *  fill-between (`fill.lowerData`), and overlay series (trendlines/moving averages opt out of hover
  *  points). `pointFor` lets each chart supply its own anchor — LineChart resolves the point x and

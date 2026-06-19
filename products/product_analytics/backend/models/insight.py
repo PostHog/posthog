@@ -11,8 +11,6 @@ import structlog
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import NodeKind
-
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
 from posthog.models.file_system.constants import DEFAULT_SURFACE
@@ -39,6 +37,8 @@ _ANALYTICS_INSIGHT_QUERY_KINDS = frozenset(
 
 
 if TYPE_CHECKING:
+    from posthog.schema import NodeKind
+
     from posthog.models.team import Team
 
     from products.dashboards.backend.models.dashboard import Dashboard
@@ -416,10 +416,12 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
             return query.get("kind")
 
     @property
-    def alertable_query_kind(self) -> NodeKind | None:
+    def alertable_query_kind(self) -> "NodeKind | None":
         """The insight's alert-capable query kind (trends, SQL, or funnel today), or None if alerts
         aren't supported. Pure kind check — feature-flag gating is the caller's responsibility, so
         existing alerts keep displaying and survive insight edits regardless of the flag."""
+        from posthog.schema import NodeKind  # noqa: PLC0415
+
         kind = self._unwrapped_query_kind()
         return (
             NodeKind(kind)
