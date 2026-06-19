@@ -28870,6 +28870,11 @@ export namespace Schemas {
       readonly is_pending_deletion: boolean | null;
     }
 
+    export interface OrganizationAIAccessRequestResponse {
+      /** Whether the access request was accepted and the organization admins were notified. */
+      success: boolean;
+    }
+
     /**
      * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
      * Also used for nested serializers.

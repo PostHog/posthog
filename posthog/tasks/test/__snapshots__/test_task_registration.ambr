@@ -49,6 +49,7 @@
     'posthog.tasks.email.send_password_changed_email',
     'posthog.tasks.email.send_password_reset',
     'posthog.tasks.email.send_personal_api_key_exposed',
+    'posthog.tasks.email.send_posthog_ai_access_request',
     'posthog.tasks.email.send_project_deleted_email',
     'posthog.tasks.email.send_project_secret_api_key_exposed',
     'posthog.tasks.email.send_provisioning_welcome',
