@@ -279,6 +279,9 @@ def build_final_query(current_members_sql: str) -> str:
     Uses a FULL OUTER JOIN between the current-match subquery and the latest cohort_membership
     state.  Only rows where exactly one side is NULL (i.e. the person entered or left) pass
     the WHERE filter; unchanged members are excluded without materialising the 'unchanged' string.
+
+    The returned SQL references the %(team_id)s and %(cohort_id)s bind params; the caller must
+    pass both in query_parameters when executing the query.
     """
     return f"""
         SELECT

@@ -1668,7 +1668,13 @@ class TestFinalQueryMembershipStatuses:
         ],
     )
     def test_only_entered_and_left_statuses_are_emitted(self, rows, expected_statuses):
-        """The WHERE clause must exclude 'unchanged' rows; only 'entered'/'left' reach the activity loop."""
+        """The WHERE clause must exclude 'unchanged' rows; only 'entered'/'left' reach the activity loop.
+
+        Note: this test operates on hand-built row dicts, not on query output. An execution-level
+        test seeding cohort_membership with entered/left/unchanged persons and asserting the
+        unchanged one is dropped would give stronger coverage but requires a ClickHouse harness
+        that this suite (which mocks Kafka) does not have. Track separately if desired.
+        """
         observed: dict[str, str] = {}
 
         for row in rows:
