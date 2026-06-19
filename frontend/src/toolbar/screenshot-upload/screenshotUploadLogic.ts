@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { captureElementScreenshot, uploadScreenshot } from '~/toolbar/utils/screenshot'
 import { EventDefinition } from '~/types'
@@ -66,18 +66,16 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
                         return []
                     }
                     await breakpoint(300)
-                    const response = await toolbarFetch(
-                        `/api/projects/@current/event_definitions/?search=${encodeURIComponent(query)}&limit=20&event_type=event_custom`
+                    const result = await toolbarApi.get<{ results?: EventDefinition[] }>(
+                        `/api/projects/@current/event_definitions/?search=${encodeURIComponent(query)}&limit=20&event_type=event_custom`,
+                        { context: 'search_event_definitions', reauthenticateOnForbidden: true }
                     )
 
-                    if (response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
+                    breakpoint()
+                    if (!result.ok) {
                         return []
                     }
-
-                    breakpoint()
-                    const data = await response.json()
-                    return data.results ?? []
+                    return result.data.results ?? []
                 },
             },
         ],
@@ -95,11 +93,20 @@ export const screenshotUploadLogic = kea<screenshotUploadLogicType>([
                     const { mediaId } = await uploadScreenshot(blob)
                     breakpoint()
 
-                    await toolbarFetch('/api/projects/@current/object_media_previews/', 'POST', {
-                        uploaded_media_id: mediaId,
-                        event_definition_id: selectedDefinition.id,
-                    })
+                    // Re-raise on failure so submitUploadFailure surfaces the toast; toolbarApi
+                    // already logged it, so don't double-report via the global loader handler.
+                    const result = await toolbarApi.post(
+                        '/api/projects/@current/object_media_previews/',
+                        {
+                            uploaded_media_id: mediaId,
+                            event_definition_id: selectedDefinition.id,
+                        },
+                        { context: 'create_object_media_preview', captureOnError: false }
+                    )
                     breakpoint()
+                    if (!result.ok) {
+                        throw new Error(result.error.detail)
+                    }
 
                     return { success: true }
                 },

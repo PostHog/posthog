@@ -20,7 +20,8 @@ import {
 import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarApi } from '~/toolbar/toolbarApi'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
@@ -191,12 +192,14 @@ export const productToursLogic = kea<productToursLogicType>([
             [] as ProductTour[],
             {
                 loadTours: async () => {
-                    const response = await toolbarFetch('/api/projects/@current/product_tours/')
-                    if (!response.ok) {
+                    const result = await toolbarApi.get<{ results?: ProductTour[] } | ProductTour[]>(
+                        '/api/projects/@current/product_tours/',
+                        { context: 'load_product_tours' }
+                    )
+                    if (!result.ok) {
                         return []
                     }
-                    const data = await response.json()
-                    return data.results ?? data
+                    return Array.isArray(result.data) ? result.data : (result.data.results ?? [])
                 },
             },
         ],
@@ -339,12 +342,14 @@ export const productToursLogic = kea<productToursLogicType>([
                 if (!formValues.id) {
                     return
                 }
-                const response = await toolbarFetch(
+                // Re-raise on failure so kea-forms runs submitTourFormFailure (resets the
+                // draft-save status). toolbarApi already logged it, so don't double-report.
+                const result = await toolbarApi.patch(
                     `/api/projects/@current/product_tours/${formValues.id}/draft/`,
-                    'PATCH',
-                    buildDraftPayload(formValues, values.tours)
+                    buildDraftPayload(formValues, values.tours),
+                    { context: 'save_product_tour_draft', captureOnError: false }
                 )
-                if (!response.ok) {
+                if (!result.ok) {
                     throw new Error('Failed to save draft')
                 }
             },
@@ -606,32 +611,30 @@ export const productToursLogic = kea<productToursLogicType>([
             const url = isUpdate
                 ? `/api/projects/@current/product_tours/${tourForm.id}/draft/`
                 : '/api/projects/@current/product_tours/'
-            const method = isUpdate ? 'PATCH' : 'POST'
-            try {
-                const response = await toolbarFetch(url, method, payload)
-                if (!response.ok) {
-                    const error = await response.json()
-                    lemonToast.error(error.detail || 'Failed to save tour')
-                    return
-                }
-                const savedTour = await response.json()
-                const editUrl = joinWithUiHost(uiHost, urls.productTour(savedTour.id, 'edit=true'))
-                if (launchedFromMainApp) {
-                    window.close()
-                } else {
-                    lemonToast.success(isUpdate ? 'Tour saved' : 'Tour created', {
-                        button: {
-                            label: 'Open in PostHog',
-                            action: () => window.open(editUrl, '_blank'),
-                        },
-                    })
-                    actions.loadTours()
-                    actions.selectTour(null)
-                }
-            } catch (e: any) {
-                toolbarLogger.error('product_tours', 'Failed to save tour', { tourId: tourForm?.id })
-                captureToolbarException(e, 'product_tour_save')
-                lemonToast.error(e.detail || 'Failed to save tour')
+            const result = isUpdate
+                ? await toolbarApi.patch<ProductTour>(url, payload, {
+                      context: 'save_product_tour',
+                      toastOnError: 'Failed to save tour',
+                  })
+                : await toolbarApi.post<ProductTour>(url, payload, {
+                      context: 'save_product_tour',
+                      toastOnError: 'Failed to save tour',
+                  })
+            if (!result.ok) {
+                return
+            }
+            const editUrl = joinWithUiHost(uiHost, urls.productTour(result.data.id, 'edit=true'))
+            if (launchedFromMainApp) {
+                window.close()
+            } else {
+                lemonToast.success(isUpdate ? 'Tour saved' : 'Tour created', {
+                    button: {
+                        label: 'Open in PostHog',
+                        action: () => window.open(editUrl, '_blank'),
+                    },
+                })
+                actions.loadTours()
+                actions.selectTour(null)
             }
         },
         draftAutoSave: async (_, breakpoint) => {
@@ -737,13 +740,14 @@ export const productToursLogic = kea<productToursLogicType>([
             }
         },
         deleteTour: async ({ id }) => {
-            const response = await toolbarFetch(`/api/projects/@current/product_tours/${id}/`, 'DELETE')
-            if (response.ok) {
+            const result = await toolbarApi.delete(`/api/projects/@current/product_tours/${id}/`, {
+                context: 'delete_product_tour',
+                toastOnError: 'Failed to delete tour',
+            })
+            if (result.ok) {
                 lemonToast.success('Tour deleted')
                 actions.loadTours()
                 actions.selectTour(null)
-            } else {
-                lemonToast.error('Failed to delete tour')
             }
         },
         showButtonProductTours: () => {

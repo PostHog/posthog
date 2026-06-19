@@ -13,7 +13,8 @@ import { createVersionChecker } from 'lib/utils/semver'
 
 import { DOMIndex, buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarApi } from '~/toolbar/toolbarApi'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
@@ -262,22 +263,21 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     }
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
-                    const response = await toolbarFetch(
-                        url || defaultUrl,
-                        'GET',
-                        undefined,
-                        url ? 'use-as-provided' : 'full'
-                    )
+                    const result = await toolbarApi.get<PaginatedResponse<ElementsEventType>>(url || defaultUrl, {
+                        context: 'load_heatmap_stats',
+                        urlConstruction: url ? 'use-as-provided' : 'full',
+                        reauthenticateOnForbidden: true,
+                        // We re-raise below to drive getElementStatsFailure; let the global
+                        // loader handler report it once rather than capturing twice.
+                        captureOnError: false,
+                    })
                     breakpoint()
 
-                    if (response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
+                    if (result.status === 403) {
                         return emptyElementsStatsPages
                     }
 
-                    const paginatedResults = await response.json()
-
-                    if (!Array.isArray(paginatedResults.results)) {
+                    if (!result.ok || !Array.isArray(result.data.results)) {
                         throw new Error('Error loading HeatMap data!')
                     }
 
@@ -285,10 +285,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         results: [
                             // if url is present we are paginating and merge results, otherwise we only use the new results
                             ...(url ? values.elementStats?.results || [] : []),
-                            ...(paginatedResults.results || []),
+                            ...(result.data.results || []),
                         ],
-                        next: paginatedResults.next,
-                        previous: paginatedResults.previous,
+                        next: result.data.next,
+                        previous: result.data.previous,
                     } as PaginatedResponse<ElementsEventType>
                 },
             },
