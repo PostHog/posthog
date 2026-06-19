@@ -101,11 +101,15 @@ def provision_delivery_flow(action: VisionAction, *, request: Request, team: Tea
     context = _serializer_context(request=request, team=team)
     payload = build_flow_payload(action)
 
+    serializer = HogFlowSerializer(data=payload, context=context)
     if action.hog_flow_id:
-        flow = HogFlow.objects.get(id=action.hog_flow_id, team=team)
-        serializer = HogFlowSerializer(flow, data=payload, context=context)
-    else:
-        serializer = HogFlowSerializer(data=payload, context=context)
+        try:
+            # Update the existing flow in place; fall through to a fresh one if it was deleted
+            # out of band (a stale hog_flow_id must not fail the action update).
+            flow = HogFlow.objects.get(id=action.hog_flow_id, team=team)
+            serializer = HogFlowSerializer(flow, data=payload, context=context)
+        except HogFlow.DoesNotExist:
+            pass
 
     serializer.is_valid(raise_exception=True)
     flow = serializer.save()

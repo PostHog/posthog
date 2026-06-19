@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Team
@@ -85,11 +87,15 @@ class TestVisionActionDelivery(APIBaseTest):
     def _slack_nodes(self, flow: HogFlow) -> list[dict[str, Any]]:
         return [a for a in flow.actions if a["type"] == "function"]
 
+    def _get_flow(self, flow_id: Any) -> HogFlow:
+        assert flow_id is not None
+        return HogFlow.objects.get(id=flow_id)
+
     def test_create_provisions_flow(self) -> None:
         action = self._create_action()
         self.assertIsNotNone(action.hog_flow_id)
 
-        flow = HogFlow.objects.get(id=action.hog_flow_id)
+        flow = self._get_flow(action.hog_flow_id)
         self.assertEqual(flow.status, "active")
         self.assertEqual(flow.name, "Replay Vision · daily-summary")
 
@@ -112,7 +118,7 @@ class TestVisionActionDelivery(APIBaseTest):
                 {"type": "slack", "integration_id": self.other_integration.id, "channel": "#two"},
             ],
         )
-        flow = HogFlow.objects.get(id=action.hog_flow_id)
+        flow = self._get_flow(action.hog_flow_id)
         slack_nodes = self._slack_nodes(flow)
         self.assertEqual(len(slack_nodes), 2)
 
@@ -140,24 +146,27 @@ class TestVisionActionDelivery(APIBaseTest):
 
         action.refresh_from_db()
         self.assertEqual(action.hog_flow_id, flow_id)
-        flow = HogFlow.objects.get(id=flow_id)
+        flow = self._get_flow(flow_id)
         self.assertEqual(self._slack_nodes(flow)[0]["config"]["inputs"]["channel"]["value"], "#changed")
 
-    def test_update_non_delivery_does_not_reprovision(self) -> None:
+    @parameterized.expand(
+        [
+            ("selection", {"selection": {"window_days": 7}}),
+            ("trigger_config", {"trigger_config": {"rrule": "FREQ=WEEKLY", "timezone": "UTC"}}),
+            ("synthesis_config", {"synthesis_config": {"prompt_guide": "focus on checkout drop-off"}}),
+        ]
+    )
+    def test_update_non_delivery_does_not_reprovision(self, _field: str, patch_data: dict[str, Any]) -> None:
         action = self._create_action()
-        flow_before = HogFlow.objects.get(id=action.hog_flow_id)
+        flow_before = self._get_flow(action.hog_flow_id)
 
-        # A cadence/selection edit (nothing the flow reflects) must not churn the flow.
+        # Editing any field the flow doesn't reflect (cadence, selection, synthesis) must not churn it.
         with patch("products.replay_vision.backend.api.vision_actions.provision_delivery_flow") as mock_provision:
-            resp = self.client.patch(
-                f"{self.actions_url}{action.id}/",
-                data={"selection": {"window_days": 7}},
-                format="json",
-            )
+            resp = self.client.patch(f"{self.actions_url}{action.id}/", data=patch_data, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
         mock_provision.assert_not_called()
 
-        flow_after = HogFlow.objects.get(id=action.hog_flow_id)
+        flow_after = self._get_flow(action.hog_flow_id)
         self.assertEqual(flow_after.updated_at, flow_before.updated_at)
         self.assertEqual(flow_after.version, flow_before.version)
 
@@ -167,7 +176,8 @@ class TestVisionActionDelivery(APIBaseTest):
         resp = self.client.patch(f"{self.actions_url}{action.id}/", data={"name": "renamed action"}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
 
-        flow = HogFlow.objects.get(id=action.hog_flow_id)
+        flow = self._get_flow(action.hog_flow_id)
+        assert flow.name is not None
         self.assertIn("renamed action", flow.name)
 
     def test_disable_archives_flow(self) -> None:
@@ -177,7 +187,7 @@ class TestVisionActionDelivery(APIBaseTest):
         resp = self.client.patch(f"{self.actions_url}{action.id}/", data={"enabled": False}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
 
-        flow = HogFlow.objects.get(id=flow_id)
+        flow = self._get_flow(flow_id)
         self.assertEqual(flow.status, "archived")
 
     def test_delete_archives_flow(self) -> None:
@@ -187,5 +197,16 @@ class TestVisionActionDelivery(APIBaseTest):
         resp = self.client.delete(f"{self.actions_url}{action.id}/")
         self.assertEqual(resp.status_code, 204, resp.content)
 
-        flow = HogFlow.objects.get(id=flow_id)
+        flow = self._get_flow(flow_id)
+        self.assertEqual(flow.status, "archived")
+
+    def test_update_to_empty_delivery_archives_flow(self) -> None:
+        # Clearing delivery targets on an action that already has a flow archives that flow.
+        action = self._create_action()
+        flow_id = action.hog_flow_id
+
+        resp = self.client.patch(f"{self.actions_url}{action.id}/", data={"delivery_config": []}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+
+        flow = self._get_flow(flow_id)
         self.assertEqual(flow.status, "archived")
