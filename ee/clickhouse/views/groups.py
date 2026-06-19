@@ -4,7 +4,7 @@ from collections import defaultdict
 from typing import Any, Literal, Optional, cast, overload
 from urllib.parse import urlencode
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError
 from django.utils import timezone
 
 import structlog
@@ -871,7 +871,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             send_feature_flag_events=False,
         )
 
-    @transaction.atomic
     def _create_notebook_for_group(self, group: Group):
         group_name = group.group_properties.get("name", "")
         notebook_title = f"{group_name} Notes" if group_name else "Notes"
