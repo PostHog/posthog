@@ -93,11 +93,11 @@ export function AlertDefinitionSection({
     onClearSimulation,
     onClearSimulationOverlay,
 }: AlertDefinitionSectionProps): JSX.Element {
-    // Funnel alerts evaluate a single conversion-rate snapshot, so only absolute conditions apply.
+    // Funnel alerts evaluate a single conversion-rate snapshot (always a 0–100%), so relative
+    // conditions have no prior value to compare against — the options are omitted entirely below.
     const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
     const relativeConditionDisabledReason =
         (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
-        (isFunnelAlert && 'Funnel alerts only support absolute value conditions') ||
         (isHogQLAnyRow(alertForm) &&
             "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
     return (
@@ -183,16 +183,20 @@ export function AlertDefinitionSection({
                                             label: 'has value',
                                             value: AlertConditionType.ABSOLUTE_VALUE,
                                         },
-                                        {
-                                            label: 'increases by',
-                                            value: AlertConditionType.RELATIVE_INCREASE,
-                                            disabledReason: relativeConditionDisabledReason,
-                                        },
-                                        {
-                                            label: 'decreases by',
-                                            value: AlertConditionType.RELATIVE_DECREASE,
-                                            disabledReason: relativeConditionDisabledReason,
-                                        },
+                                        ...(isFunnelAlert
+                                            ? []
+                                            : [
+                                                  {
+                                                      label: 'increases by',
+                                                      value: AlertConditionType.RELATIVE_INCREASE,
+                                                      disabledReason: relativeConditionDisabledReason,
+                                                  },
+                                                  {
+                                                      label: 'decreases by',
+                                                      value: AlertConditionType.RELATIVE_DECREASE,
+                                                      disabledReason: relativeConditionDisabledReason,
+                                                  },
+                                              ]),
                                     ]}
                                 />
                             </LemonField>
@@ -203,6 +207,7 @@ export function AlertDefinitionSection({
                                 type="number"
                                 className="w-30"
                                 data-attr="alertForm-lower-threshold"
+                                suffix={isFunnelAlert ? <span>%</span> : undefined}
                                 value={
                                     alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
                                     alertForm.threshold.configuration.bounds?.lower
@@ -233,6 +238,7 @@ export function AlertDefinitionSection({
                                 type="number"
                                 className="w-30"
                                 data-attr="alertForm-upper-threshold"
+                                suffix={isFunnelAlert ? <span>%</span> : undefined}
                                 value={
                                     alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
                                     alertForm.threshold.configuration.bounds?.upper
