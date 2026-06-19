@@ -39,8 +39,8 @@ export interface AlertDefinitionSectionProps {
     isNonTimeSeriesDisplay: boolean
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
-    /** Number of steps in the funnel, used to populate the step picker for funnel alerts. */
-    funnelStepCount: number
+    /** The funnel's step labels (real event/series names), used to populate the conversion picker. */
+    funnelStepLabels: string[]
     /** The conversion rate(s) a funnel alert would evaluate right now; null until the result loads. */
     funnelPreview: FunnelAlertPreview | null
     /** What a SQL alert would evaluate right now; null until the insight result loads. */
@@ -76,7 +76,7 @@ export function AlertDefinitionSection({
     isNonTimeSeriesDisplay,
     alertSeries,
     formulaNodes,
-    funnelStepCount,
+    funnelStepLabels,
     funnelPreview,
     hogqlPreview,
     hogqlColumns,
@@ -117,7 +117,12 @@ export function AlertDefinitionSection({
                     alertMode={alertMode}
                 />
             ) : isFunnelsAlertConfig(alertForm.config) ? (
-                <FunnelsDefinitionFields funnelStepCount={funnelStepCount} funnelPreview={funnelPreview} />
+                <FunnelsDefinitionFields
+                    alertForm={alertForm}
+                    stepLabels={funnelStepLabels}
+                    funnelPreview={funnelPreview}
+                    onSetAlertFormValue={onSetAlertFormValue}
+                />
             ) : (
                 <HogQLDefinitionFields
                     alertForm={alertForm}

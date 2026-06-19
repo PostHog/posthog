@@ -4,9 +4,14 @@ import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import {
+    funnelConfigForOptionKey,
+    funnelConfigToOptionKey,
+    funnelConversionOptions,
+} from 'lib/components/Alerts/funnelAlertOptions'
 import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
-import { isAnyRowHogQLConfig } from 'lib/components/Alerts/types'
+import { isAnyRowHogQLConfig, isFunnelsAlertConfig } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils/strings'
 
@@ -100,42 +105,39 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
     )
 }
 
-/** Funnels: pick the conversion metric and step. */
+/** Funnels: pick which conversion rate to alert on. A single dropdown of valid conversions
+ * (labeled with the funnel's real step names) backed by the `{metric, funnel_step}` config — see
+ * funnelAlertOptions for why the two axes are collapsed into one picker. */
 export function FunnelsDefinitionFields({
-    funnelStepCount,
+    alertForm,
+    stepLabels,
     funnelPreview,
+    onSetAlertFormValue,
 }: {
-    funnelStepCount: number
+    alertForm: AlertFormType
+    stepLabels: string[]
     funnelPreview: FunnelAlertPreview | null
+    onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }): JSX.Element {
+    const config = isFunnelsAlertConfig(alertForm.config) ? alertForm.config : null
     return (
         <div className="flex flex-wrap gap-3 items-center">
             <div>Alert on</div>
-            <Group name={['config']}>
-                <LemonField name="metric" className="flex-auto">
-                    <LemonSelect
-                        fullWidth
-                        data-attr="alertForm-funnel-metric"
-                        options={[
-                            { label: 'conversion from first step', value: 'conversion_from_start' },
-                            { label: 'conversion from previous step', value: 'conversion_from_previous' },
-                        ]}
-                    />
-                </LemonField>
-                <LemonField name="funnel_step" className="flex-auto">
-                    <LemonSelect
-                        fullWidth
-                        data-attr="alertForm-funnel-step"
-                        options={[
-                            { label: 'overall (last step)', value: null },
-                            ...Array.from({ length: funnelStepCount }, (_, index) => ({
-                                label: `step ${index + 1}`,
-                                value: index,
-                            })),
-                        ]}
-                    />
-                </LemonField>
-            </Group>
+            <LemonSelect
+                fullWidth
+                className="flex-auto"
+                data-attr="alertForm-funnel-conversion"
+                placeholder="select a conversion"
+                value={config ? funnelConfigToOptionKey(config, stepLabels.length) : undefined}
+                onChange={(key) =>
+                    onSetAlertFormValue('config', {
+                        ...config,
+                        type: 'FunnelsAlertConfig',
+                        ...funnelConfigForOptionKey(key),
+                    })
+                }
+                options={funnelConversionOptions(stepLabels)}
+            />
             <FunnelAlertPreviewBanner preview={funnelPreview} />
         </div>
     )
