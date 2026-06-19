@@ -72,9 +72,12 @@ docker compose up -d --wait
 
 # Seed the anonymous-team ledger once the gateway is serving. The gateway
 # binary applies ledger migrations on startup, so the table only exists
-# after it is up — hence the wait, and hence backgrounding this.
+# after it is up — hence the wait, and hence backgrounding this. The budget
+# spans the foreground `go run` compile (cold builds can take minutes) plus
+# the first catalog/pricing warm-up that /readyz blocks on, so it is sized
+# generously: 150 * 2s = 5 min.
 (
-    for _ in $(seq 1 60); do
+    for _ in $(seq 1 150); do
         if curl -sf "http://localhost:${GATEWAY_PORT}/readyz" >/dev/null 2>&1; then
             echo "[start-ai-gateway] seeding anonymous-team ledger (team_id=0, +${TOPUP_USD} USD)"
             docker compose exec -T postgres psql -U postgres -d ai_gateway -v ON_ERROR_STOP=1 -c \
@@ -84,15 +87,23 @@ docker compose up -d --wait
         fi
         sleep 2
     done
-    echo "[start-ai-gateway] gateway never became ready; skipped ledger topup" >&2
+    # Loud, because the symptom (every open-mode call 402s on an
+    # otherwise-healthy-looking gateway) is otherwise baffling to debug.
+    echo "[start-ai-gateway] WARNING: gateway never became ready after 5 min; SKIPPED ledger topup." >&2
+    echo "[start-ai-gateway] open-mode requests will 402 until you seed it (re-run this entry, or insert a team_id=0 topup)." >&2
 ) &
 
 echo "[start-ai-gateway] running gateway (open mode) on http://localhost:${GATEWAY_PORT}"
 # Force open mode + the gateway's own valkey/postgres regardless of the
-# clone's .env (which may be configured for the resolver flow).
+# clone's .env (which may be configured for the resolver flow). The STUB
+# flags are forced off too: a clone left with STUB_DISPATCH=true for offline
+# work would otherwise leak through here and serve canned completions to the
+# agent-runner with no error.
 exec env \
     AI_GATEWAY_AUTH_MODE=open \
     AI_GATEWAY_LISTEN_ADDR=":${GATEWAY_PORT}" \
     AI_GATEWAY_REDIS_URL="redis://localhost:6381/0" \
     AI_GATEWAY_POSTGRES_DSN="postgres://postgres:postgres@localhost:5435/ai_gateway?sslmode=disable" \
+    AI_GATEWAY_STUB_DISPATCH=false \
+    AI_GATEWAY_STUB_PRICING=false \
     go run ./cmd/gateway
