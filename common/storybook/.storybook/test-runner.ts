@@ -122,7 +122,7 @@ const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 const EMBED_STUB_HTML =
     '<!doctype html><meta charset="utf-8"><title>mock iframe</title><body style="color-scheme:light;background:#ffeb3b;margin:0">mock iframe</body>'
 
-module.exports = {
+export default {
     setup() {
         expect.extend({ toMatchImageSnapshot })
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
