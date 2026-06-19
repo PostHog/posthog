@@ -1,15 +1,7 @@
 import { scaleBand, type ScaleBand } from 'd3-scale'
 
-import {
-    buildValueScale,
-    type D3YScale,
-    groupVisibleSeriesByAxis,
-    orderedAxisPositions,
-    seriesValueRange,
-    type StackedBand,
-    yTickCountForHeight,
-} from './scales'
-import type { ChartDimensions, Series, SeriesType } from './types'
+import { createYScale, type D3YScale, groupVisibleSeriesByAxis, orderedAxisPositions, type StackedBand } from './scales'
+import type { ChartDimensions, Series, SeriesType, ValueDomain } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Combo chart scale set — a band x-axis plus per-axis value scales spanning every series on
@@ -44,6 +36,9 @@ export interface CreateComboScalesOptions {
     seriesTypeOf: (series: Series) => SeriesType
     /** Stacked-band data for bar series. Required when `barLayout` is `'stacked'`. */
     barStackedData?: Map<string, StackedBand>
+    /** Applied to the primary (default/left) axis only — goal lines (`{ include }`) render against
+     *  the primary axis, so secondary axes keep their own data-derived scale. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 export function resolveSeriesType(series: Pick<Series, 'type'>, defaultType: SeriesType): SeriesType {
@@ -67,6 +62,7 @@ export function createComboScales(
         groupPadding = 0.1,
         seriesTypeOf,
         barStackedData,
+        valueDomain,
     } = options
 
     const band = scaleBand<string>()
@@ -83,14 +79,15 @@ export function createComboScales(
         group = scaleBand<string>().domain(barKeys).range([0, band.bandwidth()]).padding(groupPadding)
     }
 
-    const tickCount = yTickCountForHeight(dimensions.plotHeight)
-    const valueRange: [number, number] = [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop]
-
     // Empty chart still needs an axis to draw against.
     const axisPositions = orderedAxisPositions(series)
     if (axisPositions.length === 0) {
         axisPositions.push({ axisId: DEFAULT_Y_AXIS_ID, position: 'left' })
     }
+    const primaryAxisId = axisPositions.some((a) => a.axisId === DEFAULT_Y_AXIS_ID)
+        ? DEFAULT_Y_AXIS_ID
+        : axisPositions[0].axisId
+
     const seriesByAxis = groupVisibleSeriesByAxis(series)
     const yAxes: ComboScaleSet['yAxes'] = {}
     for (const { axisId, position } of axisPositions) {
@@ -104,28 +101,18 @@ export function createComboScales(
             }
             return s
         })
-        yAxes[axisId] = { scale: buildComboValueScale(axisValueSeries, valueRange, tickCount, scaleType), position }
+        // `createYScale` applies the shared overlay baseline clamp, degenerate `min === max`
+        // guard, log fallback, and `{ include }` goal-line domain extension — primary axis only.
+        const scale = createYScale(axisValueSeries, dimensions, {
+            scaleType,
+            valueDomain: axisId === primaryAxisId ? valueDomain : undefined,
+        })
+        yAxes[axisId] = { scale, position }
     }
 
-    const primaryAxisId = axisPositions.some((a) => a.axisId === DEFAULT_Y_AXIS_ID)
-        ? DEFAULT_Y_AXIS_ID
-        : axisPositions[0].axisId
     const primary = yAxes[primaryAxisId].scale
 
     return { band, group, yAxes, y: primary, value: primary }
-}
-
-function buildComboValueScale(
-    series: Series[],
-    valueRange: [number, number],
-    tickCount: number,
-    scaleType: 'linear' | 'log'
-): D3YScale {
-    const range = seriesValueRange(series)
-    const primaryRange = series.some((s) => s.overlay) ? seriesValueRange(series.filter((s) => !s.overlay)) : range
-    // Shares `createYScale`'s overlay baseline clamp, degenerate `min === max` guard, and log
-    // fallback — see `buildValueScale`.
-    return buildValueScale({ range, primaryRange, valueRange, tickCount, scaleType })
 }
 
 /** Partition visible series into bar vs line/area buckets, preserving input order within each

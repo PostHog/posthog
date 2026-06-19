@@ -12,14 +12,19 @@ import {
     type SqlLineYSeries,
     barLayoutForDisplay,
     buildBarChartConfig,
+    buildComboChartConfig,
     buildLineChartConfig,
     buildSeries,
     buildTrendLineConfigs,
     canRenderSqlBarGraph,
+    canRenderSqlComboGraph,
     canRenderSqlLineGraph,
     capYSeriesData,
+    comboBarLayoutForDisplay,
     exceedsMaxSeries,
     formatSqlSeriesValue,
+    hasMixedSeriesTypes,
+    seriesDisplayType,
 } from './sqlLineGraphAdapter'
 
 const numericColumn = (name: string, dataIndex: number): AxisSeries<number | null>['column'] => ({
@@ -118,6 +123,136 @@ describe('sqlLineGraphAdapter', () => {
         })
     })
 
+    describe('seriesDisplayType', () => {
+        it.each<[string, ChartDisplayType, AxisSeries<number | null>['settings'], string]>([
+            ['bar override wins', ChartDisplayType.ActionsLineGraph, { display: { displayType: 'bar' } }, 'bar'],
+            ['line override wins', ChartDisplayType.ActionsBar, { display: { displayType: 'line' } }, 'line'],
+            ['area override wins', ChartDisplayType.ActionsBar, { display: { displayType: 'area' } }, 'area'],
+            ['auto on a line graph is a line', ChartDisplayType.ActionsLineGraph, {}, 'line'],
+            ['auto on an area graph is an area', ChartDisplayType.ActionsAreaGraph, {}, 'area'],
+            ['auto on a bar graph is a bar', ChartDisplayType.ActionsBar, {}, 'bar'],
+            ['auto on a stacked bar graph is a bar', ChartDisplayType.ActionsStackedBar, {}, 'bar'],
+            [
+                "the 'auto' display type defers to the chart type",
+                ChartDisplayType.ActionsBar,
+                { display: { displayType: 'auto' } },
+                'bar',
+            ],
+        ])('derives %s', (_name, visualizationType, settings, expected) => {
+            expect(seriesDisplayType(visualizationType, settings)).toBe(expected)
+        })
+    })
+
+    describe('hasMixedSeriesTypes', () => {
+        it.each<[string, ChartDisplayType, AxisSeries<number | null>[], boolean]>([
+            [
+                'bar + line on a line graph',
+                ChartDisplayType.ActionsLineGraph,
+                [ySeries('a', [1]), ySeries('b', [2], { display: { displayType: 'bar' } })],
+                true,
+            ],
+            [
+                'line + bar on a bar graph',
+                ChartDisplayType.ActionsBar,
+                [ySeries('a', [1]), ySeries('b', [2], { display: { displayType: 'line' } })],
+                true,
+            ],
+            [
+                'bar + area on a stacked bar graph',
+                ChartDisplayType.ActionsStackedBar,
+                [ySeries('a', [1]), ySeries('b', [2], { display: { displayType: 'area' } })],
+                true,
+            ],
+            [
+                'all lines on a line graph',
+                ChartDisplayType.ActionsLineGraph,
+                [ySeries('a', [1]), ySeries('b', [2])],
+                false,
+            ],
+            ['all bars on a bar graph', ChartDisplayType.ActionsBar, [ySeries('a', [1]), ySeries('b', [2])], false],
+            [
+                'line + area is line-like, not mixed',
+                ChartDisplayType.ActionsLineGraph,
+                [ySeries('a', [1]), ySeries('b', [2], { display: { displayType: 'area' } })],
+                false,
+            ],
+        ])('detects %s', (_name, visualizationType, yData, expected) => {
+            expect(hasMixedSeriesTypes(yData, visualizationType)).toBe(expected)
+        })
+    })
+
+    describe('canRenderSqlComboGraph', () => {
+        // Explicit line + bar so the mix holds regardless of the base chart type's auto resolution.
+        const mixed = [
+            ySeries('a', [1], { display: { displayType: 'line' } }),
+            ySeries('b', [2], { display: { displayType: 'bar' } }),
+        ]
+
+        it.each([
+            ['line graph', ChartDisplayType.ActionsLineGraph],
+            ['area graph', ChartDisplayType.ActionsAreaGraph],
+            ['bar graph', ChartDisplayType.ActionsBar],
+            ['stacked bar graph', ChartDisplayType.ActionsStackedBar],
+        ])('renders mixed series on a %s', (_name, visualizationType) => {
+            expect(canRenderSqlComboGraph(baseProps({ visualizationType, yData: mixed }))).toBe(true)
+        })
+
+        it('does not render when series are all one type', () => {
+            const yData = [ySeries('a', [1]), ySeries('b', [2])]
+            expect(canRenderSqlComboGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
+                false
+            )
+        })
+
+        it('does not claim an unsupported chart type', () => {
+            expect(
+                canRenderSqlComboGraph(baseProps({ visualizationType: ChartDisplayType.ActionsPie, yData: mixed }))
+            ).toBe(false)
+        })
+
+        it('falls back when any series has a trend line (no combo trend-line support)', () => {
+            const yData = [
+                ySeries('a', [1], { display: { displayType: 'bar' } }),
+                ySeries('b', [2], { display: { displayType: 'line', trendLine: true } }),
+            ]
+            expect(canRenderSqlComboGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
+                false
+            )
+        })
+
+        it('falls back for percent-stacked bars (unsupported by ComboChart)', () => {
+            expect(
+                canRenderSqlComboGraph(
+                    baseProps({
+                        visualizationType: ChartDisplayType.ActionsStackedBar,
+                        yData: mixed,
+                        chartSettings: { stackBars100: true },
+                    })
+                )
+            ).toBe(false)
+        })
+
+        it('falls back when any series targets the right y-axis', () => {
+            const yData = [
+                ySeries('a', [1], { display: { displayType: 'bar' } }),
+                ySeries('b', [2], { display: { displayType: 'line', yAxisPosition: 'right' } }),
+            ]
+            expect(canRenderSqlComboGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
+                false
+            )
+        })
+    })
+
+    describe('comboBarLayoutForDisplay', () => {
+        it.each([
+            ['stacked for a stacked bar graph', ChartDisplayType.ActionsStackedBar, 'stacked'],
+            ['grouped for a bar graph', ChartDisplayType.ActionsBar, 'grouped'],
+            ['grouped for a line graph', ChartDisplayType.ActionsLineGraph, 'grouped'],
+        ])('returns %s', (_name, visualizationType, expected) => {
+            expect(comboBarLayoutForDisplay(visualizationType)).toBe(expected)
+        })
+    })
+
     describe('barLayoutForDisplay', () => {
         it.each([
             ['grouped bars for a bar graph', ChartDisplayType.ActionsBar, {}, 'grouped'],
@@ -201,6 +336,18 @@ describe('sqlLineGraphAdapter', () => {
         it('keys breakdown series by breakdown value', () => {
             const [series] = buildSeries([breakdownSeries('chrome', [1])], ChartDisplayType.ActionsLineGraph)
             expect(series.key).toBe('chrome')
+        })
+
+        it('derives each series quill type from its displayType', () => {
+            const [bar, line, area] = buildSeries(
+                [
+                    ySeries('a', [1], { display: { displayType: 'bar' } }),
+                    ySeries('b', [2]),
+                    ySeries('c', [3], { display: { displayType: 'area' } }),
+                ],
+                ChartDisplayType.ActionsLineGraph
+            )
+            expect([bar.type, line.type, area.type]).toEqual(['bar', 'line', 'area'])
         })
 
         it('threads each series settings through meta for the tooltip', () => {
@@ -366,6 +513,51 @@ describe('sqlLineGraphAdapter', () => {
                 timezone: 'UTC',
                 visualizationType: ChartDisplayType.ActionsBar,
                 ySeriesData,
+            })
+            expect('trendLines' in config).toBe(false)
+        })
+    })
+
+    describe('buildComboChartConfig', () => {
+        const dateXData: AxisSeries<string> = {
+            column: { name: 'day', type: { name: 'DATE', isNumerical: false }, label: 'day', dataIndex: 0 },
+            data: ['2024-01-01', '2024-01-02'],
+        }
+
+        it.each([
+            ['grouped bars for a bar graph', ChartDisplayType.ActionsBar, 'grouped'],
+            ['stacked bars for a stacked bar graph', ChartDisplayType.ActionsStackedBar, 'stacked'],
+            ['grouped bars for a line graph', ChartDisplayType.ActionsLineGraph, 'grouped'],
+        ])('uses %s', (_name, visualizationType, expected) => {
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType,
+            })
+            expect(config.barLayout).toBe(expected)
+        })
+
+        it('wires goal lines, legend, and a date x-axis formatter', () => {
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings: { showLegend: true },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+                goalLines: [{ label: 'Target', value: 100 }],
+            })
+            expect(config.xAxis?.tickFormatter).toBeInstanceOf(Function)
+            expect(config.goalLines).toHaveLength(1)
+            expect(config.legend).toEqual({ show: true, position: 'top', interactive: true })
+            expect(config.tooltip).toEqual({ enabled: true, pinnable: true })
+        })
+
+        it('never emits trend lines (combo charts have no trend-line support)', () => {
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
             })
             expect('trendLines' in config).toBe(false)
         })

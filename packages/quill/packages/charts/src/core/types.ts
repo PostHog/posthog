@@ -374,6 +374,9 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     barLayout?: 'stacked' | 'grouped'
     /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
     barCornerRadius?: number
+    /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
+     *  to keep off-scale goal lines on-plot (`{ include }`). See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 /** Arguments passed to a chart type's canvas draw function. */
