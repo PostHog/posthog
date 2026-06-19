@@ -4,9 +4,9 @@
 # Usage: bin/dev-sandbox '<shell command>'
 #
 # The whole original shell command (operators and all) is passed as a single
-# argument and run via `bash -c`. Opt in by setting POSTHOG_DEV_SANDBOX=1 in
-# .env.local; the generator (hogli dev:generate) then wraps Python/Node service
-# commands with this script.
+# argument and run via `bash -c`. On by default; opt out by setting
+# POSTHOG_DEV_SANDBOX=0 in .env.local. The generator (hogli dev:generate) wraps
+# Python/Node service commands with this script unless opted out.
 #
 # The base profile denies all reads under $HOME. Because the repo lives under
 # $HOME, the OS / node module resolver / getcwd must still lstat+readdir the

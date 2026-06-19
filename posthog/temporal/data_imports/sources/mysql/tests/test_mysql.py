@@ -14,11 +14,13 @@ from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
 from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (
+    _MAX_CONNECT_ATTEMPTS,
     STATEMENT_TIMEOUT_SECONDS,
     MySQLColumn,
     MySQLImplementation,
     _build_query,
     _is_bad_plan_error,
+    _is_transient_connect_drop,
     _release_streaming_cursor,
     _safe_convert_date,
     _safe_convert_datetime,
@@ -836,6 +838,93 @@ class TestIsBadPlanError:
         assert not _is_bad_plan_error(pymysql.err.OperationalError())
 
 
+class TestIsTransientConnectDrop:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Lost connection to MySQL server during query",
+            "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)",
+        ],
+    )
+    def test_matches_lost_connection(self, message):
+        assert _is_transient_connect_drop(pymysql.err.OperationalError(2013, message))
+
+    def test_does_not_match_ssl_version_mismatch(self):
+        # SSL wrong-version arrives wrapped in 2013 but is a deterministic config error
+        # (already non-retryable) — retrying just delays the friendly message.
+        assert not _is_transient_connect_drop(
+            pymysql.err.OperationalError(
+                2013,
+                "Lost connection to MySQL server during query "
+                "([SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657))",
+            )
+        )
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_drop(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_drop(pymysql.err.OperationalError())
+
+
+class TestConnectTransientRetry:
+    def test_retries_transient_drop_then_succeeds(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(1)
+
+    def test_gives_up_after_max_attempts(self, mocker):
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"),
+        )
+
+        with pytest.raises(pymysql.err.OperationalError):
+            with MySQLImplementation().connect(_make_config()):
+                pass
+
+        assert mock_connect.call_count == _MAX_CONNECT_ATTEMPTS
+
+    def test_does_not_retry_ssl_version_mismatch(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=pymysql.err.OperationalError(
+                2013,
+                "Lost connection to MySQL server during query "
+                "([SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657))",
+            ),
+        )
+
+        with pytest.raises(pymysql.err.OperationalError):
+            with MySQLImplementation().connect(_make_config()):
+                pass
+
+        assert mock_connect.call_count == 1
+        sleep.assert_not_called()
+
+
 class TestBuildQueryForceIndex:
     def test_force_index_hint_omitted_by_default(self):
         query, _ = _build_query(
@@ -1053,6 +1142,19 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Host-blocked error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Could not establish session to SSH gateway",
+            # Temporal-wrapped form carrying the sshtunnel exception class name.
+            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
+        ],
+    )
+    def test_ssh_gateway_failure_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSH gateway failure should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
