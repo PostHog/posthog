@@ -288,8 +288,15 @@ export function InsightMeta({
               ? 'Refreshing...'
               : undefined
 
+    // On compact dashboard tiles the date just mirrors the dashboard's own range unless the
+    // tile overrides it, so suppress the redundant label and only keep it for tile-level overrides.
+    const tileHasOwnDateOverride = tileFiltersOverride?.date_from != null || tileFiltersOverride?.date_to != null
     const topHeadingEl = showCompactHeading ? (
-        <TopHeading {...topHeadingProps} showInsightType={!showCompactTile} />
+        <TopHeading
+            {...topHeadingProps}
+            showInsightType={!showCompactTile}
+            showDate={!showCompactTile || tileHasOwnDateOverride}
+        />
     ) : null
     const popoverTopHeadingEl = showCompactTile ? <TopHeading {...topHeadingProps} /> : undefined
 
