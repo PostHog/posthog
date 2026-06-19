@@ -546,14 +546,14 @@ export namespace Schemas {
     export interface AchievementStage {
       /** Stage number within the track, 1-5. */
       stage: number;
-      /** Hog-themed stage name, e.g. 'Spike Streak'. */
+      /** Stage name within the track, e.g. 'On a roll'. */
       name: string;
       /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
       threshold: number;
     }
 
     export interface AchievementDefinition {
-      /** Stable track identifier, e.g. 'hog_streak'. */
+      /** Stable track identifier, e.g. 'streak'. */
       key: string;
       /** Human-readable track name. */
       display_name: string;
@@ -15540,6 +15540,7 @@ export namespace Schemas {
      * * `Lightfield` - Lightfield
      * * `Appstack` - Appstack
      * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -16174,6 +16175,7 @@ export namespace Schemas {
       Lightfield: 'Lightfield',
       Appstack: 'Appstack',
       Razorpay: 'Razorpay',
+      Neon: 'Neon',
       Custom: 'Custom',
     } as const;
 
@@ -16815,6 +16817,7 @@ export namespace Schemas {
        * * `Lightfield` - Lightfield
        * * `Appstack` - Appstack
        * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -20988,6 +20991,64 @@ export namespace Schemas {
     }
 
     /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `complete` - Complete
+     * * `failed` - Failed
+     */
+    export type ExportedRecordingStatusEnum = typeof ExportedRecordingStatusEnum[keyof typeof ExportedRecordingStatusEnum];
+
+
+    export const ExportedRecordingStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Complete: 'complete',
+      Failed: 'failed',
+    } as const;
+
+    export interface ExportedRecording {
+      /** Unique identifier for this export job. */
+      readonly id: string;
+      /** The `$session_id` of the recording being exported. */
+      readonly session_id: string;
+      /** Human-provided justification for the export, kept for audit purposes. */
+      readonly reason: string;
+      /** Lifecycle status of the export: pending, running, complete, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `complete` - Complete
+       * * `failed` - Failed */
+      readonly status: ExportedRecordingStatusEnum;
+      /**
+         * Storage location of the exported data once the job completes; null until status is complete.
+         * @nullable
+         */
+      readonly export_location: string | null;
+      /**
+         * Failure detail when status is failed; null otherwise.
+         * @nullable
+         */
+      readonly error_message: string | null;
+      /** When the export was requested. */
+      readonly created_at: string;
+      /** The user who triggered the export. */
+      readonly created_by: UserBasic;
+      /** True when the export is older than 7 days and its downloadable data may have been purged. */
+      readonly is_expired: boolean;
+    }
+
+    export interface ExportedRecordingCreate {
+      /**
+         * The `$session_id` of the recording to export.
+         * @maxLength 200
+         */
+      session_id: string;
+      /** Why this recording is being exported. Recorded for audit purposes. */
+      reason: string;
+    }
+
+    /**
      * @nullable
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
@@ -21898,6 +21959,7 @@ export namespace Schemas {
        * * `Lightfield` - Lightfield
        * * `Appstack` - Appstack
        * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -29673,6 +29735,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ExportedAsset[];
+    }
+
+    export interface PaginatedExportedRecordingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ExportedRecording[];
     }
 
     export interface PaginatedExternalDataSchemaList {
@@ -46471,6 +46542,7 @@ export namespace Schemas {
        * * `Lightfield` - Lightfield
        * * `Appstack` - Appstack
        * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -47138,6 +47210,7 @@ export namespace Schemas {
        * * `Lightfield` - Lightfield
        * * `Appstack` - Appstack
        * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -60955,6 +61028,17 @@ export namespace Schemas {
     };
 
     export type SessionGroupSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SessionRecordingExportsListParams = {
     /**
      * Number of results to return per page.
      */

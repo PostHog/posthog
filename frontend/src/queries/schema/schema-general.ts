@@ -6871,6 +6871,7 @@ export const externalDataSources = [
     'Lightfield',
     'Appstack',
     'Razorpay',
+    'Neon',
     'Custom',
 ] as const
 

@@ -219,9 +219,6 @@ def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: i
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def sweep_web_analytics_achievement_team_tracks() -> None:
-    """Periodically recompute team-scoped tracks (Goal Hog, Mighty Hog) for teams with a recent
-    visit. Visits are only recorded while the achievements flag is on, so this naturally limits the
-    sweep to engaged, flag-on teams without evaluating the flag per team."""
     window_start = date.today() - timedelta(days=SWEEP_ACTIVE_WINDOW_DAYS)
     team_ids = (
         WebAnalyticsVisit.objects.unscoped()
