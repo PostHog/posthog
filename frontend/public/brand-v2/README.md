@@ -31,57 +31,45 @@ import logoUrl from 'public/brand-v2/primary_logo_landscape.svg'
 ;<img src={logoUrl} alt="PostHog" className="h-6 w-auto" />
 ```
 
-## Using the React components
+## Using the React component
 
-For in-app UI, prefer the inline-SVG components in
-[`frontend/src/lib/brand/v2/`](../../src/lib/brand/v2/) — they avoid an extra request. Import
-from the `lib/brand/v2` barrel.
-
-Each component is a **faithful 1:1 of its source SVG** — colors and paths are exactly as
-exported (only internal SVG ids are namespaced so multiple instances can't collide). Theme
-adaptation is done by **swapping whole variants, never by recoloring**.
-
-### Naming
-
-`Logo*` = full lockup (icon + wordmark), `Logomark*` = icon only, `Wordmark*` = the "PostHog"
-text only. `*Portrait` stacks the icon above the wordmark; otherwise it's landscape.
-
-A **bare name is theme-adaptive**; an **explicit treatment is the exact, fixed asset**:
-
-| Component                                                                              | Behavior                                   | Source asset(s)                                 |
-| -------------------------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------- |
-| `PostHogLogo`                                                                          | Adaptive: gradient in light, white in dark | `primary_logo_landscape` ↔ `logo_white`         |
-| `PostHogLogoPortrait`                                                                  | Adaptive portrait                          | `primary_logo_portrait` ↔ `logo_portrait_white` |
-| `PostHogLogomark`                                                                      | Gradient icon — used on both themes        | `icon_gradient.svg`                             |
-| `PostHogLogoGradient`                                                                  | Fixed gradient lockup                      | `primary_logo_landscape.svg`                    |
-| `PostHogLogoGradientAlt`                                                               | Fixed secondary gradient                   | `logo_gradient_2.svg`                           |
-| `PostHogLogoColor`                                                                     | Fixed flat color                           | `logo_color.svg`                                |
-| `PostHogLogoBlack`                                                                     | Fixed solid black (light bg)               | `logo_black.svg`                                |
-| `PostHogLogoWhite`                                                                     | Fixed solid white (dark bg)                | `logo_white.svg`                                |
-| `PostHogLogoGradientPortrait` / `…ColorPortrait` / `…BlackPortrait` / `…WhitePortrait` | Fixed portrait lockups                     | `logo_portrait_*.svg`                           |
-| `PostHogLogomarkColor`                                                                 | Fixed color icon                           | `icon_color.svg`                                |
-| `PostHogWordmarkWhite`                                                                 | Wordmark text, white                       | `wordmark_white.svg`                            |
-
-### How the adaptive swap works
-
-`PostHogLogo` renders both the gradient and white assets and toggles them with Tailwind's
-`dark:` variant, which PostHog wires to the `[theme="dark"]` attribute on `<body>`
-(`darkMode: ['selector', '[theme="dark"]']`). No JavaScript, no recoloring — just the correct
-pre-made asset shown per theme. The gradient logomark reads on both backgrounds, so it isn't
-swapped.
+For in-app UI, use the inline-SVG component in
+[`frontend/src/lib/brand/v2/PostHogLogo.tsx`](../../src/lib/brand/v2/PostHogLogo.tsx) — copied
+from posthog.com (the canonical source) so the app and the website stay in sync. It's a single
+props-based component; import from the `lib/brand/v2` barrel.
 
 ```tsx
-import { PostHogLogo, PostHogLogomark, PostHogLogoColor } from 'lib/brand/v2'
+import { PostHogLogo } from 'lib/brand/v2'
 
-// Adaptive lockup — gradient in light mode, white in dark mode, automatically
-<PostHogLogo className="h-7 w-auto" />
-
-// Gradient icon only (compact / favicon-style) — same on both themes
-<PostHogLogomark className="h-8 w-8" />
-
-// A fixed treatment when you need a specific one (e.g. flat color for print surfaces)
-<PostHogLogoColor className="h-7 w-auto" />
+;<PostHogLogo className="h-7 w-auto" />
 ```
 
-Preview them all in Storybook under **Components → Brand Logos (Redesign)** (flip the theme
-toolbar to watch the adaptive ones swap).
+### Props
+
+| Prop        | Type                              | Default      | Notes                                                                                         |
+| ----------- | --------------------------------- | ------------ | --------------------------------------------------------------------------------------------- |
+| `variant`   | `'gradient' \| 'print' \| 'mono'` | `'gradient'` | `print` = flat 4-color; `mono` = single color.                                                |
+| `color`     | `string`                          | `'black'`    | Only for `variant="mono"`: `'black'`, `'white'`, `'primary'` (theme-aware), or any CSS color. |
+| `wordmark`  | `boolean`                         | `true`       | `false` = icon only.                                                                          |
+| `stacked`   | `boolean`                         | `false`      | `true` = portrait (icon above wordmark).                                                      |
+| `code`      | `boolean`                         | `false`      | Use the "PostHog Code" wordmark.                                                              |
+| `className` | `string`                          | `''`         | Size it here, e.g. `h-7 w-auto`.                                                              |
+
+### Theme adaptation
+
+For a mark that follows the active theme, use `variant="mono" color="primary"` — that renders
+with the `fill-primary` utility, which resolves to `var(--color-text-primary)` and flips with
+the `[theme="dark"]` attribute PostHog sets on `<body>`. (This utility was added to the shared
+Tailwind config to match posthog.com.) The `gradient` and `print` variants are fixed-color and
+read on both light and dark backgrounds; `color="white"` / `color="black"` are fixed monochrome.
+
+```tsx
+// Theme-following monochrome mark — no manual class needed
+<PostHogLogo variant="mono" color="primary" className="h-7 w-auto" />
+
+// Icon only, portrait, etc.
+<PostHogLogo wordmark={false} className="h-8 w-8" />
+<PostHogLogo stacked className="h-20 w-auto" />
+```
+
+Preview the variants in Storybook under **Components → Brand Logos (Redesign)**.

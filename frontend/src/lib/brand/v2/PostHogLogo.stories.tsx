@@ -1,15 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { PostHogLogo } from './PostHogLogo'
-import { PostHogLogoBlack } from './PostHogLogoBlack'
-import { PostHogLogoColor } from './PostHogLogoColor'
-import { PostHogLogoGradient } from './PostHogLogoGradient'
-import { PostHogLogoGradientAlt } from './PostHogLogoGradientAlt'
-import { PostHogLogomark } from './PostHogLogomark'
-import { PostHogLogomarkColor } from './PostHogLogomarkColor'
-import { PostHogLogoPortrait } from './PostHogLogoPortrait'
-import { PostHogLogoWhite } from './PostHogLogoWhite'
-import { PostHogWordmarkWhite } from './PostHogWordmarkWhite'
 
 const meta: Meta = {
     title: 'Components/Brand Logos (Redesign)',
@@ -17,10 +8,9 @@ const meta: Meta = {
         docs: {
             description: {
                 component:
-                    'Redesigned PostHog logo set, added alongside the existing brand components. Opt in via `lib/brand/v2`. ' +
-                    'A bare name (`PostHogLogo`) is theme-adaptive — gradient in light mode, solid white in dark mode, swapped via ' +
-                    'CSS off `[theme="dark"]`. Explicit treatments (`Gradient`, `Color`, `Black`, `White`) are the exact source assets, ' +
-                    'values untouched. Toggle the Storybook theme to see the adaptive ones swap. Raw assets live in `public/brand-v2/`.',
+                    'Redesigned PostHog logo, copied from posthog.com. One props-based component: pick the look with ' +
+                    '`variant` (gradient | print | mono), `color` (for mono), `wordmark`, `stacked`, and `code`. ' +
+                    'For a theme-following monochrome mark use `variant="mono" color="primary"` — `fill-primary` flips with the theme.',
             },
         },
     },
@@ -36,44 +26,49 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
     )
 }
 
-// The adaptive components swap gradient <-> white with the Storybook theme toolbar.
-export const Adaptive: StoryObj = {
+export const Variants: StoryObj = {
     render: () => (
         <div className="flex flex-col gap-8 p-4">
-            <Row label="PostHogLogo — adaptive landscape (gradient in light, white in dark)">
+            <Row label='variant="gradient" (default)'>
                 <PostHogLogo className="h-8 w-auto" />
             </Row>
-            <Row label="PostHogLogoPortrait — adaptive portrait">
-                <PostHogLogoPortrait className="h-24 w-auto" />
+            <Row label='variant="print"'>
+                <PostHogLogo variant="print" className="h-8 w-auto" />
             </Row>
-            <Row label="PostHogLogomark — gradient icon (both themes)">
-                <PostHogLogomark className="h-8 w-auto" />
-                <PostHogLogomark className="h-12 w-auto" />
-                <PostHogLogomark className="h-16 w-auto" />
+            <Row label='variant="mono" color="primary" — theme-following'>
+                <PostHogLogo variant="mono" color="primary" className="h-8 w-auto" />
             </Row>
         </div>
     ),
 }
 
-// Fixed treatments — shown on the background each is designed for.
-export const FixedVariants: StoryObj = {
+export const Composition: StoryObj = {
     render: () => (
         <div className="flex flex-col gap-8 p-4">
-            <Row label="Gradient / color / black — on light">
-                <div className="flex items-end gap-8 bg-white rounded p-6">
-                    <PostHogLogoGradient className="h-8 w-auto" />
-                    <PostHogLogoGradientAlt className="h-8 w-auto" />
-                    <PostHogLogoColor className="h-8 w-auto" />
-                    <PostHogLogoBlack className="h-8 w-auto" />
-                    <PostHogLogomarkColor className="h-8 w-auto" />
-                </div>
+            <Row label="wordmark (default) vs icon only">
+                <PostHogLogo className="h-8 w-auto" />
+                <PostHogLogo wordmark={false} className="h-8 w-auto" />
             </Row>
-            <Row label="White variants — on dark">
-                <div className="flex items-end gap-8 bg-black rounded p-6">
-                    <PostHogLogoWhite className="h-8 w-auto" />
-                    <PostHogWordmarkWhite className="h-6 w-auto" />
-                </div>
+            <Row label="stacked (portrait)">
+                <PostHogLogo stacked className="h-20 w-auto" />
+                <PostHogLogo stacked variant="mono" color="primary" className="h-20 w-auto" />
             </Row>
+            <Row label="code wordmark">
+                <PostHogLogo code className="h-8 w-auto" />
+            </Row>
+        </div>
+    ),
+}
+
+export const MonoColors: StoryObj = {
+    render: () => (
+        <div className="grid grid-cols-2 gap-4 p-4">
+            <div className="flex items-center justify-center bg-white rounded p-8">
+                <PostHogLogo variant="mono" color="black" className="h-8 w-auto" />
+            </div>
+            <div className="flex items-center justify-center bg-black rounded p-8">
+                <PostHogLogo variant="mono" color="white" className="h-8 w-auto" />
+            </div>
         </div>
     ),
 }
