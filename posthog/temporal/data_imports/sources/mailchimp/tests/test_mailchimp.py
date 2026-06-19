@@ -81,8 +81,6 @@ class TestValidateCredentials:
 
         assert valid is False
         assert error == "Could not reach the Mailchimp API. Check your network connection and try again."
-        assert "ProxyError" not in (error or "")
-        assert "HTTPSConnectionPool" not in (error or "")
 
 
 class TestFormatIncrementalValue:
