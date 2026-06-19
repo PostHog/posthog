@@ -25256,6 +25256,7 @@ export namespace Schemas {
       MouseActivityCount: 'mouse_activity_count',
       ActivityScore: 'activity_score',
       RecordingTtl: 'recording_ttl',
+      SurfacingScore: 'surfacing_score',
     } as const;
 
     export type RecordingOrderDirection = typeof RecordingOrderDirection[keyof typeof RecordingOrderDirection];
