@@ -50,20 +50,18 @@ class PersonDBRouter:
     PERSONS_APP_LABELS = {"posthog", "feature_flags", "cohorts"}
 
     def db_for_read(self, model, **hints):
-        """
-        Attempts to read person models go to persons_db (writer in tests, reader in production).
-        """
         if self.is_persons_model(model._meta.app_label, model._meta.model_name):
-            return PERSONS_DB_FOR_READ
-        return None  # Allow default db selection
+            if "persons_db_reader" in settings.DATABASES:
+                return PERSONS_DB_FOR_READ
+            raise RuntimeError(f"Direct ORM read of {model._meta.label} is not allowed. Use personhog RPC instead.")
+        return None
 
     def db_for_write(self, model, **hints):
-        """
-        Attempts to write person models go to persons_db_writer.
-        """
         if self.is_persons_model(model._meta.app_label, model._meta.model_name):
-            return PERSONS_DB_FOR_WRITE
-        return None  # Allow default db selection
+            if "persons_db_writer" in settings.DATABASES:
+                return PERSONS_DB_FOR_WRITE
+            raise RuntimeError(f"Direct ORM write of {model._meta.label} is not allowed. Use personhog RPC instead.")
+        return None
 
     def allow_relation(self, obj1, obj2, **hints):
         """

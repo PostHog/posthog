@@ -10,7 +10,6 @@ from django.db.models import F, Q
 import structlog
 
 from posthog.models.utils import UUIDT
-from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from ..team import Team
 
@@ -30,10 +29,6 @@ class SplitOutcome(NamedTuple):
     new_person_version: int
     pdi_version: int
     new_person_created_at: datetime
-
-
-# Use centralized database routing constant
-READ_DB_FOR_PERSONS = PERSONS_DB_FOR_READ
 
 
 class PersonQuerySet(models.QuerySet):
@@ -227,13 +222,10 @@ class Person(models.Model):
             return [id.distinct_id for id in self.distinct_ids_cache]
         if hasattr(self, "_distinct_ids") and self._distinct_ids is not None:
             return self._distinct_ids
-        return [
-            id[0]
-            for id in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(person=self, team_id=self.team_id)
-            .order_by("id")
-            .values_list("distinct_id")
-        ]
+        raise RuntimeError(
+            f"Person {self.uuid} has no distinct_ids populated. "
+            f"Ensure the person was loaded via personhog or with prefetch_related."
+        )
 
     @property
     def email(self) -> Optional[str]:
@@ -644,28 +636,16 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str
     last_ids_limit = MAX_LIMIT_DISTINCT_IDS - first_ids_limit
 
     if person is not None:
-        # When a Person comes from personhog (via proto_person_to_model), distinct IDs
-        # are already populated on _distinct_ids — use them directly to avoid hitting
-        # the Django ORM below, which would defeat the purpose of the personhog path.
         if hasattr(person, "_distinct_ids") and person._distinct_ids is not None:
             ids = person._distinct_ids
             if len(ids) <= MAX_LIMIT_DISTINCT_IDS:
                 return ids
             return list(set(ids[:first_ids_limit] + ids[-last_ids_limit:]))
 
-        first_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(person=person, team=team)
-            .order_by("id")
-            .values_list("distinct_id", flat=True)[:first_ids_limit]
+        raise RuntimeError(
+            f"Person {person.uuid} has no distinct_ids populated. "
+            f"Ensure the person was loaded via personhog or with prefetch_related."
         )
-        last_ids = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(person=person, team=team)
-            .order_by("-id")
-            .values_list("distinct_id", flat=True)[:last_ids_limit]
-        )
-        distinct_ids = cast(Any, first_ids).union(last_ids)
     else:
         distinct_ids = []
     return list(map(str, distinct_ids))

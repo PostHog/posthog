@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from parameterized import parameterized, parameterized_class
+from parameterized import parameterized_class
 
 from posthog.models.person.util import (
     _fetch_person_by_distinct_id_via_personhog,
@@ -26,530 +26,145 @@ from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 # ── Routing tests ────────────────────────────────────────────────────
-# These use mocks to test gate/fallback/metrics logic in _personhog_routed.
+
+
+TEST_UUID = "550e8400-e29b-41d4-a716-446655440000"
 
 
 class TestGetPersonByUuidRouting(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "personhog_success",
-                True,
-                "mock_person",
-                None,
-                "personhog",
-            ),
-            (
-                "personhog_returns_none",
-                True,
-                None,
-                None,
-                "personhog",
-            ),
-            (
-                "personhog_failure_falls_back_to_orm",
-                True,
-                None,
-                RuntimeError("grpc timeout"),
-                "django_orm",
-            ),
-            (
-                "gate_off_uses_orm_directly",
-                False,
-                None,
-                None,
-                "django_orm",
-            ),
-        ]
-    )
-    @patch("posthog.models.person.util.Person.objects")
-    @patch("posthog.models.person.util._fetch_person_by_uuid_via_personhog")
-    @patch("posthog.personhog_client.gate.use_personhog")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_routing(
-        self,
-        _name,
-        gate_on,
-        personhog_data,
-        grpc_exception,
-        expected_source,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_use_personhog,
-        mock_fetch_personhog,
-        mock_objects,
-    ):
-        mock_use_personhog.return_value = gate_on
+    def test_personhog_success(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["d1"])
+            result = get_person_by_uuid(1, TEST_UUID)
+            assert result is not None
 
-        if grpc_exception is not None:
-            mock_fetch_personhog.side_effect = grpc_exception
-        else:
-            mock_fetch_personhog.return_value = personhog_data
+    def test_personhog_failure_raises(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.get_person_by_uuid = MagicMock(side_effect=RuntimeError("grpc timeout"))
+            with self.assertRaises(RuntimeError):
+                get_person_by_uuid(1, TEST_UUID)
 
-        mock_qs = MagicMock()
-        mock_qs.first.return_value = MagicMock()
-        mock_objects.db_manager.return_value.filter.return_value = mock_qs
-
-        result = get_person_by_uuid(1, "some-uuid")
-
-        if gate_on and grpc_exception is None:
-            assert result == personhog_data
-            mock_objects.db_manager.assert_not_called()
-        else:
-            mock_objects.db_manager.assert_called()
-
-        mock_routing_counter.labels.assert_called_with(
-            operation="get_person_by_uuid", source=expected_source, client_name="posthog-django"
-        )
-
-        if grpc_exception is not None and gate_on:
-            mock_errors_counter.labels.assert_called_once()
+    def test_gate_off_raises(self):
+        with fake_personhog_client(gate_enabled=False):
+            with self.assertRaises(RuntimeError):
+                get_person_by_uuid(1, TEST_UUID)
 
 
 class TestGetPersonByDistinctIdRouting(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "personhog_success",
-                True,
-                "mock_person",
-                None,
-                "personhog",
-            ),
-            (
-                "personhog_returns_none",
-                True,
-                None,
-                None,
-                "personhog",
-            ),
-            (
-                "personhog_failure_falls_back_to_orm",
-                True,
-                None,
-                RuntimeError("grpc timeout"),
-                "django_orm",
-            ),
-            (
-                "gate_off_uses_orm_directly",
-                False,
-                None,
-                None,
-                "django_orm",
-            ),
-        ]
-    )
-    @patch("posthog.models.person.util.Person.objects")
-    @patch("posthog.models.person.util._fetch_person_by_distinct_id_via_personhog")
-    @patch("posthog.personhog_client.gate.use_personhog")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_routing(
-        self,
-        _name,
-        gate_on,
-        personhog_data,
-        grpc_exception,
-        expected_source,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_use_personhog,
-        mock_fetch_personhog,
-        mock_objects,
-    ):
-        mock_use_personhog.return_value = gate_on
+    def test_personhog_success(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["did-1"])
+            result = get_person_by_distinct_id(1, "did-1")
+            assert result is not None
 
-        if grpc_exception is not None:
-            mock_fetch_personhog.side_effect = grpc_exception
-        else:
-            mock_fetch_personhog.return_value = personhog_data
+    def test_personhog_failure_raises(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.get_person_by_distinct_id = MagicMock(side_effect=RuntimeError("grpc timeout"))
+            with self.assertRaises(RuntimeError):
+                get_person_by_distinct_id(1, "did-1")
 
-        mock_qs = MagicMock()
-        mock_qs.first.return_value = MagicMock()
-        mock_objects.db_manager.return_value.filter.return_value = mock_qs
-
-        result = get_person_by_distinct_id(1, "some-distinct-id")
-
-        if gate_on and grpc_exception is None:
-            assert result == personhog_data
-            mock_objects.db_manager.assert_not_called()
-        else:
-            mock_objects.db_manager.assert_called()
-
-        mock_routing_counter.labels.assert_called_with(
-            operation="get_person_by_distinct_id", source=expected_source, client_name="posthog-django"
-        )
-
-        if grpc_exception is not None and gate_on:
-            mock_errors_counter.labels.assert_called_once()
+    def test_gate_off_raises(self):
+        with fake_personhog_client(gate_enabled=False):
+            with self.assertRaises(RuntimeError):
+                get_person_by_distinct_id(1, "did-1")
 
 
 class TestGetPersonByIdRouting(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "personhog_success",
-                True,
-                "mock_person",
-                None,
-                "personhog",
-            ),
-            (
-                "personhog_returns_none",
-                True,
-                None,
-                None,
-                "personhog",
-            ),
-            (
-                "personhog_failure_falls_back_to_orm",
-                True,
-                None,
-                RuntimeError("grpc timeout"),
-                "django_orm",
-            ),
-            (
-                "gate_off_uses_orm_directly",
-                False,
-                None,
-                None,
-                "django_orm",
-            ),
-        ]
-    )
-    @patch("posthog.models.person.util.Person.objects")
-    @patch("posthog.models.person.util._fetch_person_by_id_via_personhog")
-    @patch("posthog.personhog_client.gate.use_personhog")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_routing(
-        self,
-        _name,
-        gate_on,
-        personhog_data,
-        grpc_exception,
-        expected_source,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_use_personhog,
-        mock_fetch_personhog,
-        mock_objects,
-    ):
-        mock_use_personhog.return_value = gate_on
+    def test_personhog_success(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["d1"])
+            result = get_person_by_id(1, 42)
+            assert result is not None
 
-        if grpc_exception is not None:
-            mock_fetch_personhog.side_effect = grpc_exception
-        else:
-            mock_fetch_personhog.return_value = personhog_data
+    def test_personhog_failure_raises(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.get_person = MagicMock(side_effect=RuntimeError("grpc timeout"))
+            with self.assertRaises(RuntimeError):
+                get_person_by_id(1, 42)
 
-        mock_qs = MagicMock()
-        mock_qs.first.return_value = MagicMock()
-        mock_objects.db_manager.return_value.filter.return_value = mock_qs
-
-        result = get_person_by_id(1, 42)
-
-        if gate_on and grpc_exception is None:
-            assert result == personhog_data
-            mock_objects.db_manager.assert_not_called()
-        else:
-            mock_objects.db_manager.assert_called()
-
-        mock_routing_counter.labels.assert_called_with(
-            operation="get_person_by_id", source=expected_source, client_name="posthog-django"
-        )
-
-        if grpc_exception is not None and gate_on:
-            mock_errors_counter.labels.assert_called_once()
+    def test_gate_off_raises(self):
+        with fake_personhog_client(gate_enabled=False):
+            with self.assertRaises(RuntimeError):
+                get_person_by_id(1, 42)
 
 
 class TestGetPersonsByUuidsRouting(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "personhog_success",
-                True,
-                ["person_a", "person_b"],
-                None,
-                "personhog",
-            ),
-            (
-                "personhog_failure_falls_back_to_orm",
-                True,
-                None,
-                RuntimeError("grpc timeout"),
-                "django_orm",
-            ),
-            (
-                "gate_off_uses_orm_directly",
-                False,
-                None,
-                None,
-                "django_orm",
-            ),
-        ]
-    )
-    @patch("posthog.models.person.util.Person.objects")
-    @patch("posthog.models.person.util._fetch_persons_by_uuids_via_personhog")
-    @patch("posthog.personhog_client.gate.use_personhog")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_routing(
-        self,
-        _name,
-        gate_on,
-        personhog_data,
-        grpc_exception,
-        expected_source,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_use_personhog,
-        mock_fetch_personhog,
-        mock_objects,
-    ):
-        mock_use_personhog.return_value = gate_on
+    def test_personhog_success(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["d1"])
+            result = get_persons_by_uuids(1, [TEST_UUID])
+            assert len(result) == 1
 
-        if personhog_data is not None:
-            mock_fetch_personhog.return_value = personhog_data
-        elif grpc_exception is not None:
-            mock_fetch_personhog.side_effect = grpc_exception
+    def test_personhog_failure_raises(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.get_persons_by_uuids = MagicMock(side_effect=RuntimeError("grpc timeout"))
+            with self.assertRaises(RuntimeError):
+                get_persons_by_uuids(1, [TEST_UUID])
 
-        mock_qs = MagicMock()
-        mock_objects.db_manager.return_value.filter.return_value = mock_qs
-
-        team_id = 1
-        uuids = ["uuid-1", "uuid-2"]
-
-        result = get_persons_by_uuids(team_id, uuids)
-
-        if personhog_data is not None and gate_on:
-            assert result == personhog_data
-            mock_fetch_personhog.assert_called_once_with(team_id, uuids, distinct_id_limit=None)
-            mock_objects.db_manager.assert_not_called()
-        else:
-            assert result == mock_qs
-            mock_objects.db_manager.return_value.filter.assert_called_with(team_id=team_id, uuid__in=uuids)
-
-        mock_routing_counter.labels.assert_called_with(
-            operation="get_persons_by_uuids", source=expected_source, client_name="posthog-django"
-        )
-
-        if grpc_exception is not None and gate_on:
-            mock_errors_counter.labels.assert_called_once()
+    def test_gate_off_raises(self):
+        with fake_personhog_client(gate_enabled=False):
+            with self.assertRaises(RuntimeError):
+                get_persons_by_uuids(1, [TEST_UUID])
 
 
 class TestGetPersonsByDistinctIdsRouting(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "personhog_success",
-                True,
-                None,
-                "personhog",
-            ),
-            (
-                "personhog_failure_falls_back_to_orm",
-                True,
-                RuntimeError("grpc timeout"),
-                "django_orm",
-            ),
-            (
-                "gate_off_uses_orm_directly",
-                False,
-                None,
-                "django_orm",
-            ),
-        ]
-    )
-    @patch("posthog.models.person.util._fetch_persons_by_distinct_ids_via_personhog")
-    @patch("posthog.personhog_client.gate.use_personhog")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_routing(
-        self,
-        _name,
-        gate_on,
-        grpc_exception,
-        expected_source,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_use_personhog,
-        mock_fetch_personhog,
-    ):
-        mock_use_personhog.return_value = gate_on
+    def test_personhog_success(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["did-1"])
+            result = get_persons_by_distinct_ids(1, ["did-1"])
+            assert len(result) == 1
 
-        personhog_persons = [MagicMock(), MagicMock()]
-        if grpc_exception is not None:
-            mock_fetch_personhog.side_effect = grpc_exception
-        else:
-            mock_fetch_personhog.return_value = personhog_persons
+    def test_personhog_failure_raises(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.get_persons_by_distinct_ids_in_team = MagicMock(side_effect=RuntimeError("grpc timeout"))
+            with self.assertRaises(RuntimeError):
+                get_persons_by_distinct_ids(1, ["did-1"])
 
-        team_id = 1
-        distinct_ids = ["did-1", "did-2"]
-
-        if gate_on and grpc_exception is None:
-            result = get_persons_by_distinct_ids(team_id, distinct_ids)
-            assert result == personhog_persons
-        else:
-            with (
-                patch("posthog.models.person.util.Person.objects") as mock_person_objects,
-                patch("posthog.models.person.util.PersonDistinctId.objects"),
-                patch("posthog.models.person.util.Prefetch"),
-            ):
-                mock_qs = MagicMock()
-                mock_qs.__iter__ = MagicMock(return_value=iter([]))
-                mock_person_objects.db_manager.return_value.filter.return_value.prefetch_related.return_value = mock_qs
-
-                result = get_persons_by_distinct_ids(team_id, distinct_ids)
-                assert result == []
-
-        mock_routing_counter.labels.assert_called_with(
-            operation="get_persons_by_distinct_ids", source=expected_source, client_name="posthog-django"
-        )
-
-        if grpc_exception is not None and gate_on:
-            mock_errors_counter.labels.assert_called_once()
+    def test_gate_off_raises(self):
+        with fake_personhog_client(gate_enabled=False):
+            with self.assertRaises(RuntimeError):
+                get_persons_by_distinct_ids(1, ["did-1"])
 
 
 class TestGetPersonsMappedByDistinctIdRouting(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "personhog_success",
-                True,
-                None,
-                "personhog",
-            ),
-            (
-                "personhog_failure_falls_back_to_orm",
-                True,
-                RuntimeError("grpc timeout"),
-                "django_orm",
-            ),
-            (
-                "gate_off_uses_orm_directly",
-                False,
-                None,
-                "django_orm",
-            ),
-        ]
-    )
-    @patch("posthog.models.person.util.PersonDistinctId.objects")
-    @patch("posthog.personhog_client.client.get_personhog_client")
-    @patch("posthog.personhog_client.gate.use_personhog")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_routing(
-        self,
-        _name,
-        gate_on,
-        grpc_exception,
-        expected_source,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_use_personhog,
-        mock_get_client,
-        mock_pdi_objects,
-    ):
-        mock_use_personhog.return_value = gate_on
+    def test_personhog_success(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["did-1"])
+            result = get_persons_mapped_by_distinct_id(1, ["did-1"])
+            assert "did-1" in result
 
-        mock_client = MagicMock()
-        if grpc_exception is not None:
-            mock_client.get_persons_by_distinct_ids_in_team.side_effect = grpc_exception
-        mock_get_client.return_value = mock_client
+    def test_personhog_failure_raises(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.get_persons_by_distinct_ids_in_team = MagicMock(side_effect=RuntimeError("grpc timeout"))
+            with self.assertRaises(RuntimeError):
+                get_persons_mapped_by_distinct_id(1, ["did-1"])
 
-        mock_qs = MagicMock()
-        mock_qs.__iter__ = MagicMock(return_value=iter([]))
-        mock_pdi_objects.db_manager.return_value.filter.return_value.select_related.return_value = mock_qs
-
-        get_persons_mapped_by_distinct_id(1, ["did-1"])
-
-        if gate_on and grpc_exception is None:
-            mock_pdi_objects.db_manager.assert_not_called()
-        else:
-            mock_pdi_objects.db_manager.assert_called()
-
-        mock_routing_counter.labels.assert_called_with(
-            operation="get_persons_mapped_by_distinct_id", source=expected_source, client_name="posthog-django"
-        )
-
-        if grpc_exception is not None and gate_on:
-            mock_errors_counter.labels.assert_called_once()
+    def test_gate_off_raises(self):
+        with fake_personhog_client(gate_enabled=False):
+            with self.assertRaises(RuntimeError):
+                get_persons_mapped_by_distinct_id(1, ["did-1"])
 
 
 class TestValidatePersonUuidsExistRouting(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "personhog_success",
-                True,
-                ["uuid-1", "uuid-2"],
-                None,
-                "personhog",
-            ),
-            (
-                "personhog_failure_falls_back_to_orm",
-                True,
-                None,
-                RuntimeError("grpc timeout"),
-                "django_orm",
-            ),
-            (
-                "gate_off_uses_orm_directly",
-                False,
-                None,
-                None,
-                "django_orm",
-            ),
-        ]
-    )
-    @patch("posthog.models.person.util.Person.objects")
-    @patch("posthog.models.person.util._validate_uuids_via_personhog")
-    @patch("posthog.personhog_client.gate.use_personhog")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_routing(
-        self,
-        _name,
-        gate_on,
-        personhog_data,
-        grpc_exception,
-        expected_source,
-        mock_errors_counter,
-        mock_routing_counter,
-        mock_use_personhog,
-        mock_fetch_personhog,
-        mock_objects,
-    ):
-        mock_use_personhog.return_value = gate_on
+    def test_personhog_success(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["d1"])
+            result = validate_person_uuids_exist(1, [TEST_UUID])
+            assert result == [TEST_UUID]
 
-        if grpc_exception is not None:
-            mock_fetch_personhog.side_effect = grpc_exception
-        else:
-            mock_fetch_personhog.return_value = personhog_data
+    def test_personhog_failure_raises(self):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.get_persons_by_uuids = MagicMock(side_effect=RuntimeError("grpc timeout"))
+            with self.assertRaises(RuntimeError):
+                validate_person_uuids_exist(1, [TEST_UUID])
 
-        mock_qs = MagicMock()
-        mock_qs.__iter__ = MagicMock(return_value=iter([]))
-        mock_objects.db_manager.return_value.filter.return_value.values_list.return_value = mock_qs
-
-        result = validate_person_uuids_exist(1, ["uuid-1", "uuid-2"])
-
-        if gate_on and grpc_exception is None:
-            assert result == personhog_data
-            mock_objects.db_manager.assert_not_called()
-        else:
-            mock_objects.db_manager.assert_called()
-
-        mock_routing_counter.labels.assert_called_with(
-            operation="validate_person_uuids_exist", source=expected_source, client_name="posthog-django"
-        )
-
-        if grpc_exception is not None and gate_on:
-            mock_errors_counter.labels.assert_called_once()
+    def test_gate_off_raises(self):
+        with fake_personhog_client(gate_enabled=False):
+            with self.assertRaises(RuntimeError):
+                validate_person_uuids_exist(1, [TEST_UUID])
 
 
 # ── Personhog internal logic tests ──────────────────────────────────
-# These use the fake personhog client to exercise the real proto/converter pipeline.
 
 
 class TestFetchPersonByUuidViaPersonhog(SimpleTestCase):
@@ -951,62 +566,59 @@ class TestGetPersonByPkOrUuid(SimpleTestCase):
 
 
 class TestPersonhogRouted(SimpleTestCase):
+    @patch("posthog.models.person.util.get_client_name", return_value="test")
     @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_calls_personhog_fn_and_increments_counter(self, mock_errors, mock_routing, _mock_gate):
-        result = _personhog_routed("test_op", lambda: "personhog_result", lambda: "orm_result", team_id=1)
+    def test_calls_personhog_fn_and_increments_counter(self, mock_errors, mock_routing, _mock_gate, _mock_name):
+        result = _personhog_routed("test_op", lambda: "personhog_result", team_id=1)
 
         assert result == "personhog_result"
-        mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name="posthog-django")
+        mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name="test")
         mock_routing.labels.return_value.inc.assert_called_once()
         mock_errors.labels.assert_not_called()
 
     @patch("posthog.personhog_client.gate.use_personhog", return_value=False)
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_gate_off_uses_orm_and_increments_counter(self, mock_errors, mock_routing, _mock_gate):
-        result = _personhog_routed("test_op", lambda: "personhog_result", lambda: "orm_result", team_id=1)
+    def test_gate_off_raises(self, _mock_gate):
+        with self.assertRaises(RuntimeError):
+            _personhog_routed("test_op", lambda: "personhog_result", team_id=1)
 
-        assert result == "orm_result"
-        mock_routing.labels.assert_called_with(operation="test_op", source="django_orm", client_name="posthog-django")
-        mock_routing.labels.return_value.inc.assert_called_once()
-        mock_errors.labels.assert_not_called()
-
+    @patch("posthog.models.person.util.get_client_name", return_value="test")
     @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_personhog_exception_falls_back_and_increments_both_counters(self, mock_errors, mock_routing, _mock_gate):
+    def test_personhog_exception_raises_and_increments_error_counter(
+        self, mock_errors, mock_routing, _mock_gate, _mock_name
+    ):
         def failing_fn():
             raise RuntimeError("grpc timeout")
 
-        result = _personhog_routed("test_op", failing_fn, lambda: "orm_result", team_id=1)
+        with self.assertRaises(RuntimeError):
+            _personhog_routed("test_op", failing_fn, team_id=1)
 
-        assert result == "orm_result"
-        # Error counter incremented
         mock_errors.labels.assert_called_once_with(
-            operation="test_op", source="personhog", error_type="grpc_error", client_name="posthog-django"
+            operation="test_op", source="personhog", error_type="grpc_error", client_name="test"
         )
         mock_errors.labels.return_value.inc.assert_called_once()
-        # ORM routing counter incremented
-        mock_routing.labels.assert_called_with(operation="test_op", source="django_orm", client_name="posthog-django")
-        mock_routing.labels.return_value.inc.assert_called()
 
+    @patch("posthog.models.person.util.get_client_name", return_value="test")
     @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_personhog_returning_none_is_not_treated_as_failure(self, mock_errors, mock_routing, _mock_gate):
-        result = _personhog_routed("test_op", lambda: None, lambda: "orm_result", team_id=1)
+    def test_personhog_returning_none_is_not_treated_as_failure(
+        self, mock_errors, mock_routing, _mock_gate, _mock_name
+    ):
+        result = _personhog_routed("test_op", lambda: None, team_id=1)
 
         assert result is None
-        mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name="posthog-django")
+        mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name="test")
         mock_errors.labels.assert_not_called()
 
 
-# ── Integration tests (dual-path) ──────────────────────────────────
+# ── Integration tests ──────────────────────────────────────────────
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestGetPersonsMappedByDistinctIdIntegration(PersonhogTestMixin, BaseTest):
     def test_single_person_single_distinct_id(self):
         person = self._seed_person(team=self.team, distinct_ids=["did-1"], properties={"email": "a@example.com"})
@@ -1024,11 +636,9 @@ class TestGetPersonsMappedByDistinctIdIntegration(PersonhogTestMixin, BaseTest):
 
         result = get_persons_mapped_by_distinct_id(self.team.pk, ["did-1", "did-2"])
 
-        # Both distinct_ids should map to the same person
         assert len(result) == 2
         assert str(result["did-1"].uuid) == str(person.uuid)
         assert str(result["did-2"].uuid) == str(person.uuid)
-        # Each entry should carry only the distinct_id that was used as the key
         assert result["did-1"].distinct_ids == ["did-1"]
         assert result["did-2"].distinct_ids == ["did-2"]
 

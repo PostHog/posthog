@@ -183,7 +183,9 @@ if persons_db_writer_url:
         DATABASES["persons_db_writer"]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
         DATABASES["persons_db_reader"]["TEST"] = {"MIRROR": "persons_db_writer"}
 
-    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
+# Always register — acts as deny-router when persons DB isn't configured,
+# routes normally when it is.
+DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 
 product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])

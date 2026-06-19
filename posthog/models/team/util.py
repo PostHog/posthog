@@ -36,7 +36,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _delete_group_type_mappings_for_teams(team_ids)
 
     # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
-    # Falls back to ORM batch deletion when personhog is not available.
     _delete_persons_for_teams(team_ids)
 
 
@@ -67,58 +66,30 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
 
 
 def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
-    """Delete FeatureFlagHashKeyOverride rows for the given teams via personhog, falling back to ORM.
-
-    These rows reference Person but have no DB-level cascade (cross-database FK with
-    db_constraint=False), so they must be deleted explicitly before the persons are.
-    """
     if not team_ids:
         return
 
-    from posthog.models.person.util import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+    from posthog.models.person.util import PERSONHOG_ROUTING_TOTAL, get_client_name
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import DeleteHashKeyOverridesByTeamsRequest
 
-    from products.feature_flags.backend.models.feature_flag import FeatureFlagHashKeyOverride
-
     client = get_personhog_client()
-    if client is not None:
-        try:
-            with personhog_caller_tag("team-delete/hash-key-overrides"):
-                while True:
-                    resp = client.delete_hash_key_overrides_by_teams(
-                        DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=10000)
-                    )
-                    if resp.deleted_count == 0:
-                        break
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="delete_hash_key_overrides_for_teams", source="personhog", client_name=get_client_name()
-            ).inc()
-            return
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="delete_hash_key_overrides_for_teams",
-                source="personhog",
-                error_type="grpc_error",
-                client_name=get_client_name(),
-            ).inc()
-            logger.warning("personhog_delete_hash_key_overrides_for_teams_failure", team_ids=team_ids, exc_info=True)
-
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+    with personhog_caller_tag("team-delete/hash-key-overrides"):
+        while True:
+            resp = client.delete_hash_key_overrides_by_teams(
+                DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=10000)
+            )
+            if resp.deleted_count == 0:
+                break
     PERSONHOG_ROUTING_TOTAL.labels(
-        operation="delete_hash_key_overrides_for_teams", source="django_orm", client_name=get_client_name()
+        operation="delete_hash_key_overrides_for_teams", source="personhog", client_name=get_client_name()
     ).inc()
-    _raw_delete_batch(
-        FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids)  # nosemgrep: no-direct-persons-db-orm
-    )
 
 
 def _delete_personless_distinct_ids_for_teams(team_ids: list[int]) -> None:
-    """Delete posthog_personlessdistinctid rows for teams via personhog RPC.
-
-    Falls back to the raw batched SQL delete when personhog is not available.
-    Uses _personhog_routed per team for consistent gate/metrics/fallback.
-    """
     from functools import partial
 
     from posthog.models.person.util import _personhog_routed
@@ -127,7 +98,6 @@ def _delete_personless_distinct_ids_for_teams(team_ids: list[int]) -> None:
         _personhog_routed(
             "delete_personless_distinct_ids_for_team",
             partial(_delete_personless_distinct_ids_for_team_via_personhog, team_id),
-            partial(_raw_delete_personless_distinct_ids_for_team, team_id),
             team_id=team_id,
         )
 
@@ -158,54 +128,7 @@ def _delete_cohort_members_for_all_teams(team_ids: list[int]) -> None:
         _delete_cohort_members_for_teams(team_ids, cohort_ids)
 
 
-def _raw_delete_personless_distinct_ids_for_team(team_id: int, batch_size: int = 10000) -> None:
-    """Delete posthog_personlessdistinctid rows for a single team in batches.
-
-    Uses a CTE + ctid pattern so each batch is one statement: the inner SELECT
-    streams ctids from the (team_id, distinct_id) unique index and the outer
-    DELETE targets heap tuples directly, avoiding a per-row primary key lookup.
-    Each batch runs in its own autocommit statement so row locks release between
-    batches and autovacuum can keep up.
-    """
-    from django.db import connections, router
-
-    from posthog.models.person import PersonlessDistinctId
-
-    db_alias = router.db_for_write(PersonlessDistinctId)
-    db_connection = connections[db_alias]
-    table_name = PersonlessDistinctId._meta.db_table
-
-    while True:
-        with db_connection.cursor() as cursor:
-            cursor.execute(
-                f"""
-                WITH deletion_candidates AS (
-                    SELECT ctid
-                    FROM {table_name}
-                    WHERE team_id = %s
-                    LIMIT %s
-                )
-                DELETE FROM {table_name} p
-                USING deletion_candidates d
-                WHERE p.ctid = d.ctid
-                """,  # nosemgrep: no-direct-persons-db-orm
-                [team_id, batch_size],
-            )
-            deleted = cursor.rowcount
-
-        if deleted < batch_size:
-            break
-
-        time.sleep(0.1)
-
-
 def _delete_persons_for_teams(team_ids: list[int]) -> None:
-    """Delete Person + PersonDistinctId rows for teams via personhog RPC.
-
-    Falls back to ORM batch deletion when personhog is not available.
-    The RPC handles PersonDistinctId deletion automatically.
-    Uses _personhog_routed per team for consistent gate/metrics/fallback.
-    """
     from functools import partial
 
     from posthog.models.person.util import _personhog_routed
@@ -214,7 +137,6 @@ def _delete_persons_for_teams(team_ids: list[int]) -> None:
         _personhog_routed(
             "delete_persons_for_team",
             partial(_delete_persons_for_team_via_personhog, team_id),
-            partial(_delete_persons_for_team_via_orm, team_id),
             team_id=team_id,
         )
 
@@ -233,89 +155,47 @@ def _delete_persons_for_team_via_personhog(team_id: int) -> None:
             break
 
 
-def _delete_persons_for_team_via_orm(team_id: int) -> None:
-    from posthog.models.person import Person, PersonDistinctId
-
-    _raw_delete_batch(PersonDistinctId.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
-    _raw_delete_batch(Person.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
-
-
 def _delete_groups_for_teams(team_ids: list[int]) -> None:
-    from posthog.models.group.group import Group
-    from posthog.models.person.util import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+    from posthog.models.person.util import PERSONHOG_ROUTING_TOTAL, get_client_name
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import DeleteGroupsBatchForTeamRequest
 
     client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
     for team_id in team_ids:
-        if client is not None:
-            try:
-                while True:
-                    resp = client.delete_groups_batch_for_team(
-                        DeleteGroupsBatchForTeamRequest(team_id=team_id, batch_size=10000)
-                    )
-                    if resp.deleted_count == 0:
-                        break
-                PERSONHOG_ROUTING_TOTAL.labels(
-                    operation="delete_groups_for_team", source="personhog", client_name=get_client_name()
-                ).inc()
-                continue
-            except Exception:
-                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                    operation="delete_groups_for_team",
-                    source="personhog",
-                    error_type="grpc_error",
-                    client_name=get_client_name(),
-                ).inc()
-                logger.warning("personhog_delete_groups_for_team_failure", team_id=team_id, exc_info=True)
-
+        while True:
+            resp = client.delete_groups_batch_for_team(
+                DeleteGroupsBatchForTeamRequest(team_id=team_id, batch_size=10000)
+            )
+            if resp.deleted_count == 0:
+                break
         PERSONHOG_ROUTING_TOTAL.labels(
-            operation="delete_groups_for_team", source="django_orm", client_name=get_client_name()
+            operation="delete_groups_for_team", source="personhog", client_name=get_client_name()
         ).inc()
-        _raw_delete(Group.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
 
 
 def _delete_group_type_mappings_for_teams(team_ids: list[int]) -> None:
-    from posthog.models.group_type_mapping import GroupTypeMapping
-    from posthog.models.person.util import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+    from posthog.models.person.util import PERSONHOG_ROUTING_TOTAL, get_client_name
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import DeleteGroupTypeMappingsBatchForTeamRequest
 
     client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
     for team_id in team_ids:
-        if client is not None:
-            try:
-                while True:
-                    resp = client.delete_group_type_mappings_batch_for_team(
-                        DeleteGroupTypeMappingsBatchForTeamRequest(team_id=team_id, batch_size=10000)
-                    )
-                    if resp.deleted_count == 0:
-                        break
-                PERSONHOG_ROUTING_TOTAL.labels(
-                    operation="delete_group_type_mappings_for_team", source="personhog", client_name=get_client_name()
-                ).inc()
-                continue
-            except Exception:
-                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                    operation="delete_group_type_mappings_for_team",
-                    source="personhog",
-                    error_type="grpc_error",
-                    client_name=get_client_name(),
-                ).inc()
-                logger.warning("personhog_delete_group_type_mappings_for_team_failure", team_id=team_id, exc_info=True)
-
+        while True:
+            resp = client.delete_group_type_mappings_batch_for_team(
+                DeleteGroupTypeMappingsBatchForTeamRequest(team_id=team_id, batch_size=10000)
+            )
+            if resp.deleted_count == 0:
+                break
         PERSONHOG_ROUTING_TOTAL.labels(
-            operation="delete_group_type_mappings_for_team", source="django_orm", client_name=get_client_name()
+            operation="delete_group_type_mappings_for_team", source="personhog", client_name=get_client_name()
         ).inc()
-        _raw_delete(GroupTypeMapping.objects.filter(team_id=team_id))  # nosemgrep: no-direct-persons-db-orm
 
 
 def _delete_cohort_members_for_teams(team_ids: list[int], cohort_ids: list[int]) -> None:
-    """Delete CohortPeople rows for teams via personhog RPC.
-
-    Falls back to ORM _raw_delete when personhog is not available.
-    Routes per-team for consistent gate/metrics/fallback behavior.
-    """
     from products.cohorts.backend.models.cohort import Cohort
     from products.cohorts.backend.models.util import delete_cohort_members_bulk
 
@@ -323,15 +203,6 @@ def _delete_cohort_members_for_teams(team_ids: list[int], cohort_ids: list[int])
         team_cohort_ids = list(Cohort.objects.filter(team_id=team_id, id__in=cohort_ids).values_list("id", flat=True))
         if team_cohort_ids:
             delete_cohort_members_bulk(team_id, team_cohort_ids)
-
-
-def _raw_delete(queryset: Any):
-    "Issues a single DELETE statement for the queryset"
-    from django.db import router
-
-    # Use db_for_write to ensure we get a writable connection (not read-only replica)
-    db_alias = router.db_for_write(queryset.model)
-    queryset._raw_delete(db_alias)
 
 
 def _raw_delete_batch(queryset: Any, batch_size: int = 10000):

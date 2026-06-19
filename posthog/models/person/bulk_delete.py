@@ -6,7 +6,6 @@ from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
-from django.db.models import Prefetch
 
 import structlog
 from loginas.utils import is_impersonated_session
@@ -14,7 +13,7 @@ from temporalio import common
 
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person import Person
 from posthog.models.person.util import (
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
@@ -53,50 +52,14 @@ def resolve_persons_for_deletion(
     Goes straight to personhog, falling back to ORM only on error or if
     the client is not configured.
     """
-    from posthog.personhog_client.client import get_personhog_client
-
     if not uuids and not distinct_ids:
         return []
 
-    client = get_personhog_client()
-    if client is not None:
-        try:
-            # Unbounded distinct_ids: downstream recording deletion needs the full set per person.
-            with personhog_caller_tag("persons/deletion-resolve"):
-                if uuids:
-                    return _fetch_persons_by_uuids_via_personhog(team_id, uuids)
-                else:
-                    return _fetch_persons_by_distinct_ids_via_personhog(team_id, cast(builtins.list[str], distinct_ids))
-        except Exception:
-            logger.warning("resolve_persons_for_deletion_personhog_failure", team_id=team_id, exc_info=True)
-
-    # ORM fallback
-    persons_queryset = (
-        Person.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
-        .only(*_PERSON_DELETION_COLUMNS)
-        .prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                # nosemgrep: no-direct-persons-db-orm
-                queryset=PersonDistinctId.objects.filter(
-                    team_id=team_id
-                ).order_by(  # nosemgrep: no-direct-persons-db-orm
-                    "id"
-                ),  # nosemgrep: no-direct-persons-db-orm
-                to_attr="distinct_ids_cache",
-            )
-        )
-    )
-    if uuids:
-        persons_queryset = persons_queryset.filter(uuid__in=uuids)
-    elif distinct_ids:
-        person_ids = PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            team_id=team_id, distinct_id__in=distinct_ids
-        ).values_list(  # nosemgrep: no-direct-persons-db-orm
-            "person_id", flat=True
-        )
-        persons_queryset = persons_queryset.filter(id__in=person_ids)
-    return list(persons_queryset)
+    with personhog_caller_tag("persons/deletion-resolve"):
+        if uuids:
+            return _fetch_persons_by_uuids_via_personhog(team_id, uuids)
+        else:
+            return _fetch_persons_by_distinct_ids_via_personhog(team_id, cast(builtins.list[str], distinct_ids))
 
 
 def delete_persons_profile(
