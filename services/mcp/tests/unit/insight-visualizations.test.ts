@@ -67,6 +67,7 @@ describe('insight visualizations', () => {
         describe('fallback to query kind', () => {
             it.each([
                 ['TrendsQuery', 'trends'],
+                ['StickinessQuery', 'stickiness'],
                 ['FunnelsQuery', 'funnel'],
                 ['LifecycleQuery', 'lifecycle'],
                 ['RetentionQuery', 'retention'],
@@ -99,15 +100,11 @@ describe('insight visualizations', () => {
                 expect(inferVisualizationType(data)).toBeNull()
             })
 
-            it('returns null for StickinessQuery with empty results', () => {
-                // Known gap: query-stickiness ships the query-results UI app but the dispatcher
-                // has no StickinessQuery fallback — empty stickiness results show "unsupported".
-                expect(inferVisualizationType(queryPayload([], 'StickinessQuery'))).toBeNull()
-            })
-
-            it('classifies non-empty stickiness results as trends via the shape check', () => {
+            it('classifies stickiness results as stickiness, not trends, via the query kind', () => {
+                // Stickiness rows duck-type as trends, so the kind check must win — otherwise the
+                // chart renders raw counts instead of the percentage-of-users distribution.
                 expect(inferVisualizationType(queryPayload(insightResults.stickiness, 'StickinessQuery'))).toBe(
-                    'trends'
+                    'stickiness'
                 )
             })
 
