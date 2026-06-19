@@ -13,8 +13,8 @@ const handleChartError = makeChartErrorHandler('sql-line-chart')
 
 /**
  * SQL line/area graph rendered via @posthog/quill-charts, gated behind the
- * `product-analytics-quill-sql-charts` flag (see {@link LineGraph}). Handles line, area, and goal
- * lines; everything else falls back to the legacy chart.js path. The tooltip is quill's
+ * `product-analytics-quill-sql-charts` flag (see {@link LineGraph}). Handles line, area, goal
+ * lines, and trend lines; everything else falls back to the legacy chart.js path. The tooltip is quill's
  * DefaultTooltip extended to format each row with its column's own settings and to show a total row.
  */
 export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {

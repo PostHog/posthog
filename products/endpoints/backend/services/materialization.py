@@ -30,6 +30,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag, sync_saved_query_to_dag
 from products.endpoints.backend.constants import DATA_FRESHNESS_BUCKETS
 from products.endpoints.backend.materialization_transforms import (
+    MaterializationNotSupportedError,
     _extract_aggregate_name,
     analyze_variables_for_materialization,
     build_endpoint_hogql,
@@ -149,8 +150,9 @@ class EndpointMaterializationService:
         except ValidationError:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
             raise
-        except ExposedHogQLError as e:
-            # A bad user query, not a system fault — surface as a 400.
+        except (ExposedHogQLError, MaterializationNotSupportedError) as e:
+            # A bad user query, not a system fault — surface as a 400. Pre-flight validation
+            # (can_materialize) normally catches these, so reaching here is a backstop.
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
             raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")
         except Exception:
