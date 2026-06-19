@@ -64,6 +64,7 @@ export interface UserBasicApi {
 
 /**
  * * `team` - Only team
+ * * `organization` - Organization
  * * `global` - Global
  * * `feature_flag` - Feature Flag
  */
@@ -72,9 +73,19 @@ export type DashboardTemplateScopeEnumApi =
 
 export const DashboardTemplateScopeEnumApi = {
     Team: 'team',
+    Organization: 'organization',
     Global: 'global',
     FeatureFlag: 'feature_flag',
 } as const
+
+export interface NonPortableReferencesApi {
+    /** Count of distinct action references in the template's tiles that are specific to the source project. */
+    actions: number
+    /** Count of distinct cohort references in the template's tiles that are specific to the source project. */
+    cohorts: number
+    /** Names of data warehouse tables referenced by the template's tiles that are specific to the source project. */
+    warehouse_tables: string[]
+}
 
 export interface DashboardTemplateApi {
     readonly id: string
@@ -116,6 +127,8 @@ export interface DashboardTemplateApi {
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
     is_featured?: boolean
+    /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
+    readonly non_portable_references: NonPortableReferencesApi
 }
 
 export interface PaginatedDashboardTemplateListApi {
@@ -167,6 +180,8 @@ export interface PatchedDashboardTemplateApi {
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
     is_featured?: boolean
+    /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
+    readonly non_portable_references?: NonPortableReferencesApi
 }
 
 export interface CopyDashboardTemplateApi {
@@ -235,6 +250,11 @@ export interface DashboardBasicApi {
     readonly last_accessed_at: string | null
     /** @nullable */
     readonly last_viewed_at: string | null
+    /**
+     * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+     * @nullable
+     */
+    readonly folder: string | null
     readonly is_shared: boolean
     readonly deleted: boolean
     readonly creation_mode: CreationModeEnumApi
@@ -305,6 +325,11 @@ export interface DashboardApi {
     last_accessed_at?: string | null
     /** @nullable */
     readonly last_viewed_at: string | null
+    /**
+     * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+     * @nullable
+     */
+    readonly folder: string | null
     readonly is_shared: boolean
     deleted?: boolean
     readonly creation_mode: CreationModeEnumApi
@@ -1998,6 +2023,7 @@ export const ChartDisplayTypeApi = {
     ActionsAreaGraph: 'ActionsAreaGraph',
     ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
     BoldNumber: 'BoldNumber',
+    Metric: 'Metric',
     ActionsPie: 'ActionsPie',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
@@ -2029,6 +2055,14 @@ export interface GoalLineApi {
     position?: PositionApi | null
     value: number
 }
+
+export type MetricSummaryApi = (typeof MetricSummaryApi)[keyof typeof MetricSummaryApi]
+
+export const MetricSummaryApi = {
+    Total: 'total',
+    Average: 'average',
+    Latest: 'latest',
+} as const
 
 export type ResultCustomizationByApi = (typeof ResultCustomizationByApi)[keyof typeof ResultCustomizationByApi]
 
@@ -2115,6 +2149,20 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
     hideWeekends?: boolean | null
+    /** Metric display: change pill color when the metric decreased. Defaults to red. */
+    metricChangeDecreaseColor?: string | null
+    /** Metric display: change pill color when the metric increased. Defaults to green. */
+    metricChangeIncreaseColor?: string | null
+    /** Metric display: color the sparkline by whether the metric increased or decreased. */
+    metricColorByDirection?: boolean | null
+    /** Metric display: line color when the metric decreased. Defaults to red. */
+    metricLineDecreaseColor?: string | null
+    /** Metric display: line color when the metric increased. Defaults to green. */
+    metricLineIncreaseColor?: string | null
+    /** Show the period-over-period change pill on the Metric display. */
+    metricShowChange?: boolean | null
+    /** Metric display: which summary the resting headline shows — the period total, the average, or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives the change pill: total/average compare against the previous period when "compare to previous" is on; latest compares first→last of the series. */
+    metricSummary?: MetricSummaryApi | null
     minDecimalPlaces?: number | null
     movingAverageIntervals?: number | null
     /** Wether result datasets are associated by their values or by their order. */
@@ -4213,6 +4261,7 @@ export const IntegrationKindApi = {
     CustomerioApp: 'customerio-app',
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
+    Postgresql: 'postgresql',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -8394,7 +8443,7 @@ export type DashboardTemplatesListParams = {
      */
     ordering?: string
     /**
-     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `feature_flag`: feature-flag dashboard templates only. Omit for both official and this project's templates (default dashboard template picker behavior).
+     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior).
      */
     scope?: DashboardTemplatesListScope
 }
@@ -8404,10 +8453,15 @@ export type DashboardTemplatesListScope = (typeof DashboardTemplatesListScope)[k
 export const DashboardTemplatesListScope = {
     FeatureFlag: 'feature_flag',
     Global: 'global',
+    Organization: 'organization',
     Team: 'team',
 } as const
 
 export type DashboardsListParams = {
+    /**
+     * Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.
+     */
+    folder?: string
     format?: DashboardsListFormat
     /**
      * Number of results to return per page.

@@ -14,6 +14,7 @@ import { PluginsServerConfig } from '../../../types'
 import { HogExecutorService } from '../../services/hog-executor.service'
 import { HogInputsService } from '../../services/hog-inputs.service'
 import { EmailService } from '../../services/messaging/email.service'
+import { EmailTrackingCodeSigner } from '../../services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../services/messaging/recipient-tokens.service'
 import {
     CyclotronJobInvocationHogFunction,
@@ -199,7 +200,8 @@ export class TemplateTester {
             undefined as any,
             undefined as any,
             config.ENCRYPTION_SALT_KEYS,
-            config.SITE_URL
+            config.SITE_URL,
+            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
         )
         const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
         return new HogExecutorService(
@@ -408,6 +410,7 @@ export const createAdDestinationPayload = (
                 gclid: 'google-id',
                 sccid: 'snapchat-id',
                 rdt_cid: 'reddit-id',
+                msclkid: 'microsoft-id',
                 phone: '+1234567890',
                 external_id: '1234567890',
                 first_name: 'Max',

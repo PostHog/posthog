@@ -32,12 +32,15 @@ export type InboxSortField = 'priority' | 'created_at' | 'updated_at'
 export type InboxSortDirection = 'asc' | 'desc'
 
 /**
- * Build the `ordering` query param. Mirrors desktop `buildSignalReportListOrdering`:
- * 1. Status rank (semantic server-side rank, always applied)
- * 2. Toolbar-selected field (priority, updated_at, created_at)
- * 3. `-updated_at` as a recency tiebreak, so reports tied on status + field
- *    surface most-recently-updated first instead of in arbitrary order.
- *    (Skipped when the selected field is already `updated_at`.)
+ * Build the `ordering` query param. The list is a flat list (no status section
+ * headers), so the toolbar-selected field must lead — otherwise an explicit sort
+ * like "Newest first" only reorders reports *within* each status bucket and the
+ * genuinely newest reports never reach the top:
+ * 1. Toolbar-selected field (priority, updated_at, created_at) with direction
+ * 2. Status rank (semantic server-side rank) as a secondary key, so reports tied
+ *    on the selected field surface in pipeline-status order
+ * 3. `-updated_at` as a final recency tiebreak (skipped when the selected field
+ *    is already `updated_at`).
  *
  * Reviewer scope is NOT an ordering tiebreak. A `-is_suggested_reviewer` sort
  * floats the current user's own reports to the top of the single loaded page,
@@ -47,7 +50,7 @@ export type InboxSortDirection = 'asc' | 'desc'
  */
 export function buildSignalReportListOrdering(field: InboxSortField, direction: InboxSortDirection): string {
     const fieldKey = direction === 'desc' ? `-${field}` : field
-    return field === 'updated_at' ? `status,${fieldKey}` : `status,${fieldKey},-updated_at`
+    return field === 'updated_at' ? `${fieldKey},status` : `${fieldKey},status,-updated_at`
 }
 
 /**
