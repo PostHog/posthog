@@ -420,29 +420,31 @@ Move other-team code out of `src/ingestion/` (ownership / reviewers):
 - [x] Move `logs` (and traces) out of `src/ingestion/` -> top-level `src/logs` (+ `tests/logs`). Was
       already decoupled (0 imports into ingestion internals), so a clean lift; dropped from guard
       `PIPELINES`. [logs thread]
-- [ ] Separate the session-recording **API service** (`recording-api`) out -> `src/recording-api`.
-      BLOCKED on a decision: recording-api imports `sessionreplay/shared/*` (crypto, keystore, metadata,
-      features, retention, outputs) — also used by the sessionreplay _ingestion_ pipeline. Either (a) accept
-      cross-imports `~/ingestion/pipelines/sessionreplay/shared/*` for now, or (b) extract that `shared/`
-      into top-level `common/` (e.g. `common/sessionreplay`) consumed by all three. [recording-api thread]
-- [ ] Move the recording **rasterizer** out -> `src/recording-rasterizer`. Nearly self-contained (only
-      external import is `recording-api/types`), so move it together with / right after recording-api.
-      [rasterizer thread]
+- [x] Separate the session-recording **API service** (`recording-api`) out -> `src/recording-api` (+
+      integration test to `tests/recording-api`). Product owner chose option (a): keep the
+      `~/ingestion/pipelines/sessionreplay/shared/*` cross-imports for now (extracting that shared code to
+      `common/` is a later step). [recording-api thread]
+- [x] Move the recording **rasterizer** out -> `src/recording-rasterizer` (moved with recording-api; its
+      only external import was `recording-api/types`). [rasterizer thread]
 
 Steps placement (no top-level `steps/`):
 
-- [ ] Remove `src/ingestion/steps/`: shared steps -> `common/steps/`, pipeline-specific steps ->
-      `pipelines/<name>/steps/`. [apply-cookieless-processing thread]
+- [x] Remove `src/ingestion/steps/`: `event-processing` + `event-preprocessing` are shared by six
+      pipelines, so they moved to `common/steps/` (+ tests to `tests/ingestion/common/steps/`); top-level
+      `steps/` removed. [apply-cookieless-processing thread]
 - [ ] Move `common/event-pipeline/prefetchPersonsStep.ts` and `processPersonlessDistinctIdsBatchStep.ts`
-      into steps (`common/steps/`); the latter lacks tests (note, leave for now). [prefetch + personless
-      step threads]
+      into steps. NOTE: both are imported only by the analytics pipeline, so placement is `common/steps/`
+      vs `pipelines/analytics/steps/` — deferred pending that call. [prefetch + personless step threads]
 
 CDP boundary (ingestion must not import CDP):
 
-- [ ] Remove the CDP import in `ingestion/common/event-pipeline/transformEventStep.ts` (invert via a
-      `common/` contract). [transformEventStep "issue"]
+- [x] Remove the CDP import in `ingestion/common/event-pipeline/transformEventStep.ts` — now uses the
+      `HogTransformer`/`HogTransformationResult` contract from `common/hog-transformations`. This was the
+      last production ingestion->cdp import (0 remain). (The fn is currently unused — removal candidate.)
+      [transformEventStep "issue"]
 - [ ] Resolve the CDP import in the error-tracking `per-issue-guarded-rate-limiter.service.test.ts`
-      (relocate the shared test helper to a neutral spot, or invert). [rate-limiter test "question"]
+      (`~/cdp/_tests/redis` -> a neutral test helper). Test-only (guard skips tests); deferred. [rate-limiter
+      test "question"]
 - [ ] Tighten the boundary guard to flag ingestion->CDP edges and drive that baseline to 0.
 
 Common surface minimization:
@@ -716,3 +718,14 @@ Misc:
   uncommitted attempt — lesson: commit each Phase 6 step immediately). Remaining Phase 6: move
   logs/recording-api/rasterizer out, steps placement, two CDP-import fixes, common-surface trim, the
   evaluation-scheduler nit.
+- Phase 6 batch 2 (product owner: recording-api/rasterizer keep sessionreplay cross-imports for now;
+  proceed on autonomous items). Done + committed: (1) recording-api -> `src/recording-api` + rasterizer ->
+  `src/recording-rasterizer` (87 imports rewritten; integration test -> `tests/recording-api`); they keep
+  `~/ingestion/pipelines/sessionreplay/shared/*` imports (approved). (2) shared steps `event-processing` +
+  `event-preprocessing` -> `common/steps/` (65 imports; six pipelines use them; tests ->
+  `tests/ingestion/common/steps/`); no top-level `steps/`. (3) `transformEventStep` now uses the
+  `common/hog-transformations` interface — last production ingestion->cdp import gone (0 remain). Each step
+  gated green (static import-resolution 0, guard 0, prettier+eslint clean, tsc only the `src/cdp` baseline).
+  Deferred (smaller / needs a placement call): prefetch+processPersonless step move (analytics-only ->
+  common/steps vs pipelines/analytics/steps), the rate-limiter test's `~/cdp/_tests/redis` helper relocation
+  (test-only), the ingestion->cdp guard tightening, common-surface trim, and the evaluation-scheduler nit.
