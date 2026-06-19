@@ -58,6 +58,7 @@
     'posthog.tasks.email.send_two_factor_auth_enabled_email',
     'posthog.tasks.email.send_two_factor_reset_email',
     'posthog.tasks.exporter.export_asset',
+    'posthog.tasks.gateway_credential.drain_gateway_credential_last_used_task',
     'posthog.tasks.gateway_credential.refresh_gateway_credentials',
     'posthog.tasks.gateway_credential.reproject_team_gateway_credentials_task',
     'posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task',

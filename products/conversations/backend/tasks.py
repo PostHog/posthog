@@ -72,7 +72,9 @@ from products.conversations.backend.teams import (
     graph_message_to_activity,
     handle_teams_mention,
     handle_teams_message,
+    is_shared_membership_type,
     post_help_card,
+    post_teams_channel_message_via_graph,
 )
 from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
@@ -828,12 +830,60 @@ def post_reply_to_teams(
         raise cast(Any, post_reply_to_teams).retry(exc=e)
 
 
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
+def post_reply_to_teams_via_graph(
+    ticket_id: str,
+    team_id: int,
+    teams_team_id: str,
+    channel_id: str,
+    root_message_id: str,
+    content: str,
+    rich_content: dict | None,
+    author_name: str,
+) -> None:
+    """Post a support agent's reply into a shared Teams channel thread via Graph.
+
+    Shared channels can't be written to over the bot connector, so replies go through
+    Graph with the delegated admin token (same path the poller reads with).
+    """
+    team = Team.objects.filter(id=team_id).first()
+    if not team:
+        logger.warning("teams_graph_reply_team_not_found", team_id=team_id)
+        return
+
+    reply_html = rich_content_to_teams_html(rich_content, content)
+    if author_name:
+        reply_html = f"<p><b>{html_mod.escape(author_name)}</b></p>{reply_html}"
+
+    status = post_teams_channel_message_via_graph(
+        team=team,
+        teams_team_id=teams_team_id,
+        channel_id=channel_id,
+        html=reply_html,
+        reply_to_message_id=root_message_id,
+        log_context={"ticket_id": ticket_id},
+    )
+    if status in (200, 201):
+        logger.info("teams_graph_reply_posted", ticket_id=ticket_id, channel_id=channel_id)
+        return
+
+    # Retry only transient failures (network/no-token=0, throttling, 5xx). Permanent
+    # ones — 401/403 (token/consent), 404 (thread gone), 400 — won't self-heal and
+    # would just burn the retry budget, so log and drop.
+    if status == 0 or status == 429 or status >= 500:
+        raise cast(Any, post_reply_to_teams_via_graph).retry(
+            exc=Exception(f"Teams Graph reply transient failure (status {status})")
+        )
+    logger.warning("teams_graph_reply_permanent_failure", ticket_id=ticket_id, status=status)
+
+
 def _shared_channel_entries(support_settings: dict) -> list[dict]:
-    """Configured channels flagged as shared (the only ones the poller pulls)."""
+    """Configured channels the poller pulls (shared/unknownFutureValue, not standard/private)."""
     entries = support_settings.get("teams_channels")
     if not isinstance(entries, list):
         return []
-    return [e for e in entries if isinstance(e, dict) and e.get("membership_type") == "shared"]
+    return [e for e in entries if isinstance(e, dict) and is_shared_membership_type(e.get("membership_type"))]
 
 
 def _parse_graph_datetime(value: str | None) -> datetime | None:
@@ -876,13 +926,15 @@ def _poll_one_shared_channel(
     # On first encounter, verify via Graph that the channel is actually shared.
     # conversations_settings is client-mutable, so we don't trust its
     # membership_type — we confirm from the authoritative source before polling.
+    # Graph returns "unknownFutureValue" for shared channels in some tenants, so we
+    # reject only explicit standard/private channels rather than requiring "shared".
     if created:
         ch_resp = requests.get(
             f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}",
             headers={"Authorization": f"Bearer {token}"},
             timeout=TEAMS_DELTA_REQUEST_TIMEOUT_SECONDS,
         )
-        if ch_resp.status_code != 200 or ch_resp.json().get("membershipType") != "shared":
+        if ch_resp.status_code != 200 or not is_shared_membership_type(ch_resp.json().get("membershipType")):
             logger.warning(
                 "poll_teams_shared_channel_not_shared",
                 team_id=team.id,
@@ -953,6 +1005,9 @@ def _poll_one_shared_channel(
                         tenant_id=tenant_id,
                         is_thread_reply=False,
                         channel_detail=ChannelDetail.TEAMS_CHANNEL_MESSAGE,
+                        # Shared channel: confirm via Graph (bot connector can't post here),
+                        # reusing the token we already hold for the delta read.
+                        graph_post_context={"teams_team_id": teams_team_id, "token": token},
                     )
                 except Exception:
                     logger.exception(

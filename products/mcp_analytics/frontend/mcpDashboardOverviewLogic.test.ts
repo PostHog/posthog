@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -44,9 +46,21 @@ describe('mcpDashboardOverviewLogic', () => {
     describe('categorizeHarness', () => {
         it.each([
             ['claude-code/1.0.0', 'Claude Code'],
+            ['claude-code cli', 'Claude Code'],
+            ['claude-code claude-desktop', 'Claude Desktop'],
+            ['claude-code claude-vscode', 'Claude Code (VS Code)'],
+            ['claude-code sdk-ts', 'Claude Agent SDK'],
             ['claude-ai', 'Claude.ai'],
             ['anthropic/claudeai', 'Claude.ai'],
+            ['cowork', 'Cowork'],
+            ['claude-design', 'Claude Design'],
+            ['claude-user', 'Claude.ai'],
+            ['openai-mcp', 'OpenAI'],
+            ['openai-mcp chatgpt', 'ChatGPT'],
+            ['openai-mcp agent builder', 'OpenAI Agent Builder'],
+            ['openai-mcp responses api', 'OpenAI Responses API'],
             ['cursor/0.42', 'Cursor'],
+            ['cursor darwin arm64', 'Cursor'],
             ['codex-cli', 'OpenAI Codex'],
             ['visual studio code', 'VS Code'],
             ['something-nobody-knows', 'Other'],
@@ -271,7 +285,7 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('date filter wiring', () => {
+    describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
@@ -302,6 +316,37 @@ describe('mcpDashboardOverviewLogic', () => {
             const kpi = reloads.find((call) => call.query.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
             expect(dayjs(kpi?.filters.dateRange.date_from).isValid()).toBe(true)
+        })
+
+        it.each([[false], [true]])('passes filterTestAccounts=%s to every tile', async (enabled) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            // enabled=false is the default mount state; enabled=true reloads after toggling.
+            const callsBefore = enabled ? mockApi.query.mock.calls.length : 0
+
+            if (enabled) {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilterTestAccounts(true)
+                }).toFinishAllListeners()
+            }
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads.length).toBe(6)
+            expect(reloads.every((call) => call.filters.filterTestAccounts === enabled)).toBe(true)
+        })
+
+        it('defaults the filter from the team test_account_filters_default_checked setting', async () => {
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // No explicit toggle, yet every tile filters internal users because the team default is on.
+            const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
+            expect(reloads.length).toBeGreaterThanOrEqual(6)
+            expect(reloads.every((call) => call.filters.filterTestAccounts === true)).toBe(true)
         })
     })
 })
