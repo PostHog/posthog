@@ -74,7 +74,18 @@ JWT_CLOCK_TOLERANCE_SECONDS = 5 * 60
 # ChannelMessage.Read.All (delegated) powers the shared-channel message poller:
 # shared/private channels never push ambient messages over the bot webhook, so we
 # pull them from Graph's per-channel messages/delta as the connecting admin.
+# ChannelMessage.Send (delegated) lets us post confirmation cards and agent replies
+# back into shared channels via Graph, since the bot connector can't write there.
 GRAPH_REFRESH_SCOPES = (
+    "Team.ReadBasic.All Channel.ReadBasic.All User.ReadBasic.All "
+    "ChannelMessage.Read.All ChannelMessage.Send offline_access openid profile"
+)
+
+# Tenants that authorized before ChannelMessage.Send was added never consented to it,
+# and Azure AD rejects a refresh-token grant that requests an unconsented scope
+# (AADSTS65001). We fall back to this read-only set so the poller keeps working for
+# those tenants — sending will 403 until an admin reconnects and grants Send.
+GRAPH_REFRESH_SCOPES_READONLY = (
     "Team.ReadBasic.All Channel.ReadBasic.All User.ReadBasic.All ChannelMessage.Read.All offline_access openid profile"
 )
 
@@ -337,17 +348,32 @@ def refresh_graph_token(config: TeamConversationsTeamsConfig) -> str:
     if not app_id or not app_secret:
         raise ValueError("Teams bot credentials not configured")
 
-    resp = requests.post(
-        GRAPH_TOKEN_URL,
-        data={
-            "client_id": app_id,
-            "client_secret": app_secret,
-            "refresh_token": config.teams_graph_refresh_token,
-            "grant_type": "refresh_token",
-            "scope": GRAPH_REFRESH_SCOPES,
-        },
-        timeout=15,
-    )
+    def _post_refresh(scope: str) -> requests.Response:
+        return requests.post(
+            GRAPH_TOKEN_URL,
+            data={
+                "client_id": app_id,
+                "client_secret": app_secret,
+                "refresh_token": config.teams_graph_refresh_token,
+                "grant_type": "refresh_token",
+                "scope": scope,
+            },
+            timeout=15,
+        )
+
+    resp = _post_refresh(GRAPH_REFRESH_SCOPES)
+    # Azure AD returns 400 (AADSTS65001 / invalid_scope) when a requested scope was
+    # never consented — e.g. a tenant that connected before ChannelMessage.Send
+    # existed. Retry read-only so polling survives (send stays 403 until reconnect).
+    # Only 400 means scope denial; 429/5xx are transient and must NOT downgrade the
+    # token to read-only, so they fall through to the failure path below.
+    if resp.status_code == 400:
+        logger.warning(
+            "teams_graph_token_refresh_retry_readonly",
+            team_id=config.team_id,
+            status=resp.status_code,
+        )
+        resp = _post_refresh(GRAPH_REFRESH_SCOPES_READONLY)
 
     if resp.status_code != 200:
         logger.warning(
