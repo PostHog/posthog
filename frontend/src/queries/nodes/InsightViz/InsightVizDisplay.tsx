@@ -133,6 +133,7 @@ export function InsightVizDisplay({
         useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         isFunnels,
@@ -283,11 +284,12 @@ export function InsightVizDisplay({
 
     // Charts that draw their own legend inside the chart opt out of the side-legend column: the
     // slope graph always, and trends line/area/cumulative when the quill in-chart legend is enabled.
-    const { featureFlags } = useValues(featureFlagLogic)
+    // Mirror Trends.tsx's renderer choice — an unset display defaults to the line chart.
     const trendsInChartLegend =
         !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND] &&
         activeView === InsightType.TRENDS &&
-        (display === ChartDisplayType.ActionsLineGraph ||
+        (!display ||
+            display === ChartDisplayType.ActionsLineGraph ||
             display === ChartDisplayType.ActionsLineGraphCumulative ||
             display === ChartDisplayType.ActionsAreaGraph)
     const showSideLegend =
