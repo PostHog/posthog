@@ -1522,8 +1522,7 @@ def _build_query(
                 query = sql.SQL("SELECT {cols} FROM {table} TABLESAMPLE SYSTEM (1)").format(
                     cols=select_clause, table=sql.Identifier(schema, table_name)
                 )
-            query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
-            return sql.SQL(query_with_limit).format()
+            return query + sql.SQL(" LIMIT 1000")
 
         query = sql.SQL("SELECT {cols} FROM {table}").format(
             cols=select_clause, table=sql.Identifier(schema, table_name)
@@ -1580,8 +1579,7 @@ def _build_query(
         )
 
     if add_sampling:
-        query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
-        return sql.SQL(query_with_limit).format()
+        return query + sql.SQL(" LIMIT 1000")
 
     if upper_bound_inclusive is not None:
         query = sql.SQL("{inner} AND {field} <= {upper}").format(
@@ -1593,8 +1591,7 @@ def _build_query(
     if row_filter_conditions:
         query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
 
-    query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
-    return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
+    return query + sql.SQL(" ORDER BY {field} ASC").format(field=sql.Identifier(incremental_field))
 
 
 def _xmin_predicate(bounds: XminBounds) -> sql.Composed:
@@ -2827,12 +2824,11 @@ def postgres_source(
                         # argument: 'name'". This LIMIT/OFFSET fetchall path wants an
                         # unnamed client cursor.
                         with psycopg.Cursor(connection) as cursor:
-                            query_with_limit = cast(
-                                LiteralString, f"{query.as_string()} LIMIT {chunk_size} OFFSET {offset}"
+                            query_with_limit_sql = query + sql.SQL(" LIMIT {limit} OFFSET {offset}").format(
+                                limit=sql.Literal(chunk_size),
+                                offset=sql.Literal(offset),
                             )
-                            query_with_limit_sql = sql.SQL(query_with_limit).format()
-
-                            logger.debug(f"Postgres query: {query_with_limit}")
+                            logger.debug(f"Postgres query: {query_with_limit_sql}")
                             cursor.execute(query_with_limit_sql)
 
                             column_names = [column.name for column in cursor.description or []]
