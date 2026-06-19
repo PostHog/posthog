@@ -11,6 +11,35 @@ import {
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const MemoryAppendSchema = AgentMemoryAppendCreateBody
+
+const memoryAppend = (): ToolBase<typeof MemoryAppendSchema, Schemas.MemoryFile> => ({
+    name: 'memory-append',
+    schema: MemoryAppendSchema,
+    handler: async (context: Context, params: z.infer<typeof MemoryAppendSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.path !== undefined) {
+            body['path'] = params.path
+        }
+        if (params.heading !== undefined) {
+            body['heading'] = params.heading
+        }
+        if (params.body !== undefined) {
+            body['body'] = params.body
+        }
+        if (params.updated_by_run !== undefined) {
+            body['updated_by_run'] = params.updated_by_run
+        }
+        const result = await context.api.request<Schemas.MemoryFile>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_memory/append/`,
+            body,
+        })
+        return result
+    },
+})
+
 const MemoryListSchema = AgentMemoryListQueryParams
 
 const memoryList = (): ToolBase<typeof MemoryListSchema, WithPostHogUrl<Schemas.PaginatedMemoryFileSummaryList>> => ({
@@ -84,38 +113,9 @@ const memoryWrite = (): ToolBase<typeof MemoryWriteSchema, Schemas.MemoryFile> =
     },
 })
 
-const MemoryAppendSchema = AgentMemoryAppendCreateBody
-
-const memoryAppend = (): ToolBase<typeof MemoryAppendSchema, Schemas.MemoryFile> => ({
-    name: 'memory-append',
-    schema: MemoryAppendSchema,
-    handler: async (context: Context, params: z.infer<typeof MemoryAppendSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.path !== undefined) {
-            body['path'] = params.path
-        }
-        if (params.heading !== undefined) {
-            body['heading'] = params.heading
-        }
-        if (params.body !== undefined) {
-            body['body'] = params.body
-        }
-        if (params.updated_by_run !== undefined) {
-            body['updated_by_run'] = params.updated_by_run
-        }
-        const result = await context.api.request<Schemas.MemoryFile>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_memory/append/`,
-            body,
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'memory-append': memoryAppend,
     'memory-list': memoryList,
     'memory-read': memoryRead,
     'memory-write': memoryWrite,
-    'memory-append': memoryAppend,
 }
