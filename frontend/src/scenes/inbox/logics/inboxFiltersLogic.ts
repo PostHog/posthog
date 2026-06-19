@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -53,54 +53,16 @@ export function buildSignalReportListOrdering(field: InboxSortField, direction: 
     return field === 'updated_at' ? `${fieldKey},status` : `${fieldKey},status,-updated_at`
 }
 
-/** The subset of filter state we mirror into sessionStorage. `searchQuery` is intentionally excluded. */
-export interface InboxStoredFilters {
-    scope: InboxScope
-    sortField: InboxSortField
-    sortDirection: InboxSortDirection
-    sourceProductFilter: string[]
-    priorityFilter: SignalReportPriority[]
-}
-
 /**
- * Inbox filter state, backed by `sessionStorage` (not `localStorage`). Filters
- * survive in-session reloads but reset when the tab — or, in the desktop app, the
- * window — closes. Persisting them across sessions was confusing: an empty inbox
- * left by a forgotten filter looked broken (PostHog papercut).
- *
- * State covered: `scope` (default "for-you"), `sortField`/`sortDirection` (default
- * priority/asc), `sourceProductFilter`, `priorityFilter`. `searchQuery` is never
- * stored.
- *
- * Hydration runs in `afterMount` (not in the reducer defaults) so the current
- * sessionStorage values are re-read on every mount — including when the logic
- * unmounts and remounts on SPA navigation back into the inbox. Writes happen only
- * on user-initiated filter actions (listeners below), never on mount, so a remount
- * can't clobber storage with stale defaults before hydration has run.
+ * Persisted inbox filter state. Mirrors desktop's zustand stores:
+ * - `inboxReviewerScopeStore` → `scope` (persisted, default "for-you")
+ * - `inboxSignalsFilterStore` v2 → `sortField`/`sortDirection` (default priority/asc),
+ *   `sourceProductFilter`, `priorityFilter` (all persisted). `searchQuery` is NOT
+ *   persisted on desktop, so it isn't here either.
  *
  * The central `inboxSceneLogic` connects these values, maps them to list-API
  * params (`source_product`, `priority`, `ordering`), and reloads on change.
  */
-const SESSION_STORAGE_PREFIX = 'posthog.inboxFilters'
-
-function readSessionFilter<T>(key: string, fallback: T): T {
-    try {
-        const raw = window.sessionStorage?.getItem(`${SESSION_STORAGE_PREFIX}.${key}`)
-        return raw != null ? (JSON.parse(raw) as T) : fallback
-    } catch {
-        // sessionStorage unavailable (private mode / restricted) or malformed JSON — fall back to default.
-        return fallback
-    }
-}
-
-function writeSessionFilter(key: string, value: unknown): void {
-    try {
-        window.sessionStorage?.setItem(`${SESSION_STORAGE_PREFIX}.${key}`, JSON.stringify(value))
-    } catch {
-        // sessionStorage unavailable — filters just won't survive a reload, which is acceptable.
-    }
-}
-
 export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxFiltersLogic']),
 
@@ -111,8 +73,6 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         toggleSourceProduct: (source: string) => ({ source }),
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
         clearFilters: true,
-        // Restore all stored filters at once on mount (hydration from sessionStorage).
-        restoreFilters: (filters: InboxStoredFilters) => ({ filters }),
         // Debounced server-side org-member search for the scope (teammate) picker.
         searchAvailableReviewers: (query: string) => ({ query }),
     }),
@@ -131,35 +91,22 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         searchAvailableReviewers: async ({ query }, breakpoint) => {
             await breakpoint(300)
             actions.loadAvailableReviewers({ query: query.trim() || undefined })
-        },
-        // Write back to sessionStorage only on user-initiated changes (listeners run after the reducer,
-        // so `values` already reflect the new state). Mount-time hydration never triggers these.
-        setScope: () => writeSessionFilter('scope', values.scope),
-        setSort: () => {
-            writeSessionFilter('sortField', values.sortField)
-            writeSessionFilter('sortDirection', values.sortDirection)
-        },
-        toggleSourceProduct: () => writeSessionFilter('sourceProductFilter', values.sourceProductFilter),
-        togglePriority: () => writeSessionFilter('priorityFilter', values.priorityFilter),
-        clearFilters: () => {
-            writeSessionFilter('sourceProductFilter', values.sourceProductFilter)
-            writeSessionFilter('priorityFilter', values.priorityFilter)
         },
     })),
 
     reducers({
         scope: [
             INBOX_SCOPE_FOR_YOU as InboxScope,
+            { persist: true },
             {
                 setScope: (_, { scope }) => scope,
-                restoreFilters: (_, { filters }) => filters.scope,
             },
         ],
-        // Never stored — matches desktop (searchQuery is excluded from `partialize`).
+        // Not persisted – matches desktop (searchQuery is excluded from `partialize`).
         searchQuery: [
             '',
             {
@@ -169,47 +116,49 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         ],
         sortField: [
             'priority' as InboxSortField,
+            { persist: true },
             {
                 setSort: (_, { field }) => field,
-                restoreFilters: (_, { filters }) => filters.sortField,
             },
         ],
         sortDirection: [
             'asc' as InboxSortDirection,
+            { persist: true },
             {
                 setSort: (_, { direction }) => direction,
-                restoreFilters: (_, { filters }) => filters.sortDirection,
             },
         ],
         sourceProductFilter: [
             [] as string[],
+            { persist: true },
             {
                 toggleSourceProduct: (state, { source }) =>
                     state.includes(source) ? state.filter((s) => s !== source) : [...state, source],
                 clearFilters: () => [],
-                restoreFilters: (_, { filters }) => filters.sourceProductFilter,
             },
         ],
         priorityFilter: [
             [] as SignalReportPriority[],
+            { persist: true },
             {
                 togglePriority: (state, { priority }) =>
                     state.includes(priority) ? state.filter((p) => p !== priority) : [...state, priority],
                 clearFilters: () => [],
-                restoreFilters: (_, { filters }) => filters.priorityFilter,
             },
+        ],
+    }),
+
+    selectors({
+        // Whether any list-narrowing filter is active. Scope and sort are excluded: they don't hide
+        // reports the way search/source/priority do, and `clearFilters` leaves them untouched.
+        hasActiveFilters: [
+            (s) => [s.searchQuery, s.sourceProductFilter, s.priorityFilter],
+            (searchQuery, sourceProductFilter, priorityFilter): boolean =>
+                searchQuery.trim().length > 0 || sourceProductFilter.length > 0 || priorityFilter.length > 0,
         ],
     }),
 
     afterMount(({ actions }) => {
         actions.loadAvailableReviewers()
-        // Re-read sessionStorage on every mount so SPA nav back into the inbox restores the latest filters.
-        actions.restoreFilters({
-            scope: readSessionFilter<InboxScope>('scope', INBOX_SCOPE_FOR_YOU),
-            sortField: readSessionFilter<InboxSortField>('sortField', 'priority'),
-            sortDirection: readSessionFilter<InboxSortDirection>('sortDirection', 'asc'),
-            sourceProductFilter: readSessionFilter<string[]>('sourceProductFilter', []),
-            priorityFilter: readSessionFilter<SignalReportPriority[]>('priorityFilter', []),
-        })
     }),
 ])
