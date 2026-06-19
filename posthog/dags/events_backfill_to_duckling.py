@@ -66,6 +66,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
+from posthog.ducklake.backfill_telemetry import emit_backfill_partition_event
 from posthog.ducklake.client import make_duckgres_conninfo
 from posthog.ducklake.common import _get_org_id_for_team, derive_duckling_bucket
 from posthog.ducklake.models import DuckLakeBackfill
@@ -1694,6 +1695,33 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             files_registered=total_registered,
         )
 
+        if dates and not config.dry_run:
+            try:
+                emit_backfill_partition_event(
+                    team_id=team_id,
+                    partition_date=max(dates).date(),
+                    status="success",
+                    run_id=context.run.run_id,
+                    files_exported=total_exported,
+                    files_registered=total_registered,
+                    dates_processed=len(dates),
+                )
+            except Exception:
+                context.log.exception("Failed to emit backfill success telemetry (non-fatal)")
+
+    except Exception as exc:
+        if dates and not config.dry_run:
+            try:
+                emit_backfill_partition_event(
+                    team_id=team_id,
+                    partition_date=max(dates).date(),
+                    status="failed",
+                    run_id=context.run.run_id,
+                    error_message=str(exc)[:1000],
+                )
+            except Exception:
+                context.log.exception("Failed to emit backfill failure telemetry (non-fatal)")
+        raise
     finally:
         if session is not None:
             session.close()
