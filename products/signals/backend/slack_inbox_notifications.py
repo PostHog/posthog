@@ -351,8 +351,8 @@ def _build_message_blocks(
     action_elements.append(
         {
             "type": "button",
-            "text": {"type": "plain_text", "text": "Open in PostHog Code", "emoji": True},
-            "url": f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report.id}",
+            "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+            "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
         }
     )
     if dismiss_button_value:
