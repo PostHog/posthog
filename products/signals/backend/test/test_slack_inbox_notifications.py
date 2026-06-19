@@ -186,8 +186,7 @@ def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -
     assert buttons[0]["text"]["text"] == "Review PR"
     assert buttons[0]["url"] == pr_url
     assert buttons[1]["text"]["text"] == "Open in PostHog"
-    # A report with an implementation PR lives under the "pulls" tab.
-    assert buttons[1]["url"] == f"{settings.SITE_URL}/project/42/inbox/pulls/report-uuid"
+    assert buttons[1]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
 
 
 def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
@@ -602,8 +601,7 @@ def test_dispatch_includes_github_pr_button_when_implementation_task_has_pr(org_
     buttons = fake_client.chat_postMessage.call_args.kwargs["blocks"][3]["elements"]
     assert [b["text"]["text"] for b in buttons] == ["Review PR", "Open in PostHog", "Dismiss"]
     assert buttons[0]["url"] == "https://github.com/org/repo/pull/99"
-    # A report with an implementation PR deep-links to the "pulls" tab.
-    assert buttons[1]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/pulls/{report.id}"
+    assert buttons[1]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
     assert buttons[-1]["action_id"] == "signals_dismiss_report"
 
 
