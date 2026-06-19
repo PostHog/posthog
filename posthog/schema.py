@@ -123,6 +123,7 @@ from posthog.schema_enums import (
     HedgehogActorSkinOption as HedgehogActorSkinOption,
     HideViewedRecordings as HideViewedRecordings,
     HogLanguage as HogLanguage,
+    HogQLAlertEvaluation as HogQLAlertEvaluation,
     HrefMatching as HrefMatching,
     InCohortVia as InCohortVia,
     InfinityValue as InfinityValue,
@@ -137,6 +138,7 @@ from posthog.schema_enums import (
     Key10 as Key10,
     Kind as Kind,
     Kind1 as Kind1,
+    LegendPosition as LegendPosition,
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
     LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
@@ -170,6 +172,7 @@ from posthog.schema_enums import (
     MetaAdsTableKeywords as MetaAdsTableKeywords,
     Method as Method,
     Metric as Metric,
+    MetricSummary as MetricSummary,
     MrrOrGross as MrrOrGross,
     MultipleBreakdownType as MultipleBreakdownType,
     MultipleVariantHandling as MultipleVariantHandling,
@@ -2680,6 +2683,14 @@ class SignalsScoutSignalExtra(BaseModel):
             " the harness normalizes and caps these at emit."
         ),
     )
+    task_id: str | None = Field(
+        default=None,
+        description=(
+            "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the"
+            " inbox card to the run in the Tasks UI. Absent on emissions made before"
+            " this linkage was captured."
+        ),
+    )
     task_run_id: str = Field(
         ...,
         description=(
@@ -4215,8 +4226,11 @@ class AssistantTrendsFilter(BaseModel):
             " chart; good for cumulative metrics. `BoldNumber` - total value single"
             " large number. Use when user explicitly asks for a single output number."
             " You CANNOT use this with breakdown or if the insight has more than one"
-            " series. `ActionsBarValue` - total value (NOT time-series) bar chart; good"
-            " for categorical data. `ActionsPie` - total value pie chart; good for"
+            " series. `Metric` - single large number with a period-over-period change"
+            " pill and a sparkline. Like `BoldNumber` but trend-aware; configure it"
+            " with the `metric*` fields below. Single series, no breakdown."
+            " `ActionsBarValue` - total value (NOT time-series) bar chart; good for"
+            " categorical data. `ActionsPie` - total value pie chart; good for"
             " visualizing proportions. `ActionsTable` - total value table; good when"
             " using breakdown to list users or other entities. `WorldMap` - total value"
             " world map; use when breaking down by country name using property"
@@ -4239,6 +4253,69 @@ class AssistantTrendsFilter(BaseModel):
             " to find and use events or actions similar to `$identify` and `onboarding"
             " complete`, so the formula will be `A / B`, where `A` is `onboarding"
             " complete` (unique users) and `B` is `$identify` (unique users)."
+        ),
+    )
+    metricChangeDecreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for"
+            " the change pill when the metric went DOWN. Defaults to red (`#db3707`)."
+            ' For a "lower is better" metric (latency, error rate, cost), set this to a'
+            " green (e.g. `#388600`) so a decrease reads as good."
+        ),
+    )
+    metricChangeIncreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for"
+            " the change pill when the metric went UP. Defaults to green (`#388600`)."
+            ' For a "lower is better" metric (latency, error rate, cost), set this to a'
+            " red (e.g. `#db3707`) so an increase reads as bad."
+        ),
+    )
+    metricColorByDirection: bool | None = Field(
+        default=False,
+        description=(
+            "Only applies when `display` is `Metric`. Color the sparkline under the big"
+            " number by whether the metric increased or decreased over the period"
+            " (using the increase/decrease line colors)."
+        ),
+    )
+    metricLineDecreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric` and `metricColorByDirection` is"
+            " `true`. Hex color for the sparkline when the metric went DOWN. Defaults"
+            ' to red (`#db3707`). Flip to a green for a "lower is better" metric.'
+        ),
+    )
+    metricLineIncreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric` and `metricColorByDirection` is"
+            " `true`. Hex color for the sparkline when the metric went UP. Defaults to"
+            ' green (`#388600`). Flip to a red for a "lower is better" metric.'
+        ),
+    )
+    metricShowChange: bool | None = Field(
+        default=True,
+        description=(
+            "Only applies when `display` is `Metric`. Show the change pill next to the"
+            " big number. What it compares follows `metricSummary`: `total`/`average`"
+            ' compare against the previous period when "compare to previous" is on'
+            " (otherwise first→last of the series), and `latest` is always first→last"
+            " of the series."
+        ),
+    )
+    metricSummary: MetricSummary | None = Field(
+        default=MetricSummary.TOTAL,
+        description=(
+            "Only applies when `display` is `Metric`. Which summary the resting big"
+            " number shows: `total` (sum over the period), `average` (mean of the"
+            " points), or `latest` (last point). Hovering the sparkline always shows"
+            " the hovered point's value regardless of this setting. Also drives the"
+            " change pill: `total`/`average` compare against the previous period when"
+            ' "compare to previous" is on; `latest` compares first→last of the series.'
         ),
     )
     showAlertThresholdLines: bool | None = Field(
@@ -5243,6 +5320,32 @@ class HeatmapSettings(BaseModel):
     xAxisLabel: str | None = None
     yAxisColumn: str | None = None
     yAxisLabel: str | None = None
+
+
+class HogQLAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str | None = Field(
+        default=None,
+        description=(
+            "Name of the result column to evaluate. When unset, the single numeric"
+            " column is used (an error if the result has more than one numeric column)."
+        ),
+    )
+    evaluation: HogQLAlertEvaluation = Field(
+        ...,
+        description=("How to read the result rows — an explicit choice, no implicit default."),
+    )
+    label_column: str | None = Field(
+        default=None,
+        description=(
+            "In `any_row` mode, the column whose value labels each row in breach"
+            " messages. When unset, the first non-evaluated column is used, falling"
+            " back to the row number."
+        ),
+    )
+    type: Literal["HogQLAlertConfig"] = "HogQLAlertConfig"
 
 
 class HogQLAutocompleteResponse(BaseModel):
@@ -7675,6 +7778,10 @@ class TrendsFilter(BaseModel):
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     metricChangeDecreaseColor: str | None = Field(
         default=None,
         description=("Metric display: change pill color when the metric decreased. Defaults to red."),
@@ -7698,6 +7805,16 @@ class TrendsFilter(BaseModel):
     metricShowChange: bool | None = Field(
         default=True,
         description="Show the period-over-period change pill on the Metric display.",
+    )
+    metricSummary: MetricSummary | None = Field(
+        default=MetricSummary.TOTAL,
+        description=(
+            "Metric display: which summary the resting headline shows — the period"
+            " total, the average, or the latest point. Hovering the sparkline always"
+            " shows the hovered point's value. Also drives the change pill:"
+            ' total/average compare against the previous period when "compare to'
+            ' previous" is on; latest compares first→last of the series.'
+        ),
     )
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None

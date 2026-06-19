@@ -36,6 +36,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
+from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache, MCPSession
 
 # Constants
@@ -132,7 +133,7 @@ def fetch_intent_corpus(
     """Return ``(records, intent_by_session)`` for clustering.
 
     The intent text comes from posthog_mcp_session (Postgres), one row per
-    MCP session. Tool stats come from ClickHouse mcp_tool_call events joined
+    MCP session. Tool stats come from ClickHouse $mcp_tool_call events joined
     by session_id. Same intent string repeated across sessions aggregates.
 
     ``intent_by_session`` is exposed so callers can later join session-level
@@ -168,7 +169,7 @@ def fetch_intent_corpus(
     query = parse_select(
         _SESSION_TOOL_STATS_SQL,
         placeholders={
-            "event": ast.Constant(value="mcp_tool_call"),
+            "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "session_ids": ast.Tuple(exprs=[ast.Constant(value=sid) for sid in session_ids]),
             "lookback_days": ast.Constant(value=lookback_days),
         },
@@ -236,7 +237,7 @@ def fetch_session_journeys(
     query = parse_select(
         _SESSION_JOURNEY_SQL,
         placeholders={
-            "event": ast.Constant(value="mcp_tool_call"),
+            "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "session_ids": ast.Tuple(exprs=[ast.Constant(value=sid) for sid in session_ids]),
             "lookback_days": ast.Constant(value=lookback_days),
         },
