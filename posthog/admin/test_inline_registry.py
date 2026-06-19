@@ -1,7 +1,14 @@
 import pytest
 
+from django.contrib import admin
+
 from posthog.admin import inline_registry
 from posthog.admin.inline_registry import extra_inlines_for, register_admin_inline
+from posthog.models import Organization, Team
+
+
+class _DummyInline(admin.TabularInline):
+    model = Organization
 
 
 @pytest.fixture(autouse=True)
@@ -13,19 +20,12 @@ def _restore_registry():
 
 
 def test_register_admin_inline_is_idempotent():
-    class _DummyModel:
-        pass
-
-    class _Inline:
-        pass
-
-    register_admin_inline(_DummyModel, _Inline)
-    register_admin_inline(_DummyModel, _Inline)
-    assert extra_inlines_for(_DummyModel) == [_Inline]
+    register_admin_inline(Organization, _DummyInline)
+    register_admin_inline(Organization, _DummyInline)
+    assert extra_inlines_for(Organization).count(_DummyInline) == 1
 
 
-def test_extra_inlines_for_unregistered_model_is_empty():
-    class _Unregistered:
-        pass
-
-    assert extra_inlines_for(_Unregistered) == []
+def test_inline_is_scoped_to_its_parent_model():
+    register_admin_inline(Organization, _DummyInline)
+    assert _DummyInline in extra_inlines_for(Organization)
+    assert _DummyInline not in extra_inlines_for(Team)

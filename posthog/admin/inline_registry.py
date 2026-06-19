@@ -17,10 +17,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from django.contrib.admin import InlineModelAdmin
+    from django.contrib.admin.options import InlineModelAdmin
     from django.db.models import Model
 
-_extra_inlines: dict[type, list[type]] = {}
+_extra_inlines: dict[type[Model], list[type[InlineModelAdmin]]] = {}
 
 
 def register_admin_inline(parent_model: type[Model], inline_cls: type[InlineModelAdmin]) -> None:
@@ -34,6 +34,6 @@ def register_admin_inline(parent_model: type[Model], inline_cls: type[InlineMode
         inlines.append(inline_cls)
 
 
-def extra_inlines_for(parent_model: type[Model]) -> list[type]:
+def extra_inlines_for(parent_model: type[Model]) -> list[type[InlineModelAdmin]]:
     """Inlines other apps registered for `parent_model`, in registration order."""
     return list(_extra_inlines.get(parent_model, []))
