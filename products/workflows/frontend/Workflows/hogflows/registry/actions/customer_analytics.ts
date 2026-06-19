@@ -15,7 +15,8 @@ export const buildAccountExternalIdInputs = (
         return undefined
     }
     const groupType = groupTypes.get(accountGroupTypeIndex as GroupTypeIndex)?.group_type
-    return groupType ? { external_id: { value: `{groups.${groupType}.id}` } } : undefined
+    // Quote the group type as a property key — an ingested name with template delimiters must not break out of the Hog expression.
+    return groupType ? { external_id: { value: `{groups[${JSON.stringify(groupType)}].id}` } } : undefined
 }
 
 const getAccountExternalIdDefaultInputs = (): Record<string, CyclotronInputType> | undefined =>
