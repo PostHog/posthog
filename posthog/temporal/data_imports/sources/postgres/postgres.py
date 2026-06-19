@@ -592,6 +592,19 @@ def _normalize_function_names(function_names: list[Any]) -> list[str]:
     )
 
 
+def _pg_required_args(pronargs: Any, pronargdefaults: Any, provariadic: Any) -> int:
+    """Required-arg count for a pg_proc row.
+
+    `pronargs` counts every input parameter including the VARIADIC slot, and `pronargdefaults`
+    counts those with defaults. A VARIADIC parameter may be supplied with zero elements, so it is
+    not required — subtract it back out when present. Clamped at 0.
+    """
+    required = int(pronargs) - int(pronargdefaults or 0)
+    if (provariadic or 0) != 0:
+        required -= 1
+    return max(0, required)
+
+
 def _aggregate_table_function_arity(
     rows: Iterable[tuple[Any, int, bool]],
 ) -> dict[str, dict[str, int | None]]:
@@ -1246,30 +1259,26 @@ def get_connection_metadata(
             available_functions = [fn for fn in available_functions if not is_dangerous_table_function(fn)]
             available_table_functions = [fn for fn in available_table_functions if not is_dangerous_table_function(fn)]
 
-            # Best-effort per-function argument arity, kept in its own try/except so a missing column
-            # (e.g. older DuckDB without `varargs`) degrades to "unknown arity" rather than dropping
-            # the table-function list above. Consumers fall back to engine-side validation when absent.
+            # Best-effort per-function argument arity, in its own try/except so a failure degrades to
+            # "unknown arity" rather than dropping the table-function list above; consumers then fall
+            # back to engine-side validation. Postgres only: pg_proc exposes a reliable required-arg
+            # count. DuckDB's duckdb_functions().parameters conflates required, optional-named, and
+            # variadic parameters with no default-ness signal (e.g. duckdb_secrets reports
+            # parameters=['redact'], an optional named arg), so len(parameters) would overstate the
+            # floor and wrongly reject valid zero-arg calls — we leave DuckDB arity unknown.
             table_function_arity: dict[str, dict[str, int | None]] = {}
-            try:
-                if is_duckdb:
-                    cursor.execute(
-                        "SELECT function_name, parameters, varargs FROM duckdb_functions() "
-                        "WHERE function_type = 'table'"
-                    )
-                    table_function_arity = _aggregate_table_function_arity(
-                        (row[0], len(row[1] or []), row[2] is not None) for row in cursor.fetchall()
-                    )
-                else:
-                    # required args = total in-args minus those with defaults; provariadic != 0 ⇒ variadic.
+            if not is_duckdb:
+                try:
                     cursor.execute(
                         "SELECT proname, pronargs, pronargdefaults, provariadic FROM pg_proc "
                         "WHERE pg_function_is_visible(oid) AND proretset = true AND prokind = 'f'"
                     )
                     table_function_arity = _aggregate_table_function_arity(
-                        (row[0], int(row[1]) - int(row[2] or 0), (row[3] or 0) != 0) for row in cursor.fetchall()
+                        (row[0], _pg_required_args(row[1], row[2], row[3]), (row[3] or 0) != 0)
+                        for row in cursor.fetchall()
                     )
-            except Exception as error:
-                capture_exception(error)
+                except Exception as error:
+                    capture_exception(error)
 
             allowed_table_functions = set(available_table_functions)
             table_function_arity = {

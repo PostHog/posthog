@@ -5834,6 +5834,12 @@ class TestPostgresPrinter(BaseTest):
             self._select("SELECT * FROM unnest(1, 2)", context=context)
         self.assertIn("requires at most 1 argument", str(ctx.exception))
 
+    def test_opaque_table_function_variadic_allows_many_args(self):
+        # `max: None` means unbounded — a call with many args must be accepted, not capped.
+        context = self._context_with_table_functions("unnest", arity={"unnest": {"min": 1, "max": None}})
+        printed = self._select("SELECT unnest FROM unnest(1, 2, 3, 4)", context=context)
+        self.assertIn("unnest(", printed)
+
     def test_opaque_table_function_allows_nullary_call_when_arity_known(self):
         # `duckdb_secrets()` is a zero-argument table function; a known min of 0 must accept an empty call.
         context = self._context_with_table_functions("duckdb_secrets", arity={"duckdb_secrets": {"min": 0, "max": 0}})

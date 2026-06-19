@@ -2396,7 +2396,9 @@ class Resolver(CloningVisitor):
         return build_opaque_function_call_table(function_name, min_args=min_args, max_args=max_args)
 
     @staticmethod
-    def _opaque_table_function_arity(metadata: dict, function_name: str) -> tuple[Optional[int], Optional[int]]:
+    def _opaque_table_function_arity(
+        metadata: dict[str, Any], function_name: str
+    ) -> tuple[Optional[int], Optional[int]]:
         # Introspected `{name: {"min": int, "max": int | None}}`. Absent for metadata captured before
         # arity was introspected — return (None, None) so the call validates against the engine instead
         # of a fabricated floor (which wrongly rejected nullary functions like `duckdb_secrets()`).

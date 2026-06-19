@@ -84,6 +84,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_unsupported_function_error,
     _next_recovery_conflict_chunk_size,
     _normalize_function_names,
+    _pg_required_args,
     _raise_if_setup_connection_broken,
     _recovery_conflict_abort_error,
     _rls_active_from_conn,
@@ -92,6 +93,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _statement_timeout_as_non_retryable,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
+    get_connection_metadata,
     get_foreign_keys,
     get_leading_index_columns,
     get_postgres_row_count,
@@ -2361,16 +2363,19 @@ class TestNormalizeFunctionNames:
 
 class TestAggregateTableFunctionArity:
     def test_nullary_function(self):
-        # `duckdb_secrets()` takes no positional args ⇒ min/max of 0.
-        assert _aggregate_table_function_arity([("duckdb_secrets", 0, False)]) == {
-            "duckdb_secrets": {"min": 0, "max": 0}
-        }
+        # A zero-required-arg function ⇒ min/max of 0, accepting an empty call.
+        assert _aggregate_table_function_arity([("some_fn", 0, False)]) == {"some_fn": {"min": 0, "max": 0}}
 
     def test_fixed_arity_function(self):
         assert _aggregate_table_function_arity([("unnest", 1, False)]) == {"unnest": {"min": 1, "max": 1}}
 
     def test_overloads_widen_min_and_max(self):
         rows = [("range", 1, False), ("range", 2, False), ("range", 3, False)]
+        assert _aggregate_table_function_arity(rows) == {"range": {"min": 1, "max": 3}}
+
+    def test_overloads_in_descending_order_still_lower_min(self):
+        # Catalog queries impose no ORDER BY, so a smaller overload may arrive after a larger one.
+        rows = [("range", 3, False), ("range", 1, False)]
         assert _aggregate_table_function_arity(rows) == {"range": {"min": 1, "max": 3}}
 
     def test_variadic_overload_makes_max_unbounded(self):
@@ -2390,6 +2395,118 @@ class TestAggregateTableFunctionArity:
 
     def test_empty_input(self):
         assert _aggregate_table_function_arity([]) == {}
+
+
+class TestPgRequiredArgs:
+    @pytest.mark.parametrize(
+        "pronargs,pronargdefaults,provariadic,expected",
+        [
+            (0, 0, 0, 0),  # nullary
+            (3, 0, 0, 3),  # all required
+            (3, 1, 0, 2),  # one defaulted
+            (1, 0, 1, 0),  # variadic-only ⇒ the variadic slot is not required
+            (3, 1, 1, 1),  # required + defaulted + variadic
+            (1, 2, 0, 0),  # nonsense defaults clamp at 0
+            (2, None, None, 2),  # null defaults/variadic treated as 0
+        ],
+    )
+    def test_required_args(self, pronargs, pronargdefaults, provariadic, expected):
+        assert _pg_required_args(pronargs, pronargdefaults, provariadic) == expected
+
+
+class _ArityCursor:
+    """Minimal cursor that scripts get_connection_metadata's introspection queries by SQL shape."""
+
+    def __init__(self, version, func_rows, table_func_rows, arity_rows, *, arity_raises=False):
+        self._version = version
+        self._func_rows = func_rows
+        self._table_func_rows = table_func_rows
+        self._arity_rows = arity_rows
+        self._arity_raises = arity_raises
+        self._last = ""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, *args):
+        self._last = sql
+        if self._arity_raises and ("pronargs" in sql or "parameters" in sql):
+            raise RuntimeError("boom")
+
+    def fetchone(self):
+        return ("mydb", self._version)
+
+    def fetchall(self):
+        sql = self._last
+        if "pronargs" in sql or "parameters" in sql:
+            return self._arity_rows
+        if "function_type = 'table'" in sql or "proretset = true" in sql:
+            return self._table_func_rows
+        return self._func_rows
+
+
+class TestGetConnectionMetadataArity:
+    _MODULE = "posthog.temporal.data_imports.sources.postgres.postgres"
+
+    def _run(self, cursor: _ArityCursor) -> dict:
+        cursor_cm = MagicMock()
+        cursor_cm.__enter__.return_value = cursor
+        cursor_cm.__exit__.return_value = False
+        connection = MagicMock()
+        connection.cursor.return_value = cursor_cm
+        connection_cm = MagicMock()
+        connection_cm.__enter__.return_value = connection
+        connection_cm.__exit__.return_value = False
+        with patch(f"{self._MODULE}.pg_connection", return_value=connection_cm):
+            return get_connection_metadata(host="h", database="mydb", user="u", password="p", port=5432)
+
+    def test_postgres_arity_mapped_and_filtered(self):
+        cursor = _ArityCursor(
+            version="PostgreSQL 16.1 on x86_64",
+            func_rows=[("now",)],
+            table_func_rows=[("unnest",), ("gen",), ("variadic_fn",)],
+            # (proname, pronargs, pronargdefaults, provariadic)
+            arity_rows=[
+                ("unnest", 1, 0, 0),
+                ("gen", 2, 1, 0),
+                ("variadic_fn", 1, 0, 2277),  # variadic-only ⇒ min 0, max unbounded
+                ("not_a_table_fn", 4, 0, 0),  # absent from available_table_functions ⇒ filtered out
+            ],
+        )
+        result = self._run(cursor)
+        assert result["engine"] == "postgres"
+        assert result["table_function_arity"] == {
+            "unnest": {"min": 1, "max": 1},
+            "gen": {"min": 1, "max": 1},
+            "variadic_fn": {"min": 0, "max": None},
+        }
+
+    def test_duckdb_emits_no_arity(self):
+        cursor = _ArityCursor(
+            version="duckdb v1.5.2 (duckgres)",
+            func_rows=[("length",)],
+            table_func_rows=[("duckdb_secrets",), ("unnest",)],
+            arity_rows=[("should", ["be"], None)],  # would be used only if DuckDB arity were queried
+        )
+        result = self._run(cursor)
+        assert result["engine"] == "duckdb"
+        assert "duckdb_secrets" in result["available_table_functions"]
+        assert result["table_function_arity"] == {}
+
+    def test_arity_query_failure_degrades_to_empty(self):
+        cursor = _ArityCursor(
+            version="PostgreSQL 16.1",
+            func_rows=[("now",)],
+            table_func_rows=[("unnest",)],
+            arity_rows=[("unnest", 1, 0, 0)],
+            arity_raises=True,
+        )
+        result = self._run(cursor)
+        assert result["available_table_functions"] == ["unnest"]
+        assert result["table_function_arity"] == {}
 
 
 class TestFilterPostgresIncrementalFields:
