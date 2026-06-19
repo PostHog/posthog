@@ -2,11 +2,13 @@ import { IntegrationManagerService } from '~/cdp/services/managers/integration-m
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
-import { createAiConsumer, createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { createAiConsumer, createAiEventSubpipeline, hogTransformerComponent } from '~/ingestion/pipelines/ai'
+import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
 import { createHeatmapsConsumer } from '~/ingestion/pipelines/heatmaps'
@@ -295,13 +297,25 @@ export class IngestionGeneralServer implements NodeServer {
                           INGESTION_CONSUMER_GROUP_ID: override.groupId,
                       }
                     : this.config
-                // The AI pipeline reads person/group data but never writes it: it builds its
-                // own read-only personhog repositories from the shared client, and its own hog
-                // transformer instance (separate from the analytics consumer).
-                const consumerScope = createAiConsumer(consumerConfig, sharedServicesScope, {
-                    hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-                    personhogClient,
-                })
+                // The AI lane can't construct the cdp-owned hog transformer itself (boundary),
+                // so the server injects it (and the lane's outputs, which also back the
+                // transformer's monitoring) through an AI-specific scope. The consumer owns
+                // everything else (incl. its personhog client), taking only config + parent scope.
+                const aiOutputs = createAiOutputsRegistry().build(ingestionProducerRegistry, this.config)
+                const aiSharedScope = extend(sharedServicesScope, 'ai-shared', (_container, builder) =>
+                    builder
+                        .add(
+                            'hogTransformer',
+                            hogTransformerComponent(() =>
+                                createHogTransformerService(this.config, {
+                                    ...hogTransformerDeps,
+                                    monitoringOutputs: aiOutputs,
+                                })
+                            )
+                        )
+                        .add('outputs', new IngestionOutputsComponent(() => aiOutputs))
+                )
+                const consumerScope = createAiConsumer(consumerConfig, aiSharedScope)
                 const { consumer, stop } = await consumerScope.start()
                 return ingestionConsumerService(consumer, stop)
             })
