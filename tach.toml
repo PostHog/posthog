@@ -690,7 +690,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|tasks|tracing|user_interviews|visual_review)",
+    "products\\.(error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -759,6 +759,28 @@ expose = [
 ]
 from = [
     "products.mcp_store",
+]
+
+# legal_documents has a non-standard public surface, so it gets a dedicated block rather than
+# joining the canonical alternation above: posthog/urls registers its pandadoc webhook
+# (presentation.webhook), and core's OrganizationAdmin lists its LegalDocumentInline (admin
+# block below — a Django inline must be named in its parent admin's `inlines`).
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.legal_documents",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.admin.*",
+]
+from = [
+    "products.legal_documents",
 ]
 
 # error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to

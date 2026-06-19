@@ -6,7 +6,7 @@ import { ChartDisplayType } from '~/types'
 
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
-import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
+import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { LineGraphProps } from './LineGraph'
 
@@ -71,7 +71,13 @@ export function capYSeriesData(yData: LineGraphProps['yData']): SqlLineYSeries[]
     return yData.length > MAX_SERIES ? yData.slice(0, MAX_SERIES) : yData
 }
 
-export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDisplayType): Series[] {
+/** Per-series display settings carried into quill's `series.meta` so the tooltip can format each
+ *  row with its own column's currency/duration/percent/prefix/suffix settings. */
+export interface SqlLineSeriesMeta {
+    settings?: AxisSeriesSettings
+}
+
+export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDisplayType): Series<SqlLineSeriesMeta>[] {
     return yData.map((series, index) => {
         const settings = series.settings
         const color = settings?.display?.color
@@ -81,11 +87,17 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             label: getSeriesLabel(series),
             // null -> NaN so quill draws a gap rather than a zero.
             data: series.data.map((value) => (value == null ? NaN : value)),
+            meta: { settings },
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
             ...(isAreaSeries(visualizationType, settings) ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
         }
     })
+}
+
+/** Formats a tooltip value with a column's display settings. */
+export function formatSqlSeriesValue(value: number, settings?: AxisSeriesSettings): string {
+    return String(formatDataWithSettings(value, settings) ?? value)
 }
 
 interface BuildConfigArgs {

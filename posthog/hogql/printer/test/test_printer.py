@@ -1252,6 +1252,19 @@ class TestPrinter(BaseTest):
         # of raising "Cannot parse boolean value here" and failing the whole query.
         self.assertEqual(self._expr(expr), expected)
 
+    @parameterized.expand(
+        [
+            ("toFloat", "toFloat('1.3')"),
+            ("toFloatOrNull", "toFloatOrNull('1.3')"),
+            ("toFloat64OrNull", "toFloat64OrNull('1.3')"),
+        ]
+    )
+    def test_to_float_aliases(self, _name: str, expr: str) -> None:
+        # toFloatOrNull / toFloat64OrNull are accepted ClickHouse-name aliases of toFloat,
+        # all routing through accurateCastOrNull so unparseable input becomes NULL.
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
@@ -2953,6 +2966,32 @@ class TestPrinter(BaseTest):
         query = parse_select("SELECT col1 FROM csv_table")
         printed, _ = prepare_and_print_ast(query, context, "clickhouse")
         assert "format_csv_allow_double_quotes=1" in printed
+
+    @parameterized.expand(["Parquet", "Delta", "DeltaS3Wrapper"])
+    def test_warehouse_parquet_table_disables_prewhere_scoped(self, fmt: str):
+        from posthog.hogql.database.models import TableNode
+        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+
+        parquet_table = HogQLDataWarehouseTable(
+            name="parquet_table",
+            url="https://example.com/test.parquet",
+            format=fmt,
+            fields={"col1": StringDatabaseField(name="col1")},
+            structure="`col1` String",
+        )
+        db = Database()
+        root = TableNode()
+        root.add_child(TableNode(name="parquet_table", table=parquet_table))
+        db._add_warehouse_tables(root)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query = parse_select("SELECT col1 FROM parquet_table")
+        printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        # PREWHERE is disabled only inside the subquery wrapping the read, so the
+        # surrounding query keeps PREWHERE. The read renders as s3() for Parquet/
+        # DeltaS3Wrapper and deltaLake() for Delta, so assert on the wrap, not the function.
+        assert "(SELECT * FROM " in printed
+        assert "SETTINGS optimize_move_to_prewhere = 0)" in printed
+        assert printed.count("optimize_move_to_prewhere") == 1
 
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")

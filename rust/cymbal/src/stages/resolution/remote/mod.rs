@@ -3,7 +3,7 @@
 //! When `Config::remote_resolution_enabled` is set, the resolution stage
 //! routes exception-level symbol resolution through the `cymbal-resolution`
 //! service via a caller-owned endpoint pool instead of running
-//! [`crate::stages::resolution::symbol::local::LocalSymbolResolver`] inline.
+//! [`crate::symbolication::symbol::local::LocalSymbolResolver`] inline.
 //!
 //! There is intentionally no silent local fallback: if the pool cannot
 //! satisfy a request, the stage surfaces an unhandled error for the batch

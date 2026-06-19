@@ -14,29 +14,29 @@ export const ExternalDataSchemasCreateBody = /* @__PURE__ */ zod.object({
     sync_type: zod
         .union([
             zod
-                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
                 .describe(
-                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
         .union([
             zod
-                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid', 'xid'])
                 .describe(
-                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
     sync_frequency: zod
         .union([
@@ -105,29 +105,29 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
     sync_type: zod
         .union([
             zod
-                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
                 .describe(
-                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
         .union([
             zod
-                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid', 'xid'])
                 .describe(
-                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
     sync_frequency: zod
         .union([
@@ -196,29 +196,29 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
     sync_type: zod
         .union([
             zod
-                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
                 .describe(
-                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
         .union([
             zod
-                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid', 'xid'])
                 .describe(
-                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
     sync_frequency: zod
         .union([
@@ -287,29 +287,29 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
     sync_type: zod
         .union([
             zod
-                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
                 .describe(
-                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
         .union([
             zod
-                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid', 'xid'])
                 .describe(
-                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
     sync_frequency: zod
         .union([
@@ -378,29 +378,29 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
     sync_type: zod
         .union([
             zod
-                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
                 .describe(
-                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
         .union([
             zod
-                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid', 'xid'])
                 .describe(
-                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
     sync_frequency: zod
         .union([
@@ -469,29 +469,29 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
     sync_type: zod
         .union([
             zod
-                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
                 .describe(
-                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
         .union([
             zod
-                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid', 'xid'])
                 .describe(
-                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
     sync_frequency: zod
         .union([
@@ -560,29 +560,29 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
     sync_type: zod
         .union([
             zod
-                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
                 .describe(
-                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+                    '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+            'Sync strategy: incremental, full_refresh, append, or cdc.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
         ),
     incremental_field: zod.string().nullish().describe('Column name used to track sync progress.'),
     incremental_field_type: zod
         .union([
             zod
-                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid'])
+                .enum(['integer', 'numeric', 'datetime', 'date', 'timestamp', 'objectid', 'xid'])
                 .describe(
-                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+                    '\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid'
+            'Data type of the incremental field.\n\n\* `integer` - integer\n\* `numeric` - numeric\n\* `datetime` - datetime\n\* `date` - date\n\* `timestamp` - timestamp\n\* `objectid` - objectid\n\* `xid` - xid'
         ),
     sync_frequency: zod
         .union([
@@ -1379,15 +1379,15 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                 sync_type: zod
                     .union([
                         zod
-                            .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc'])
+                            .enum(['full_refresh', 'incremental', 'append', 'webhook', 'cdc', 'xmin'])
                             .describe(
-                                '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+                                '\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
                             ),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        'Requested sync mode for the schema.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc'
+                        'Requested sync mode for the schema.\n\n\* `full_refresh` - full_refresh\n\* `incremental` - incremental\n\* `append` - append\n\* `webhook` - webhook\n\* `cdc` - cdc\n\* `xmin` - xmin'
                     ),
                 incremental_field: zod
                     .string()
