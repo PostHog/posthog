@@ -102,6 +102,29 @@ mod tests {
     }
 
     #[test]
+    fn cross_language_fixture_is_pinned_at_64_and_8_partitions() {
+        // Mirrors the Node/Python self-test fixture (`murmur2.test.ts`, harness `partition.py`).
+        // Pinning both counts keeps the COHORT_PARTITION_COUNT env override from silently changing
+        // placement math: the raw hash is fixed, only the modulus varies with the configured count.
+        let key = "2:01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        assert_eq!(
+            murmur2(key.as_bytes()),
+            989_609_914,
+            "raw murmur2 is the cross-language anchor"
+        );
+        assert_eq!(
+            partition_for(key, 64),
+            58,
+            "production count (64) → partition 58"
+        );
+        assert_eq!(
+            partition_for(key, 8),
+            2,
+            "frugal test-lane count (8) → partition 2"
+        );
+    }
+
+    #[test]
     fn partition_for_masks_the_sign_bit_and_is_in_range() {
         for key in [
             "abc",

@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::filters::TeamId;
 use crate::merge::transfer::Tombstone;
 use crate::observability::metrics::MERGE_TOMBSTONE_REDIRECTS_TOTAL;
-use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
+use crate::partitions::partitioner::partition_of;
 use crate::store::{CohortStore, StoreError, TombstoneKey};
 
 /// Defensive bound on same-partition tombstone hops in one [`resolve`] call.
@@ -37,11 +37,16 @@ pub enum Resolution {
 }
 
 /// Resolve a straggler event's person through the tombstone chain.
+///
+/// `partition_count` is the live co-partitioned topic count (production 64; test lanes lower it):
+/// a cross-partition hop is decided by whether the next person hashes off `partition_id` under
+/// this count, so it must match the deploy's topology, not a literal.
 pub fn resolve(
     store: &CohortStore,
     partition_id: u16,
     team_id: TeamId,
     person: Uuid,
+    partition_count: u32,
 ) -> Result<Resolution, StoreError> {
     let team = team_id.0 as u64;
 
@@ -53,7 +58,7 @@ pub fn resolve(
     let mut current = first.new_person;
 
     for _hop in 0..MAX_TOMBSTONE_HOPS {
-        let current_partition = partition_of(team_id, &current, COHORT_PARTITION_COUNT);
+        let current_partition = partition_of(team_id, &current, partition_count);
         if current_partition as u16 != partition_id {
             return Ok(Resolution::CrossPartition {
                 target_person: current,
@@ -132,6 +137,7 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::merge::transfer::Tombstone;
+    use crate::partitions::partitioner::COHORT_PARTITION_COUNT;
     use crate::store::StoreConfig;
 
     const TEAM: TeamId = TeamId(7);
@@ -186,7 +192,14 @@ mod tests {
         let (_dir, store) = temp_store();
         let person = Uuid::from_u128(1);
         assert_eq!(
-            resolve(&store, partition(person), TEAM, person).unwrap(),
+            resolve(
+                &store,
+                partition(person),
+                TEAM,
+                person,
+                COHORT_PARTITION_COUNT
+            )
+            .unwrap(),
             Resolution::NotMerged,
         );
     }
@@ -200,7 +213,7 @@ mod tests {
         write_tombstone(&store, part, p_old, p_new);
 
         assert_eq!(
-            resolve(&store, part, TEAM, p_old).unwrap(),
+            resolve(&store, part, TEAM, p_old, COHORT_PARTITION_COUNT).unwrap(),
             Resolution::Inline {
                 final_person: p_new,
                 origin: p_old,
@@ -217,7 +230,7 @@ mod tests {
         write_tombstone(&store, part, p_old, p_new);
 
         assert_eq!(
-            resolve(&store, part, TEAM, p_old).unwrap(),
+            resolve(&store, part, TEAM, p_old, COHORT_PARTITION_COUNT).unwrap(),
             Resolution::CrossPartition {
                 target_person: p_new,
                 origin: p_old,
@@ -240,7 +253,7 @@ mod tests {
         write_tombstone(&store, part, p_mid, p_final);
 
         assert_eq!(
-            resolve(&store, part, TEAM, p_old).unwrap(),
+            resolve(&store, part, TEAM, p_old, COHORT_PARTITION_COUNT).unwrap(),
             Resolution::Inline {
                 final_person: p_final,
                 origin: p_old,
@@ -260,7 +273,7 @@ mod tests {
         write_tombstone(&store, part, p_mid, p_far);
 
         assert_eq!(
-            resolve(&store, part, TEAM, p_old).unwrap(),
+            resolve(&store, part, TEAM, p_old, COHORT_PARTITION_COUNT).unwrap(),
             Resolution::CrossPartition {
                 target_person: p_far,
                 origin: p_old,
@@ -278,7 +291,7 @@ mod tests {
         write_tombstone(&store, part, p_b, p_old);
 
         assert!(matches!(
-            resolve(&store, part, TEAM, p_old).unwrap(),
+            resolve(&store, part, TEAM, p_old, COHORT_PARTITION_COUNT).unwrap(),
             Resolution::Inline { origin, .. } if origin == p_old,
         ));
     }
@@ -297,7 +310,7 @@ mod tests {
             .write_batch(|b| b.put_tombstone(&key, b"not json"))
             .unwrap();
         assert_eq!(
-            resolve(&store, part, TEAM, person).unwrap(),
+            resolve(&store, part, TEAM, person, COHORT_PARTITION_COUNT).unwrap(),
             Resolution::NotMerged,
             "a corrupt tombstone degrades to not-merged, never a panic",
         );

@@ -601,6 +601,7 @@ async fn spawn_instance(
         cascade_sink: Arc::new(CaptureCascadeSink::new()),
         cascade_tracker: Arc::new(OffsetTracker::new()),
         cascade: CascadeConfig::default(),
+        partition_count: COHORT_PARTITION_COUNT,
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(

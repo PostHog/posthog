@@ -25,6 +25,7 @@ use crate::observability::metrics::{
     MERGE_TRANSFER_FORWARDS_TOTAL, MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
+use crate::partitions::partitioner::COHORT_PARTITION_COUNT;
 use crate::producer::{
     map_transition, CaptureCascadeSink, CaptureStreamEventSink, CaptureTransferSink, CascadeSink,
     CohortMembershipChange, MembershipSink, StreamEventSink, TransferSink,
@@ -114,6 +115,10 @@ pub struct MergeWorkerDeps {
     /// Isolated from the merge/transfer trackers so cascade-path lag is observable separately.
     pub cascade_tracker: Arc<OffsetTracker>,
     pub cascade: CascadeConfig,
+    /// Partition count the merge math routes against. Production 64; test lanes lower it. Threaded
+    /// from [`crate::config::Config::cohort_partition_count`] so a re-partitioned lane cannot
+    /// misroute against a hardcoded literal.
+    pub partition_count: u32,
 }
 
 impl MergeWorkerDeps {
@@ -129,6 +134,7 @@ impl MergeWorkerDeps {
             cascade_sink: Arc::new(CaptureCascadeSink::new()),
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: CascadeConfig::default(),
+            partition_count: COHORT_PARTITION_COUNT,
         })
     }
 }
@@ -159,7 +165,15 @@ pub(crate) async fn handle_merge(
     };
 
     let started = Instant::now();
-    let outcome = handle_merge_event(partition_id, store, filters, event, msg_coords, queue);
+    let outcome = handle_merge_event(
+        partition_id,
+        store,
+        filters,
+        event,
+        msg_coords,
+        queue,
+        merge.partition_count,
+    );
     histogram!(MERGE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
 
     let pending_key = PendingTransferKey {
@@ -281,6 +295,7 @@ pub(crate) async fn handle_apply(
         transfer,
         transfer_coords,
         queue,
+        merge.partition_count,
     );
     histogram!(MERGE_APPLY_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
 
@@ -743,6 +758,7 @@ mod tests {
             cascade_sink: Arc::new(CaptureCascadeSink::new()),
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: CascadeConfig::default(),
+            partition_count: COHORT_PARTITION_COUNT,
         }
     }
 

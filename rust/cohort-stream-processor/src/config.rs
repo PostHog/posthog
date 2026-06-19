@@ -208,6 +208,12 @@ pub struct Config {
     #[envconfig(default = "murmur2_random")]
     pub kafka_producer_partitioner: String,
 
+    /// Partition count of the co-partitioned cohort topics. Production is 64; test lanes lower it
+    /// (e.g. 8) to fit many merge lanes on a single-node broker. The merge protocol's partition
+    /// arithmetic must use this value, not a literal.
+    #[envconfig(default = "64")]
+    pub cohort_partition_count: u32,
+
     #[envconfig(default = "none")]
     pub kafka_compression_codec: String,
 
@@ -676,6 +682,7 @@ mod tests {
             pod_hostname: None,
             cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
             kafka_producer_partitioner: "murmur2_random".to_string(),
+            cohort_partition_count: 64,
             kafka_compression_codec: "none".to_string(),
             recv_batch_size: 1000,
             recv_batch_timeout_ms: 500,
@@ -1346,6 +1353,22 @@ mod tests {
             config.follower_client_config("g").get("security.protocol"),
             Some("ssl"),
         );
+    }
+
+    #[test]
+    fn cohort_partition_count_defaults_to_64_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(
+            defaults.cohort_partition_count, 64,
+            "production default is 64 so behavior stays byte-identical",
+        );
+
+        let env: std::collections::HashMap<String, String> = [("COHORT_PARTITION_COUNT", "8")]
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.cohort_partition_count, 8);
     }
 
     #[test]

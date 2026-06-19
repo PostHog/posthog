@@ -273,6 +273,7 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         &merge_event(p_old, p_new),
         (5, 100),
         &mut old_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     let transfer = match drained {
@@ -302,6 +303,7 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         &transfer,
         (5, 7),
         &mut new_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert!(
@@ -347,6 +349,7 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         &merge_event(p_old, p_new),
         (5, 100),
         &mut old_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert_eq!(replay_drain, DrainOutcome::AlreadyDrained);
@@ -357,6 +360,7 @@ fn cross_partition_drain_transfer_apply_merges_all_variants_and_matches_the_orac
         &transfer,
         (5, 7),
         &mut new_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert_eq!(replay_apply, ApplyOutcome::AlreadyApplied);
@@ -405,6 +409,7 @@ fn seed_and_drain(dir: &TempDir) -> (CohortStore, TeamFilters, u16, Uuid, MergeS
         &merge_event(p_old, p_new),
         (5, 100),
         &mut old_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap()
     {
@@ -421,8 +426,16 @@ fn duplicate_transfer_copy_under_different_transfer_coords_is_already_applied() 
     let (store, filters, p_new_part, p_new, transfer) = seed_and_drain(&dir);
 
     let mut queue = EvictionQueue::<Stage1Key>::new();
-    let first =
-        handle_transfer(p_new_part, &store, &filters, &transfer, (5, 7), &mut queue).unwrap();
+    let first = handle_transfer(
+        p_new_part,
+        &store,
+        &filters,
+        &transfer,
+        (5, 7),
+        &mut queue,
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
     assert!(matches!(first, ApplyOutcome::Applied { .. }));
 
     let duplicate = handle_transfer(
@@ -432,6 +445,7 @@ fn duplicate_transfer_copy_under_different_transfer_coords_is_already_applied() 
         &transfer,
         (63, 9_999),
         &mut queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert_eq!(
@@ -468,8 +482,16 @@ fn redrained_transfer_with_rebuilt_state_is_dropped_by_source_coords_dedup() {
     let (store, filters, p_new_part, p_new, transfer) = seed_and_drain(&dir);
 
     let mut queue = EvictionQueue::<Stage1Key>::new();
-    let first =
-        handle_transfer(p_new_part, &store, &filters, &transfer, (5, 7), &mut queue).unwrap();
+    let first = handle_transfer(
+        p_new_part,
+        &store,
+        &filters,
+        &transfer,
+        (5, 7),
+        &mut queue,
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
     assert!(matches!(first, ApplyOutcome::Applied { .. }));
 
     let mut redrained = transfer.clone();
@@ -492,6 +514,7 @@ fn redrained_transfer_with_rebuilt_state_is_dropped_by_source_coords_dedup() {
         &redrained,
         (12, 345),
         &mut queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert_eq!(outcome, ApplyOutcome::AlreadyApplied);
@@ -526,6 +549,7 @@ fn fast_path_equals_the_cross_partition_result() {
         &merge_event(p_old, p_new),
         (5, 100),
         &mut queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert!(
@@ -570,6 +594,7 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
             &merge_event(p_old, p_new),
             (5, 100),
             &mut queue,
+            COHORT_PARTITION_COUNT,
         )
         .unwrap();
         assert!(matches!(drained, DrainOutcome::Drained { .. }));
@@ -596,6 +621,7 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
         &pending.transfer,
         (5, 7),
         &mut new_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert!(matches!(applied, ApplyOutcome::Applied { .. }));
@@ -653,6 +679,7 @@ fn apply_transitions_compose_into_stage2() {
         &merge_event(p_old, p_new),
         (5, 100),
         &mut old_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap()
     {
@@ -667,6 +694,7 @@ fn apply_transitions_compose_into_stage2() {
         &transfer,
         (5, 7),
         &mut new_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap()
     {
@@ -728,6 +756,7 @@ fn empty_redrain_does_not_overwrite_a_still_pending_transfer() {
         &merge_event(p_old, p_new),
         (5, 101),
         &mut queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     let DrainOutcome::Drained {
@@ -783,6 +812,7 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
         &merge_event(p_old, p_new),
         (5, 100),
         &mut old_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap()
     {
@@ -797,7 +827,8 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
             &filters,
             &transfer,
             (5, 7),
-            &mut new_queue
+            &mut new_queue,
+            COHORT_PARTITION_COUNT,
         )
         .unwrap(),
         ApplyOutcome::Applied { .. }
@@ -870,6 +901,7 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
             &merge_event(p_old, p_new),
             (5, 100),
             &mut old_queue,
+            COHORT_PARTITION_COUNT,
         )
         .unwrap(),
         DrainOutcome::AlreadyDrained,
@@ -882,7 +914,8 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
             &filters,
             &transfer,
             (63, 9_999),
-            &mut new_queue
+            &mut new_queue,
+            COHORT_PARTITION_COUNT,
         )
         .unwrap(),
         ApplyOutcome::AlreadyApplied,
@@ -928,6 +961,7 @@ fn merge_cf_gc_keeps_in_retention_markers_then_reclaims_out_of_retention_storage
         &merge_event(p_old, p_new),
         (5, 100),
         &mut old_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert!(
@@ -974,6 +1008,7 @@ fn stage2_orphans_from_an_absent_team_drain_are_reclaimed_by_a_later_gc_tick() {
         &merge_event(p_old, p_new),
         (5, 100),
         &mut queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert!(
@@ -1031,6 +1066,7 @@ fn drain_cross(
         &merge_event(old, new),
         coords,
         &mut queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap()
     {
@@ -1059,7 +1095,16 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
     let b_to_c = drain_cross(&store, &filters, b, c, (5, 200));
     let mut c_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
-        handle_transfer(c_part, &store, &filters, &b_to_c, (5, 71), &mut c_queue).unwrap(),
+        handle_transfer(
+            c_part,
+            &store,
+            &filters,
+            &b_to_c,
+            (5, 71),
+            &mut c_queue,
+            COHORT_PARTITION_COUNT
+        )
+        .unwrap(),
         ApplyOutcome::Applied { .. }
     ));
     assert!(store
@@ -1076,11 +1121,20 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
 
     // 3) Apply on B's partition: B tombstoned to C (cross-partition) → Forward(C, hops=1).
     let mut b_queue = EvictionQueue::<Stage1Key>::new();
-    let forwarded =
-        match handle_transfer(b_part, &store, &filters, &a_to_b, (5, 80), &mut b_queue).unwrap() {
-            ApplyOutcome::Forward { transfer } => *transfer,
-            other => panic!("expected Forward, got {other:?}"),
-        };
+    let forwarded = match handle_transfer(
+        b_part,
+        &store,
+        &filters,
+        &a_to_b,
+        (5, 80),
+        &mut b_queue,
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap()
+    {
+        ApplyOutcome::Forward { transfer } => *transfer,
+        other => panic!("expected Forward, got {other:?}"),
+    };
     assert_eq!(
         forwarded.new_person_uuid, c,
         "forwarded transfer is re-keyed to C"
@@ -1103,8 +1157,16 @@ fn raced_chain_forwards_the_grandparent_transfer_through_the_tombstoned_intermed
     );
 
     // 4) Apply forwarded transfer at C → C = A + B + C.
-    let applied =
-        handle_transfer(c_part, &store, &filters, &forwarded, (5, 81), &mut c_queue).unwrap();
+    let applied = handle_transfer(
+        c_part,
+        &store,
+        &filters,
+        &forwarded,
+        (5, 81),
+        &mut c_queue,
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
     assert!(matches!(applied, ApplyOutcome::Applied { .. }));
 
     let (single, daily, compressed) = behavioral_states(&store, &filters, c_part, c);
@@ -1153,7 +1215,16 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
     let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
     let mut b_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
-        handle_transfer(b_part, &store, &filters, &a_to_b, (5, 80), &mut b_queue).unwrap(),
+        handle_transfer(
+            b_part,
+            &store,
+            &filters,
+            &a_to_b,
+            (5, 80),
+            &mut b_queue,
+            COHORT_PARTITION_COUNT
+        )
+        .unwrap(),
         ApplyOutcome::Applied { .. }
     ));
 
@@ -1161,7 +1232,16 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
     let b_to_c = drain_cross(&store, &filters, b, c, (5, 200));
     let mut c_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
-        handle_transfer(c_part, &store, &filters, &b_to_c, (5, 71), &mut c_queue).unwrap(),
+        handle_transfer(
+            c_part,
+            &store,
+            &filters,
+            &b_to_c,
+            (5, 71),
+            &mut c_queue,
+            COHORT_PARTITION_COUNT
+        )
+        .unwrap(),
         ApplyOutcome::Applied { .. }
     ));
     let (_, c_daily, _) = behavioral_states(&store, &filters, c_part, c);
@@ -1172,8 +1252,16 @@ fn ordered_chain_redelivery_dedups_on_the_intermediate_marker_without_forwarding
     );
 
     // 3) Redeliver A → B at B → the pre-tombstone marker absorbs it: AlreadyApplied, no forward.
-    let redelivered =
-        handle_transfer(b_part, &store, &filters, &a_to_b, (61, 999), &mut b_queue).unwrap();
+    let redelivered = handle_transfer(
+        b_part,
+        &store,
+        &filters,
+        &a_to_b,
+        (61, 999),
+        &mut b_queue,
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
     assert_eq!(
         redelivered,
         ApplyOutcome::AlreadyApplied,
@@ -1203,26 +1291,61 @@ fn forwarded_copy_redelivery_dedups_on_the_survivor_marker() {
 
     let b_to_c = drain_cross(&store, &filters, b, c, (5, 200));
     let mut c_queue = EvictionQueue::<Stage1Key>::new();
-    handle_transfer(c_part, &store, &filters, &b_to_c, (5, 71), &mut c_queue).unwrap();
+    handle_transfer(
+        c_part,
+        &store,
+        &filters,
+        &b_to_c,
+        (5, 71),
+        &mut c_queue,
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
 
     let a_to_b = drain_cross(&store, &filters, a, b, (5, 100));
     let mut b_queue = EvictionQueue::<Stage1Key>::new();
-    let forwarded =
-        match handle_transfer(b_part, &store, &filters, &a_to_b, (5, 80), &mut b_queue).unwrap() {
-            ApplyOutcome::Forward { transfer } => *transfer,
-            other => panic!("expected Forward, got {other:?}"),
-        };
-    handle_transfer(c_part, &store, &filters, &forwarded, (5, 81), &mut c_queue).unwrap();
+    let forwarded = match handle_transfer(
+        b_part,
+        &store,
+        &filters,
+        &a_to_b,
+        (5, 80),
+        &mut b_queue,
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap()
+    {
+        ApplyOutcome::Forward { transfer } => *transfer,
+        other => panic!("expected Forward, got {other:?}"),
+    };
+    handle_transfer(
+        c_part,
+        &store,
+        &filters,
+        &forwarded,
+        (5, 81),
+        &mut c_queue,
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
     let (_, c_daily, _) = behavioral_states(&store, &filters, c_part, c);
     assert_eq!(daily_sum(&c_daily.unwrap()), 3);
 
     // Redeliver original A → B at B → re-resolves to C → Forward; apply at C dedupes on C's marker.
-    let reforwarded =
-        match handle_transfer(b_part, &store, &filters, &a_to_b, (62, 1000), &mut b_queue).unwrap()
-        {
-            ApplyOutcome::Forward { transfer } => *transfer,
-            other => panic!("expected Forward on redelivery, got {other:?}"),
-        };
+    let reforwarded = match handle_transfer(
+        b_part,
+        &store,
+        &filters,
+        &a_to_b,
+        (62, 1000),
+        &mut b_queue,
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap()
+    {
+        ApplyOutcome::Forward { transfer } => *transfer,
+        other => panic!("expected Forward on redelivery, got {other:?}"),
+    };
     let outcome = handle_transfer(
         c_part,
         &store,
@@ -1230,6 +1353,7 @@ fn forwarded_copy_redelivery_dedups_on_the_survivor_marker() {
         &reforwarded,
         (62, 1001),
         &mut c_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert_eq!(
@@ -1297,6 +1421,7 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
             &merge_event(b, c),
             (5, 200),
             &mut bc_queue,
+            COHORT_PARTITION_COUNT,
         )
         .unwrap(),
         DrainOutcome::FastPath { .. }
@@ -1320,7 +1445,8 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
             &filters,
             &a_to_b,
             (5, 80),
-            &mut chain_queue
+            &mut chain_queue,
+            COHORT_PARTITION_COUNT,
         )
         .unwrap(),
         ApplyOutcome::Applied { .. }
@@ -1359,6 +1485,7 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
             &merge_event(c, d),
             (5, 300),
             &mut cd_queue,
+            COHORT_PARTITION_COUNT,
         )
         .unwrap(),
         DrainOutcome::FastPath { .. }
@@ -1379,6 +1506,7 @@ fn raced_chain_then_extends_dedups_on_the_origin_marker() {
         &a_to_b,
         (61, 999),
         &mut chain_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert_eq!(
@@ -1438,7 +1566,8 @@ fn drain_assist_folds_into_a_same_partition_tombstoned_target_directly() {
             &filters,
             &merge_event(b, c),
             (5, 200),
-            &mut bc_queue
+            &mut bc_queue,
+            COHORT_PARTITION_COUNT,
         )
         .unwrap(),
         DrainOutcome::FastPath { .. }
@@ -1453,7 +1582,16 @@ fn drain_assist_folds_into_a_same_partition_tombstoned_target_directly() {
     );
     let mut c_queue = EvictionQueue::<Stage1Key>::new();
     assert!(matches!(
-        handle_transfer(b_part, &store, &filters, &a_to_b, (5, 81), &mut c_queue).unwrap(),
+        handle_transfer(
+            b_part,
+            &store,
+            &filters,
+            &a_to_b,
+            (5, 81),
+            &mut c_queue,
+            COHORT_PARTITION_COUNT
+        )
+        .unwrap(),
         ApplyOutcome::Applied { .. }
     ));
 
@@ -1499,6 +1637,7 @@ fn transfer_forward_stops_at_the_hop_cap_on_a_corrupt_tombstone_cycle() {
             &transfer,
             (5, 80 + hops as i64),
             &mut queue,
+            COHORT_PARTITION_COUNT,
         )
         .unwrap()
         {
@@ -1623,6 +1762,7 @@ fn checkpoint_restore_then_redrive_and_already_drained_replay_apply_once() {
         &pending.transfer,
         (5, 7),
         &mut new_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert!(
@@ -1652,6 +1792,7 @@ fn checkpoint_restore_then_redrive_and_already_drained_replay_apply_once() {
         &merge_event(p_old, p_new),
         merge_coords,
         &mut old_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert_eq!(
@@ -1667,6 +1808,7 @@ fn checkpoint_restore_then_redrive_and_already_drained_replay_apply_once() {
         &pending.transfer,
         (63, 9_999),
         &mut new_queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert_eq!(
@@ -1750,7 +1892,14 @@ fn checkpoint_restore_preserves_the_tombstone_and_redirects_a_straggler() {
     );
 
     // CrossPartition: a P_old straggler is re-keyed to P_new's worker, never folded back into the drained P_old.
-    let resolution = resolve(&restored, p_old_part, TeamId(TEAM), p_old).unwrap();
+    let resolution = resolve(
+        &restored,
+        p_old_part,
+        TeamId(TEAM),
+        p_old,
+        COHORT_PARTITION_COUNT,
+    )
+    .unwrap();
     assert_eq!(
         resolution,
         Resolution::CrossPartition {
@@ -1765,7 +1914,14 @@ fn checkpoint_restore_preserves_the_tombstone_and_redirects_a_straggler() {
     let control = person_on(p_old_part);
     assert_ne!(control, p_old);
     assert_eq!(
-        resolve(&restored, p_old_part, TeamId(TEAM), control).unwrap(),
+        resolve(
+            &restored,
+            p_old_part,
+            TeamId(TEAM),
+            control,
+            COHORT_PARTITION_COUNT
+        )
+        .unwrap(),
         Resolution::NotMerged,
         "a never-tombstoned person is not redirected — the P_new resolution is not vacuous",
     );
@@ -1812,6 +1968,7 @@ fn checkpoint_restore_preserves_the_drain_marker_so_a_replayed_merge_does_not_re
         &merge_event(p_old, p_new),
         merge_coords,
         &mut queue,
+        COHORT_PARTITION_COUNT,
     )
     .unwrap();
     assert_eq!(

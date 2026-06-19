@@ -535,6 +535,30 @@ procs:
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
 
+    # Behavioral Cohorts stream rebuild (Rust). The shuffler keys clickhouse_events_json into
+    # cohort_stream_events; the processor consumes that and emits membership changes. Both are gated
+    # behind the `behavioral_cohorts` capability (wired into the `cohorts` intent) so they only run
+    # when a dev opts in — the default no-intent manifest is unchanged.
+    cohort-event-shuffler:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cohort-event-shuffler
+        capability: behavioral_cohorts
+        ready_pattern: 'observability server starting'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    cohort-stream-processor:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cohort-stream-processor
+        capability: behavioral_cohorts
+        ready_pattern: 'observability server starting'
+        groups:
+            layer: Product services
+            tech: Rust
+
     llm-gateway:
         sandbox: true
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'

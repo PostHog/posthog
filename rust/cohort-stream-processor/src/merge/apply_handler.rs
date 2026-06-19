@@ -57,6 +57,10 @@ pub enum ApplyOutcome {
 /// Idempotence is keyed by the *source merge message's* coordinates (not the transfer message's
 /// own), because duplicate transfer copies (redrive, crash-retry, forward) arrive at fresh
 /// transfer-topic offsets but share the same source pair.
+///
+/// `partition_count` is the live co-partitioned topic count (production 64; test lanes lower it):
+/// the forward-vs-inline target resolution turns on whether the survivor hashes onto `partition_id`
+/// under this count, so it must match the deploy's topology.
 pub fn handle_transfer(
     partition_id: u16,
     store: &CohortStore,
@@ -64,6 +68,7 @@ pub fn handle_transfer(
     transfer: &MergeStateTransfer,
     _transfer_coords: (i32, i64),
     queue: &mut EvictionQueue<Stage1Key>,
+    partition_count: u32,
 ) -> Result<ApplyOutcome, StoreError> {
     let team_id = transfer.team_id;
     let team_u64 = team_id as u64;
@@ -81,7 +86,13 @@ pub fn handle_transfer(
 
     // Resolve the target through the local slice: if P_new is itself tombstoned (the raced chain),
     // the state belongs to the survivor, not to the drained P_new.
-    match resolve(store, partition_id, TeamId(team_id), new_person)? {
+    match resolve(
+        store,
+        partition_id,
+        TeamId(team_id),
+        new_person,
+        partition_count,
+    )? {
         Resolution::NotMerged => {
             apply_into(partition_id, store, filters, transfer, new_person, queue)
         }

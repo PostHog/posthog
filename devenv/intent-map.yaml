@@ -140,6 +140,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    behavioral_cohorts:
+        description: 'Behavioral Cohorts stream rebuild (Rust cohort-event-shuffler + cohort-stream-processor)'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     nodejs_session_replay:
         description: 'Node.js Session Replay - recording ingestion'
         requires: [event_ingestion]
@@ -323,6 +328,7 @@ intents:
                 celery_workers,
                 celery_scheduler,
                 nodejs_realtime_cohorts,
+                behavioral_cohorts,
             ]
 
     pipelines:

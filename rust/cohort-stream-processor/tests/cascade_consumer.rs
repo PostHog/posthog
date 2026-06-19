@@ -453,6 +453,7 @@ async fn spawn_instance(
             depth_cap: 8,
             fanout_cap: 1000,
         },
+        partition_count: COHORT_PARTITION_COUNT,
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(

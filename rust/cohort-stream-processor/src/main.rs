@@ -194,6 +194,7 @@ async fn async_main(config: Config) -> Result<()> {
         cascade_sink,
         cascade_tracker: Arc::new(OffsetTracker::new()),
         cascade: config.cascade_config(),
+        partition_count: config.cohort_partition_count,
     });
 
     // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper
@@ -260,6 +261,19 @@ async fn async_main(config: Config) -> Result<()> {
         &transfers_follower_consumer,
         &config.cohort_merge_state_transfer_topic,
     )?;
+    // The merge math hashes `(team, person)` against `config.cohort_partition_count`, so the topics
+    // must not only be co-partitioned with each other but partitioned at exactly that count — a
+    // deploy/lane at N != the configured count silently misroutes every merge.
+    anyhow::ensure!(
+        events_partitions as u32 == config.cohort_partition_count,
+        "{} is partitioned at {} but COHORT_PARTITION_COUNT is {}: the merge partition arithmetic \
+         would misroute. Re-partition the topic to {} or set COHORT_PARTITION_COUNT to {}.",
+        config.cohort_stream_events_topic,
+        events_partitions,
+        config.cohort_partition_count,
+        config.cohort_partition_count,
+        events_partitions,
+    );
     anyhow::ensure!(
         merge_partitions == events_partitions && transfer_partitions == events_partitions,
         "merge topics must be co-partitioned with {} ({} partitions): {} has {}, {} has {}",
@@ -277,10 +291,10 @@ async fn async_main(config: Config) -> Result<()> {
         let cascade_partitions =
             fetch_partition_count(cascade_consumer, &config.cohort_cascade_events_topic)?;
         anyhow::ensure!(
-            cascade_partitions == events_partitions,
-            "cohort_cascade_events must be co-partitioned with {} ({} partitions): {} has {}",
+            cascade_partitions as u32 == config.cohort_partition_count,
+            "cohort_cascade_events must be co-partitioned with {} at COHORT_PARTITION_COUNT={}: {} has {}",
             config.cohort_stream_events_topic,
-            events_partitions,
+            config.cohort_partition_count,
             config.cohort_cascade_events_topic,
             cascade_partitions,
         );

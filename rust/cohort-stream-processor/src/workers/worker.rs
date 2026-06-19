@@ -135,8 +135,14 @@ async fn run_worker(
                 ShuffleMessage::Event { event, cse_offset } => {
                     max_offset =
                         Some(max_offset.map_or(cse_offset, |current| current.max(cse_offset)));
-                    let effects =
-                        handle_event(partition_id, &store, &catalog, &event, &last_updated);
+                    let effects = handle_event(
+                        partition_id,
+                        &store,
+                        &catalog,
+                        &event,
+                        &last_updated,
+                        merge.partition_count,
+                    );
                     buffer.extend(effects.changes);
                     for (key, deadline) in effects.schedules {
                         queue.schedule(key, deadline);
@@ -441,6 +447,7 @@ fn handle_event(
     catalog: &CatalogHandle,
     event: &CohortStreamEvent,
     last_updated: &str,
+    partition_count: u32,
 ) -> EventEffects {
     let snapshot = catalog.load();
     let Some(team_filters) = snapshot.team(TeamId(event.team_id)) else {
@@ -451,7 +458,7 @@ fn handle_event(
     let filters: &TeamFilters = team_filters;
 
     let resolved: Cow<'_, CohortStreamEvent> =
-        match redirect_for_tombstone(partition_id, store, event) {
+        match redirect_for_tombstone(partition_id, store, event, partition_count) {
             Redirected::Process(event) => event,
             Redirected::ReKey(re_keyed) => {
                 return EventEffects {
@@ -523,23 +530,29 @@ fn redirect_for_tombstone<'a>(
     partition_id: u16,
     store: &CohortStore,
     event: &'a CohortStreamEvent,
+    partition_count: u32,
 ) -> Redirected<'a> {
     let Ok(person_id) = Uuid::parse_str(&event.person_id) else {
         return Redirected::Process(Cow::Borrowed(event));
     };
-    let resolution =
-        match tombstone_redirect::resolve(store, partition_id, TeamId(event.team_id), person_id) {
-            Ok(resolution) => resolution,
-            Err(error) => {
-                warn!(
-                    partition_id,
-                    team_id = event.team_id,
-                    error = %error,
-                    "tombstone preflight read failed; processing without redirect",
-                );
-                return Redirected::Process(Cow::Borrowed(event));
-            }
-        };
+    let resolution = match tombstone_redirect::resolve(
+        store,
+        partition_id,
+        TeamId(event.team_id),
+        person_id,
+        partition_count,
+    ) {
+        Ok(resolution) => resolution,
+        Err(error) => {
+            warn!(
+                partition_id,
+                team_id = event.team_id,
+                error = %error,
+                "tombstone preflight read failed; processing without redirect",
+            );
+            return Redirected::Process(Cow::Borrowed(event));
+        }
+    };
     tombstone_redirect::record_redirect(&resolution);
     match resolution {
         Resolution::NotMerged => Redirected::Process(Cow::Borrowed(event)),
@@ -952,6 +965,7 @@ mod tombstone_redirect_tests {
             cascade_sink: Arc::new(crate::producer::CaptureCascadeSink::new()),
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: crate::workers::CascadeConfig::default(),
+            partition_count: COHORT_PARTITION_COUNT,
         })
     }
 
@@ -968,6 +982,7 @@ mod tombstone_redirect_tests {
             cascade_sink: Arc::new(crate::producer::CaptureCascadeSink::new()),
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: crate::workers::CascadeConfig::default(),
+            partition_count: COHORT_PARTITION_COUNT,
         })
     }
 
@@ -988,6 +1003,7 @@ mod tombstone_redirect_tests {
                 depth_cap: 8,
                 fanout_cap: 1000,
             },
+            partition_count: COHORT_PARTITION_COUNT,
         })
     }
 
@@ -1205,7 +1221,14 @@ mod tombstone_redirect_tests {
             .unwrap();
 
         let straggler = person_event(p_old, "u@p.com", 5, 101);
-        let effects = handle_event(partition_id, &store, &catalog, &straggler, "ts");
+        let effects = handle_event(
+            partition_id,
+            &store,
+            &catalog,
+            &straggler,
+            "ts",
+            COHORT_PARTITION_COUNT,
+        );
 
         assert_eq!(effects.changes.len(), 1, "the straggler entered P_new");
         assert_eq!(effects.changes[0].person_id, p_new.to_string());
@@ -1449,13 +1472,27 @@ mod tombstone_redirect_tests {
         write_tombstone(&store, source_partition, p_old, p_new);
 
         let straggler = person_event(p_old, "u@p.com", 5, 9);
-        let mut effects = handle_event(source_partition, &store, &catalog, &straggler, "ts");
+        let mut effects = handle_event(
+            source_partition,
+            &store,
+            &catalog,
+            &straggler,
+            "ts",
+            COHORT_PARTITION_COUNT,
+        );
         assert!(effects.changes.is_empty());
         assert!(effects.schedules.is_empty());
         assert_eq!(effects.re_keys.len(), 1);
         let re_keyed = effects.re_keys.pop().unwrap();
 
-        let effects = handle_event(target_partition, &store, &catalog, &re_keyed, "ts");
+        let effects = handle_event(
+            target_partition,
+            &store,
+            &catalog,
+            &re_keyed,
+            "ts",
+            COHORT_PARTITION_COUNT,
+        );
         assert_eq!(effects.changes.len(), 1, "folds into P_new exactly once");
         assert_eq!(effects.changes[0].person_id, p_new.to_string());
         assert_eq!(effects.changes[0].status, MembershipStatus::Entered);
@@ -1477,7 +1514,14 @@ mod tombstone_redirect_tests {
             "the main map stays untouched by a redirected straggler",
         );
 
-        let dup = handle_event(target_partition, &store, &catalog, &re_keyed, "ts");
+        let dup = handle_event(
+            target_partition,
+            &store,
+            &catalog,
+            &re_keyed,
+            "ts",
+            COHORT_PARTITION_COUNT,
+        );
         assert!(dup.changes.is_empty(), "the duplicate folds zero times");
         assert!(dup.re_keys.is_empty());
     }
@@ -1494,7 +1538,14 @@ mod tombstone_redirect_tests {
             redirect_hops: tombstone_redirect::MAX_CROSS_PARTITION_REDIRECT_HOPS,
             ..person_event(p_old, "u@p.com", 5, 9)
         };
-        let effects = handle_event(partition_id, &store, &catalog, &straggler, "ts");
+        let effects = handle_event(
+            partition_id,
+            &store,
+            &catalog,
+            &straggler,
+            "ts",
+            COHORT_PARTITION_COUNT,
+        );
 
         assert!(effects.re_keys.is_empty(), "no re-produce at the cap");
         assert_eq!(effects.changes.len(), 1, "processed inline instead");
@@ -1529,7 +1580,14 @@ mod tombstone_redirect_tests {
         let partition_id = partition_of(TeamId(TEAM), &alice, COHORT_PARTITION_COUNT) as u16;
 
         let event = person_event(alice, "u@p.com", 5, 0);
-        let effects = handle_event(partition_id, &store, &catalog, &event, "ts");
+        let effects = handle_event(
+            partition_id,
+            &store,
+            &catalog,
+            &event,
+            "ts",
+            COHORT_PARTITION_COUNT,
+        );
         assert_eq!(effects.changes.len(), 1);
         assert_eq!(effects.changes[0].person_id, alice.to_string());
         assert!(

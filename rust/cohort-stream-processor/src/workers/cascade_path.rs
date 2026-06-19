@@ -415,6 +415,7 @@ mod tests {
                 depth_cap: 8,
                 fanout_cap,
             },
+            partition_count: crate::partitions::partitioner::COHORT_PARTITION_COUNT,
         };
         // The cascade was dispatched this tenure, so its ceiling is raised — mirrors the dispatcher.
         deps.cascade_tracker

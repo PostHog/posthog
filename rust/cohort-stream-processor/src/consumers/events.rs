@@ -1344,6 +1344,7 @@ mod tests {
             cascade_sink: Arc::new(crate::producer::CaptureCascadeSink::new()),
             cascade_tracker: Arc::new(OffsetTracker::new()),
             cascade: crate::workers::CascadeConfig::default(),
+            partition_count: COHORT_PARTITION_COUNT,
         });
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),

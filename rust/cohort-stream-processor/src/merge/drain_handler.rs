@@ -24,7 +24,7 @@ use crate::merge::transfer::{
 use crate::observability::metrics::{
     MERGE_DRAINS_SKIPPED_REPLAY_TOTAL, MERGE_HANDLED_TOTAL, MERGE_LEAVES_DROPPED_TOTAL,
 };
-use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
+use crate::partitions::partitioner::partition_of;
 use crate::stage1::key::{LeafStateKey, Stage1Key};
 use crate::stage1::state::StatefulRecord;
 use crate::stage1::transition::LeafTransition;
@@ -53,6 +53,10 @@ pub enum DrainSkip {
 }
 
 /// Drain the merge `event` on P_old's worker (`partition_id` owns P_old).
+///
+/// `partition_count` is the live co-partitioned topic count (production 64; test lanes lower it):
+/// the fast-path-vs-slow-path decision turns on whether P_new hashes onto `partition_id` under this
+/// count, so it must match the deploy's topology.
 pub fn handle_merge_event(
     partition_id: u16,
     store: &CohortStore,
@@ -60,6 +64,7 @@ pub fn handle_merge_event(
     event: &PersonMergeEvent,
     msg_coords: (i32, i64),
     queue: &mut EvictionQueue<Stage1Key>,
+    partition_count: u32,
 ) -> Result<DrainOutcome, StoreError> {
     let team_id = event.team_id;
     let team_u64 = team_id as u64;
@@ -140,17 +145,20 @@ pub fn handle_merge_event(
     // survivor, skipping a hop the apply-side resolution would otherwise take. Only the routing/apply
     // target advances — P_old's stored tombstone still records `new_person` as the merge event gave
     // it, so the chain stays walkable hop-by-hop.
-    let effective_new_person = match resolve(store, partition_id, TeamId(team_id), new_person)? {
+    let effective_new_person = match resolve(
+        store,
+        partition_id,
+        TeamId(team_id),
+        new_person,
+        partition_count,
+    )? {
         Resolution::NotMerged => new_person,
         Resolution::Inline { final_person, .. } => final_person,
         Resolution::CrossPartition { target_person, .. } => target_person,
     };
 
-    let partition_new = partition_of(
-        TeamId(team_id),
-        &effective_new_person,
-        COHORT_PARTITION_COUNT,
-    ) as u16;
+    let partition_new =
+        partition_of(TeamId(team_id), &effective_new_person, partition_count) as u16;
 
     if partition_new == partition_id {
         return fast_path(
