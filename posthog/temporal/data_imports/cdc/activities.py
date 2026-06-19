@@ -128,6 +128,12 @@ class CDCExtractActivity:
         self.batcher: ChangeEventBatcher | None = None
         self.last_end_lsn: str | None = None
         self.last_confirmed_lsn: str | None = None
+        # Transaction-boundary tracking for safe mid-run slot advances. All events of
+        # one transaction share the same commit end LSN (position_serialized), so an LSN
+        # change marks a fully-yielded transaction. We only ever micro-advance the slot
+        # past transactions that are completely yielded — see _read_wal_loop.
+        self.current_txn_lsn: str | None = None
+        self.last_complete_txn_end_lsn: str | None = None
         self.event_count: int = 0
         self.all_table_names: set[str] = set()
 
@@ -678,6 +684,14 @@ class CDCExtractActivity:
 
             event = self._project_event_columns(event)
             self.batcher.add(event)
+
+            # A change in position_serialized proves the previous transaction fully
+            # yielded — all of its events are now buffered or flushed. Record its end LSN
+            # as the high-water mark we may safely release the WAL up to.
+            if event.position_serialized != self.current_txn_lsn:
+                self.last_complete_txn_end_lsn = self.current_txn_lsn
+                self.current_txn_lsn = event.position_serialized
+
             self.last_end_lsn = event.position_serialized
             self.event_count += 1
 
@@ -685,13 +699,24 @@ class CDCExtractActivity:
                 tables = self.batcher.flush()
                 self.all_table_names.update(tables.keys())
                 self._process_flush(tables, is_final=False)
-                # Advance the slot after each successful flush. At this point every
-                # batch in this micro-flush is either in Kafka (streaming) or persisted
-                # in sync_type_config["cdc_deferred_runs"] (snapshot), so it's safe to
-                # release the WAL up to this LSN.
-                if self.last_end_lsn is not None and self.last_end_lsn != self.last_confirmed_lsn:
-                    self.reader.confirm_position(self.last_end_lsn)
-                    self.last_confirmed_lsn = self.last_end_lsn
+                # Advance only to the end of the last FULLY-yielded transaction, never to
+                # last_end_lsn: a micro-flush can fire mid-transaction (the batcher
+                # threshold is checked per event), and every event of the in-flight
+                # transaction shares its commit end LSN. Confirming that LSN while the
+                # transaction's tail is still un-yielded in the generator would release
+                # the WAL past un-flushed events — a crash before the next flush then
+                # loses them permanently. Consequences of this conservative bound:
+                #   (a) a single giant transaction gets no micro-advance until it
+                #       completes (a retry re-decodes it — safe, slow);
+                #   (b) on crash-replay the already-flushed prefix of the in-flight
+                #       transaction is re-delivered — incremental_merge dedups by PK,
+                #       scd2_append may create duplicate history rows. Accepted vs. loss.
+                if (
+                    self.last_complete_txn_end_lsn is not None
+                    and self.last_complete_txn_end_lsn != self.last_confirmed_lsn
+                ):
+                    self.reader.confirm_position(self.last_complete_txn_end_lsn)
+                    self.last_confirmed_lsn = self.last_complete_txn_end_lsn
                 self.log.info(
                     "cdc_micro_batch_flushed",
                     events_so_far=self.event_count,
