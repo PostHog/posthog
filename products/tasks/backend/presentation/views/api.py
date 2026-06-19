@@ -12,14 +12,13 @@ from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, OuterRef, Q, Subquery
+from django.db.models import OuterRef, Q, Subquery
 from django.db.models.functions import JSONObject
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
 import requests as http_requests
 import jsonschema
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -34,7 +33,6 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.user_push_token import UserPushToken
 from posthog.permissions import APIScopePermission
@@ -44,14 +42,16 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.tasks.backend.access import has_tasks_access
 from products.tasks.backend.automation_service import (
     delete_automation_schedule,
     run_task_automation,
     sync_automation_schedule,
     update_automation_run_result,
 )
-from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade import (
+    access as tasks_access,
+    api as tasks_facade,
+)
 from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.staged_artifacts import (
@@ -85,8 +85,6 @@ from products.tasks.backend.metrics import (
 )
 from products.tasks.backend.models import (
     TASK_PRESENCE_TTL_SECONDS,
-    CodeInvite,
-    CodeInviteRedemption,
     SandboxEnvironment,
     Task,
     TaskAutomation,
@@ -2874,15 +2872,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return method
 
 
-def _activate_code_for_user(user, organization=None) -> None:
-    """Capture an analytics event when a user redeems a Code invite."""
-    posthoganalytics.capture(
-        distinct_id=str(user.distinct_id),
-        event="code_invite_redeemed",
-        groups=groups(organization=organization),
-    )
-
-
 @extend_schema(tags=["code-invites"])
 class CodeInviteViewSet(viewsets.ViewSet):
     """API for redeeming PostHog Code invite codes."""
@@ -2919,39 +2908,18 @@ class CodeInviteViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=["post"], url_path="redeem")
     def redeem(self, request, **kwargs):
-        code_str = request.validated_data["code"].strip()
+        result = tasks_facade.redeem_code_invite(request.validated_data["code"], request.user.id)
 
-        try:
-            invite_code = CodeInvite.objects.get(code__iexact=code_str)
-        except CodeInvite.DoesNotExist:
+        if result.outcome == tasks_facade.CODE_INVITE_INVALID_CODE:
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Invalid invite code"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        if CodeInviteRedemption.objects.filter(invite_code=invite_code, user=request.user).exists():
-            return Response({"success": True})
-
-        with transaction.atomic():
-            invite_code = CodeInvite.objects.select_for_update().get(id=invite_code.id)
-
-            if not invite_code.is_redeemable:
-                return Response(
-                    TaskRunErrorResponseSerializer({"error": "This invite code is no longer valid"}).data,
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            organization = request.user.organization if hasattr(request.user, "organization") else None
-
-            CodeInviteRedemption.objects.create(
-                invite_code=invite_code,
-                user=request.user,
-                organization=organization,
+        if result.outcome == tasks_facade.CODE_INVITE_NOT_REDEEMABLE:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "This invite code is no longer valid"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
             )
-
-            CodeInvite.objects.filter(id=invite_code.id).update(redemption_count=F("redemption_count") + 1)
-
-            _activate_code_for_user(request.user, organization=organization)
 
         return Response({"success": True})
 
@@ -2964,7 +2932,7 @@ class CodeInviteViewSet(viewsets.ViewSet):
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
-        return Response({"has_access": has_tasks_access(request.user)})
+        return Response({"has_access": tasks_access.has_tasks_access(request.user)})
 
 
 @extend_schema(tags=["sandbox-environments"])

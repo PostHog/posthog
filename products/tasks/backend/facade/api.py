@@ -17,20 +17,29 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 
 from collections.abc import Iterable, Sequence
 from datetime import timedelta
-from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import CharField, Count, Exists, Min, Q, Subquery
+from django.db import transaction
+from django.db.models import CharField, Count, Exists, F, Min, Q, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 
-from products.tasks.backend.models import SandboxEnvironment, SandboxSnapshot, Task, TaskRun
+import posthoganalytics
+
+from posthog.event_usage import groups
+from posthog.models import User
+
+from products.tasks.backend.models import (
+    CodeInvite,
+    CodeInviteRedemption,
+    SandboxEnvironment,
+    SandboxSnapshot,
+    Task,
+    TaskRun,
+)
 from products.tasks.backend.visibility import task_visibility_q
 
 from . import contracts
-
-if TYPE_CHECKING:
-    from posthog.models import User
 
 # --- Enum re-exports ---
 # Value types (not ORM models), safe to expose. External callers compare against the
@@ -41,7 +50,18 @@ TaskOriginProduct = Task.OriginProduct
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
+# --- Code-invite redeem outcomes ---
+# Returned on ``CodeInviteRedeemResult.outcome``; the presentation layer maps each to an
+# HTTP response. ``REDEEMED`` covers both a fresh redemption and the idempotent no-op when
+# the user already redeemed this code (both surface as success).
+CODE_INVITE_REDEEMED = "redeemed"
+CODE_INVITE_INVALID_CODE = "invalid_code"
+CODE_INVITE_NOT_REDEEMABLE = "not_redeemable"
+
 __all__ = [
+    "CODE_INVITE_INVALID_CODE",
+    "CODE_INVITE_NOT_REDEEMABLE",
+    "CODE_INVITE_REDEEMED",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
@@ -65,6 +85,7 @@ __all__ = [
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_url_subquery",
     "list_sandbox_environments",
+    "redeem_code_invite",
     "send_cancel",
     "send_user_message",
     "task_exists",
@@ -465,8 +486,6 @@ def upsert_internal_sandbox_env(
     callers can both INSERT. We dedupe on ``MultipleObjectsReturned`` by keeping the oldest
     row and deleting the rest.
     """
-    from django.db import transaction  # noqa: PLC0415 — narrow transaction around the dedupe retry
-
     defaults: dict = {
         "network_access_level": network_access_level,
         "private": private,
@@ -493,6 +512,54 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
     """Record a completed sandbox snapshot for an externally-built image; return its id."""
     snapshot = SandboxSnapshot.objects.create(external_id=external_id, status=SandboxSnapshot.Status.COMPLETE)
     return snapshot.id
+
+
+# --- Code invites ---
+
+
+def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemResult:
+    """Redeem a PostHog Code invite for a user.
+
+    Idempotent: a user who already redeemed this code gets ``REDEEMED`` without a second
+    redemption row. A fresh redemption takes a row lock on the invite, re-checks
+    redeemability under the lock, records the redemption, bumps ``redemption_count``, and
+    captures the activation analytics — all in one transaction, mirroring the original view.
+    """
+    code_str = code.strip()
+
+    try:
+        invite_code = CodeInvite.objects.get(code__iexact=code_str)
+    except CodeInvite.DoesNotExist:
+        return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_INVALID_CODE)
+
+    user = User.objects.get(pk=user_id)
+
+    if CodeInviteRedemption.objects.filter(invite_code=invite_code, user=user).exists():
+        return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_REDEEMED)
+
+    with transaction.atomic():
+        invite_code = CodeInvite.objects.select_for_update().get(id=invite_code.id)
+
+        if not invite_code.is_redeemable:
+            return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_NOT_REDEEMABLE)
+
+        organization = user.organization if hasattr(user, "organization") else None
+
+        CodeInviteRedemption.objects.create(
+            invite_code=invite_code,
+            user=user,
+            organization=organization,
+        )
+
+        CodeInvite.objects.filter(id=invite_code.id).update(redemption_count=F("redemption_count") + 1)
+
+        posthoganalytics.capture(
+            distinct_id=str(user.distinct_id),
+            event="code_invite_redeemed",
+            groups=groups(organization=organization),
+        )
+
+    return contracts.CodeInviteRedeemResult(outcome=CODE_INVITE_REDEEMED)
 
 
 # --- Sandbox environments (presentation CRUD) ---

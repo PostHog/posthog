@@ -572,7 +572,6 @@ ignore_imports = [
     # tasks presentation wave — the thick task/code-home viewsets and serializers still reach
     # in-product internals directly. Thin each to parse -> facade -> serialize and delete its
     # entry; backend:contract-check stays off until this list is empty.
-    "products.tasks.backend.presentation.views.api -> products.tasks.backend.access",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.automation_service",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.logic.services.code_usage_gate",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.logic.services.connection_token",
