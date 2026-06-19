@@ -56,7 +56,7 @@ be tested independently.
 ### Ingestion pipelines (each gets isolated test selection)
 
 Under `src/ingestion/pipelines/<name>/` — single-word lowercase names matching the pipeline/consumer.
-Phase 4 shipped these under `src/ingestion/lanes/` with hyphenated names; Phase 7 renames the parent
+Phase 4 shipped these under `src/ingestion/lanes/` with hyphenated names; Phase 6 renames the parent
 to `pipelines/` and the dirs to the names below (directory moves).
 
 | Pipeline         | Current dir (Phase 4)              | Notes                                      |
@@ -71,7 +71,7 @@ to `pipelines/` and the dirs to the names below (directory moves).
 
 Moving **out** of `src/ingestion/` (owned by other teams — PR #64506 review):
 
-- `logs` (and traces) — not ingestion-team-owned; relocate out of `src/ingestion/` (Phase 7).
+- `logs` (and traces) — not ingestion-team-owned; relocate out of `src/ingestion/` (Phase 6).
 - session-recording **API service** (`session-replay/recording-api`) — a separate service run by
   another team (Cymbal-like); separate it out.
 - recording **rasterizer** (`session-replay/recording-rasterizer`) — orthogonal to session-recording
@@ -128,7 +128,7 @@ lane plus `common` / `cdp`, then gate jest runs by area:
 | `ingestion/common` | all ingestion lanes                    |
 | top-level `common` | everything (CDP + all ingestion lanes) |
 
-Wired in Phase 6, after the DAG holds and the restructure (Phases 4–5) lands.
+Wired in Phase 7, after the DAG holds and the restructure (Phases 4–6) lands.
 
 ## The boundary guard (Phase 0 — done)
 
@@ -331,7 +331,7 @@ the full suite passes (Phase 0 moved no production code, so it is guard-only and
       a few ingestion tests to a neutral `tests/helpers/` spot (benign test-infra reach, not blocking).
 - [x] Move e2e tests into the `tests/` tree (per product-owner direction: e2e tests live under `tests/`,
       not co-located, and not a per-lane `integration/` subfolder). Mirror the src path under `tests/` so
-      the `lanes/<lane>` segment is preserved and Phase 6 path-based selection can still attribute a test
+      the `lanes/<lane>` segment is preserved and Phase 7 path-based selection can still attribute a test
       to its lane: `src/ingestion/<p>` -> `tests/ingestion/<p>`. Moved the 6 e2e suites
       (`ingestion-e2e`, `person-properties-metadata.e2e`, `person-updates-e2e`, and the heatmaps /
       ingestionwarnings / session-replay `consumer*e2e`) plus the session-replay snapshot; rewrote their
@@ -395,29 +395,14 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
 - [x] Gate: lint + format clean, tsc 0 new errors.
 - [x] **Exit gate:** full suite green in CI (PR #64506 `262fb358`).
 
-### Phase 6 — wire CI test selection
-
-> **DEFERRED to a follow-up PR** (product-owner decision). PR #64506 ships Phases 0–5 plus the Phase 3
-> e2e relocation; the CI per-lane test selection lands separately so this PR stays a pure
-> restructure/standardization and the workflow change can be reviewed on its own (it touches
-> `.github/workflows/` and must stay backwards-compatible with unrebased PRs). The items below are the
-> plan for that next PR.
-
-- [ ] Extend `dorny/paths-filter` to emit per-pipeline + common + cdp flags (pipelines under
-      `src/ingestion/pipelines/<name>/` after Phase 7; shared = `framework/`, `common/`; integration/e2e
-      tests under `tests/ingestion/pipelines/<name>/`).
-- [ ] Gate jest runs by changed area; verify the rules table.
-- [ ] Update scripts/docs to the new layout.
-- [ ] **Exit gate:** `pnpm test:full` green in CI (full suite).
-
-### Phase 7 — address PR #64506 review feedback
+### Phase 6 — address PR #64506 review feedback
 
 Sixteen review threads from reviewer `pl` (ingestion lead). They revise naming/structure decisions
 from Phases 2–4, so the Guidelines + Locked taxonomy above are updated to match; the items below are
 the work to realign the code. All are directory/structure moves — run them one-per-iteration with the
-loop gate (codemod -> `pnpm format` -> guard/tsc/lint -> CI). **Sequencing:** Phase 7 lands before
-Phase 6, because the CI per-pipeline selection keys off the final `pipelines/<name>` paths. Open
-product-owner question (do NOT assume): whether Phase 7 ships in this PR or the follow-up — flag it,
+loop gate (codemod -> `pnpm format` -> guard/tsc/lint -> CI). **Sequencing:** Phase 6 lands before
+Phase 7, because the CI per-pipeline selection keys off the final `pipelines/<name>` paths. Open
+product-owner question (do NOT assume): whether Phase 6 ships in this PR or the follow-up — flag it,
 do not block the plan on it.
 
 Naming (pipelines, not lanes; single-word dirs):
@@ -466,6 +451,21 @@ Misc:
       `tests/`, unit tests alongside** — current layout already matches, no change. [event-filters thread]
 - [ ] **Exit gate:** full suite green in CI; guard baseline clean (no ingestion->CDP, no
       pipeline->pipeline); pipeline naming consistent.
+
+### Phase 7 — wire CI test selection
+
+> **DEFERRED to a follow-up PR** (product-owner decision). PR #64506 ships Phases 0–5 plus the Phase 3
+> e2e relocation; the CI per-pipeline test selection lands separately so this PR stays a pure
+> restructure/standardization and the workflow change can be reviewed on its own (it touches
+> `.github/workflows/` and must stay backwards-compatible with unrebased PRs). Runs after Phase 6's
+> renames land. The items below are the plan for that next PR.
+
+- [ ] Extend `dorny/paths-filter` to emit per-pipeline + common + cdp flags (pipelines under
+      `src/ingestion/pipelines/<name>/` after Phase 6; shared = `framework/`, `common/`; integration/e2e
+      tests under `tests/ingestion/pipelines/<name>/`).
+- [ ] Gate jest runs by changed area; verify the rules table.
+- [ ] Update scripts/docs to the new layout.
+- [ ] **Exit gate:** `pnpm test:full` green in CI (full suite).
 
 ## Status log
 
@@ -694,7 +694,8 @@ Misc:
   ingestion must not import CDP (two real violations flagged: `transformEventStep`, an error-tracking
   rate-limiter test); `common/` should share only interfaces/read-only repos with CDP. The tests-location
   thread is resolved (jose: integration+e2e in `tests/`, unit alongside — current layout already matches).
-  Updated the Guidelines + Locked taxonomy + invariant to this nomenclature and added **Phase 7** (one task
-  per thread). Phase 7 sequences before Phase 6 (CI selection keys off the final `pipelines/<name>` paths);
-  open question (flagged, not assumed): whether Phase 7 ships in this PR or the follow-up. No code moved yet
-  — this is the plan + guideline adaptation only.
+  Updated the Guidelines + Locked taxonomy + invariant to this nomenclature and added a work phase (one task
+  per thread). Renumbered per product-owner: the review-feedback work is **Phase 6** and CI test selection
+  moves to **Phase 7** (feedback sequences first — CI selection keys off the final `pipelines/<name>`
+  paths); open question (flagged, not assumed): whether the feedback phase ships in this PR or the follow-up.
+  No code moved yet — this is the plan + guideline adaptation only.
