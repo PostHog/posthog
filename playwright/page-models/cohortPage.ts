@@ -18,7 +18,6 @@ export class CohortPage {
 
         await this.page.click('[data-attr="scene-title-textarea"]')
         await this.page.locator('[data-attr="scene-title-textarea"]').pressSequentially(name)
-        // Allow time for the cohort name to register before saving
         await delay(1000)
         await this.page.click('[data-attr="save-cohort"]')
 
