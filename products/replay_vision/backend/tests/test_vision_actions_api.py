@@ -138,6 +138,15 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         )
         self.assertEqual(resp.status_code, 400)
 
+    def test_invalid_timezone(self) -> None:
+        # An unknown TZ must be rejected at the API, not blow up later in the scheduling workflow.
+        resp = self.client.post(
+            self.actions_url,
+            data=self._create_payload(trigger_config={"rrule": "FREQ=DAILY", "timezone": "Mars/Phobos"}),
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+
     def test_duplicate_name(self) -> None:
         self.client.post(self.actions_url, data=self._create_payload(), format="json")
         resp = self.client.post(self.actions_url, data=self._create_payload(), format="json")

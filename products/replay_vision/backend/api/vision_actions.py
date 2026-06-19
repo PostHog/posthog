@@ -20,7 +20,7 @@ from products.replay_vision.backend.feature_flag import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionAction
-from products.replay_vision.backend.rrule import validate_rrule
+from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
 
 logger = structlog.get_logger(__name__)
 
@@ -231,6 +231,10 @@ class VisionActionSerializer(serializers.ModelSerializer):
         trigger_config = attrs.get("trigger_config", getattr(self.instance, "trigger_config", None)) or {}
         if trigger_type != TriggerType.SCHEDULE:
             return
+        try:
+            validate_timezone(trigger_config.get("timezone", "UTC"))
+        except ValueError as e:
+            raise serializers.ValidationError({"trigger_config": {"timezone": str(e)}})
         rrule = trigger_config.get("rrule")
         if not rrule:
             return
