@@ -158,7 +158,7 @@ describe('aiEventsUtils', () => {
         })
 
         it('falls back to ClickHouse when the EventDefinition list resolves to null', async () => {
-            jest.spyOn(api.eventDefinitions, 'list').mockResolvedValue(null as any)
+            jest.spyOn(api.eventDefinitions, 'list').mockResolvedValueOnce(null as any)
 
             const queryApiSpy = jest.spyOn(api, 'query').mockResolvedValue({
                 results: [[1]],
