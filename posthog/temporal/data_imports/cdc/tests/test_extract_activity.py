@@ -190,17 +190,20 @@ class TestGetCDCAdapter:
 
     def test_create_reader_requires_ssl_for_recent_source_without_tunnel(self):
         from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+        from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
 
         adapter = PostgresCDCAdapter()
         source = _make_source()
         source.created_at = datetime(2026, 3, 1, tzinfo=UTC)  # after the SSL cutoff
         reader = adapter.create_reader(source)
+        assert isinstance(reader, PgCDCStreamReader)
         assert reader._params.require_ssl is True
 
     def test_create_reader_honors_ssh_tunnel_tls_opt_out(self):
         # Two-arg source_requires_ssl: a recent source reached over an SSH tunnel that opted
         # out of TLS must NOT be force-upgraded on the data path (single-arg would return True).
         from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+        from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
 
         adapter = PostgresCDCAdapter()
         source = _make_source()
@@ -213,6 +216,7 @@ class TestGetCDCAdapter:
             return_value=opted_out_config,
         ):
             reader = adapter.create_reader(source)
+        assert isinstance(reader, PgCDCStreamReader)
         assert reader._params.require_ssl is False
 
 
