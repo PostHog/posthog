@@ -28,6 +28,7 @@ test.describe('Persons', () => {
         const { emailUser } = personsWithIdentity.expected
 
         await test.step('search for the email user and navigate to their detail page', async () => {
+            // goToList now waits for data to load before proceeding
             await persons.goToList()
             await persons.searchFor(emailUser)
             await persons.clickFirstPerson()
