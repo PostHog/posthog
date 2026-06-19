@@ -177,6 +177,10 @@ export const getDefaultFilters = (
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
+        // When the surfacing score flag is on, default to sorting by relevance
+        order: posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE)
+            ? 'surfacing_score'
+            : DEFAULT_RECORDING_FILTERS.order,
     }
     if (pinnedFilters) {
         defaults.filter_group = mergePinnedFilters(defaults.filter_group, pinnedFilters)
