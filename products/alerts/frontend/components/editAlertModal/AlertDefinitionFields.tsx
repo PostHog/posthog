@@ -65,6 +65,10 @@ export function TrendsDefinitionFields({
     )
 }
 
+// Cap the named breaching breakdown values so a high-cardinality breakdown can't produce a runaway
+// banner string (mirrors the SQL preview's table cap); the rest collapse into "+N more".
+const FUNNEL_BREACH_PREVIEW_CAP = 5
+
 /** Conversion-rate read-out + breach/ok status (mirrors the SQL alert's preview). */
 function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | null }): JSX.Element | null {
     if (preview === null) {
@@ -108,7 +112,14 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
                 ) : wouldFire ? (
                     <>
                         {' '}
-                        · {breaching.map((value) => `${value.label ?? 'conversion'} ${format(value.rate)}`).join(', ')}
+                        ·{' '}
+                        {breaching
+                            .slice(0, FUNNEL_BREACH_PREVIEW_CAP)
+                            .map((value) => `${value.label ?? 'conversion'} ${format(value.rate)}`)
+                            .join(', ')}
+                        {breaching.length > FUNNEL_BREACH_PREVIEW_CAP
+                            ? ` +${breaching.length - FUNNEL_BREACH_PREVIEW_CAP} more`
+                            : ''}
                     </>
                 ) : null}
             </LemonBanner>
