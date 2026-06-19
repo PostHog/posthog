@@ -14447,8 +14447,6 @@ export namespace Schemas {
 
     /**
      * * `never` - never
-     * * `1min` - 1min
-     * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
      * * `1hour` - 1hour
@@ -14458,13 +14456,11 @@ export namespace Schemas {
      * * `7day` - 7day
      * * `30day` - 30day
      */
-    export type SyncFrequencyEnum = typeof SyncFrequencyEnum[keyof typeof SyncFrequencyEnum];
+    export type SavedQuerySyncFrequencyEnum = typeof SavedQuerySyncFrequencyEnum[keyof typeof SavedQuerySyncFrequencyEnum];
 
 
-    export const SyncFrequencyEnum = {
+    export const SavedQuerySyncFrequencyEnum = {
       Never: 'never',
-      '1min': '1min',
-      '5min': '5min',
       '15min': '15min',
       '30min': '30min',
       '1hour': '1hour',
@@ -14525,11 +14521,9 @@ export namespace Schemas {
       query: DataWarehouseSavedQueryQuery;
       readonly created_by: UserBasic;
       readonly created_at: string;
-      /** How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.
        *
        * * `never` - never
-       * * `1min` - 1min
-       * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
        * * `1hour` - 1hour
@@ -14538,7 +14532,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | null;
+      sync_frequency?: SavedQuerySyncFrequencyEnum | null;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -21097,6 +21091,36 @@ export namespace Schemas {
       Timestamp: 'timestamp',
       Objectid: 'objectid',
       Xid: 'xid',
+    } as const;
+
+    /**
+     * * `never` - never
+     * * `1min` - 1min
+     * * `5min` - 5min
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day
+     */
+    export type SyncFrequencyEnum = typeof SyncFrequencyEnum[keyof typeof SyncFrequencyEnum];
+
+
+    export const SyncFrequencyEnum = {
+      Never: 'never',
+      '1min': '1min',
+      '5min': '5min',
+      '15min': '15min',
+      '30min': '30min',
+      '1hour': '1hour',
+      '6hour': '6hour',
+      '12hour': '12hour',
+      '24hour': '24hour',
+      '7day': '7day',
+      '30day': '30day',
     } as const;
 
     export interface ExternalDataSchema {
@@ -34487,11 +34511,9 @@ export namespace Schemas {
       query?: PatchedDataWarehouseSavedQueryQuery;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
-      /** How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.
+      /** How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.
        *
        * * `never` - never
-       * * `1min` - 1min
-       * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
        * * `1hour` - 1hour
@@ -34500,7 +34522,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | null;
+      sync_frequency?: SavedQuerySyncFrequencyEnum | null;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *

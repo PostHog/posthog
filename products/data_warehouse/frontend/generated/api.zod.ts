@@ -132,27 +132,15 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
         sync_frequency: zod
             .union([
                 zod
-                    .enum([
-                        'never',
-                        '1min',
-                        '5min',
-                        '15min',
-                        '30min',
-                        '1hour',
-                        '6hour',
-                        '12hour',
-                        '24hour',
-                        '7day',
-                        '30day',
-                    ])
+                    .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -200,27 +188,15 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
         sync_frequency: zod
             .union([
                 zod
-                    .enum([
-                        'never',
-                        '1min',
-                        '5min',
-                        '15min',
-                        '30min',
-                        '1hour',
-                        '6hour',
-                        '12hour',
-                        '24hour',
-                        '7day',
-                        '30day',
-                    ])
+                    .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -270,27 +246,15 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
         sync_frequency: zod
             .union([
                 zod
-                    .enum([
-                        'never',
-                        '1min',
-                        '5min',
-                        '15min',
-                        '30min',
-                        '1hour',
-                        '6hour',
-                        '12hour',
-                        '24hour',
-                        '7day',
-                        '30day',
-                    ])
+                    .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -342,27 +306,15 @@ export const WarehouseSavedQueriesAncestorsCreateBody = /* @__PURE__ */ zod
         sync_frequency: zod
             .union([
                 zod
-                    .enum([
-                        'never',
-                        '1min',
-                        '5min',
-                        '15min',
-                        '30min',
-                        '1hour',
-                        '6hour',
-                        '12hour',
-                        '24hour',
-                        '7day',
-                        '30day',
-                    ])
+                    .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -410,27 +362,15 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
         sync_frequency: zod
             .union([
                 zod
-                    .enum([
-                        'never',
-                        '1min',
-                        '5min',
-                        '15min',
-                        '30min',
-                        '1hour',
-                        '6hour',
-                        '12hour',
-                        '24hour',
-                        '7day',
-                        '30day',
-                    ])
+                    .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -482,27 +422,15 @@ export const WarehouseSavedQueriesDescendantsCreateBody = /* @__PURE__ */ zod
         sync_frequency: zod
             .union([
                 zod
-                    .enum([
-                        'never',
-                        '1min',
-                        '5min',
-                        '15min',
-                        '30min',
-                        '1hour',
-                        '6hour',
-                        '12hour',
-                        '24hour',
-                        '7day',
-                        '30day',
-                    ])
+                    .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -550,27 +478,15 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
         sync_frequency: zod
             .union([
                 zod
-                    .enum([
-                        'never',
-                        '1min',
-                        '5min',
-                        '15min',
-                        '30min',
-                        '1hour',
-                        '6hour',
-                        '12hour',
-                        '24hour',
-                        '7day',
-                        '30day',
-                    ])
+                    .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -621,27 +537,15 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
         sync_frequency: zod
             .union([
                 zod
-                    .enum([
-                        'never',
-                        '1min',
-                        '5min',
-                        '15min',
-                        '30min',
-                        '1hour',
-                        '6hour',
-                        '12hour',
-                        '24hour',
-                        '7day',
-                        '30day',
-                    ])
+                    .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -689,27 +593,15 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
         sync_frequency: zod
             .union([
                 zod
-                    .enum([
-                        'never',
-                        '1min',
-                        '5min',
-                        '15min',
-                        '30min',
-                        '1hour',
-                        '6hour',
-                        '12hour',
-                        '24hour',
-                        '7day',
-                        '30day',
-                    ])
+                    .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
@@ -760,27 +652,15 @@ export const WarehouseSavedQueriesResumeSchedulesCreateBody = /* @__PURE__ */ zo
         sync_frequency: zod
             .union([
                 zod
-                    .enum([
-                        'never',
-                        '1min',
-                        '5min',
-                        '15min',
-                        '30min',
-                        '1hour',
-                        '6hour',
-                        '12hour',
-                        '24hour',
-                        '7day',
-                        '30day',
-                    ])
+                    .enum(['never', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                     .describe(
-                        '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                        '\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                "How often to materialize this view. One of '1min', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
+                "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n\* `never` - never\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day"
             ),
         folder_id: zod
             .uuid()
