@@ -66,7 +66,7 @@ export function useTrendsLegendConfig({
                       }
                       return (
                           <TrendsLegendItemContextMenu insightProps={insightProps} item={result}>
-                              {node as JSX.Element}
+                              {node}
                           </TrendsLegendItemContextMenu>
                       )
                   }

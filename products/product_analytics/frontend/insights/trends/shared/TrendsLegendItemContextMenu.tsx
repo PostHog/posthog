@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import type { ReactNode } from 'react'
 
 import { InsightLegendRowContextMenu } from 'lib/components/InsightLegend/InsightLegendRowContextMenu'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -10,7 +11,7 @@ import { InsightLogicProps } from '~/types'
 interface TrendsLegendItemContextMenuProps {
     insightProps: InsightLogicProps
     item: IndexedTrendResult
-    children: JSX.Element
+    children: ReactNode
 }
 
 /** Right-click isolate/show-all/hide-all menu for a quill legend row, mirroring the legacy
