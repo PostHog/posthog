@@ -110,41 +110,63 @@ def test_resolve_execution_mode(kind, interval, high_frequency, expected):
     assert _resolve_execution_mode(alert, kind, query) == expected
 
 
-# Extractors forward the mode they're handed (the dispatcher decides it).
-@pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
-@patch("products.alerts.backend.evaluation.trends.calculate_for_query_based_insight")
-def test_trends_extractor_forwards_execution_mode(mock_calc, mode):
-    mock_calc.return_value = EMPTY_RESULT
+def _trends_forward(mode):
     TrendsExtractor().extract(_trends_alert(high_frequency=False), MagicMock(spec=Insight), _day_query(), mode)
-    assert mock_calc.call_args.kwargs["execution_mode"] == mode
 
 
-@pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
-@patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
-def test_detector_forwards_execution_mode(mock_calc, mode):
-    mock_calc.return_value = EMPTY_RESULT
+def _detector_forward(mode):
     extract_detector_series(MagicMock(spec=Insight), MagicMock(), _day_query(), ZSCORE_DETECTOR_CONFIG, mode)
-    assert mock_calc.call_args.kwargs["execution_mode"] == mode
 
 
-@pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
-@patch("products.alerts.backend.evaluation.funnels.calculate_for_query_based_insight")
-def test_funnels_extractor_forwards_execution_mode(mock_calc, mode):
-    mock_calc.return_value = MagicMock(result=[{"order": 0, "count": 100, "breakdown_value": None}])
+def _funnels_forward(mode):
     alert = MagicMock()
     alert.config = {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None}
     alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
     query = {"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "step_a"}]}
     FunnelsExtractor().extract(alert, MagicMock(), query, mode)
-    assert mock_calc.call_args.kwargs["execution_mode"] == mode
 
 
-@pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
-@patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
-def test_hogql_extractor_forwards_execution_mode(mock_calc, mode):
-    mock_calc.return_value = MagicMock(result=[[5.0], [6.0]], columns=["value"])
+def _hogql_forward(mode):
     alert = MagicMock()
     alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
     alert.config = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
     HogQLExtractor().extract(alert, MagicMock(), MagicMock(), mode)
-    assert mock_calc.call_args.kwargs["execution_mode"] == mode
+
+
+# (calc-path to patch, the result that path returns, a thunk that drives the extractor for one kind).
+EXTRACTOR_FORWARDING_CASES = [
+    pytest.param(
+        "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight",
+        EMPTY_RESULT,
+        _trends_forward,
+        id="trends",
+    ),
+    pytest.param(
+        "products.alerts.backend.evaluation.detector.calculate_for_query_based_insight",
+        EMPTY_RESULT,
+        _detector_forward,
+        id="detector",
+    ),
+    pytest.param(
+        "products.alerts.backend.evaluation.funnels.calculate_for_query_based_insight",
+        MagicMock(result=[{"order": 0, "count": 100, "breakdown_value": None}]),
+        _funnels_forward,
+        id="funnels",
+    ),
+    pytest.param(
+        "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight",
+        MagicMock(result=[[5.0], [6.0]], columns=["value"]),
+        _hogql_forward,
+        id="hogql",
+    ),
+]
+
+
+# Every extractor forwards the mode it's handed (the dispatcher decides it) straight to the query layer.
+@pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
+@pytest.mark.parametrize("calc_path,calc_result,forward", EXTRACTOR_FORWARDING_CASES)
+def test_extractor_forwards_execution_mode(calc_path, calc_result, forward, mode):
+    with patch(calc_path) as mock_calc:
+        mock_calc.return_value = calc_result
+        forward(mode)
+        assert mock_calc.call_args.kwargs["execution_mode"] == mode
