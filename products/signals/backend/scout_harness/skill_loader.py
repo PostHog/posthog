@@ -9,6 +9,13 @@ from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 # Naming contract for skills that steer a Signals-agent run.
 SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
 
+# The Dreaming Agent's canonical skill. It shares the `signals-scout-` prefix (so it's
+# discovered + seeded by the same lazy-seed path) but is NOT a normal scout: it runs nightly
+# via the dedicated dreaming coordinator, not the per-(team, skill) scout coordinator, and it
+# does not emit `cross_source_issue` signals. The scout coordinator and `register_missing_configs`
+# exclude it so it isn't double-dispatched as an ordinary scout.
+DREAMING_SKILL_NAME = "signals-scout-dreaming"
+
 
 class SkillNotFoundError(LookupError):
     """The team has no skill matching the requested name."""

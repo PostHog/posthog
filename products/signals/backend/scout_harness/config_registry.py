@@ -13,7 +13,7 @@ import structlog
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.skill_loader import DREAMING_SKILL_NAME, SIGNALS_SCOUT_SKILL_PREFIX
 from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
@@ -52,6 +52,11 @@ def register_missing_configs(team_id: int) -> set[str]:
             deleted=False,
         ).values_list("name", flat=True)
     )
+    # The dreaming scout shares the `signals-scout-` prefix but is driven by the dedicated
+    # nightly dreaming coordinator, not this per-(team, skill) scout coordinator. Excluding it
+    # here keeps the scout coordinator from auto-registering / dispatching it as an ordinary
+    # scout (the dreaming coordinator owns its config via `force_enable_dreaming`).
+    skill_names.discard(DREAMING_SKILL_NAME)
     configs = SignalScoutConfig.objects.for_team(team_id)
     existing = set(configs.values_list("skill_name", flat=True))
     missing = sorted(skill_names - existing)

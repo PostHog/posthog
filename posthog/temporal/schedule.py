@@ -92,6 +92,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
 )
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
+from products.signals.backend.temporal.dreaming.schedule import create_dreaming_coordinator_schedule
 from products.tasks.backend.temporal.code_workstreams.schedule import create_evaluate_code_workstreams_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
@@ -704,6 +705,7 @@ schedules = [
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
+    create_dreaming_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
     create_evaluate_code_workstreams_schedule,

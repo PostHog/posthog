@@ -22,6 +22,16 @@ from products.signals.backend.temporal.buffer import (
 )
 from products.signals.backend.temporal.custom_agent import CustomSignalAgentWorkflow, run_custom_signal_agent_activity
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
+from products.signals.backend.temporal.dreaming.coordinator import (
+    DreamingCoordinatorWorkflow,
+    fetch_due_dreaming_runs_activity,
+    stamp_dreaming_runs_activity,
+)
+from products.signals.backend.temporal.dreaming.workflow import (
+    RunDreamingWorkflow,
+    generate_and_deliver_briefing_activity,
+    instrumentation_cleanup_activity,
+)
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped_activity
 from products.signals.backend.temporal.emit_eval_signal import EmitEvalSignalWorkflow, emit_eval_signal_activity
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
@@ -86,6 +96,8 @@ WORKFLOWS = [
     RunSignalsScoutWorkflow,
     SignalsScoutCoordinatorWorkflow,
     SignalReportInboxNotificationWorkflow,
+    DreamingCoordinatorWorkflow,
+    RunDreamingWorkflow,
 ]
 
 ACTIVITIES = [
@@ -132,4 +144,8 @@ ACTIVITIES = [
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
+    fetch_due_dreaming_runs_activity,
+    stamp_dreaming_runs_activity,
+    instrumentation_cleanup_activity,
+    generate_and_deliver_briefing_activity,
 ]
