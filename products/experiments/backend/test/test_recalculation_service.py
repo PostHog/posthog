@@ -352,6 +352,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
         return exp
 
     def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
+        assert exp.metrics and exp.start_date is not None
         metric_dict = next(m for m in exp.metrics if m["uuid"] == metric_uuid)
         return compute_metric_fingerprint(
             metric_dict,
@@ -362,6 +363,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
         )
 
     def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict | None) -> None:
+        assert exp.start_date is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid=metric_uuid,
