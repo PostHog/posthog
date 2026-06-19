@@ -295,9 +295,11 @@ export const userLogic = kea<userLogicType>([
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
                 // OAuth mode has no server-rendered app context, so seed ApiConfig from the freshly
-                // loaded remote user. This makes team/project/org ids available synchronously before
-                // the first project-scoped URL is built, avoiding "Project ID is not known." on bootstrap.
+                // loaded remote user. This makes user/team/project/org ids available synchronously
+                // before the first project-scoped URL is built, avoiding "Project ID is not known."
+                // (and the sibling user/org id errors) on bootstrap.
                 if (isOAuthMode()) {
+                    ApiConfig.setCurrentUserId(user.uuid)
                     if (user.team) {
                         ApiConfig.setCurrentTeamId(user.team.id)
                         ApiConfig.setCurrentProjectId(user.team.project_id)

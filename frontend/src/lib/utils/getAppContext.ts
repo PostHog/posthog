@@ -72,13 +72,19 @@ export function getCurrentTeamIdOrNone(): TeamType['id'] | null {
 export function getCurrentUserId(): UserType['uuid'] {
     const maybeUserId = getAppContext()?.current_user?.uuid
     if (!maybeUserId) {
+        if (isOAuthMode() && ApiConfig.hasCurrentUserId()) {
+            return ApiConfig.getCurrentUserId()
+        }
         throw new Error(`User ID is not known.${getAppContext()?.anonymous ? ' User is anonymous.' : ''}`)
     }
     return maybeUserId
 }
 
 export function getCurrentUserIdOrNone(): UserType['uuid'] | null {
-    return getAppContext()?.current_user?.uuid ?? null
+    return (
+        getAppContext()?.current_user?.uuid ??
+        (isOAuthMode() && ApiConfig.hasCurrentUserId() ? ApiConfig.getCurrentUserId() : null)
+    )
 }
 
 // NOTE: Any changes to the organizationId trigger a full page load so we don't use the logic
