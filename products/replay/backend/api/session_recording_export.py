@@ -1,5 +1,7 @@
 from typing import cast
 
+import structlog
+from drf_spectacular.utils import OpenApiResponse
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException
@@ -12,6 +14,8 @@ from posthog.permissions import IsStaffUserOrImpersonating
 
 from products.replay.backend.models.exported_recording import ExportedRecording
 from products.replay.backend.services.export_recording import trigger_recording_export
+
+logger = structlog.get_logger(__name__)
 
 
 class ExportTriggerFailed(APIException):
@@ -79,7 +83,10 @@ class SessionRecordingExportViewSet(
 
     @extend_schema(
         request=ExportedRecordingCreateSerializer,
-        responses={201: ExportedRecordingSerializer},
+        responses={
+            201: ExportedRecordingSerializer,
+            502: OpenApiResponse(description="The export was recorded but the export workflow failed to start."),
+        },
         summary="Trigger a session recording export",
     )
     def create(self, request: request.Request, *args: object, **kwargs: object) -> response.Response:
@@ -94,8 +101,9 @@ class SessionRecordingExportViewSet(
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated_session(request),
             )
-        except Exception as e:
-            raise ExportTriggerFailed(detail=f"Failed to start the export workflow: {e}")
+        except Exception:
+            logger.exception("session_recording_export_trigger_failed", team_id=self.team.id)
+            raise ExportTriggerFailed
 
         output = ExportedRecordingSerializer(export_record, context=self.get_serializer_context())
         return response.Response(output.data, status=status.HTTP_201_CREATED)

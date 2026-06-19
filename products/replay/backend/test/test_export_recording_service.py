@@ -51,3 +51,25 @@ class TestTriggerRecordingExport(BaseTest):
         assert mock_log_activity.call_args.kwargs["was_impersonated"] is True
         assert mock_log_activity.call_args.kwargs["scope"] == "Replay"
         assert mock_log_activity.call_args.kwargs["activity"] == "exported"
+
+    def test_marks_record_failed_when_workflow_start_fails(self) -> None:
+        mock_temporal = MagicMock()
+        mock_temporal.start_workflow = AsyncMock(side_effect=RuntimeError("temporal down"))
+
+        with (
+            patch(f"{SERVICE}.sync_connect", return_value=mock_temporal),
+            patch(f"{SERVICE}.log_activity") as mock_log_activity,
+        ):
+            with self.assertRaises(RuntimeError):
+                trigger_recording_export(
+                    team=self.team,
+                    session_id="session-456",
+                    reason="debugging",
+                    user=self.user,
+                    was_impersonated=False,
+                )
+
+        persisted = ExportedRecording.objects.get(team=self.team, session_id="session-456")
+        assert persisted.status == ExportedRecording.Status.FAILED
+        assert persisted.error_message == "Failed to start the export workflow"
+        mock_log_activity.assert_not_called()

@@ -36,22 +36,28 @@ def trigger_recording_export(
         created_by=user,
     )
 
-    temporal = sync_connect()
-    workflow_input = ExportRecordingInput(exported_recording_id=export_record.id)
-    workflow_id = f"export-recording-{export_record.id}-{uuid.uuid4()}"
+    try:
+        temporal = sync_connect()
+        workflow_input = ExportRecordingInput(exported_recording_id=export_record.id)
+        workflow_id = f"export-recording-{export_record.id}-{uuid.uuid4()}"
 
-    asyncio.run(
-        temporal.start_workflow(
-            "export-recording",
-            workflow_input,
-            id=workflow_id,
-            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
-            ),
+        asyncio.run(
+            temporal.start_workflow(
+                "export-recording",
+                workflow_input,
+                id=workflow_id,
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(minutes=1),
+                ),
+            )
         )
-    )
+    except Exception:
+        export_record.status = ExportedRecording.Status.FAILED
+        export_record.error_message = "Failed to start the export workflow"
+        export_record.save(update_fields=["status", "error_message"])
+        raise
 
     log_activity(
         organization_id=team.organization_id,
