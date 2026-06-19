@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
-use crate::core::config::{init_resolver_globals, ResolverConfig};
+use crate::core::config::ResolverConfig;
 
 /// Top-level config for resolution mode. Owns the shared resolver config and the
 /// resolution service settings — no processing-only knobs. `INTERNAL_API_SECRET`
@@ -27,9 +27,7 @@ pub struct ResolutionConfig {
 
 impl ResolutionConfig {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        let res = Self::init_from_env()?;
-        init_resolver_globals(&res.resolver);
-        Ok(res)
+        Self::init_from_env()
     }
 }
 

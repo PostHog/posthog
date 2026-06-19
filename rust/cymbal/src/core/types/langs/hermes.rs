@@ -41,11 +41,16 @@ pub struct RawHermesFrame {
 pub enum HermesRef {}
 
 impl RawHermesFrame {
-    pub async fn resolve_frame<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, UnhandledError>
+    pub async fn resolve_frame<C>(
+        &self,
+        team_id: i32,
+        catalog: &C,
+        context_lines: usize,
+    ) -> Result<Frame, UnhandledError>
     where
         C: SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap>,
     {
-        match self.resolve_impl(team_id, catalog).await {
+        match self.resolve_impl(team_id, catalog, context_lines).await {
             Ok(frame) => Ok(frame),
             Err(ResolveError::ResolutionError(FrameError::Hermes(e))) => {
                 Ok(self.handle_resolution_error(e))
@@ -61,7 +66,12 @@ impl RawHermesFrame {
         }
     }
 
-    async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, ResolveError>
+    async fn resolve_impl<C>(
+        &self,
+        team_id: i32,
+        catalog: &C,
+        context_lines: usize,
+    ) -> Result<Frame, ResolveError>
     where
         C: SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap>,
     {
@@ -83,7 +93,7 @@ impl RawHermesFrame {
             .get_original_function_name(column)
             .map(|s| s.to_string());
 
-        Ok((self, token, resolved_name).into())
+        Ok((self, token, resolved_name, context_lines).into())
     }
 
     pub fn frame_id(&self) -> String {
@@ -153,8 +163,15 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
     }
 }
 
-impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
-    fn from((frame, token, resolved_name): (&RawHermesFrame, Token<'_>, Option<String>)) -> Self {
+impl From<(&RawHermesFrame, Token<'_>, Option<String>, usize)> for Frame {
+    fn from(
+        (frame, token, resolved_name, context_lines): (
+            &RawHermesFrame,
+            Token<'_>,
+            Option<String>,
+            usize,
+        ),
+    ) -> Self {
         let source = token.get_source().map(|s| sanitize_string(s.to_string()));
         let in_app = source
             .as_ref()
@@ -176,7 +193,7 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
             code_variables: None,
-            context: get_token_context(&token, token.get_src_line() as usize),
+            context: get_token_context(&token, token.get_src_line() as usize, context_lines),
             release: None,
             suspicious: false,
             module: None,
@@ -317,7 +334,7 @@ mod test {
 
         for (raw_frame, expected_name) in get_frames(chunk_id) {
             let res = raw_frame
-                .resolve(team_id, &c, &[])
+                .resolve(team_id, &c, &[], 15)
                 .await
                 .unwrap()
                 .pop()

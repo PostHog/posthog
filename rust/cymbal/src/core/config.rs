@@ -1,11 +1,6 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use aws_config::{BehaviorVersion, Region};
 use envconfig::Envconfig;
 use tracing::{info, warn};
-
-// TODO - I'm just too lazy to pipe this all the way through the resolve call stack
-pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);
 
 /// Configuration for the shared symbol-resolution stack. Both run modes parse
 /// this slice; processing mode nests it on [`crate::modes::processing::ProcessingConfig`], and
@@ -83,15 +78,8 @@ pub struct ResolverConfig {
 
 impl ResolverConfig {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        let res = Self::init_from_env()?;
-        init_resolver_globals(&res);
-        Ok(res)
+        Self::init_from_env()
     }
-}
-
-/// Apply resolver config values that are read through process-global state.
-pub fn init_resolver_globals(config: &ResolverConfig) {
-    FRAME_CONTEXT_LINES.store(config.context_line_count, Ordering::Relaxed);
 }
 
 pub async fn get_aws_config(config: &ResolverConfig) -> aws_sdk_s3::Config {

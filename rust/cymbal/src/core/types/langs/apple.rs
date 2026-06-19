@@ -6,10 +6,7 @@ use sha2::{Digest, Sha512};
 use symbolic::common::Name;
 use symbolic::demangle::{Demangle, DemangleOptions};
 
-use std::sync::atomic::Ordering;
-
 use crate::{
-    core::config::FRAME_CONTEXT_LINES,
     error::{AppleError, FrameError, ResolveError, UnhandledError},
     frames::{record_frame_resolution_failure, Frame},
     langs::native::{self, DebugImage},
@@ -92,6 +89,7 @@ impl RawAppleFrame {
         team_id: i32,
         catalog: &C,
         debug_images: &[DebugImage],
+        context_lines: usize,
     ) -> Result<Vec<Frame>, UnhandledError>
     where
         C: SymbolCatalog<OrChunkId<AppleRef>, ParsedNativeSymbols>,
@@ -101,7 +99,10 @@ impl RawAppleFrame {
             self.instruction_addr, self.module, self.function, debug_images.len()
         );
 
-        match self.resolve_impl(team_id, catalog, debug_images).await {
+        match self
+            .resolve_impl(team_id, catalog, debug_images, context_lines)
+            .await
+        {
             Ok(frames) => {
                 tracing::debug!(
                     "[apple-debug] resolve() SUCCESS: {} frame(s), first resolved_name={:?}",
@@ -138,6 +139,7 @@ impl RawAppleFrame {
         team_id: i32,
         catalog: &C,
         debug_images: &[DebugImage],
+        context_lines: usize,
     ) -> Result<Vec<Frame>, ResolveError>
     where
         C: SymbolCatalog<OrChunkId<AppleRef>, ParsedNativeSymbols>,
@@ -223,11 +225,8 @@ impl RawAppleFrame {
                         } else {
                             0
                         };
-                        frame.context = get_context_lines(
-                            source_text.lines(),
-                            target_line,
-                            FRAME_CONTEXT_LINES.load(Ordering::Relaxed),
-                        );
+                        frame.context =
+                            get_context_lines(source_text.lines(), target_line, context_lines);
                     }
                 }
 
@@ -544,7 +543,7 @@ mod test {
 
         let frame = RawFrame::Apple(raw_frame);
         let resolved = frame
-            .resolve(team_id, &catalog, &debug_images)
+            .resolve(team_id, &catalog, &debug_images, 15)
             .await
             .unwrap()
             .pop()
@@ -700,7 +699,7 @@ mod test {
         }];
 
         let frames = RawFrame::Apple(raw_frame)
-            .resolve(team_id, &catalog, &debug_images)
+            .resolve(team_id, &catalog, &debug_images, 15)
             .await
             .unwrap();
 

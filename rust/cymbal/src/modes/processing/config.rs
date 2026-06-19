@@ -4,7 +4,7 @@ use common_continuous_profiling::ContinuousProfilingConfig;
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 
-use crate::core::config::{init_resolver_globals, ResolverConfig};
+use crate::core::config::ResolverConfig;
 
 pub static BATCH_APPLY_CONCURRENCY: AtomicUsize = AtomicUsize::new(64);
 
@@ -249,6 +249,5 @@ impl ProcessingConfig {
 }
 
 pub fn init_global_state(config: &ProcessingConfig) {
-    init_resolver_globals(&config.resolver);
     BATCH_APPLY_CONCURRENCY.store(config.batch_apply_concurrency.max(1), Ordering::Relaxed);
 }

@@ -42,11 +42,16 @@ pub struct FrameLocation {
 }
 
 impl RawJSFrame {
-    pub async fn resolve_frame<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, UnhandledError>
+    pub async fn resolve_frame<C>(
+        &self,
+        team_id: i32,
+        catalog: &C,
+        context_lines: usize,
+    ) -> Result<Frame, UnhandledError>
     where
         C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
     {
-        match self.resolve_impl(team_id, catalog).await {
+        match self.resolve_impl(team_id, catalog, context_lines).await {
             Ok(frame) => Ok(frame),
             Err(ResolveError::ResolutionError(FrameError::JavaScript(e))) => {
                 Ok(self.handle_resolution_error(e))
@@ -62,7 +67,12 @@ impl RawJSFrame {
         }
     }
 
-    async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, ResolveError>
+    async fn resolve_impl<C>(
+        &self,
+        team_id: i32,
+        catalog: &C,
+        context_lines: usize,
+    ) -> Result<Frame, ResolveError>
     where
         C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
     {
@@ -86,7 +96,7 @@ impl RawJSFrame {
             .into());
         };
 
-        Ok(Frame::from((self, location)))
+        Ok(Frame::from((self, location, context_lines)))
     }
 
     // JS frames can only handle JS resolution errors - errors at the network level
@@ -176,9 +186,9 @@ impl RawJSFrame {
     }
 }
 
-impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
-    fn from(src: (&RawJSFrame, SourceLocation)) -> Self {
-        let (raw_frame, token) = src;
+impl From<(&RawJSFrame, SourceLocation<'_>, usize)> for Frame {
+    fn from(src: (&RawJSFrame, SourceLocation, usize)) -> Self {
+        let (raw_frame, token, context_lines) = src;
 
         let resolved_name = match token.scope() {
             // The `$async$` prefix is a Dart/Flutter compiler artifact that appears in
@@ -224,7 +234,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
 
             junk_drawer: None,
             code_variables: None,
-            context: get_sourcelocation_context(&token),
+            context: get_sourcelocation_context(&token, context_lines),
             release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious,

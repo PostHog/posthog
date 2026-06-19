@@ -37,6 +37,7 @@ pub trait Resolve<C> {
         team_id: i32,
         catalog: &C,
         debug_images: &[DebugImage],
+        context_lines: usize,
     ) -> Result<Vec<Frame>, UnhandledError>;
 }
 
@@ -49,8 +50,11 @@ where
         team_id: i32,
         catalog: &C,
         _debug_images: &[DebugImage],
+        context_lines: usize,
     ) -> Result<Vec<Frame>, UnhandledError> {
-        self.resolve_frame(team_id, catalog).await.map(|f| vec![f])
+        self.resolve_frame(team_id, catalog, context_lines)
+            .await
+            .map(|f| vec![f])
     }
 }
 
@@ -63,8 +67,11 @@ where
         team_id: i32,
         catalog: &C,
         _debug_images: &[DebugImage],
+        context_lines: usize,
     ) -> Result<Vec<Frame>, UnhandledError> {
-        self.resolve_frame(team_id, catalog).await.map(|f| vec![f])
+        self.resolve_frame(team_id, catalog, context_lines)
+            .await
+            .map(|f| vec![f])
     }
 }
 
@@ -77,8 +84,11 @@ where
         team_id: i32,
         catalog: &C,
         _debug_images: &[DebugImage],
+        context_lines: usize,
     ) -> Result<Vec<Frame>, UnhandledError> {
-        self.resolve_frame(team_id, catalog).await.map(|f| vec![f])
+        self.resolve_frame(team_id, catalog, context_lines)
+            .await
+            .map(|f| vec![f])
     }
 }
 
@@ -91,6 +101,7 @@ where
         team_id: i32,
         catalog: &C,
         _debug_images: &[DebugImage],
+        _context_lines: usize, // Java frames have no source context to bound
     ) -> Result<Vec<Frame>, UnhandledError> {
         self.resolve_frame(team_id, catalog).await
     }
@@ -105,8 +116,10 @@ where
         team_id: i32,
         catalog: &C,
         debug_images: &[DebugImage],
+        context_lines: usize,
     ) -> Result<Vec<Frame>, UnhandledError> {
-        self.resolve_frame(team_id, catalog, debug_images).await
+        self.resolve_frame(team_id, catalog, debug_images, context_lines)
+            .await
     }
 }
 
@@ -116,32 +129,42 @@ impl Resolve<Catalog> for RawFrame {
         team_id: i32,
         catalog: &Catalog,
         debug_images: &[DebugImage],
+        context_lines: usize,
     ) -> Result<Vec<Frame>, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         // Catalog-backed frames resolve via `Resolve`; catalog-free frames convert
         // directly with `From<&RawX> for Frame` (no symbol resolution needed).
         let (res, lang_tag): (Result<Vec<Frame>, UnhandledError>, &str) = match self {
             RawFrame::JavaScriptWeb(frame) => (
-                frame.resolve(team_id, catalog, debug_images).await,
+                frame
+                    .resolve(team_id, catalog, debug_images, context_lines)
+                    .await,
                 "javascript",
             ),
             RawFrame::LegacyJS(frame) => {
                 // TODO: monitor this metric and remove the legacy frame type when it hits 0
                 metrics::counter!(LEGACY_JS_FRAME_RESOLVED).increment(1);
                 (
-                    frame.resolve(team_id, catalog, debug_images).await,
+                    frame
+                        .resolve(team_id, catalog, debug_images, context_lines)
+                        .await,
                     "javascript",
                 )
             }
             RawFrame::JavaScriptNode(frame) => (
-                frame.resolve(team_id, catalog, debug_images).await,
+                frame
+                    .resolve(team_id, catalog, debug_images, context_lines)
+                    .await,
                 "javascript",
             ),
 
             RawFrame::Dart(frame) => (Ok(vec![frame.into()]), "dart"),
-            RawFrame::Apple(frame) => {
-                (frame.resolve(team_id, catalog, debug_images).await, "apple")
-            }
+            RawFrame::Apple(frame) => (
+                frame
+                    .resolve(team_id, catalog, debug_images, context_lines)
+                    .await,
+                "apple",
+            ),
             RawFrame::Php(frame) => (Ok(vec![frame.into()]), "php"),
             RawFrame::Python(frame) => (Ok(vec![frame.into()]), "python"),
             RawFrame::Ruby(frame) => (Ok(vec![frame.into()]), "ruby"),
@@ -149,10 +172,17 @@ impl Resolve<Catalog> for RawFrame {
             RawFrame::Custom(frame) => (Ok(vec![frame.into()]), "custom"),
             RawFrame::Go(frame) => (Ok(vec![frame.into()]), "go"),
             RawFrame::Hermes(frame) => (
-                frame.resolve(team_id, catalog, debug_images).await,
+                frame
+                    .resolve(team_id, catalog, debug_images, context_lines)
+                    .await,
                 "hermes",
             ),
-            RawFrame::Java(frame) => (frame.resolve(team_id, catalog, debug_images).await, "java"),
+            RawFrame::Java(frame) => (
+                frame
+                    .resolve(team_id, catalog, debug_images, context_lines)
+                    .await,
+                "java",
+            ),
         };
 
         // The raw id of the frame is set after it's resolved.

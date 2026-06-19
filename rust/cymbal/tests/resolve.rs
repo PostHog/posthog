@@ -138,7 +138,7 @@ async fn end_to_end_resolver_test() {
     for frame in test_stack {
         resolved_frames.push(
             frame
-                .resolve(exception.team_id, &catalog, &[])
+                .resolve(exception.team_id, &catalog, &[], 15)
                 .await
                 .unwrap(),
         );
@@ -170,7 +170,7 @@ async fn sourcemap_nulls_dont_go_on_frames() {
         .lookup(SourcePosition::new(location.line - 1, location.column))
         .unwrap();
 
-    let res = Frame::from((&frame, token));
+    let res = Frame::from((&frame, token, 15));
 
     assert!(!res.source.unwrap().contains('\0'));
 }

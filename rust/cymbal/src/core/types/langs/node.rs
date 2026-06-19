@@ -38,7 +38,12 @@ pub struct RawNodeFrame {
 }
 
 impl RawNodeFrame {
-    pub async fn resolve_frame<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, UnhandledError>
+    pub async fn resolve_frame<C>(
+        &self,
+        team_id: i32,
+        catalog: &C,
+        context_lines: usize,
+    ) -> Result<Frame, UnhandledError>
     where
         C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
     {
@@ -46,7 +51,10 @@ impl RawNodeFrame {
             return Ok(self.into());
         };
 
-        match self.resolve_impl(team_id, catalog, chunk_id.clone()).await {
+        match self
+            .resolve_impl(team_id, catalog, chunk_id.clone(), context_lines)
+            .await
+        {
             Ok(frame) => Ok(frame),
             Err(ResolveError::ResolutionError(FrameError::JavaScript(e))) => Ok((self, e).into()),
             Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
@@ -65,6 +73,7 @@ impl RawNodeFrame {
         team_id: i32,
         catalog: &C,
         chunk_id: String,
+        context_lines: usize,
     ) -> Result<Frame, ResolveError>
     where
         C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
@@ -78,7 +87,7 @@ impl RawNodeFrame {
             if let Some(location) =
                 smc.lookup(SourcePosition::new(location.line - 1, location.column))
             {
-                Ok(Frame::from((self, location)))
+                Ok(Frame::from((self, location, context_lines)))
             } else {
                 Err(JsResolveErr::TokenNotFound(
                     self.function.clone(),
@@ -186,8 +195,8 @@ impl From<&RawNodeFrame> for Frame {
     }
 }
 
-impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
-    fn from((raw_frame, location): (&RawNodeFrame, SourceLocation)) -> Self {
+impl From<(&RawNodeFrame, SourceLocation<'_>, usize)> for Frame {
+    fn from((raw_frame, location, context_lines): (&RawNodeFrame, SourceLocation, usize)) -> Self {
         let resolved_name = match location.scope() {
             ScopeLookupResult::NamedScope(name) => Some(sanitize_string(name.to_string())),
             ScopeLookupResult::AnonymousScope => Some("<anonymous>".to_string()),
@@ -222,7 +231,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
 
             junk_drawer: None,
             code_variables: None,
-            context: get_sourcelocation_context(&location),
+            context: get_sourcelocation_context(&location, context_lines),
             release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,

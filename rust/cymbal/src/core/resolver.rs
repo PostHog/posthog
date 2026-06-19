@@ -3,7 +3,7 @@ use std::sync::Arc;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tokio::sync::Mutex;
 
-use crate::core::config::{get_aws_config, init_resolver_globals, ResolverConfig};
+use crate::core::config::{get_aws_config, ResolverConfig};
 use crate::core::error::UnhandledError;
 use crate::core::symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver};
 use crate::core::symbolication::symbol_store::{
@@ -19,7 +19,7 @@ use crate::core::symbolication::symbol_store::{
 };
 
 /// Build just the symbol-resolution stack from config: connects to Postgres,
-/// builds the S3 client, applies resolver globals, and returns a fully-wired
+/// builds the S3 client, and returns a fully-wired
 /// `SymbolResolver`. **Does not** start Kafka producers, Redis clients,
 /// signals, the issue cache, or the remote-resolution pool — those belong to
 /// the processing pipeline (`crate::app_context::AppContext`).
@@ -30,7 +30,6 @@ use crate::core::symbolication::symbol_store::{
 pub async fn build_symbol_resolver(
     config: &ResolverConfig,
 ) -> Result<Arc<dyn SymbolResolver>, UnhandledError> {
-    init_resolver_globals(config);
     let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
     let posthog_pool = options.connect(&config.database_url).await?;
     let s3 = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);

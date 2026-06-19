@@ -1,34 +1,27 @@
-use std::sync::atomic::Ordering;
-
 use serde::Serialize;
 use sourcemap::Token;
 use symbolic::sourcemapcache::SourceLocation;
 
-use crate::{
-    core::config::FRAME_CONTEXT_LINES,
-    frames::{Context, ContextLine, Frame},
-};
+use crate::frames::{Context, ContextLine, Frame};
 
 pub fn add_raw_to_junk<T: Serialize + Clone>(frame: &mut Frame, raw: &T) {
     // UNWRAP: raw JS frames are definitely representable as json
     frame.add_junk("raw_frame", raw.clone()).unwrap();
 }
 
-pub fn get_sourcelocation_context(token: &SourceLocation) -> Option<Context> {
+pub fn get_sourcelocation_context(token: &SourceLocation, context_lines: usize) -> Option<Context> {
     let file = token.file()?;
     let token_line_num = token.line();
     let src = file.source()?;
 
-    let line_limit = FRAME_CONTEXT_LINES.load(Ordering::Relaxed);
-    get_context_lines(src.lines(), token_line_num as usize, line_limit)
+    get_context_lines(src.lines(), token_line_num as usize, context_lines)
 }
 
-pub fn get_token_context(token: &Token<'_>, line: usize) -> Option<Context> {
+pub fn get_token_context(token: &Token<'_>, line: usize, context_lines: usize) -> Option<Context> {
     let src = token.get_source_view()?;
     let lines = src.lines();
 
-    let line_limit = FRAME_CONTEXT_LINES.load(Ordering::Relaxed);
-    get_context_lines(lines, line, line_limit)
+    get_context_lines(lines, line, context_lines)
 }
 
 pub fn get_context_lines<'a, L>(lines: L, line: usize, context_len: usize) -> Option<Context>

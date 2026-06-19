@@ -43,6 +43,8 @@ pub struct LocalSymbolResolver {
     cache: Cache<RawFrameId, Vec<ErrorTrackingStackFrame>>,
     pool: PgPool,
     ttl_policy: FrameResultTtlPolicy,
+    // Lines of pre/post source context to attach per resolved frame.
+    context_lines: usize,
 }
 
 impl Expiry<RawFrameId, Vec<ErrorTrackingStackFrame>> for FrameResultTtlPolicy {
@@ -95,6 +97,7 @@ impl LocalSymbolResolver {
             pool,
             cache,
             ttl_policy,
+            context_lines: config.context_line_count,
         }
     }
 
@@ -143,7 +146,12 @@ impl LocalSymbolResolver {
         metrics::counter!(FRAME_DB_MISSES).increment(1);
 
         let resolved = frame
-            .resolve(raw_id.team_id, &self.catalog, debug_images)
+            .resolve(
+                raw_id.team_id,
+                &self.catalog,
+                debug_images,
+                self.context_lines,
+            )
             .await?;
 
         assert!(!resolved.is_empty()); // If this ever happens, we've got a data-dropping bug, and want to crash
