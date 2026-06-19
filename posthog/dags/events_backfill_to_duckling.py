@@ -8,8 +8,8 @@ This job targets individual customer "ducklings" - isolated DuckLake instances w
 own RDS catalog and S3 bucket.
 
 Architecture:
-    DuckgresServer (connection) + derived S3 bucket name
-        │ team_id → organization_id → connection; bucket = posthog-duckling-{org}-{suffix}
+    DuckgresServer (connection) + DuckLakeCatalog (S3 bucket name)
+        │ team_id → organization_id → connection; bucket from the stored DuckLakeCatalog row
         ▼
     ClickHouse (events table)
         │ export via s3() - bucket policy allows ClickHouse EC2 role
@@ -176,10 +176,10 @@ def _get_cluster() -> ClickhouseCluster:
 class DucklingTarget:
     """Resolved per-org duckling backfill target: connection identity + S3 storage.
 
-    Replaces DuckLakeCatalog in the backfill path — built once per run from the team's
-    organization id (which drives both the duckgres connection, via make_duckgres_conninfo,
-    and the deterministically derived S3 bucket). Duckgres owns catalog attachment, so no
-    catalog-DB connection is needed here.
+    Built once per run from the team's organization id. The duckgres connection is driven by
+    make_duckgres_conninfo (duckgres owns catalog attachment on the connection); the S3 bucket
+    is read from the org's stored DuckLakeCatalog row — the provisioning source of truth — and
+    only falls back to deterministic derivation when no catalog row exists (e.g. dev mode).
     """
 
     team_id: int
