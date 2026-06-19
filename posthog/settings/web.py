@@ -933,8 +933,8 @@ ID_JAG_JWKS_CACHE_TTL_SECONDS: int = get_from_env("ID_JAG_JWKS_CACHE_TTL_SECONDS
 # Extra accepted ID-JAG `aud` values (the advertised authorization-server issuer) beyond SITE_URL —
 # e.g. the OAuth proxy "https://oauth.posthog.com" on Cloud. SITE_URL is always accepted.
 ID_JAG_ALLOWED_AUDIENCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_AUDIENCES", ""))
-# Extra accepted ID-JAG `resource` values (the advertised MCP resource identifier) beyond SITE_URL —
-# e.g. the MCP hosts "https://mcp.posthog.com,https://mcp.us.posthog.com" on Cloud. SITE_URL is always accepted.
+# Extra accepted ID-JAG `resource` values (the advertised resource-server identifier) beyond SITE_URL —
+# e.g. "https://mcp.posthog.com,https://mcp.us.posthog.com" on Cloud. SITE_URL is always accepted.
 ID_JAG_ALLOWED_RESOURCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_RESOURCES", ""))
 
 TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5

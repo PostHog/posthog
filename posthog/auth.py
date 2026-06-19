@@ -591,9 +591,12 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             if not site_url:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
-            # The token's `aud` is the MCP resource it was minted for (id_jag._construct_access_token_payload).
-            # Accept SITE_URL plus any advertised MCP resource identifier; `iss` stays SITE_URL (we mint it).
-            allowed_audiences = [site_url, *(r.rstrip("/") for r in (settings.ID_JAG_ALLOWED_RESOURCES or []) if r)]
+            # The token's `aud` is the resource it was minted for (id_jag._construct_access_token_payload).
+            # Accept SITE_URL plus any advertised resource identifier; `iss` stays SITE_URL (we mint it).
+            # Function-level import keeps the heavier id_jag module off auth.py's foundational import path.
+            from posthog.api.id_jag import get_allowed_resources  # noqa: PLC0415
+
+            allowed_audiences = get_allowed_resources()
 
             # Try the active signing key first, then any keys being rotated out. A wrong
             # key fails the signature check, so we move on; a key that matches but fails

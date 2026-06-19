@@ -126,18 +126,22 @@ def _get_site_url() -> str:
     return site_url
 
 
+def _id_jag_allowlist(extra: list[str] | None) -> list[str]:
+    """SITE_URL plus the trailing-slash-normalized `extra` values."""
+    return [_get_site_url(), *[v.rstrip("/") for v in (extra or []) if v]]
+
+
 def _get_allowed_audiences() -> list[str]:
     """Accepted ID-JAG `aud` values — the authorization-server issuer the client discovered.
     Always includes SITE_URL; Cloud adds the OAuth proxy via ID_JAG_ALLOWED_AUDIENCES."""
-    extra = [a.rstrip("/") for a in (settings.ID_JAG_ALLOWED_AUDIENCES or []) if a]
-    return [_get_site_url(), *extra]
+    return _id_jag_allowlist(settings.ID_JAG_ALLOWED_AUDIENCES)
 
 
-def _get_allowed_resources() -> list[str]:
-    """Accepted ID-JAG `resource` values — the MCP resource identifier the client discovered.
-    Always includes SITE_URL; Cloud adds the MCP hosts via ID_JAG_ALLOWED_RESOURCES."""
-    extra = [r.rstrip("/") for r in (settings.ID_JAG_ALLOWED_RESOURCES or []) if r]
-    return [_get_site_url(), *extra]
+def get_allowed_resources() -> list[str]:
+    """Accepted ID-JAG `resource` values — the resource identifier the client discovered.
+    Always includes SITE_URL; Cloud adds extra resource servers via ID_JAG_ALLOWED_RESOURCES.
+    Also used by the resource server (posthog.auth) to validate the minted token's `aud`."""
+    return _id_jag_allowlist(settings.ID_JAG_ALLOWED_RESOURCES)
 
 
 def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClient:
@@ -339,7 +343,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
     resource = claims.get("resource")
     if not resource:
         raise InvalidGrantError("ID-JAG is missing the resource claim (RFC 8707)")
-    if resource.rstrip("/") not in _get_allowed_resources():
+    if resource.rstrip("/") not in get_allowed_resources():
         raise InvalidTargetError(f"ID-JAG resource {resource!r} does not match this resource server")
 
     client_id = claims.get("client_id")
@@ -414,7 +418,7 @@ def _construct_access_token_payload(
         "iss": _get_site_url(),
         "sub": _get_sub(provider_name, cast(str, claims.get("sub"))),
         "email": verified_email,
-        "aud": str(claims.get("resource") or "").rstrip("/"),
+        "aud": claims["resource"].rstrip("/"),
         "client_id": claims.get("client_id"),
         "scope": " ".join(granted_scopes),
         "app_org": provider_name,

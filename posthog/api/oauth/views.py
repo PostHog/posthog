@@ -1513,10 +1513,7 @@ class OAuthConnectDiscoveryInfoView(ConnectDiscoveryInfoView):
         if response.status_code == 200:
             data = json.loads(response.content)
             data["authorization_grant_profiles_supported"] = [id_jag.ID_JAG_GRANT_PROFILE]
-            patched = JsonResponse(data)
-            for header, value in response.items():
-                patched[header] = value
-            return patched
+            response.content = json.dumps(data)
         return response
 
 

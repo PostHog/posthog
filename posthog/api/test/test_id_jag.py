@@ -591,7 +591,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     @override_settings(ID_JAG_ALLOWED_RESOURCES=["https://mcp.posthog.com"])
     def test_accepts_resource_matching_configured_allowed_resource(self) -> None:
-        # The ID-JAG `resource` is the advertised MCP resource identifier, not SITE_URL.
+        # The ID-JAG `resource` is the advertised resource-server identifier, not SITE_URL.
         # The minted access token is audience-restricted to that resource (EMA §5.1).
         assertion = _make_id_jag(resource="https://mcp.posthog.com/")
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
@@ -606,8 +606,8 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(claims["aud"], "https://mcp.posthog.com")
 
     @override_settings(ID_JAG_ALLOWED_RESOURCES=["https://mcp.posthog.com"])
-    def test_round_trip_with_mcp_resource_authenticates_on_resource_side(self) -> None:
-        # End-to-end: a token minted for the MCP resource must be accepted by the
+    def test_round_trip_with_allowed_resource_authenticates_on_resource_side(self) -> None:
+        # End-to-end: a token minted for an allowlisted resource must be accepted by the
         # resource server (IDJagAccessTokenAuthentication), not just issued.
         assertion = _make_id_jag(
             resource="https://mcp.posthog.com",
