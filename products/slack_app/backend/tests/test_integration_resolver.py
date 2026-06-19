@@ -415,3 +415,104 @@ class TestResolveIntegration:
 
         assert result.source == "sole_candidate"
         assert result.integration == self.integration_a
+
+
+class TestLoadIntegrationsAuthStateFilter:
+    """Covers the cached-auth-state pre-filter in ``load_integrations``.
+
+    The scenario mirrors Zendesk #60619: an org has three Slack rows for the
+    same workspace, one of them has a revoked bot token, the resolver used to
+    pick that one as ``candidates[0]`` and silently broke every mention. With
+    the cache populated, the broken install is demoted so a healthy probe is
+    picked first.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.organization = Organization.objects.create(name="Org")
+        self.team_old = Team.objects.create(organization=self.organization, name="Old")
+        self.team_mid = Team.objects.create(organization=self.organization, name="Mid")
+        self.team_new = Team.objects.create(organization=self.organization, name="New")
+        # Order rows by creation so the PK ascending order matches the team
+        # names; downstream assertions rely on this implicit ordering.
+        self.integration_old = self._mk_integration(self.team_old)
+        self.integration_mid = self._mk_integration(self.team_mid)
+        self.integration_new = self._mk_integration(self.team_new)
+        yield
+        cache.clear()
+
+    def _mk_integration(self, team: Team) -> Integration:
+        return Integration.objects.create(
+            team=team,
+            kind="slack",
+            integration_id=WORKSPACE,
+            sensitive_config={"access_token": "xoxb"},
+        )
+
+    def _candidate_ids(self, result_candidates: list[Integration]) -> list[int]:
+        return [c.id for c in result_candidates]
+
+    def test_cold_cache_preserves_pk_ascending(self):
+        # Empty cache → fall back to today's behavior so we don't regress
+        # mentions during the first deploy hours or after a Redis flush.
+        result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
+        assert self._candidate_ids(result.candidates) == [
+            self.integration_old.id,
+            self.integration_mid.id,
+            self.integration_new.id,
+        ]
+
+    def test_broken_candidate_demoted_to_end(self):
+        # Old install's token is dead — should land last, but stay in the
+        # list so a stale negative verdict can't strand the workspace.
+        from products.slack_app.backend.services.slack_auth import write_auth_state_broken
+
+        write_auth_state_broken(self.integration_old.id, error_code="invalid_auth")
+
+        result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
+
+        assert self._candidate_ids(result.candidates) == [
+            self.integration_mid.id,
+            self.integration_new.id,
+            self.integration_old.id,
+        ]
+
+    def test_healthy_freshest_wins_over_unknown(self):
+        # ``new`` was confirmed healthy most recently — surface it ahead of
+        # the older PKs whose verdict we haven't seen yet. Matches the
+        # "Hubert just reconnected Production" scenario.
+        from products.slack_app.backend.services.slack_auth import write_auth_state_ok
+
+        write_auth_state_ok(self.integration_new.id, bot_user_id="U_NEW")
+
+        result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
+
+        assert result.candidates[0].id == self.integration_new.id
+        # ``old`` / ``mid`` are unknown; keep PK ascending behind the healthy
+        # one so today's tie-breaker stays predictable.
+        assert self._candidate_ids(result.candidates)[1:] == [
+            self.integration_old.id,
+            self.integration_mid.id,
+        ]
+
+    def test_all_broken_returns_full_list_so_workspace_self_heals(self):
+        # If every cache entry is ``ok=false`` (e.g. a transient outage was
+        # misclassified as auth-class earlier) we must NOT strand the
+        # workspace. Return them all; a real call that now succeeds will
+        # flip the cache back to healthy via the success-path write hook.
+        from products.slack_app.backend.services.slack_auth import write_auth_state_broken
+
+        write_auth_state_broken(self.integration_old.id, error_code="invalid_auth")
+        write_auth_state_broken(self.integration_mid.id, error_code="invalid_auth")
+        write_auth_state_broken(self.integration_new.id, error_code="invalid_auth")
+
+        result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], slack_user_id=SLACK_USER)
+
+        assert {c.id for c in result.candidates} == {
+            self.integration_old.id,
+            self.integration_mid.id,
+            self.integration_new.id,
+        }

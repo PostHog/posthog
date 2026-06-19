@@ -961,6 +961,16 @@ class OauthIntegration:
             integration.errors = ""
             integration.save()
 
+        if kind == "slack":
+            # The cached auth verdict in slack_app is per-integration. A
+            # reconnect mints a new bot token, so any stale ``ok=false`` row
+            # from the previous token would silently demote this install for
+            # the remaining cache TTL. Inline-imported to keep the slack_app
+            # module off the core django.setup() path.
+            from products.slack_app.backend.facade.api import invalidate_slack_integration_auth_state  # noqa: PLC0415
+
+            invalidate_slack_integration_auth_state(integration.id)
+
         return integration
 
     def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
