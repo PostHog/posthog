@@ -112,7 +112,12 @@ class FunnelQueryContext(QueryContext):
 
     @property
     def funnelWindowInterval(self) -> int:
-        return self.funnelsFilter.funnelWindowInterval or 14
+        # A non-positive conversion window is invalid: a negative value reaches the funnel UDF as a
+        # literal `UInt64` argument, which ClickHouse rejects at analysis time with
+        # "The value -1 is not representable as UInt64", crashing the whole funnel. Fall back to the
+        # default window for any non-positive value (extends the existing `None`/`0` -> 14 default).
+        interval = self.funnelsFilter.funnelWindowInterval
+        return interval if interval and interval > 0 else 14
 
     @property
     def funnelWindowIntervalUnit(self) -> FunnelConversionWindowTimeUnit:
