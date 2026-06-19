@@ -1,3 +1,4 @@
+import typing
 import asyncio
 import datetime as dt
 
@@ -13,9 +14,19 @@ async def wait_for_workflows(
     temporal_client: temporalio.client.Client,
     schedule_id: str,
     expected_count: int,
+    comparison_mode: typing.Literal["EXACT", "GTE"] = "EXACT",
     timeout: int = 60,
 ) -> list[temporalio.client.WorkflowExecution]:
-    """Wait for workflows to be queryable and return them."""
+    """Wait for workflows to be queryable and return them.
+
+    Arguments:
+        temporal_client: A Temporal client to be used to check for workflows.
+        schedule_id: The schedule whose workflows we are looking for.
+        expected_count: Wait for this number of workflows.
+        comparison_mode: Define whether to treat expected count as an exact
+            requirement ('EXACT') or as a lower bound ('GTE').
+        timeout: Wait for at most this amount of seconds.
+    """
     query = f'TemporalScheduledById="{schedule_id}" order by StartTime asc'
     workflows: list[temporalio.client.WorkflowExecution] = []
     elapsed = 0.0
@@ -32,6 +43,11 @@ async def wait_for_workflows(
         elapsed += delay
         delay = min(delay * 2, 5)
         workflows = [workflow async for workflow in temporal_client.list_workflows(query=query)]
+
+    if comparison_mode == "EXACT":
+        assert len(workflows) == expected_count
+    elif comparison_mode == "GTE":
+        assert len(workflows) >= expected_count
 
     return workflows
 
