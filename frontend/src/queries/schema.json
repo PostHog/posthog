@@ -21293,6 +21293,7 @@
                 "Appstack",
                 "Razorpay",
                 "Neon",
+                "NewRelic",
                 "Custom"
             ],
             "type": "string"

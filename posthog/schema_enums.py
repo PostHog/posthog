@@ -1792,6 +1792,7 @@ class ExternalDataSourceType(StrEnum):
     APPSTACK = "Appstack"
     RAZORPAY = "Razorpay"
     NEON = "Neon"
+    NEW_RELIC = "NewRelic"
     CUSTOM = "Custom"
 
 

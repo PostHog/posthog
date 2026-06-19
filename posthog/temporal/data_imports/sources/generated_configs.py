@@ -1971,6 +1971,11 @@ class NetSuiteSourceConfig(config.Config):
 
 
 @config.config
+class NewRelicSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class NewYorkTimesSourceConfig(config.Config):
     pass
 
@@ -3808,6 +3813,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NEBIUSAI: NebiusAISourceConfig,
         ExternalDataSourceType.NEON: NeonSourceConfig,
         ExternalDataSourceType.NETSUITE: NetSuiteSourceConfig,
+        ExternalDataSourceType.NEWRELIC: NewRelicSourceConfig,
         ExternalDataSourceType.NEWYORKTIMES: NewYorkTimesSourceConfig,
         ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
         ExternalDataSourceType.NEWSDATA: NewsDataSourceConfig,
