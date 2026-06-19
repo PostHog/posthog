@@ -1348,21 +1348,20 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         # When the spec sets `allow_agent_approver: False`, only a human acting
-        # interactively may decide. Accept either SessionAuthentication, or an
-        # OAuth bearer carrying the dedicated `agent_approvals:write` scope —
-        # the scope is intentionally separate from `agents:write` so a generic
-        # agent token cannot decide its own approval, and is hidden from the
-        # personal-API-key flow so only OAuth clients (e.g. PostHog Code) that
-        # put a human in the loop at decide time can request it via consent.
+        # interactively may decide. Accept either SessionAuthentication, or a
+        # bearer from a first-party PostHog OAuth app (e.g. PostHog Code, where a
+        # human approves in-app) — `is_first_party` is staff-set on the app, so a
+        # third-party OAuth app or a personal API key can't decide a human-only
+        # approval regardless of scope.
         authenticator = request.successful_authenticator
         is_session = isinstance(authenticator, SessionAuthentication)
-        is_oauth_with_decide_scope = isinstance(authenticator, OAuthAccessTokenAuthentication) and (
-            "agent_approvals:write" in (getattr(authenticator.access_token, "scope", "") or "").split()
+        is_first_party_oauth = isinstance(authenticator, OAuthAccessTokenAuthentication) and bool(
+            getattr(getattr(authenticator.access_token, "application", None), "is_first_party", False)
         )
         if (
             existing.get("approver_scope", {}).get("allow_agent_approver") is False
             and not is_session
-            and not is_oauth_with_decide_scope
+            and not is_first_party_oauth
         ):
             raise NotFound("Approval not found")
         try:
