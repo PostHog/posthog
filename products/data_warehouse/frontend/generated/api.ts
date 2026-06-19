@@ -18,6 +18,8 @@ import type {
     DataWarehouseSavedQueryDraftApi,
     DataWarehouseSavedQueryFolderApi,
     DeprovisionWarehouseResponseApi,
+    EnableWarehouseBackfillRequestApi,
+    EnableWarehouseBackfillResponseApi,
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
@@ -252,6 +254,29 @@ export const dataWarehouseDeprovisionCreate = async (
     return apiMutator<DeprovisionWarehouseResponseApi>(getDataWarehouseDeprovisionCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getDataWarehouseEnableBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/enable_backfill/`
+}
+
+/**
+ * Enable warehouse backfill for this environment with a dedicated events table.
+ *
+ * Requires an events-table name and records the environment's membership in the
+ * organization's managed warehouse. Restricted to organization admins.
+ */
+export const dataWarehouseEnableBackfillCreate = async (
+    projectId: string,
+    enableWarehouseBackfillRequestApi: EnableWarehouseBackfillRequestApi,
+    options?: RequestInit
+): Promise<EnableWarehouseBackfillResponseApi> => {
+    return apiMutator<EnableWarehouseBackfillResponseApi>(getDataWarehouseEnableBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(enableWarehouseBackfillRequestApi),
     })
 }
 

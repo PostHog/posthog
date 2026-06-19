@@ -26,7 +26,7 @@ import psycopg
 from psycopg import sql
 
 if TYPE_CHECKING:
-    from posthog.ducklake.models import DuckgresServer, DuckLakeCatalog
+    from posthog.ducklake.models import DuckgresServer, DuckLakeBackfill, DuckLakeCatalog
 
 DUCKLAKE_CATALOG_RESET_ENV_VAR = "POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET"
 
@@ -275,6 +275,57 @@ def upsert_duckgres_server_for_org(
         defaults=defaults,
     )
     return server
+
+
+def enable_backfill_for_team(team_id: int, *, events_table_suffix: str | None = None) -> DuckLakeBackfill:
+    """Enable Dagster duckling backfills for a single team (idempotent).
+
+    Created at managed-warehouse provision time for the provisioning (calling) team so the
+    duckling sensors pick it up. `get_or_create` never flips an existing row, so a manual
+    admin disable — and an existing events_table_suffix — is preserved across re-provisions.
+    `events_table_suffix` is applied only on creation (it lives in the create defaults).
+    """
+    from posthog.ducklake.models import DuckLakeBackfill
+
+    defaults: dict[str, object] = {"enabled": True}
+    if events_table_suffix:
+        defaults["events_table_suffix"] = events_table_suffix
+    backfill, _ = DuckLakeBackfill.objects.get_or_create(team_id=team_id, defaults=defaults)
+    return backfill
+
+
+def register_provisioning_team(*, team_id: int, organization_id: str | UUID) -> None:
+    """Set up the provisioning team on a freshly provisioned duckling.
+
+    Records the team's `DuckgresServerTeam` membership and enables its backfill with a
+    per-environment events-table suffix derived from the project name, so going forward a
+    newly provisioned org writes to its own `events_<suffix>` tables rather than the shared
+    ones. Create-only for the suffix: a pre-existing backfill row (legacy orgs provisioned
+    before per-environment tables) is left untouched and keeps using the shared tables.
+    """
+    from posthog.models import Team
+
+    link_team_to_duckling(team_id=team_id, organization_id=organization_id)
+
+    name = Team.objects.filter(id=team_id).values_list("name", flat=True).first() or ""
+    suffix = sanitize_ducklake_identifier(name, default_prefix="events")
+    enable_backfill_for_team(team_id, events_table_suffix=suffix)
+
+
+def link_team_to_duckling(*, team_id: int, organization_id: str | UUID) -> None:
+    """Record a team's membership in its org's duckling (idempotent).
+
+    `DuckgresServerTeam` is the first-class team↔duckling membership record. Provision creates
+    it for the provisioning team; teams that join later get it via `enable_team_backfill`. No-op
+    if the org has no `DuckgresServer` yet (shouldn't happen on the provision path, where the
+    server is persisted first).
+    """
+    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
+
+    server = DuckgresServer.objects.filter(organization_id=organization_id).first()
+    if server is None:
+        return
+    DuckgresServerTeam.objects.get_or_create(server=server, team_id=team_id)
 
 
 # Managed-warehouse S3 bucket naming. The bucket is created by the duckgres Crossplane
@@ -574,8 +625,58 @@ def sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     return cleaned[:63]
 
 
+class DucklingBackfillEnableError(Exception):
+    """Raised when a team's warehouse backfill cannot be enabled (no server, name collision)."""
+
+
+def enable_team_backfill(*, team_id: int, organization_id: str | UUID, events_table_name: str) -> str:
+    """Enable a team's warehouse backfill with a dedicated per-environment events table.
+
+    Normalizes ``events_table_name`` into a safe table suffix, records first-class
+    team↔duckling membership (DuckgresServerTeam), and persists the suffix on the team's
+    DuckLakeBackfill so the Dagster backfill writes to ``events_<suffix>`` /
+    ``persons_<suffix>`` instead of the shared tables. Idempotent for the team.
+
+    The org must already have a provisioned DuckgresServer, and the suffix must be unique
+    among the org's environments. Returns the normalized suffix, or raises
+    DucklingBackfillEnableError with a user-facing message.
+    """
+    from django.db import transaction
+
+    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam, DuckLakeBackfill
+
+    suffix = sanitize_ducklake_identifier(events_table_name, default_prefix="events")
+
+    try:
+        server = DuckgresServer.objects.get(organization_id=organization_id)
+    except DuckgresServer.DoesNotExist:
+        raise DucklingBackfillEnableError(
+            "No managed warehouse is provisioned for this organization. Provision one first."
+        )
+
+    collision = (
+        DuckLakeBackfill.objects.filter(team__organization_id=organization_id, events_table_suffix=suffix)
+        .exclude(team_id=team_id)
+        .exists()
+    )
+    if collision:
+        raise DucklingBackfillEnableError(
+            f"The events table name '{suffix}' is already used by another environment in this organization."
+        )
+
+    with transaction.atomic():
+        DuckgresServerTeam.objects.get_or_create(server=server, team_id=team_id)
+        DuckLakeBackfill.objects.update_or_create(
+            team_id=team_id,
+            defaults={"enabled": True, "events_table_suffix": suffix},
+        )
+    return suffix
+
+
 __all__ = [
+    "DucklingBackfillEnableError",
     "attach_catalog",
+    "enable_team_backfill",
     "escape",
     "get_config",
     "get_ducklake_catalog_for_organization",
@@ -592,7 +693,9 @@ __all__ = [
     "initialize_ducklake",
     "is_ducklake_catalog_reset_allowed",
     "is_version_mismatch",
+    "link_team_to_duckling",
     "parse_postgres_dsn",
+    "register_provisioning_team",
     "is_dev_mode",
     "reset_ducklake_catalog",
     "run_smoke_check",

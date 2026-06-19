@@ -842,7 +842,45 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "provision")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.provision(self.team.organization_id, request.data.get("database_name"))
+        return managed_warehouse.provision(self.team.organization_id, request.data.get("database_name"), self.team_id)
+
+    @extend_schema(
+        request=inline_serializer(
+            "EnableWarehouseBackfillRequest",
+            fields={
+                "events_table_name": serializers.CharField(
+                    help_text="Name for this environment's events table in the warehouse. Normalized to a "
+                    "safe identifier and must be unique across the organization's environments."
+                )
+            },
+        ),
+        responses={
+            200: inline_serializer(
+                "EnableWarehouseBackfillResponse",
+                fields={
+                    "enabled": serializers.BooleanField(help_text="Whether warehouse backfill is now enabled"),
+                    "events_table_suffix": serializers.CharField(
+                        help_text="Normalized suffix used for this environment's tables (events_<suffix>)"
+                    ),
+                },
+            )
+        },
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
+    def enable_backfill(self, request: Request, **kwargs) -> Response:
+        """Enable warehouse backfill for this environment with a dedicated events table.
+
+        Requires an events-table name and records the environment's membership in the
+        organization's managed warehouse. Restricted to organization admins.
+        """
+        admin_error = self._require_organization_admin(request, "enable backfill for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse.enable_backfill(
+            self.team.organization_id,
+            self.team.id,
+            request.data.get("events_table_name"),
+        )
 
     @extend_schema(
         responses={

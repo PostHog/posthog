@@ -6,13 +6,16 @@ from parameterized import parameterized
 
 from posthog.ducklake.common import (
     derive_duckling_bucket,
+    enable_backfill_for_team,
     initialize_ducklake,
     is_version_mismatch,
+    link_team_to_duckling,
+    register_provisioning_team,
     reset_ducklake_catalog,
     upsert_duckgres_server_for_org,
 )
-from posthog.ducklake.models import DuckgresServer
-from posthog.models import Organization
+from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam, DuckLakeBackfill
+from posthog.models import Organization, Team
 
 
 class TestDeriveDucklingBucket:
@@ -54,6 +57,89 @@ class TestUpsertDuckgresServerForOrg:
         assert updated.host == "wh2.dw.us.postwh.com"
         assert updated.port == 6543
         assert updated.password == "pw2"
+
+
+@pytest.mark.django_db
+class TestEnableBackfillForTeam:
+    def test_creates_enabled_row_idempotently(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+
+        created = enable_backfill_for_team(team.id)
+        assert created.enabled is True
+        assert DuckLakeBackfill.objects.filter(team_id=team.id).count() == 1
+
+        again = enable_backfill_for_team(team.id)
+        assert again.pk == created.pk
+        assert DuckLakeBackfill.objects.filter(team_id=team.id).count() == 1
+
+    def test_preserves_a_manually_disabled_row(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        DuckLakeBackfill.objects.create(team=team, enabled=False)
+
+        result = enable_backfill_for_team(team.id)
+
+        # get_or_create must not flip an admin's deliberate disable back on.
+        assert result.enabled is False
+        assert DuckLakeBackfill.objects.filter(team_id=team.id).count() == 1
+
+
+@pytest.mark.django_db
+class TestLinkTeamToDuckling:
+    def _server(self, org: Organization) -> DuckgresServer:
+        return DuckgresServer.objects.create(
+            organization=org, host="h", port=5432, database="ducklake", username="root", password="x"
+        )
+
+    def test_creates_membership_idempotently(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        server = self._server(org)
+
+        link_team_to_duckling(team_id=team.id, organization_id=org.id)
+        link_team_to_duckling(team_id=team.id, organization_id=org.id)
+
+        assert DuckgresServerTeam.objects.filter(server=server, team_id=team.id).count() == 1
+
+    def test_no_op_without_a_server(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+
+        link_team_to_duckling(team_id=team.id, organization_id=org.id)
+
+        assert not DuckgresServerTeam.objects.filter(team_id=team.id).exists()
+
+
+@pytest.mark.django_db
+class TestRegisterProvisioningTeam:
+    def _server(self, org: Organization) -> DuckgresServer:
+        return DuckgresServer.objects.create(
+            organization=org, host="h", port=5432, database="ducklake", username="root", password="x"
+        )
+
+    def test_creates_membership_and_suffixed_backfill_from_project_name(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org, name="My Prod Env")
+        server = self._server(org)
+
+        register_provisioning_team(team_id=team.id, organization_id=org.id)
+
+        assert DuckgresServerTeam.objects.filter(server=server, team_id=team.id).exists()
+        backfill = DuckLakeBackfill.objects.get(team_id=team.id)
+        assert backfill.enabled is True
+        assert backfill.events_table_suffix == "my_prod_env"
+
+    def test_leaves_a_legacy_backfill_without_a_suffix(self):
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org, name="Legacy")
+        self._server(org)
+        DuckLakeBackfill.objects.create(team=team, enabled=True, events_table_suffix=None)
+
+        register_provisioning_team(team_id=team.id, organization_id=org.id)
+
+        # Existing (pre-per-env) rows keep writing to the shared tables — no suffix backfilled.
+        assert DuckLakeBackfill.objects.get(team_id=team.id).events_table_suffix is None
 
 
 TEST_CONFIG = {

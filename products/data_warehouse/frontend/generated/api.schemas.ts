@@ -64,6 +64,18 @@ export interface DeprovisionWarehouseResponseApi {
     org: string
 }
 
+export interface EnableWarehouseBackfillRequestApi {
+    /** Name for this environment's events table in the warehouse. Normalized to a safe identifier and must be unique across the organization's environments. */
+    events_table_name: string
+}
+
+export interface EnableWarehouseBackfillResponseApi {
+    /** Whether warehouse backfill is now enabled */
+    enabled: boolean
+    /** Normalized suffix used for this environment's tables (events_<suffix>) */
+    events_table_suffix: string
+}
+
 export interface ProvisionWarehouseRequestApi {
     /** Name for the new database */
     database_name: string
@@ -1395,7 +1407,6 @@ export interface CredentialApi {
  * * `Lightfield` - Lightfield
  * * `Appstack` - Appstack
  * * `Razorpay` - Razorpay
- * * `Neon` - Neon
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -2030,7 +2041,6 @@ export const ExternalDataSourceTypeEnumApi = {
     Lightfield: 'Lightfield',
     Appstack: 'Appstack',
     Razorpay: 'Razorpay',
-    Neon: 'Neon',
     Custom: 'Custom',
 } as const
 

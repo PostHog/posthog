@@ -10,6 +10,20 @@
 import * as zod from 'zod'
 
 /**
+ * Enable warehouse backfill for this environment with a dedicated events table.
+ *
+ * Requires an events-table name and records the environment's membership in the
+ * organization's managed warehouse. Restricted to organization admins.
+ */
+export const DataWarehouseEnableBackfillCreateBody = /* @__PURE__ */ zod.object({
+    events_table_name: zod
+        .string()
+        .describe(
+            "Name for this environment's events table in the warehouse. Normalized to a safe identifier and must be unique across the organization's environments."
+        ),
+})
+
+/**
  * Start provisioning a managed warehouse for this organization (shared by all its teams).
  */
 export const DataWarehouseProvisionCreateBody = /* @__PURE__ */ zod.object({
