@@ -634,32 +634,33 @@ async def test_auto_register_past_enabled_cap_creates_disabled_config(ateam):
     "default_cfg,team_cfg,skills,expected_enabled",
     [
         # An allowlist enables only the listed canonical scout; the rest seed disabled.
+        # (error-tracking / surveys are real on-disk canonical names, so the tag gates them.)
         (
             {"enabled_skills": ["signals-scout-general"]},
             None,
-            [("signals-scout-general", True), ("signals-scout-errors", True), ("signals-scout-surveys", True)],
-            {"signals-scout-general": True, "signals-scout-errors": False, "signals-scout-surveys": False},
+            [("signals-scout-general", True), ("signals-scout-error-tracking", True), ("signals-scout-surveys", True)],
+            {"signals-scout-general": True, "signals-scout-error-tracking": False, "signals-scout-surveys": False},
         ),
         # No allowlist → every scout enables (back-compat, unchanged from before seed posture).
         (
             {},
             None,
-            [("signals-scout-general", True), ("signals-scout-errors", True)],
-            {"signals-scout-general": True, "signals-scout-errors": True},
+            [("signals-scout-general", True), ("signals-scout-error-tracking", True)],
+            {"signals-scout-general": True, "signals-scout-error-tracking": True},
         ),
         # A per-team override widens the fleet default for one team (close-partner case).
         (
             {"enabled_skills": ["signals-scout-general"]},
-            {"enabled_skills": ["signals-scout-general", "signals-scout-errors"]},
-            [("signals-scout-general", True), ("signals-scout-errors", True), ("signals-scout-surveys", True)],
-            {"signals-scout-general": True, "signals-scout-errors": True, "signals-scout-surveys": False},
+            {"enabled_skills": ["signals-scout-general", "signals-scout-error-tracking"]},
+            [("signals-scout-general", True), ("signals-scout-error-tracking", True), ("signals-scout-surveys", True)],
+            {"signals-scout-general": True, "signals-scout-error-tracking": True, "signals-scout-surveys": False},
         ),
         # A malformed per-team override falls back to the fleet default, not "no allowlist".
         (
             {"enabled_skills": ["signals-scout-general"]},
             {"enabled_skills": "signals-scout-general"},
-            [("signals-scout-general", True), ("signals-scout-errors", True)],
-            {"signals-scout-general": True, "signals-scout-errors": False},
+            [("signals-scout-general", True), ("signals-scout-error-tracking", True)],
+            {"signals-scout-general": True, "signals-scout-error-tracking": False},
         ),
         # A hand-authored custom scout (no seeded_by tag) auto-enables even under an allowlist.
         (
@@ -668,11 +669,20 @@ async def test_auto_register_past_enabled_cap_creates_disabled_config(ateam):
             [("signals-scout-general", True), ("signals-scout-custom", False)],
             {"signals-scout-general": True, "signals-scout-custom": True},
         ),
+        # A duplicated canonical scout keeps the seeded_by tag but on a non-canonical name, so it's
+        # treated as custom and still auto-enables (not gated by the allowlist).
+        (
+            {"enabled_skills": ["signals-scout-general"]},
+            None,
+            [("signals-scout-general", True), ("signals-scout-general-copy", True)],
+            {"signals-scout-general": True, "signals-scout-general-copy": True},
+        ),
     ],
 )
 async def test_seed_posture_enabled_map(ateam, default_cfg, team_cfg, skills, expected_enabled):
     # Which scouts seed enabled vs disabled, across allowlist / no-allowlist / per-team-override /
-    # malformed-override / custom-scout scenarios. `skills` is (name, seeded_as_canonical) pairs.
+    # malformed-override / custom-scout / duplicated-scout scenarios. `skills` is
+    # (name, seeded_with_harness_tag) pairs; only a tag AND an on-disk canonical name = gated.
     for name, seeded in skills:
         await database_sync_to_async(_create_skill)(ateam, name, seeded=seeded)
 

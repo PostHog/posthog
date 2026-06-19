@@ -12,7 +12,7 @@ from __future__ import annotations
 import structlog
 
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, canonical_skill_names
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.skills.backend.models.skills import LLMSkill
@@ -113,9 +113,17 @@ def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None
         ).values_list("name", "metadata")
     )
     skill_names = {name for name, _ in rows}
-    # The allowlist governs the canonical fleet only; custom (hand-authored) scouts always
-    # auto-enable. `seeded_by` is the canonical marker stamped by lazy_seed.
-    canonical_names = {name for name, metadata in rows if (metadata or {}).get("seeded_by") == HARNESS_SEEDED_BY}
+    # The allowlist governs the canonical fleet only; custom (hand-authored or duplicated) scouts
+    # always auto-enable. A scout is canonical iff it BOTH carries the harness `seeded_by` tag AND
+    # matches an on-disk canonical name — same dual check as `views._scout_origin`. The tag alone
+    # isn't enough: `duplicate_skill` copies metadata verbatim, so a user's duplicate of a
+    # canonical scout keeps the tag under a new, non-canonical name and must not be gated.
+    on_disk_canonical = canonical_skill_names()
+    canonical_names = {
+        name
+        for name, metadata in rows
+        if (metadata or {}).get("seeded_by") == HARNESS_SEEDED_BY and name in on_disk_canonical
+    }
 
     configs = SignalScoutConfig.objects.for_team(team_id)
     existing = set(configs.values_list("skill_name", flat=True))
