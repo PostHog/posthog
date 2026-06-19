@@ -466,6 +466,35 @@ export type DataWarehouseSavedQueryApiQuery = {
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
 /**
+ * * `never` - never
+ * * `1min` - 1min
+ * * `5min` - 5min
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
+ */
+export type SyncFrequencyEnumApi = (typeof SyncFrequencyEnumApi)[keyof typeof SyncFrequencyEnumApi]
+
+export const SyncFrequencyEnumApi = {
+    Never: 'never',
+    '1min': '1min',
+    '5min': '5min',
+    '15min': '15min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
+/**
  * Shared methods for DataWarehouseSavedQuery serializers.
  *
  * This mixin is intended to be used with serializers.ModelSerializer subclasses.
