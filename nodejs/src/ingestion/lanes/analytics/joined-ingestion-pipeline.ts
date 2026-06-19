@@ -40,6 +40,7 @@ import {
 import { EmitEventStepOutput } from '~/ingestion/steps/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/steps/event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '~/ingestion/steps/event-processing/flush-batch-stores-step'
+import { createFlushHogTransformerStep } from '~/ingestion/steps/event-processing/flush-hog-transformer-step'
 import { SplitAiEventsStepConfig } from '~/ingestion/steps/event-processing/split-ai-events-step'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { Team } from '~/types'
@@ -269,7 +270,8 @@ export function createJoinedIngestionPipeline<
         (afterBatch) =>
             afterBatch
                 .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
-                .pipe(createFlushEventFiltersBatchAppMetricsStep()),
+                .pipe(createFlushEventFiltersBatchAppMetricsStep())
+                .pipe(createFlushHogTransformerStep(hogTransformer)),
         // Batch stores are singleton persistent caches, but each batch receives a
         // batch-bound view so entries can be reference-counted and released after
         // that batch's flush lifecycle completes. The Rust consumer's per-worker

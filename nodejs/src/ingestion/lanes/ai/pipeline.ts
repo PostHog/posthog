@@ -38,6 +38,7 @@ import { createCreateEventStep } from '~/ingestion/steps/event-processing/create
 import { createDropOldEventsStep } from '~/ingestion/steps/event-processing/drop-old-events-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/steps/event-processing/emit-event-step'
 import { createFetchPersonBatchStep } from '~/ingestion/steps/event-processing/fetch-person-batch-step'
+import { createFlushHogTransformerStep } from '~/ingestion/steps/event-processing/flush-hog-transformer-step'
 import { createHogTransformEventStep } from '~/ingestion/steps/event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '~/ingestion/steps/event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '~/ingestion/steps/event-processing/normalize-process-person-flag-step'
@@ -53,7 +54,6 @@ import { TeamManager } from '~/utils/team-manager'
 
 import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from './outputs'
 import { createAiPrepareEventStep } from './pipelines/steps/ai-prepare-event-step'
-import { createFlushHogTransformerStep } from './pipelines/steps/flush-hog-transformer-step'
 import { createProcessAiEventStep } from './pipelines/steps/process-ai-event-step'
 
 export interface AiIngestionPipelineConfig {
