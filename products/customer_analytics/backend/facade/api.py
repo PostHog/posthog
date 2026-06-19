@@ -79,14 +79,20 @@ def _account_notes(account: Account) -> list[contracts.AccountNote]:
 
 
 def get_account_context_data(
-    team_id: int, account_id: str | None = None, external_id: str | None = None
+    team_id: int,
+    account_id: str | None = None,
+    external_id: str | None = None,
+    *,
+    user_access_control: "UserAccessControl",
 ) -> contracts.AccountContextData | None:
     """Fetch one account (by id or external_id, scoped to the team) with the tags
-    and internal notes the assistant context renders.
+    and internal notes the assistant context renders, gated by the caller's access.
 
-    Returns None when no account matches or the identifier is malformed.
+    Returns None when no account matches, the identifier is malformed, or the caller
+    lacks object-level read access — so a denied account is indistinguishable from a
+    missing one to the caller.
     """
-    account = _resolve_account(team_id, account_id=account_id, external_id=external_id)
+    account = _resolve_accessible_account(team_id, user_access_control, account_id=account_id, external_id=external_id)
     if account is None:
         return None
     return contracts.AccountContextData(
@@ -148,6 +154,31 @@ def _accounts_queryset(team_id: int, user_access_control: "UserAccessControl"):
     if not user_access_control.check_access_level_for_resource("account", "viewer"):
         return Account.objects.unscoped().none()
     return user_access_control.filter_queryset_by_access_level(Account.objects.unscoped().filter(team_id=team_id))
+
+
+def _resolve_accessible_account(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    *,
+    account_id: str | None = None,
+    external_id: str | None = None,
+) -> Account | None:
+    """Resolve one account the caller is allowed to read, or None.
+
+    Goes through the access-gated queryset so an account the caller can't read is
+    returned as None rather than leaked — unlike ``_resolve_account``, which is
+    team-scoped only.
+    """
+    if account_id:
+        lookup = {"id": account_id}
+    elif external_id:
+        lookup = {"external_id": external_id}
+    else:
+        return None
+    try:
+        return _accounts_queryset(team_id, user_access_control).filter(**lookup).first()
+    except (ValidationError, ValueError):
+        return None
 
 
 def get_account(

@@ -1,7 +1,8 @@
 from django.core.exceptions import ObjectDoesNotExist
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.group.util import get_group_by_key
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from products.customer_analytics.backend.facade.api import get_account_context_data
@@ -43,14 +44,22 @@ class AccountContext:
     agent can scope usage and event analysis to the right group.
     """
 
-    def __init__(self, team: Team, account_id: str | None = None, external_id: str | None = None):
+    def __init__(self, team: Team, user: User, account_id: str | None = None, external_id: str | None = None):
         self._team = team
+        self._user = user
         self._account_id = account_id
         self._external_id = external_id
 
+    @property
+    def user_access_control(self) -> UserAccessControl:
+        return UserAccessControl(user=self._user, team=self._team, organization_id=str(self._team.organization_id))
+
     async def aget_account(self) -> AccountContextData | None:
         return await database_sync_to_async(get_account_context_data)(
-            team_id=self._team.id, account_id=self._account_id, external_id=self._external_id
+            team_id=self._team.id,
+            account_id=self._account_id,
+            external_id=self._external_id,
+            user_access_control=self.user_access_control,
         )
 
     def get_not_found_message(self) -> str:

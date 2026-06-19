@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock
 
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
@@ -58,7 +59,9 @@ class TestCustomerAnalyticsFacade(BaseTest):
         )
         ResourceNotebook.objects.create(notebook=notebook, account=account)
 
-        data = facade.get_account_context_data(self.team.id, account_id=str(account.id))
+        data = facade.get_account_context_data(
+            self.team.id, account_id=str(account.id), user_access_control=self._uac()
+        )
 
         assert isinstance(data, contracts.AccountContextData)
         assert data.name == "Acme Corp"
@@ -66,7 +69,29 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert data.notes == [contracts.AccountNote(title="Q3 recap", short_id=notebook.short_id)]
 
     def test_get_account_context_data_missing(self):
-        assert facade.get_account_context_data(self.team.id, external_id="missing") is None
+        assert (
+            facade.get_account_context_data(self.team.id, external_id="missing", user_access_control=self._uac())
+            is None
+        )
+
+    def test_get_account_context_data_denied_object_level_returns_none(self):
+        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
+        uac = MagicMock()
+        uac.check_access_level_for_resource.return_value = True
+        uac.filter_queryset_by_access_level.side_effect = lambda qs: qs.none()
+
+        assert (
+            facade.get_account_context_data(self.team.id, account_id=str(account.id), user_access_control=uac) is None
+        )
+
+    def test_get_account_context_data_denied_resource_level_returns_none(self):
+        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
+        uac = MagicMock()
+        uac.check_access_level_for_resource.return_value = False
+
+        assert (
+            facade.get_account_context_data(self.team.id, account_id=str(account.id), user_access_control=uac) is None
+        )
 
     def test_search_accounts_matches_name_and_external_id(self):
         create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
