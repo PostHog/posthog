@@ -88,7 +88,7 @@ bundle showcases, applied to a real curation loop.
 ## Prerequisites for deploying
 
 Three secrets, two webhooks. The recommended way to set the secrets
-is the **concierge walkthrough** below, which uses the console's
+is the **Agent Builder walkthrough** below, which uses the console's
 `set_secret` punch-out so the values never transit the model's
 tool-call history. The list:
 
@@ -110,7 +110,7 @@ Bearer ${SLACK_BOT_TOKEN}` on every Slack Web API call.
    includes `{ type: "shared_secret", header: "X-Webhook-Secret" }`
    — incident.io, Grafana alertmanager, and anything else POSTing to
    `/webhook` must send this exact value in the `X-Webhook-Secret`
-   header. Set it via the concierge punch-out (no env var needed —
+   header. Set it via the Agent Builder punch-out (no env var needed —
    the value is stored as a shared-secret integration on the agent
    and matched by the ingress per request). Without it the webhook
    401s, which is what we want; the chat / MCP paths still work via
@@ -118,38 +118,38 @@ Bearer ${SLACK_BOT_TOKEN}` on every Slack Web API call.
 5. **PostHog API access** for `@posthog/query` — the standard
    team-level token, no special scopes.
 
-## Concierge walkthrough — recommended setup flow
+## Agent Builder walkthrough — recommended setup flow
 
 This bundle is the showcase example for the
-[agent-concierge](../agent-concierge/) flow. End-to-end, from a
+[agent-builder](../agent-builder/) flow. End-to-end, from a
 fresh PostHog org:
 
 1. **Open the agent console** at `console.agents.posthog.com`,
-   start a chat with the concierge.
-2. **Ask the concierge to clone this bundle.** Something like:
+   start a chat with the Agent Builder.
+2. **Ask the Agent Builder to clone this bundle.** Something like:
    _"Build me an SRE triage bot — clone from the sre-slack-bot
    reference, replace the placeholder Slack workspace id with
    `<T0YOUR>`, and walk me through setting the three secrets."_
-   The concierge resolves to `agent-applications-revisions-clone-from-create`
+   The Agent Builder resolves to `agent-applications-revisions-clone-from-create`
    pointing at this bundle, edits `spec.triggers[].slack.trusted_workspaces`
    via `agent-applications-revisions-partial-update`, and freezes the
    draft.
-3. **Punch out for each secret.** The concierge calls
-   [`set_secret`](../agent-concierge/spec.json) three times — once
+3. **Punch out for each secret.** The Agent Builder calls
+   [`set_secret`](../agent-builder/spec.json) three times — once
    for `SLACK_BOT_TOKEN`, once for `SLACK_SIGNING_SECRET`, once for
    `INCIDENT_IO_TOKEN`. Each call renders an inline form in the
    console; paste the value, hit save. Values are encrypted via the
-   `agent-applications-set-env-create` API; the concierge sees only
+   `agent-applications-set-env-create` API; the Agent Builder sees only
    `{ key, action: "set" }`.
-4. **Promote.** The concierge calls
+4. **Promote.** The Agent Builder calls
    `agent-applications-revisions-promote-create`. Promote is
-   approval-gated (see the concierge's spec) so you approve it
-   inline; this is the safety net against the concierge promoting
+   approval-gated (see the Agent Builder's spec) so you approve it
+   inline; this is the safety net against the Agent Builder promoting
    uninitiated.
 5. **Read back the public endpoints.** The agent-retrieve response
    includes `slack_events_url` / `slack_interactivity_url` /
    `webhook_url` derived from `AGENT_INGRESS_PUBLIC_URL`. The
-   concierge surfaces these in chat — paste them into your Slack
+   Agent Builder surfaces these in chat — paste them into your Slack
    app's Event Subscriptions page and incident.io's webhook config
    respectively.
 6. **Smoke-test.** `@mention` the bot in a test Slack channel; it
@@ -160,10 +160,10 @@ fresh PostHog org:
    (`curl <webhook_url> -d @sample.json`) and confirm a timeline
    update lands on the test incident.
 
-The point of doing this through the concierge — rather than the
+The point of doing this through the Agent Builder — rather than the
 janitor REST API below — is that every step is gated, logged, and
 takes the user's principal. The "raw" path is fine for CI and
-scripted deploys; the concierge path is the one to demo.
+scripted deploys; the Agent Builder path is the one to demo.
 
 ### Local-dev variant
 
@@ -178,7 +178,7 @@ export AGENT_INGRESS_PUBLIC_URL=https://random.trycloudflare.com
 
 `AGENT_INGRESS_PUBLIC_URL` makes the agent-retrieve response echo
 the tunnel-prefixed `slack_events_url` / `webhook_url`, so the
-concierge can read those back to you without you having to splice
+Agent Builder can read those back to you without you having to splice
 the hostname by hand.
 
 ### A note on auth
@@ -190,7 +190,7 @@ this transparently via the connected user's principal).
 
 > **About `public`.** Public exposure is opt-in and intentionally noisy:
 > the schema requires `{ type: "public", acknowledge_public_exposure: true }`
-> and the concierge will pause to confirm before adding it. Real
+> and the Agent Builder will pause to confirm before adding it. Real
 > auto-trigger paths (Slack signing secret, incident.io webhook secret,
 > Grafana alertmanager shared secret) verify the request before any
 > handler runs, so the agent itself never needs `public` to receive

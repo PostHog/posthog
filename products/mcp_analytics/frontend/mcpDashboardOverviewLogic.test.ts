@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -6,8 +8,11 @@ import { dayjs } from 'lib/dayjs'
 import { initKeaTests } from '~/test/init'
 
 import {
+    type ActivityRow,
     aggregateHarnessRows,
     type BucketRow,
+    buildBucketKeys,
+    buildDailyActivity,
     buildKPIs,
     buildKpiWindow,
     buildToolDailySeries,
@@ -15,6 +20,7 @@ import {
     deltaPct,
     type HarnessRawRow,
     mcpDashboardOverviewLogic,
+    normalizeBucket,
     pickNotableSessions,
     type SessionRow,
     type ToolDailyRow,
@@ -141,6 +147,97 @@ describe('mcpDashboardOverviewLogic', () => {
             ])
             // Other = tool-8 (92) + tool-9 (91)
             expect(tools[8]).toEqual({ tool: 'Other', data: [183] })
+        })
+
+        it('spans the supplied bucket keys and zero-fills days without calls', () => {
+            const rows: ToolDailyRow[] = [{ day: '2024-01-02', tool: 'a', calls: 5 }]
+            const bucketKeys = ['2024-01-01', '2024-01-02', '2024-01-03']
+            expect(buildToolDailySeries(rows, bucketKeys)).toEqual({
+                labels: bucketKeys,
+                tools: [{ tool: 'a', data: [0, 5, 0] }],
+            })
+        })
+
+        it('returns empty tools with the supplied labels when there are no rows', () => {
+            expect(buildToolDailySeries([], ['2024-01-01'])).toEqual({ labels: ['2024-01-01'], tools: [] })
+        })
+    })
+
+    describe('buildBucketKeys', () => {
+        it('emits one key per day across the resolved window, including empty trailing days', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            try {
+                expect(buildBucketKeys({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')).toEqual([
+                    '2026-06-11 00:00:00',
+                    '2026-06-12 00:00:00',
+                    '2026-06-13 00:00:00',
+                    '2026-06-14 00:00:00',
+                    '2026-06-15 00:00:00',
+                    '2026-06-16 00:00:00',
+                    '2026-06-17 00:00:00',
+                    '2026-06-18 00:00:00',
+                ])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('truncates weekly buckets to ISO Monday starts (matching ClickHouse dateTrunc)', () => {
+            // 2026-06-01 is a Monday; every key should land on a Monday.
+            const keys = buildBucketKeys({ dateFrom: '2026-06-01', dateTo: '2026-06-21' }, 'UTC', 'week')
+            expect(keys).toEqual(['2026-06-01 00:00:00', '2026-06-08 00:00:00', '2026-06-15 00:00:00'])
+        })
+    })
+
+    describe('buildDailyActivity', () => {
+        it('projects rows onto the bucket keys, defaulting missing buckets to zero', () => {
+            const rows: ActivityRow[] = [
+                { day: '2024-01-01 00:00:00', successes: 10, errors: 2 },
+                { day: '2024-01-03 00:00:00', successes: 4, errors: 1 },
+            ]
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            expect(buildDailyActivity(rows, bucketKeys)).toEqual({
+                labels: bucketKeys,
+                successes: [10, 0, 4],
+                errors: [2, 0, 1],
+            })
+        })
+
+        it('returns all-zero series when there are no rows', () => {
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            expect(buildDailyActivity([], bucketKeys)).toEqual({
+                labels: bucketKeys,
+                successes: [0, 0, 0],
+                errors: [0, 0, 0],
+            })
+        })
+    })
+
+    describe('normalizeBucket', () => {
+        // The query API serializes dateTrunc buckets as ISO datetimes; they must come back in the
+        // same format buildBucketKeys emits, otherwise the zero-fill join misses every bucket.
+        it.each([
+            ['2026-06-19T00:00:00Z', 'UTC', '2026-06-19 00:00:00'],
+            ['2026-06-19T00:00:00+00:00', 'UTC', '2026-06-19 00:00:00'],
+            ['2026-06-19T11:30:00Z', 'UTC', '2026-06-19 11:30:00'],
+        ])('normalizes %s (%s) to %s', (raw, timezone, expected) => {
+            expect(normalizeBucket(raw, timezone)).toBe(expected)
+        })
+
+        it('returns empty string for missing values', () => {
+            expect(normalizeBucket(null, 'UTC')).toBe('')
+            expect(normalizeBucket('', 'UTC')).toBe('')
+        })
+
+        it('produces keys that match buildBucketKeys so the activity join lands', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            try {
+                const bucketKeys = buildBucketKeys({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')
+                const normalized = normalizeBucket('2026-06-18T00:00:00Z', 'UTC')
+                expect(bucketKeys).toContain(normalized)
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 
@@ -283,7 +380,7 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('date filter wiring', () => {
+    describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
@@ -314,6 +411,37 @@ describe('mcpDashboardOverviewLogic', () => {
             const kpi = reloads.find((call) => call.query.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
             expect(dayjs(kpi?.filters.dateRange.date_from).isValid()).toBe(true)
+        })
+
+        it.each([[false], [true]])('passes filterTestAccounts=%s to every tile', async (enabled) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            // enabled=false is the default mount state; enabled=true reloads after toggling.
+            const callsBefore = enabled ? mockApi.query.mock.calls.length : 0
+
+            if (enabled) {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilterTestAccounts(true)
+                }).toFinishAllListeners()
+            }
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads.length).toBe(6)
+            expect(reloads.every((call) => call.filters.filterTestAccounts === enabled)).toBe(true)
+        })
+
+        it('defaults the filter from the team test_account_filters_default_checked setting', async () => {
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // No explicit toggle, yet every tile filters internal users because the team default is on.
+            const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
+            expect(reloads.length).toBeGreaterThanOrEqual(6)
+            expect(reloads.every((call) => call.filters.filterTestAccounts === true)).toBe(true)
         })
     })
 })

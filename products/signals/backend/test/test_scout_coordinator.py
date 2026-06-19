@@ -30,6 +30,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     PlannedRun,
     SignalsScoutCoordinatorWorkflow,
     StampDispatchedRunsInput,
+    _default_team_config,
     _enrolled_team_ids,
     _read_flag_payload,
     _team_configs,
@@ -542,6 +543,64 @@ async def test_per_team_config_override_keyed_by_child_env_applies_to_parent(ate
     assert [p.skill_name for p in planned] == ["signals-scout-most"]
 
     await sync_to_async(child.delete)()
+
+
+# ── Fleet-wide default config via the flag payload (default_team_config) ──────────
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        ({"default_team_config": {"max_runs_per_tick": 1}}, {"max_runs_per_tick": 1}),
+        ('{"default_team_config": {"max_runs_per_tick": 2}}', {"max_runs_per_tick": 2}),  # JSON string payload
+        ({"default_team_config": "nope"}, {}),  # wrong type → empty
+        ({}, {}),  # absent key → no fleet default
+        (None, {}),  # no payload → no fleet default
+    ],
+)
+@pytest.mark.flag_off
+def test_default_team_config_parses_payload(payload, expected):
+    with patch(_PAYLOAD_PATH, return_value=payload):
+        assert _default_team_config(_read_flag_payload()) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "team_override_cap,expected_names",
+    [
+        # No per-team entry → the fleet-wide default_team_config (cap 1) binds.
+        (None, ["signals-scout-most"]),
+        # A valid per-team override beats the fleet default, so all three dispatch.
+        (3, ["signals-scout-least", "signals-scout-mid", "signals-scout-most"]),
+        # An invalid per-team override falls through to the fleet default (cap 1).
+        ("nope", ["signals-scout-most"]),
+    ],
+)
+async def test_default_team_config_resolution(ateam, team_override_cap, expected_names):
+    # A fleet-wide `default_team_config` caps every enrolled team at 1/tick; a per-team
+    # `team_configs` override takes precedence when present and valid, else the fleet default
+    # still binds. Three scouts due (10h/5h/2h overdue) make the resolved cap observable.
+    now = timezone.now()
+    for name, hours in [("signals-scout-most", 10), ("signals-scout-mid", 5), ("signals-scout-least", 2)]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+        await database_sync_to_async(_create_config)(
+            ateam, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
+        )
+
+    def _payload(*_a, **_k):
+        payload: dict[str, Any] = {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "default_team_config": {"max_runs_per_tick": 1},
+        }
+        if team_override_cap is not None:
+            payload["team_configs"] = {str(ateam.id): {"max_runs_per_tick": team_override_cap}}
+        return payload
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    assert sorted(p.skill_name for p in planned) == sorted(expected_names)
 
 
 @pytest.mark.asyncio
