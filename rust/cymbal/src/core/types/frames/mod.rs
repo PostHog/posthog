@@ -36,7 +36,6 @@ pub(crate) fn record_frame_resolution_failure(
     }
 }
 
-pub mod records;
 pub mod releases;
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case

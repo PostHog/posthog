@@ -1,16 +1,12 @@
 use chrono::{DateTime, Duration, Utc};
-use common_types::error_tracking::RawFrameId;
+use common_types::error_tracking::{FrameId, RawFrameId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Executor;
 use uuid::Uuid;
 
-use crate::{
-    error::UnhandledError,
-    frames::{releases::ReleaseRecord, FrameId},
-};
-
-use super::{Context, Frame};
+use crate::error::UnhandledError;
+use crate::frames::{releases::ReleaseRecord, Context, Frame};
 
 const FRAME_TTL_JITTER_PERCENT: u32 = 10;
 

@@ -16,11 +16,8 @@ use sqlx::PgPool;
 use crate::{
     core::config::ResolverConfig,
     error::{JsResolveErr, ProguardError, ResolveError, UnhandledError},
-    frames::{
-        records::{ErrorTrackingStackFrame, FrameResultTtlPolicy},
-        releases::ReleaseRecord,
-        Frame, RawFrame,
-    },
+    frames::{releases::ReleaseRecord, Frame, RawFrame},
+    symbolication::symbol::records::{ErrorTrackingStackFrame, FrameResultTtlPolicy},
     langs::native::DebugImage,
     symbolication::resolve::Resolve,
     metric_consts::{
@@ -253,7 +250,8 @@ mod test {
 
     use crate::{
         core::config::ResolverConfig,
-        frames::{records::ErrorTrackingStackFrame, RawFrame},
+        frames::RawFrame,
+        symbolication::symbol::records::ErrorTrackingStackFrame,
         symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver},
         symbolication::symbol_store::{
             apple::AppleProvider,

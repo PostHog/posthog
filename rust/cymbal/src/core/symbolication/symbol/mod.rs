@@ -11,6 +11,7 @@ use crate::{
 };
 use tracing::warn;
 pub mod local;
+pub mod records;
 
 #[async_trait]
 pub trait SymbolResolver: Send + Sync + 'static {
