@@ -4,6 +4,9 @@ import { useMemo } from 'react'
 import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -34,8 +37,10 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         toolRowsLoading,
         dateFilter,
         interval,
+        filterTestAccounts,
+        propertyFilters,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, setFilterTestAccounts, setPropertyFilters } = useActions(mcpDashboardOverviewLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { timezone } = useValues(teamLogic)
 
@@ -45,12 +50,32 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4" data-quill>
-            <div className="flex flex-wrap items-center gap-3">
-                <McpDateFilter
-                    dateFrom={dateFilter.dateFrom}
-                    dateTo={dateFilter.dateTo}
-                    onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                    dataAttr="mcp-dashboard-date-filter"
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    <McpDateFilter
+                        dateFrom={dateFilter.dateFrom}
+                        dateTo={dateFilter.dateTo}
+                        onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                        dataAttr="mcp-dashboard-date-filter"
+                    />
+                    <div data-attr="mcp-dashboard-property-filter">
+                        <PropertyFilters
+                            pageKey="mcp-dashboard-overview"
+                            propertyFilters={propertyFilters}
+                            onChange={setPropertyFilters}
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.EventFeatureFlags,
+                            ]}
+                            eventNames={['$mcp_tool_call']}
+                            buttonText="Add filter"
+                        />
+                    </div>
+                </div>
+                <TestAccountFilterSwitch
+                    checked={filterTestAccounts}
+                    onChange={setFilterTestAccounts}
+                    data-attr="mcp-dashboard-test-account-filter"
                 />
             </div>
             <section>

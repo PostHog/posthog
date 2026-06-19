@@ -444,11 +444,17 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
         log: deps.log,
         skillIndex: deps.rev.spec.skills.map((s) => ({ id: s.id, description: s.description, path: s.path })),
         readBundleFile: async (path: string): Promise<string | null> => {
-            try {
-                return await deps.bundle.readText(deps.rev.id, path)
-            } catch {
+            // `null` is the "file genuinely absent" signal (load-skill renders
+            // it as "not found in the bundle"). An operational failure —
+            // transient S3 error, auth, network blip — must NOT collapse into
+            // that same null: it looks identical to a missing file, so the
+            // agent reports a confident "not found" and gives up instead of
+            // retrying. `exists` returns false only on a real 404 and rethrows
+            // anything else, so the true cause propagates to the caller.
+            if (!(await deps.bundle.exists(deps.rev.id, path))) {
                 return null
             }
+            return deps.bundle.readText(deps.rev.id, path)
         },
         memoryStore: deps.memoryStore,
         tabularStore: deps.tabularStore,

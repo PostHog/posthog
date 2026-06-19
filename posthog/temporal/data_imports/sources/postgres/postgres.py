@@ -161,6 +161,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # raises this from inside a wait, e.g. the commit at the end of get_connection).
     # Same transient dead-socket class as the libpq drops above — recover by reconnecting.
     "the connection is lost",
+    # Supabase's Supavisor pooler reports a transient failure to reach the upstream backend (TCP
+    # timeout while the backend is briefly unreachable — failover, idle cull, restart) as a
+    # ConnectionFailure (SQLSTATE 08006, an OperationalError) carrying the Erlang-tuple reason
+    # "{:error, :etimedout}". Same transient class as the libpq drops above — recover by
+    # reconnecting. The Erlang-tuple wording is the stable, low-false-positive signal.
+    "{:error, :etimedout}",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -192,15 +198,16 @@ _CONNECTION_DROPPED_ERROR_TYPES = (
 )
 
 
-def _safe_close_connection(connection: psycopg.Connection) -> None:
+def _safe_close_connection(connection: psycopg.Connection | None) -> None:
     """Close a connection without raising.
 
     Prefer this over Connection.__exit__ for teardown in exception handlers:
     __exit__ attempts a commit/rollback first, which can itself raise on a
     broken connection and mask the original error. close() just releases the
-    socket.
+    socket. Accepts None so callers can close a connection that was never opened
+    (a connect that raised before assigning) without a None-check at each site.
     """
-    if connection.closed:
+    if connection is None or connection.closed:
         return
     try:
         connection.close()
@@ -390,6 +397,18 @@ def _is_options_startup_param_unsupported(error: BaseException) -> bool:
     return any(substring in message for substring in _OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS)
 
 
+# libpq reports a non-'S'/'N' byte to its SSLRequest packet as "received invalid response to SSL
+# negotiation: <byte>". The handshake mentions SSL, but the cause is that the host/port doesn't
+# reach a PostgreSQL server speaking the SSL protocol — a wrong port, an HTTP/proxy/edge endpoint,
+# or a TCP proxy fronting a paused/deleted database. Don't mislabel it "SSL not supported": let the
+# raw message reach `get_non_retryable_errors` for an accurate, non-retryable diagnosis.
+_INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING = "received invalid response to ssl negotiation"
+
+
+def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
+    return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
+
+
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
     """`psycopg.connect` that retries without the libpq `options` startup parameter when the
     server rejects it.
@@ -447,7 +466,7 @@ def _connect_to_postgres(
             **kwargs,
         )
     except psycopg.OperationalError as e:
-        if require_ssl and "SSL" in str(e):
+        if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
             raise SSLRequiredError(
                 "SSL/TLS connection is required but your database does not support it. "
                 "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -1417,16 +1436,13 @@ def _capture_xmin_ceiling(
         )
 
     cursor.execute(
-        sql.SQL(
-            "SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint, "
-            "(pg_snapshot_xmin(pg_current_snapshot())::xid)::text::bigint"
-        )
+        sql.SQL("SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint")
     )
     row = cursor.fetchone()
     if row is None or row[0] is None:
         raise XminUnsupportedError("Could not read the xmin snapshot ceiling from the source database.")
     ceiling_xid8 = int(row[0])
-    ceiling_xid = int(row[1])
+    ceiling_xid = ceiling_xid8 & 0xFFFFFFFF
     num_wraparound = ceiling_xid8 >> 32
 
     # First run (no stored cursor): read everything `< ceiling` once. `lower = 0` is below
@@ -1616,9 +1632,9 @@ def _build_xmin_query(
         query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
 
     # ORDER BY the cast cursor so the offset-resume path stays correct on a connection drop.
-    ordered = sql.SQL(cast(LiteralString, f"{query.as_string()} ORDER BY xmin::text::bigint ASC")).format()
+    ordered = query + sql.SQL(" ORDER BY xmin::text::bigint ASC")
     if add_sampling:
-        return sql.SQL(cast(LiteralString, f"{ordered.as_string()} LIMIT 1000")).format()
+        return ordered + sql.SQL(" LIMIT 1000")
     return ordered
 
 
@@ -2401,7 +2417,7 @@ def postgres_source(
                     options=FORCE_UTF8_CLIENT_ENCODING,
                 )
             except psycopg.OperationalError as e:
-                if require_ssl and "SSL" in str(e):
+                if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
                     raise SSLRequiredError(
                         "SSL/TLS connection is required but your database does not support it. "
                         "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2720,7 +2736,7 @@ def postgres_source(
                         options=FORCE_UTF8_CLIENT_ENCODING,
                     )
                 except psycopg.OperationalError as e:
-                    if require_ssl and "SSL" in str(e):
+                    if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
                         raise SSLRequiredError(
                             "SSL/TLS connection is required but your database does not support it. "
                             "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2788,18 +2804,22 @@ def postgres_source(
                 successive_errors = 0
                 successive_conn_errors = 0
                 floor_retries = 0
-                connection = _connect_with_dropped_retry(get_connection, logger)
-                # Autocommit so each LIMIT/OFFSET query runs as its own statement
-                # and no transaction stays open across the slow delta-merge that
-                # happens between yields. A held transaction is what gets the
-                # backend culled by idle_in_transaction_session_timeout, producing
-                # the "server conn crashed?" ProtocolViolation on the next fetch.
-                connection.autocommit = True
+                # Open lazily inside the loop so a recovery conflict (or connection drop) raised by
+                # the connect itself is caught by the handlers below. A hot standby can cancel the
+                # connection's own startup with "conflict with recovery" (SerializationFailure) when
+                # we reconnect mid-recovery — opening outside the loop let that escape the whole
+                # fallback even though it's the same transient condition the loop already retries.
+                connection: psycopg.Connection | None = None
                 while True:
                     try:
-                        if connection.closed:
-                            logger.debug("Postgres connection was closed, reopening...")
+                        if connection is None or connection.closed:
+                            logger.debug("Opening Postgres connection for offset chunking...")
                             connection = get_connection()
+                            # Autocommit so each LIMIT/OFFSET query runs as its own statement and no
+                            # transaction stays open across the slow delta-merge that happens between
+                            # yields. A held transaction is what gets the backend culled by
+                            # idle_in_transaction_session_timeout, producing the "server conn
+                            # crashed?" ProtocolViolation on the next fetch.
                             connection.autocommit = True
 
                         # Use psycopg.Cursor directly to bypass cursor_factory: on a
