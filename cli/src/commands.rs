@@ -79,6 +79,10 @@ fn dry_run_skipped_command(command: &Commands) -> Option<&'static str> {
     }
 }
 
+// These are the API key env vars recognized by the Node `posthog-cli api` bundle.
+// Rust auth only reads the POSTHOG_CLI_* aliases; this check is deliberately about
+// whether the child process already has a usable key, so we avoid loading and mixing
+// stored credentials.
 const API_KEY_ENV_VARS: &[&str] = &[
     "POSTHOG_API_KEY",
     "POSTHOG_CLI_API_KEY",
