@@ -25,7 +25,10 @@ class NotebookData:
     id: UUID
     short_id: str
     title: str | None
-    content: dict[str, Any] | None
+    # ProseMirror/TipTap content: usually a `{type: "doc", content: [...]}` dict, but some
+    # notebooks (e.g. group/account templates) persist a bare list of nodes. JSONField allows
+    # either, so the contract must too.
+    content: dict[str, Any] | list[Any] | None
     text_content: str | None
     deleted: bool
     visibility: str
