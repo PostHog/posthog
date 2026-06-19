@@ -299,6 +299,7 @@ export class IngestionApiServer implements NodeServer {
                 bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
                 statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
+                overflowType: 'events',
             })
         }
 
@@ -306,6 +307,7 @@ export class IngestionApiServer implements NodeServer {
         if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
             overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
+                overflowType: 'events',
             })
         }
 

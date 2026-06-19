@@ -6,7 +6,7 @@ import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { createAiConsumer, createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
 import { createHeatmapsConsumer } from '~/ingestion/pipelines/heatmaps'
@@ -286,6 +286,27 @@ export class IngestionGeneralServer implements NodeServer {
             })
         }
 
+        const startAi = (override?: { topic: string; groupId: string }) => {
+            serviceLoaders.push(async () => {
+                const consumerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
+                // The AI pipeline reads person/group data but never writes it: it builds its
+                // own read-only personhog repositories from the shared client, and its own hog
+                // transformer instance (separate from the analytics consumer).
+                const consumerScope = createAiConsumer(consumerConfig, sharedServicesScope, {
+                    hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
+                    personhogClient,
+                })
+                const { consumer, stop } = await consumerScope.start()
+                return ingestionConsumerService(consumer, stop)
+            })
+        }
+
         if (isCombinedMode) {
             // Local dev / hobby: run multiple consumers for all ingestion topics in one process
             const consumersOptions = [
@@ -318,6 +339,12 @@ export class IngestionGeneralServer implements NodeServer {
             startClientWarnings()
         } else if (this.config.INGESTION_PIPELINE === 'heatmaps') {
             startHeatmaps()
+        } else if (this.config.INGESTION_PIPELINE === 'ai') {
+            // Dedicated AI pipeline deployment. Not started in combined mode: the
+            // combined analytics consumers already process AI events on the shared
+            // topic, so running this in parallel there would double-process them.
+            // Switchover to this pipeline is driven by capture-side routing.
+            startAi()
         } else {
             // Production ingestion-v2: single consumer using config-provided topic
             serviceLoaders.push(async () => {

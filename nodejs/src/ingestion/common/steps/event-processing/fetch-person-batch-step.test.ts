@@ -6,7 +6,7 @@ import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson } from '~/types'
 
-import { createFetchPersonBatchStep } from './person-properties-step'
+import { createFetchPersonBatchStep } from './fetch-person-batch-step'
 
 describe('createFetchPersonBatchStep', () => {
     let mockPersonRepository: jest.Mocked<PersonReadRepository>
@@ -36,7 +36,7 @@ describe('createFetchPersonBatchStep', () => {
             fetchPersonsByPersonIds: jest.fn(),
             fetchDistinctIdsForPersons: jest.fn(),
         }
-        step = createFetchPersonBatchStep(mockPersonRepository)
+        step = createFetchPersonBatchStep(mockPersonRepository, 'test/person-properties')
     })
 
     it('returns empty array for empty input', async () => {
@@ -87,7 +87,7 @@ describe('createFetchPersonBatchStep', () => {
                 { teamId: 123, distinctId: 'user-1' },
                 { teamId: 123, distinctId: 'user-2' },
             ],
-            'error-tracking/person-properties'
+            'test/person-properties'
         )
     })
 
@@ -189,7 +189,7 @@ describe('createFetchPersonBatchStep', () => {
         // Should only query for the event with distinct_id
         expect(mockPersonRepository.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
             [{ teamId: 123, distinctId: 'user-123' }],
-            'error-tracking/person-properties'
+            'test/person-properties'
         )
     })
 

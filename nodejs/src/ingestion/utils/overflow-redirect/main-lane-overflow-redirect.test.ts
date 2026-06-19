@@ -33,6 +33,7 @@ describe('MainLaneOverflowRedirect', () => {
             bucketCapacity: 10,
             replenishRate: 1,
             statefulEnabled: true,
+            overflowType: 'events',
             ...overrides,
         })
     }
@@ -46,7 +47,7 @@ describe('MainLaneOverflowRedirect', () => {
         it('returns empty set when no events exceed rate limit', async () => {
             const batch = [createBatch('token1', 'user1', 5)]
 
-            const result = await service.handleEventBatch('events', batch)
+            const result = await service.handleEventBatch(batch)
 
             expect(result.size).toBe(0)
         })
@@ -55,7 +56,7 @@ describe('MainLaneOverflowRedirect', () => {
             // Bucket capacity is 10, so 15 events should exceed
             const batch = [createBatch('token1', 'user1', 15)]
 
-            const result = await service.handleEventBatch('events', batch)
+            const result = await service.handleEventBatch(batch)
 
             expect(result.size).toBe(1)
             expect(result.has('token1:user1')).toBe(true)
@@ -64,7 +65,7 @@ describe('MainLaneOverflowRedirect', () => {
         it('flags newly rate-limited keys in Redis', async () => {
             const batch = [createBatch('token1', 'user1', 15)]
 
-            await service.handleEventBatch('events', batch)
+            await service.handleEventBatch(batch)
 
             expect(mockRepository.batchFlag).toHaveBeenCalledWith('events', [{ token: 'token1', distinctId: 'user1' }])
         })
@@ -72,7 +73,7 @@ describe('MainLaneOverflowRedirect', () => {
         it('checks Redis for keys not in local cache', async () => {
             const batch = [createBatch('token1', 'user1', 5)]
 
-            await service.handleEventBatch('events', batch)
+            await service.handleEventBatch(batch)
 
             expect(mockRepository.batchCheck).toHaveBeenCalledWith('events', [{ token: 'token1', distinctId: 'user1' }])
         })
@@ -82,7 +83,7 @@ describe('MainLaneOverflowRedirect', () => {
 
             const batch = [createBatch('token1', 'user1', 1)]
 
-            const result = await service.handleEventBatch('events', batch)
+            const result = await service.handleEventBatch(batch)
 
             expect(result.size).toBe(1)
             expect(result.has('token1:user1')).toBe(true)
@@ -93,14 +94,14 @@ describe('MainLaneOverflowRedirect', () => {
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', true]]))
 
             const batch1 = [createBatch('token1', 'user1', 1)]
-            await service.handleEventBatch('events', batch1)
+            await service.handleEventBatch(batch1)
 
             // Reset mock
             mockRepository.batchCheck.mockClear()
 
             // Second call: should use cache, not repository
             const batch2 = [createBatch('token1', 'user1', 1)]
-            const result = await service.handleEventBatch('events', batch2)
+            const result = await service.handleEventBatch(batch2)
 
             expect(result.size).toBe(1)
             expect(result.has('token1:user1')).toBe(true)
@@ -112,7 +113,7 @@ describe('MainLaneOverflowRedirect', () => {
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', false]]))
 
             const batch1 = [createBatch('token1', 'user1', 1)]
-            await service.handleEventBatch('events', batch1)
+            await service.handleEventBatch(batch1)
 
             // Reset mock
             mockRepository.batchCheck.mockClear()
@@ -120,7 +121,7 @@ describe('MainLaneOverflowRedirect', () => {
 
             // Second call: should use cache (null), not check repository again
             const batch2 = [createBatch('token1', 'user1', 1)]
-            await service.handleEventBatch('events', batch2)
+            await service.handleEventBatch(batch2)
 
             expect(mockRepository.batchCheck).not.toHaveBeenCalled()
         })
@@ -138,7 +139,7 @@ describe('MainLaneOverflowRedirect', () => {
                 createBatch('token1', 'user2', 15), // Exceeds limit
             ]
 
-            const result = await service.handleEventBatch('events', batch)
+            const result = await service.handleEventBatch(batch)
 
             expect(result.size).toBe(1)
             expect(result.has('token1:user2')).toBe(true)
@@ -152,7 +153,7 @@ describe('MainLaneOverflowRedirect', () => {
                 createBatch('token2', 'user1', 1),
             ]
 
-            await service.handleEventBatch('events', batch)
+            await service.handleEventBatch(batch)
 
             expect(mockRepository.batchCheck).toHaveBeenCalledTimes(1)
             expect(mockRepository.batchCheck).toHaveBeenCalledWith('events', [
@@ -171,7 +172,7 @@ describe('MainLaneOverflowRedirect', () => {
 
             const batch = [createBatch('token1', 'user1', 5)]
 
-            const result = await service.handleEventBatch('events', batch)
+            const result = await service.handleEventBatch(batch)
 
             expect(result.size).toBe(0)
         })
@@ -181,7 +182,7 @@ describe('MainLaneOverflowRedirect', () => {
             // rate limit decision still causes a redirect for this batch
             const batch = [createBatch('token1', 'user1', 15)]
 
-            const result = await service.handleEventBatch('events', batch)
+            const result = await service.handleEventBatch(batch)
 
             expect(result.size).toBe(1)
             expect(result.has('token1:user1')).toBe(true)
@@ -192,12 +193,12 @@ describe('MainLaneOverflowRedirect', () => {
         it('rate limit state persists across batches', async () => {
             // First batch: consume 8 of 10 tokens
             const batch1 = [createBatch('token1', 'user1', 8)]
-            const result1 = await service.handleEventBatch('events', batch1)
+            const result1 = await service.handleEventBatch(batch1)
             expect(result1.size).toBe(0)
 
             // Second batch: consume 3 more tokens (total 11, exceeds 10)
             const batch2 = [createBatch('token1', 'user1', 3)]
-            const result2 = await service.handleEventBatch('events', batch2)
+            const result2 = await service.handleEventBatch(batch2)
             expect(result2.size).toBe(1)
             expect(result2.has('token1:user1')).toBe(true)
         })
@@ -205,11 +206,11 @@ describe('MainLaneOverflowRedirect', () => {
         it('different keys have independent rate limits', async () => {
             // Exhaust tokens for user1
             const batch1 = [createBatch('token1', 'user1', 15)]
-            await service.handleEventBatch('events', batch1)
+            await service.handleEventBatch(batch1)
 
             // user2 should still have tokens
             const batch2 = [createBatch('token1', 'user2', 5)]
-            const result = await service.handleEventBatch('events', batch2)
+            const result = await service.handleEventBatch(batch2)
 
             expect(result.size).toBe(0)
         })
@@ -228,7 +229,7 @@ describe('MainLaneOverflowRedirect', () => {
         it('clears local cache', async () => {
             // Populate cache
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', true]]))
-            await service.handleEventBatch('events', [createBatch('token1', 'user1', 1)])
+            await service.handleEventBatch([createBatch('token1', 'user1', 1)])
 
             await service.shutdown()
 
@@ -236,7 +237,7 @@ describe('MainLaneOverflowRedirect', () => {
             // Next call should check repository again
             mockRepository.batchCheck.mockClear()
             mockRepository.batchCheck.mockResolvedValue(new Map([['token1:user1', false]]))
-            await service.handleEventBatch('events', [createBatch('token1', 'user1', 1)])
+            await service.handleEventBatch([createBatch('token1', 'user1', 1)])
 
             expect(mockRepository.batchCheck).toHaveBeenCalled()
         })
