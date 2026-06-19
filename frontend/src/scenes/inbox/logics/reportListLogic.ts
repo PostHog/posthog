@@ -35,6 +35,8 @@ export const INBOX_FLAT_TAB_LIST_PARAMS: Record<InboxFlatListTabKey, ReportListP
         actionability: ACTIONABLE_ACTIONABILITY_VALUES.join(','),
     },
     'not-actionable': { actionability: 'not_actionable' },
+    // Archived = reports the user dismissed (suppressed). Restorable back into the inbox.
+    archived: { status: 'suppressed' },
 }
 
 function teammateUuidFromScope(scope: string): string | undefined {
@@ -72,6 +74,7 @@ export const reportListLogic = kea<reportListLogicType>([
         ensureLoaded: true,
         loadMore: true,
         archiveReport: (reportId: string, reason: DismissalReasonValue, note: string) => ({ reportId, reason, note }),
+        restoreReport: (reportId: string) => ({ reportId }),
         removeReport: (reportId: string) => ({ reportId }),
         refresh: true,
     }),
@@ -205,6 +208,18 @@ export const reportListLogic = kea<reportListLogicType>([
                 })
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to archive report')
+                actions.refresh()
+            }
+        },
+        // Restore a suppressed report back to the inbox (transition to `potential`). Optimistically
+        // drops it from the Archived list; the report re-enters the pipeline and resurfaces elsewhere.
+        restoreReport: async ({ reportId }) => {
+            actions.removeReport(reportId)
+            try {
+                await api.signalReports.setState(reportId, { state: 'potential' })
+                lemonToast.success('Report restored to inbox')
+            } catch (error: any) {
+                lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
                 actions.refresh()
             }
         },
