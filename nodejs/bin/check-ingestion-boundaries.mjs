@@ -5,6 +5,7 @@
  * Enforces the ingestion-separation invariant during the cdp/ingestion refactor:
  *   - an ingestion pipeline must not import another pipeline's internals
  *   - shared/common ingestion code must not import a pipeline
+ *   - no ingestion code may import cdp directly (ingestion and cdp meet only through common/)
  *
  * Import specifiers are resolved (tsconfig "~/*" alias + relative paths) to real
  * files, so cross-pipeline *relative* imports (e.g. `../heatmaps/x` from `analytics/`)
@@ -25,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = path.join(ROOT, 'src')
 const ING = path.join(SRC, 'ingestion')
+const CDP = path.join(SRC, 'cdp')
 const BASELINE = path.join(ROOT, 'bin', 'ingestion-boundaries.baseline.json')
 
 // Ingestion pipelines — each is an isolated unit. A pipeline may not import another pipeline,
@@ -84,6 +86,12 @@ function pipelineOf(absPath) {
     return PIPELINES.has(seg[0]) ? seg[0] : SHARED
 }
 
+// Whether an absolute path lives under src/cdp. Ingestion must reach cdp only through common/.
+function isCdp(absPath) {
+    const rel = path.relative(CDP, absPath)
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
 const IMPORT_PATTERNS = [
     /\bfrom\s*['"]([^'"]+)['"]/g, // import ... from / export ... from
     /\bimport\s*['"]([^'"]+)['"]/g, // side-effect import
@@ -132,6 +140,10 @@ function computeViolations() {
             if (target === null) {
                 continue
             }
+            if (isCdp(target)) {
+                violations.add(`${path.relative(ROOT, file)} -> cdp`)
+                continue
+            }
             const toPipeline = pipelineOf(target)
             if (toPipeline === null || toPipeline === SHARED) {
                 continue // importing shared code (or leaving ingestion) is always allowed
@@ -169,9 +181,10 @@ function main() {
             console.error(`  ${v}`)
         }
         console.error(
-            '\nA pipeline must not import another pipeline, and shared ingestion code must not import a pipeline.'
+            '\nA pipeline must not import another pipeline, shared ingestion code must not import a pipeline,\n' +
+                'and no ingestion code may import cdp directly.'
         )
-        console.error('Fix: move the shared dependency into ingestion/common (or the cdp∩ingestion common),')
+        console.error('Fix: move the shared dependency into common/ (the cdp∩ingestion meeting point),')
         console.error('or keep the dependency within the importing pipeline.')
         process.exitCode = 1
         return
