@@ -893,7 +893,7 @@ describe('sandboxStreamLogic', () => {
             const assistantItems = logic.values.threadItems.filter((item) => item.type === 'assistant_message')
             expect(assistantItems).toHaveLength(1)
             expect(assistantItems[0].text).toEqual('Hi')
-            expect(logic.values.ingestedFrameHashes.size).toEqual(1)
+            expect(logic.values.logStore.order).toHaveLength(1)
         })
 
         it('does not dedup distinct chunks of the same message', async () => {
@@ -932,7 +932,120 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.threadItems).toEqual(before)
-            expect(logic.values.ingestedFrameHashes.size).toEqual(corpus.length)
+            expect(logic.values.logStore.order).toHaveLength(corpus.length)
+        })
+    })
+
+    describe('keyed log store identity', () => {
+        it('keeps two distinct live chunks with identical text (distinct event ids) instead of dropping one', async () => {
+            // The old content-hash identity collapsed identical notification bodies, silently losing a
+            // repeated token. Keyed by the SSE event id, both survive and fold into one buffer.
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'tok ' } }),
+                    'live',
+                    'evt-1'
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'tok ' } }),
+                    'live',
+                    'evt-2'
+                )
+            }).toFinishAllListeners()
+
+            const assistant = logic.values.threadItems.find((item) => item.type === 'assistant_message')
+            expect(assistant?.text).toEqual('tok tok ')
+            expect(logic.values.logStore.order).toHaveLength(2)
+        })
+
+        it('is idempotent under a full re-broadcast — re-delivering the same event ids changes nothing', async () => {
+            const frames: { frame: StoredLogEntry; id: string }[] = [
+                { frame: notification('_posthog/run_started', { runId: 'run-1' }), id: 'evt-1' },
+                {
+                    frame: sessionUpdate({
+                        sessionUpdate: 'agent_message_chunk',
+                        messageId: 'm1',
+                        content: { text: 'Hel' },
+                    }),
+                    id: 'evt-2',
+                },
+                {
+                    frame: sessionUpdate({
+                        sessionUpdate: 'agent_message_chunk',
+                        messageId: 'm1',
+                        content: { text: 'lo' },
+                    }),
+                    id: 'evt-3',
+                },
+                {
+                    frame: sessionUpdate({
+                        sessionUpdate: 'agent_message',
+                        messageId: 'm1',
+                        content: { text: 'Hello' },
+                    }),
+                    id: 'evt-4',
+                },
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach(({ frame, id }) => logic.actions.ingestAcpFrame(frame, 'live', id))
+            }).toFinishAllListeners()
+            const before = logic.values.threadItems
+
+            await expectLogic(logic, () => {
+                frames.forEach(({ frame, id }) => logic.actions.ingestAcpFrame(frame, 'live', id))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual(before)
+            expect(logic.values.threadItems.filter((item) => item.type === 'assistant_message')).toHaveLength(1)
+            expect(logic.values.logStore.order).toHaveLength(4)
+        })
+
+        it('drops the synthetic resume-context prompt on a resume run but keeps the genuine turn (§6)', async () => {
+            const resumePrompt =
+                'You are resuming a previous conversation. Here is the conversation history. Continue from where you left off.'
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/run_started', { runId: 'run-1', sessionId: 'acp-1' }),
+                sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: resumePrompt } }),
+                sessionUpdate({
+                    sessionUpdate: 'user_message_chunk',
+                    content: { type: 'text', text: 'break it down by country' },
+                }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                status: 'completed',
+                state: { resume_from_run_id: 'run-0' },
+            } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'human_message').map((item) => item.text)
+            ).toEqual(['break it down by country'])
+        })
+
+        it('keeps a "You are resuming…" message when the run is NOT a resume run (gate is resume-only)', async () => {
+            const looksLikeResume = 'You are resuming a previous conversation. (but the user actually typed this)'
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/run_started', { runId: 'run-1' }),
+                sessionUpdate({
+                    sessionUpdate: 'user_message_chunk',
+                    content: { type: 'text', text: looksLikeResume },
+                }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'human_message').map((item) => item.text)
+            ).toEqual([looksLikeResume])
         })
     })
 
@@ -1301,7 +1414,7 @@ describe('sandboxStreamLogic', () => {
             } as MessageEvent<string>)
 
             expect(logic.values.threadItems).toEqual([])
-            expect(logic.values.ingestedFrameHashes.size).toEqual(0)
+            expect(logic.values.logStore.order).toHaveLength(0)
         })
     })
 
@@ -1686,7 +1799,7 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
 
             // Dedup hashing operates on the notification body — every distinct frame hashes once.
-            expect(logic.values.ingestedFrameHashes.size).toEqual(corpus.length)
+            expect(logic.values.logStore.order).toHaveLength(corpus.length)
         })
     })
 

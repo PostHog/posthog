@@ -27,7 +27,6 @@ import type {
 import {
     type PermissionOption,
     type PermissionRequestFrame,
-    type PosthogErrorParams,
     type PosthogPermissionRequestParams,
     type PosthogProgressParams,
     type PosthogUsageUpdateParams,
@@ -143,16 +142,6 @@ export function mapHttpStatusToStreamError(status: number | undefined): StreamEr
 }
 
 /**
- * Content-dedup identity for a StoredLogEntry. Hashes only the `notification` body and drops the
- * top-level `timestamp`: the `logs/` (S3) copy and the live re-broadcast are independent writes
- * that stamp their own per-write timestamps, so a timestamp-inclusive hash would miss the duplicate
- * and double-append the same logical frame on a reconnect replay.
- */
-function hashLogEntry(entry: StoredLogEntry): string {
-    return JSON.stringify(entry.notification)
-}
-
-/**
  * Recovers the raw text the user typed from a persisted `_posthog/user_message`. The backend
  * prepends a `<posthog_context>…</posthog_context>` block when attachments are present
  * (`context_wrapper.wrap_user_message`); stripping it keeps a replayed prompt identical to the one
@@ -211,16 +200,6 @@ function normalizeNotificationEntry(entry: unknown): StoredLogEntry | null {
     } as StoredLogEntry
 }
 
-interface BootstrapReplayState {
-    runId: string
-    isResumeRun: boolean
-    currentRunSeen: boolean
-    currentSessionIds: Set<string>
-    resumePromptRequestsToSkip: number
-    resumePromptChunksToSkip: number
-    renderedHumanMessageCounts: Map<string, number>
-}
-
 function stringParam(params: Record<string, unknown> | undefined, key: string): string | null {
     const value = params?.[key]
     return typeof value === 'string' && value ? value : null
@@ -229,92 +208,6 @@ function stringParam(params: Record<string, unknown> | undefined, key: string): 
 function isResumeRun(run: { state?: unknown }): boolean {
     const state = run.state
     return isRecord(state) && typeof state.resume_from_run_id === 'string' && state.resume_from_run_id !== ''
-}
-
-function noteCurrentRunBoundary(
-    state: BootstrapReplayState | null,
-    notification: StoredLogEntry['notification']
-): void {
-    if (!state) {
-        return
-    }
-
-    const params = notification.params
-    const sessionId = stringParam(params, 'sessionId')
-    const isCurrentRunMarker =
-        stringParam(params, 'runId') === state.runId ||
-        stringParam(params, 'taskRunId') === state.runId ||
-        sessionId === state.runId
-
-    if (isCurrentRunMarker) {
-        state.currentRunSeen = true
-        if (sessionId && sessionId !== state.runId) {
-            state.currentSessionIds.add(sessionId)
-        }
-    }
-
-    if (state.currentRunSeen && sessionId && notification.method === '_posthog/sdk_session') {
-        state.currentSessionIds.add(sessionId)
-    }
-}
-
-function isCurrentRunNotification(
-    state: BootstrapReplayState | null,
-    notification: StoredLogEntry['notification']
-): boolean {
-    if (!state) {
-        return false
-    }
-
-    const params = notification.params
-    const sessionId = stringParam(params, 'sessionId')
-    if (
-        stringParam(params, 'runId') === state.runId ||
-        stringParam(params, 'taskRunId') === state.runId ||
-        sessionId === state.runId ||
-        (sessionId !== null && state.currentSessionIds.has(sessionId))
-    ) {
-        return true
-    }
-
-    return state.currentRunSeen && sessionId === null
-}
-
-function countPromptBlocks(prompt: unknown): number {
-    return Array.isArray(prompt) ? prompt.length : prompt == null ? 0 : 1
-}
-
-function rememberRenderedHumanMessage(state: BootstrapReplayState | null, text: string): void {
-    if (!state) {
-        return
-    }
-    state.renderedHumanMessageCounts.set(text, (state.renderedHumanMessageCounts.get(text) ?? 0) + 1)
-}
-
-function consumeRenderedHumanMessageEcho(state: BootstrapReplayState | null, text: string): boolean {
-    const count = state?.renderedHumanMessageCounts.get(text) ?? 0
-    if (!state || count <= 0) {
-        return false
-    }
-    if (count === 1) {
-        state.renderedHumanMessageCounts.delete(text)
-    } else {
-        state.renderedHumanMessageCounts.set(text, count - 1)
-    }
-    return true
-}
-
-function shouldSkipBootstrapUserMessageChunk(
-    state: BootstrapReplayState | null,
-    notification: StoredLogEntry['notification'],
-    text: string
-): boolean {
-    if (state?.isResumeRun && isCurrentRunNotification(state, notification) && state.resumePromptChunksToSkip > 0) {
-        state.resumePromptChunksToSkip -= 1
-        return true
-    }
-
-    return consumeRenderedHumanMessageEcho(state, text)
 }
 
 /**
@@ -576,6 +469,437 @@ export function parsePermissionRequestFrame(
     }
 }
 
+/** Who ingested a frame: the `logs/` bootstrap, the live SSE, or a client-injected synthetic entry. */
+export type FrameSource = 'replay' | 'live' | 'client'
+
+/** One frame in the keyed log, tagged with its source so the projection can branch on it (§6 resume filter). */
+export interface StoredEntry {
+    entry: StoredLogEntry
+    source: FrameSource
+}
+
+/**
+ * Ordered, keyed, idempotent raw-frame log — the single source of truth. Ingesting a frame is an
+ * upsert at a fixed `key`: a new key appends to `order`; an existing key replaces its value and
+ * leaves `order` untouched. Re-ingesting the same logical frame — bootstrap↔live overlap, a
+ * reconnect re-broadcast, an HMR re-bootstrap, or a stale connection — is therefore a no-op-or-
+ * replace at a stable position, so duplication is impossible by construction. `threadItems` and
+ * `toolInvocations` are pure projections of this log (see `foldLogToThread`).
+ */
+export interface SandboxLogStore {
+    order: string[]
+    byKey: Record<string, StoredEntry>
+}
+
+/** Deterministic JSON with sorted keys — so S3↔Redis key-ordering drift can't change a content key. */
+function stableStringify(value: unknown): string {
+    if (value === null || typeof value !== 'object') {
+        return JSON.stringify(value) ?? 'null'
+    }
+    if (Array.isArray(value)) {
+        return `[${value.map(stableStringify).join(',')}]`
+    }
+    const obj = value as Record<string, unknown>
+    return `{${Object.keys(obj)
+        .sort()
+        .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`)
+        .join(',')}}`
+}
+
+/**
+ * The fixed prefix the agent-server's resume builder prepends to the synthetic "resume context"
+ * prompt it injects between run start and the genuine human turn on a resume run. That prompt is
+ * persisted to the S3 log (it never arrives live), so on bootstrap replay it would otherwise render
+ * as a human bubble. The projection drops it when the bootstrapped run is a resume run (§6).
+ */
+const RESUME_CONTEXT_PREFIX = 'You are resuming a previous conversation.'
+function isResumeContextPrompt(text: string): boolean {
+    return text.startsWith(RESUME_CONTEXT_PREFIX)
+}
+
+/**
+ * Stable logical key for a frame that carries one identical across the S3 and Redis copies — so the
+ * same logical frame folds once regardless of source. Returns null for frames that have no such key
+ * (streamed chunks, `tool_call_update`, keyless `_posthog/*`); those fall back to the SSE `event_id`
+ * (live) or a per-replay-pass occurrence index (S3) in `computeEntryKey`.
+ */
+function frameContentKey(notification: StoredLogEntry['notification']): string | null {
+    const method = notification.method
+    const params = (notification.params ?? {}) as Record<string, unknown>
+    if (method === '_posthog/permission_request' || method === '_posthog/permission_resolved') {
+        // Distinct keys per lifecycle phase so the resolved frame isn't mistaken for a re-ingest of
+        // the request (they share a requestId) — otherwise its card-clearing side effect is skipped.
+        const requestId = stringParam(params, 'requestId')
+        return requestId ? `${method}:${requestId}` : null
+    }
+    if (method === '_posthog/run_started') {
+        return `run_started:${stringParam(params, 'runId') ?? stringParam(params, 'sessionId') ?? ''}`
+    }
+    if (method === '_posthog/progress') {
+        const group = stringParam(params, 'group')
+        const step = stringParam(params, 'step')
+        return group && step ? `progress:${group}:${step}` : null
+    }
+    if (method === '_posthog/sdk_session') {
+        return 'sdk_session'
+    }
+    if (method === 'session/update') {
+        const update = params.update
+        if (isRecord(update)) {
+            const toolCallId = typeof update.toolCallId === 'string' ? update.toolCallId : ''
+            if (update.sessionUpdate === 'tool_call' && toolCallId) {
+                return `tool_call:${toolCallId}`
+            }
+            if (update.sessionUpdate === 'agent_message' && typeof update.messageId === 'string' && update.messageId) {
+                return `msg:${update.messageId}`
+            }
+        }
+    }
+    return null
+}
+
+/**
+ * Resolve the idempotent log key for a frame. Stable content key first; then the SSE `event_id`
+ * (the permanent Redis stream id — identical across any re-read, so a full re-broadcast keys the
+ * same and two identical-content chunks stay distinct); then, for an id-less replay frame, a
+ * per-pass occurrence index over `occCounts` (reset each bootstrap, so a re-bootstrap reproduces the
+ * same keys). A bare/live frame with no id falls back to a content key.
+ */
+function computeEntryKey(
+    entry: StoredLogEntry,
+    eventId: string | undefined,
+    source: FrameSource,
+    occCounts: Record<string, number>
+): string {
+    const contentKey = frameContentKey(entry.notification)
+    if (contentKey) {
+        return contentKey
+    }
+    if (eventId) {
+        return `evt:${eventId}`
+    }
+    const base = `c:${entry.notification.method ?? ''}:${stableStringify(entry.notification.params)}`
+    if (source === 'replay') {
+        const n = occCounts[base] ?? 0
+        occCounts[base] = n + 1
+        return `${base}#${n}`
+    }
+    return base
+}
+
+interface FoldedThread {
+    threadItems: ThreadItem[]
+    toolInvocations: Map<string, ToolInvocation>
+}
+
+/**
+ * Pure projection: fold the ordered, deduped log into the rendered thread (and the tool-invocation
+ * map the renderer looks up). Replaces the old append-only `threadItems` reducer cases — same fold
+ * rules (chunk buffering with the tail rule, tool-update merge, human-turn hoisting), but computed
+ * deterministically from the keyed log so item ids are stable across re-folds. `isResumeRun` drives
+ * the §6 resume-context filter; per-entry `source` decides whether a wire user turn renders (replay)
+ * or is left to the live echo (live).
+ */
+export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: boolean }): FoldedThread {
+    let items: ThreadItem[] = []
+    const invocations = new Map<string, ToolInvocation>()
+    // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
+    // (resume chains persist the same turn in both forms) is consumed once rather than doubled.
+    const rememberedHumanTexts = new Map<string, number>()
+    let humanCount = 0
+    let bubbleSeq = 0
+    let separatorSeq = 0
+    let errorSeq = 0
+    let statusSeq = 0
+    let compactSeq = 0
+    let taskSeq = 0
+
+    const pushHuman = (text: string): void => {
+        items = insertHumanMessageAtTurnStart(items, {
+            id: `human-${humanCount++}`,
+            type: 'human_message',
+            text,
+            complete: true,
+        })
+    }
+
+    const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
+        const idx = findLastBufferIndex(items, id, type, false)
+        if (idx === -1) {
+            items.push({ id, type, text: delta, complete: false })
+            return
+        }
+        // Continue the matched buffer only while it's still the tail and incomplete; otherwise a
+        // finalized buffer or one interrupted by a tool call/separator starts a fresh bubble so text
+        // resuming after an interruption renders in chronological order.
+        if (items[idx].complete || idx !== items.length - 1) {
+            items.push({ id: `${id}@${bubbleSeq++}`, type, text: delta, complete: false })
+            return
+        }
+        items[idx] = { ...items[idx], text: (items[idx].text ?? '') + delta }
+    }
+
+    const finalizeMessage = (id: string, text: string): void => {
+        const idx = findLastBufferIndex(items, id, 'assistant_message', true)
+        if (idx === -1) {
+            items.push({ id, type: 'assistant_message', text, complete: true })
+            return
+        }
+        items[idx] = { ...items[idx], text, complete: true }
+    }
+
+    const upsertInvocationItem = (toolCallId: string): void => {
+        if (!items.some((item) => item.type === 'tool_invocation' && item.toolCallId === toolCallId)) {
+            items.push({ id: toolCallId, type: 'tool_invocation', toolCallId })
+        }
+    }
+
+    const renderReplayHuman = (rawText: string, remember: boolean): void => {
+        const text = unwrapUserMessageContent(rawText)
+        if (!text) {
+            return
+        }
+        if (options.isResumeRun && isResumeContextPrompt(text)) {
+            return
+        }
+        if (!remember) {
+            const seen = rememberedHumanTexts.get(text) ?? 0
+            if (seen > 0) {
+                rememberedHumanTexts.set(text, seen - 1)
+                return
+            }
+        }
+        pushHuman(text)
+        if (remember) {
+            rememberedHumanTexts.set(text, (rememberedHumanTexts.get(text) ?? 0) + 1)
+        }
+    }
+
+    const handleToolCallUpdate = (
+        update: Record<string, unknown>,
+        notification: StoredLogEntry['notification']
+    ): void => {
+        const toolCallId = String(update.toolCallId ?? '')
+        if (!toolCallId) {
+            return
+        }
+        const existing = invocations.get(toolCallId)
+        const status = mapAcpStatus(update.status ?? existing?.status)
+        const rawInput =
+            update.rawInput && typeof update.rawInput === 'object'
+                ? (update.rawInput as Record<string, unknown>)
+                : update.input && typeof update.input === 'object'
+                  ? (update.input as Record<string, unknown>)
+                  : undefined
+        const denialReason = status === 'failed' ? extractDenialReason(update._meta) : undefined
+        const errorMessage =
+            (update.error as { message?: string } | null)?.message ??
+            denialReason ??
+            (status === 'failed' ? notification.error?.message : undefined)
+        const updateContent = Array.isArray(update.content) ? update.content : []
+
+        if (!existing) {
+            // A reconnect can deliver a terminal update whose creating `tool_call` was lost — upsert a
+            // minimal invocation so the card still renders instead of vanishing.
+            invocations.set(toolCallId, {
+                toolCallId,
+                rawServerName: 'posthog',
+                rawToolName: '',
+                input: rawInput ?? {},
+                status,
+                title: update.title as string | undefined,
+                locations: update.locations as { path: string; line?: number }[] | undefined,
+                contentBlocks: updateContent,
+                meta: update._meta,
+                ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
+            })
+            upsertInvocationItem(toolCallId)
+            return
+        }
+
+        invocations.set(toolCallId, {
+            ...existing,
+            status,
+            title: (update.title as string | undefined) ?? existing.title,
+            progress: update.progress ?? existing.progress,
+            output: update.rawOutput ?? existing.output,
+            locations: (update.locations as { path: string; line?: number }[] | undefined) ?? existing.locations,
+            contentBlocks: [...existing.contentBlocks, ...updateContent],
+            error: errorMessage !== undefined ? { message: errorMessage } : existing.error,
+            ...(rawInput ? { input: rawInput } : {}),
+            ...(update._meta ? { meta: update._meta } : {}),
+        })
+    }
+
+    for (const { entry, source } of entries) {
+        const notification = entry.notification
+        const method = notification.method
+        const params = (notification.params ?? {}) as Record<string, unknown>
+
+        if (method === '_client/human_message') {
+            pushHuman(String(params.content ?? ''))
+            continue
+        }
+        if (method === '_client/error') {
+            items.push({
+                id: `error-${errorSeq++}`,
+                type: 'error',
+                errorMessage: String(params.message ?? ''),
+                variant: params.variant === 'crash' ? 'crash' : 'error',
+            })
+            continue
+        }
+        if (method === '_posthog/error') {
+            items.push({
+                id: `error-${errorSeq++}`,
+                type: 'error',
+                errorMessage: String(params.message ?? notification.error?.message ?? 'Agent error'),
+                variant: 'error',
+            })
+            continue
+        }
+        if (method === '_posthog/turn_complete') {
+            items.push({ id: `turn-${separatorSeq++}`, type: 'turn_separator' })
+            continue
+        }
+        if (method === '_posthog/progress') {
+            const group = stringifyOptional(params.group)
+            const step = stringifyOptional(params.step)
+            const label = stringifyOptional(params.label)
+            if (group && step && label) {
+                const detail = stringifyOptional(params.detail)
+                const nextStep: SandboxProgressStep = {
+                    key: step,
+                    status: normalizeProgressStatus(params.status),
+                    label,
+                    ...(detail !== undefined ? { detail } : {}),
+                }
+                const idx = items.findIndex((item) => item.type === 'progress' && item.progressGroup === group)
+                if (idx === -1) {
+                    items.push({
+                        id: `progress-${group}`,
+                        type: 'progress',
+                        progressGroup: group,
+                        progressSteps: [nextStep],
+                    })
+                } else {
+                    const existingSteps = items[idx].progressSteps ?? []
+                    const stepIdx = existingSteps.findIndex((s) => s.key === step)
+                    items[idx] = {
+                        ...items[idx],
+                        progressSteps:
+                            stepIdx === -1
+                                ? [...existingSteps, nextStep]
+                                : existingSteps.map((s, i) => (i === stepIdx ? nextStep : s)),
+                    }
+                }
+            }
+            continue
+        }
+        if (method === '_posthog/status') {
+            const status = String(params.status ?? '')
+            const isComplete = params.isComplete === true
+            if (status === 'compacting' && isComplete) {
+                items = items.filter((item) => !isPendingCompactingStatus(item))
+            } else {
+                items.push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })
+            }
+            continue
+        }
+        if (method === '_posthog/compact_boundary') {
+            items = items.filter((item) => !isPendingCompactingStatus(item))
+            items.push({
+                id: `compact-${compactSeq++}`,
+                type: 'compact_boundary',
+                trigger: stringifyOptional(params.trigger),
+                preTokens: typeof params.preTokens === 'number' ? params.preTokens : undefined,
+                contextSize: typeof params.contextSize === 'number' ? params.contextSize : undefined,
+            })
+            continue
+        }
+        if (method === '_posthog/task_notification') {
+            items.push({
+                id: `task-${taskSeq++}`,
+                type: 'task_notification',
+                status: stringifyOptional(params.status),
+                summary: stringifyOptional(params.summary),
+            })
+            continue
+        }
+        if (method === '_posthog/user_message') {
+            if (source === 'replay') {
+                renderReplayHuman(extractUserMessageText(params.content as string | unknown[] | undefined), true)
+            }
+            continue
+        }
+        if (method?.startsWith('_posthog/')) {
+            // run_started, usage_update, resources_used, sdk_session, console, sandbox_output, … — no thread item.
+            continue
+        }
+        if (method !== 'session/update') {
+            // session/prompt and everything else never produces a thread item.
+            continue
+        }
+        const update = params.update
+        if (!isRecord(update)) {
+            continue
+        }
+        const sessionUpdate = update.sessionUpdate
+        if (sessionUpdate === 'user_message_chunk' || sessionUpdate === 'user_message') {
+            if (source === 'replay') {
+                const content = update.content as { text?: string } | undefined
+                renderReplayHuman(String(content?.text ?? update.text ?? ''), false)
+            }
+            continue
+        }
+        const content = update.content as { text?: string } | undefined
+        switch (sessionUpdate) {
+            case 'agent_message_chunk':
+                appendChunk(
+                    String(update.messageId ?? 'current'),
+                    'assistant_message',
+                    String(content?.text ?? update.text ?? '')
+                )
+                break
+            case 'agent_message':
+                finalizeMessage(String(update.messageId ?? 'current'), String(content?.text ?? update.text ?? ''))
+                break
+            case 'agent_thought_chunk':
+                appendChunk(
+                    String(update.messageId ?? 'current-thought'),
+                    'assistant_thought',
+                    String(content?.text ?? update.text ?? '')
+                )
+                break
+            case 'tool_call': {
+                const toolCallId = String(update.toolCallId ?? '')
+                if (!toolCallId) {
+                    break
+                }
+                invocations.set(toolCallId, {
+                    toolCallId,
+                    rawServerName: String(update.serverName ?? 'posthog'),
+                    rawToolName: String(update.toolName ?? ''),
+                    input: (update.rawInput ?? update.input ?? {}) as Record<string, unknown>,
+                    status: mapAcpStatus(update.status),
+                    title: update.title as string | undefined,
+                    kind: update.kind as string | undefined,
+                    locations: update.locations as { path: string; line?: number }[] | undefined,
+                    contentBlocks: Array.isArray(update.content) ? update.content : [],
+                    meta: update._meta,
+                })
+                upsertInvocationItem(toolCallId)
+                break
+            }
+            case 'tool_call_update':
+                handleToolCallUpdate(update, notification)
+                break
+        }
+    }
+
+    return { threadItems: items, toolInvocations: invocations }
+}
+
 /**
  * Owns the `EventSource` to the products/tasks stream endpoint, parses the ACP wire format, and
  * produces thread-shaped state the renderer consumes. Coexistence sibling to `maxThreadLogic`'s
@@ -611,8 +935,21 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         sseReconnecting: (attempt: number) => ({ attempt }),
         /** Internal: an SSE drop initiates the refetch + backoff loop. */
         sseDropped: true,
-        /** Frame ingestion — called by the SSE listener and by products/tasks `logs/` replay. */
-        ingestAcpFrame: (entry: StoredLogEntry) => ({ entry }),
+        /**
+         * Frame ingestion — called by the live SSE listener (`source: 'live'`, with the SSE `eventId`)
+         * and by the products/tasks `logs/` replay (`source: 'replay'`). Computes the idempotent log
+         * key, upserts the frame into the keyed store, and runs the one-shot side effects (telemetry,
+         * permission routing, value folds) only for a genuinely new key.
+         */
+        ingestAcpFrame: (entry: StoredLogEntry, source: FrameSource = 'live', eventId?: string) => ({
+            entry,
+            source,
+            eventId,
+        }),
+        /** Idempotent upsert into the keyed log store (the single source of truth). */
+        ingestLogEntry: (key: string, entry: StoredLogEntry, source: FrameSource) => ({ key, entry, source }),
+        /** Records whether the bootstrapped run is a resume run, so the projection can drop its synthetic resume prompt. */
+        markBootstrapResumeRun: (value: boolean) => ({ value }),
         /**
          * Surface a permission request. `replayedFromHistory` marks requests re-derived from the
          * `logs/` bootstrap — they restore card state but don't re-fire telemetry (the event
@@ -672,46 +1009,23 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             replayedFromHistory?: boolean
         }) => status,
         handleStreamError: (envelope: { errorTitle: string; errorMessage?: string; retryable: boolean }) => envelope,
-        // Internal state-folding actions emitted by ingestAcpFrame.
-        appendAssistantChunk: (id: string, delta: string) => ({ id, delta }),
-        finalizeAssistantMessage: (id: string, text: string) => ({ id, text }),
-        /** Appends a streamed reasoning chunk to the trailing thought buffer (or opens a new one). */
-        appendThoughtChunk: (id: string, delta: string) => ({ id, delta }),
-        upsertToolInvocation: (invocation: ToolInvocation) => ({ invocation }),
-        updateToolInvocation: (toolCallId: string, patch: Partial<ToolInvocation>) => ({ toolCallId, patch }),
+        // Value-fold side effects emitted by ingestAcpFrame (thread items are derived in the projection).
         setCurrentMode: (mode: string) => ({ mode }),
         setCurrentProgress: (progress: string) => ({ progress }),
         /** Optional `task_run_state.stage` — wired for a future richer status surface (G6). */
         setCurrentStage: (stage: string | null) => ({ stage }),
         markRunStarted: true,
         markTurnComplete: true,
-        /** Echoes the user's own message into the thread — the sandbox wire never replays it. */
+        /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
         pushHumanMessage: (content: string) => ({ content }),
+        /** Injects a client-side error (terminal failure / stream disconnect) into the log as a `client`-sourced entry. */
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
         /** Union the products an answer was grounded in — accumulates across the whole session. */
         mergeResourcesUsed: (products: { id?: string; label?: string }[]) => ({ products }),
         /** Latest-wins context-usage snapshot fold (token/cost/breakdown or numeric aggregate). */
         setContextUsage: (usage: ContextUsage) => ({ usage }),
-        /** Inline `_posthog/status` thread item (e.g. compaction in progress). */
-        pushStatusItem: (status: string, isComplete: boolean) => ({ status, isComplete }),
-        /** Removes the in-progress compaction spinner once compaction completes. */
-        clearCompactingStatus: true,
-        /** Inline `_posthog/compact_boundary` thread item — the post-compaction marker. */
-        pushCompactBoundaryItem: (payload: { trigger?: string; preTokens?: number; contextSize?: number }) => payload,
-        /** Inline `_posthog/task_notification` thread item — a task milestone. */
-        pushTaskNotificationItem: (payload: { status?: string; summary?: string }) => payload,
-        /** Inline `_posthog/progress` group — setup and runtime progress from the sandbox workflow. */
-        upsertProgressItem: (payload: {
-            group: string
-            step: string
-            status?: string
-            label: string
-            detail?: string
-        }) => payload,
         /** Diagnostic `_posthog/sdk_session` plumbing — no UI. */
         setSdkSession: (session: SdkSession) => ({ session }),
-        /** Pin a frame's content hash so a replay (bootstrap `logs/` or reconnect) can't re-fold it. */
-        markFrameIngested: (hash: string) => ({ hash }),
         reset: true,
     }),
     reducers({
@@ -769,153 +1083,41 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 reset: () => null,
             },
         ],
-        toolInvocations: [
-            new Map<string, ToolInvocation>(),
+        // The single source of truth: an ordered, keyed, idempotent log of every ingested frame
+        // (plus client-injected synthetic entries). `threadItems` and `toolInvocations` are pure
+        // projections of it (see the selectors). Lives in Redux so it survives a state-preserving
+        // reload (HMR); re-ingesting a frame upserts at its stable key, so a re-bootstrap or
+        // reconnect re-broadcast can never double the thread.
+        logStore: [
+            { order: [], byKey: {} } as SandboxLogStore,
             {
-                upsertToolInvocation: (state, { invocation }) => {
-                    const next = new Map(state)
-                    next.set(invocation.toolCallId, invocation)
-                    return next
-                },
-                updateToolInvocation: (state, { toolCallId, patch }) => {
-                    const existing = state.get(toolCallId)
-                    if (!existing) {
-                        return state
-                    }
-                    const next = new Map(state)
-                    next.set(toolCallId, { ...existing, ...patch })
-                    return next
-                },
-                reset: () => new Map(),
-            },
-        ],
-        threadItems: [
-            [] as ThreadItem[],
-            {
-                appendAssistantChunk: (state, { id, delta }) => {
-                    const idx = findLastBufferIndex(state, id, 'assistant_message', false)
-                    if (idx === -1) {
-                        return [...state, { id, type: 'assistant_message', text: delta, complete: false }]
-                    }
-                    // Continue the matched buffer only if it is still the thread tail. A finalized
-                    // buffer, or one with another item appended after it (a tool call, separator,
-                    // error), must not absorb the chunk — text resuming after a tool call is its own
-                    // message and has to render in chronological order. The wire often omits
-                    // messageId, so a fresh bubble gets a uniquified id.
-                    if (state[idx].complete || idx !== state.length - 1) {
-                        return [
-                            ...state,
-                            { id: `${id}@${state.length}`, type: 'assistant_message', text: delta, complete: false },
-                        ]
-                    }
-                    const next = [...state]
-                    next[idx] = { ...next[idx], text: (next[idx].text ?? '') + delta }
-                    return next
-                },
-                finalizeAssistantMessage: (state, { id, text }) => {
-                    const idx = findLastBufferIndex(state, id, 'assistant_message', true)
-                    if (idx === -1) {
-                        return [...state, { id, type: 'assistant_message', text, complete: true }]
-                    }
-                    const next = [...state]
-                    next[idx] = { ...next[idx], text, complete: true }
-                    return next
-                },
-                appendThoughtChunk: (state, { id, delta }) => {
-                    const idx = findLastBufferIndex(state, id, 'assistant_thought', false)
-                    if (idx === -1) {
-                        return [...state, { id, type: 'assistant_thought', text: delta, complete: false }]
-                    }
-                    // Same tail rule as assistant chunks: keep buffering only while the thought is
-                    // still the thread tail. Once a message or tool call lands after it, a fresh
-                    // chunk opens a new bubble so reasoning renders in chronological order. The wire
-                    // omits messageId, so every thought shares the fallback id — uniquify the bubble.
-                    if (state[idx].complete || idx !== state.length - 1) {
-                        return [
-                            ...state,
-                            { id: `${id}@${state.length}`, type: 'assistant_thought', text: delta, complete: false },
-                        ]
-                    }
-                    const next = [...state]
-                    next[idx] = { ...next[idx], text: (next[idx].text ?? '') + delta }
-                    return next
-                },
-                upsertToolInvocation: (state, { invocation }) => {
+                ingestLogEntry: (state, { key, entry, source }) => {
+                    const existing = state.byKey[key]
+                    // Exact re-ingest (a reconnect re-broadcast of an unchanged frame) → return the
+                    // same reference so the projection selector short-circuits instead of re-folding.
                     if (
-                        state.some(
-                            (item) => item.type === 'tool_invocation' && item.toolCallId === invocation.toolCallId
-                        )
+                        existing &&
+                        existing.source === source &&
+                        stableStringify(existing.entry) === stableStringify(entry)
                     ) {
                         return state
                     }
-                    return [
-                        ...state,
-                        { id: invocation.toolCallId, type: 'tool_invocation', toolCallId: invocation.toolCallId },
-                    ]
-                },
-                pushHumanMessage: (state, { content }) =>
-                    insertHumanMessageAtTurnStart(state, {
-                        id: `human-${state.length}`,
-                        type: 'human_message',
-                        text: content,
-                        complete: true,
-                    }),
-                markTurnComplete: (state) => [...state, { id: `turn-${state.length}`, type: 'turn_separator' }],
-                pushErrorItem: (state, { errorMessage, variant }) => [
-                    ...state,
-                    { id: `error-${state.length}`, type: 'error', errorMessage, variant },
-                ],
-                pushStatusItem: (state, { status, isComplete }) => [
-                    ...state,
-                    { id: `status-${state.length}`, type: 'status', status, isComplete },
-                ],
-                clearCompactingStatus: (state) => state.filter((item) => !isPendingCompactingStatus(item)),
-                // Drop the in-progress spinner before the divider lands, in case the completing
-                // status frame never arrived — the boundary itself signals compaction is done.
-                pushCompactBoundaryItem: (state, { trigger, preTokens, contextSize }) => [
-                    ...state.filter((item) => !isPendingCompactingStatus(item)),
-                    { id: `compact-${state.length}`, type: 'compact_boundary', trigger, preTokens, contextSize },
-                ],
-                pushTaskNotificationItem: (state, { status, summary }) => [
-                    ...state,
-                    { id: `task-${state.length}`, type: 'task_notification', status, summary },
-                ],
-                upsertProgressItem: (state, { group, step, status, label, detail }) => {
-                    const normalizedStatus = normalizeProgressStatus(status)
-                    const itemIndex = state.findIndex(
-                        (item) => item.type === 'progress' && item.progressGroup === group
-                    )
-                    const nextStep: SandboxProgressStep = {
-                        key: step,
-                        status: normalizedStatus,
-                        label,
-                        ...(detail !== undefined ? { detail } : {}),
+                    const byKey = { ...state.byKey, [key]: { entry, source } }
+                    if (existing) {
+                        return { order: state.order, byKey }
                     }
-
-                    if (itemIndex === -1) {
-                        return [
-                            ...state,
-                            {
-                                id: `progress-${group}`,
-                                type: 'progress',
-                                progressGroup: group,
-                                progressSteps: [nextStep],
-                            },
-                        ]
-                    }
-
-                    const next = [...state]
-                    const existing = next[itemIndex].progressSteps ?? []
-                    const stepIndex = existing.findIndex((progressStep) => progressStep.key === step)
-                    const progressSteps =
-                        stepIndex === -1
-                            ? [...existing, nextStep]
-                            : existing.map((progressStep, index) => (index === stepIndex ? nextStep : progressStep))
-
-                    next[itemIndex] = { ...next[itemIndex], progressSteps }
-                    return next
+                    return { order: [...state.order, key], byKey }
                 },
-                reset: () => [],
+                reset: () => ({ order: [], byKey: {} }),
+            },
+        ],
+        // Whether the bootstrapped run is a resume run — drives the §6 resume-prompt filter in the
+        // projection. Set from `run.state.resume_from_run_id` when bootstrap fetches the run.
+        isBootstrapResumeRun: [
+            false,
+            {
+                markBootstrapResumeRun: (_, { value }) => value,
+                reset: () => false,
             },
         ],
         pendingPermissionRequest: [
@@ -930,23 +1132,6 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 // A terminal run can't accept approvals — drop a card re-derived from its history.
                 handleTerminalStatus: (state, { status }) => (isTerminalRunStatus(status) ? null : state),
                 reset: () => null,
-            },
-        ],
-        // Content-dedup hashes of every folded frame — lives in Redux (not a cache ref) so it
-        // survives a state-preserving reload (HMR) in lockstep with `threadItems`. If the two
-        // desynced (the thread persisted but the dedup set reset to empty), the next replay —
-        // bootstrap `logs/` or a reconnect's full re-broadcast — would re-fold the whole thread and
-        // double it. Keyed off `markFrameIngested` (dispatched by `ingestAcpFrame` after its own
-        // membership check) so the live hot path stays a single O(1) `has` lookup.
-        ingestedFrameHashes: [
-            new Set<string>(),
-            {
-                markFrameIngested: (state, { hash }) => {
-                    const next = new Set(state)
-                    next.add(hash)
-                    return next
-                },
-                reset: () => new Set<string>(),
             },
         ],
         // requestIds ever surfaced, so a reconnect's full replay can't double-fire telemetry or
@@ -1066,6 +1251,24 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     }),
     selectors({
         /**
+         * Pure projection of the keyed log into the rendered thread plus the tool-invocation map.
+         * Memoized on `logStore` identity, so it recomputes only when a frame is actually ingested
+         * (an idempotent re-ingest leaves `logStore` referentially equal and skips the fold).
+         */
+        foldedThread: [
+            (s) => [s.logStore, s.isBootstrapResumeRun],
+            (logStore, isResumeRun): FoldedThread =>
+                foldLogToThread(
+                    logStore.order.map((key) => logStore.byKey[key]),
+                    { isResumeRun }
+                ),
+        ],
+        threadItems: [(s) => [s.foldedThread], (foldedThread): ThreadItem[] => foldedThread.threadItems],
+        toolInvocations: [
+            (s) => [s.foldedThread],
+            (foldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,
+        ],
+        /**
          * Whether the agent is actively working a turn — drives the thread's thinking indicator.
          * Off once the turn completes, the run reaches a terminal status (a failed or cancelled
          * run may never emit `_posthog/turn_complete`), or the stream errors out.
@@ -1114,8 +1317,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
 
             // Persistent provisioning flag for disconnect telemetry: stays true across the async
-            // gap between bootstrap and the first connection/run_started, unlike `cache.bootstrapReplay`
-            // (which is only true inside the synchronous history-replay forEach). Cleared on the first
+            // gap between bootstrap and the first connection/run_started. Cleared on the first
             // `sseOpened`/`_posthog/run_started`.
             cache.isBootstrapping = true
 
@@ -1138,30 +1340,17 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
             breakpoint()
-            // Flag history replay so re-derived permission requests restore card state without
-            // re-firing telemetry. The forEach dispatches synchronously, so the flag can't leak
-            // into live SSE ingestion.
-            const previousReplayState = cache.bootstrapReplayState
-            const bootstrapIsResumeRun = isResumeRun(run)
-            cache.bootstrapReplay = true
-            cache.bootstrapReplayState = {
-                runId,
-                isResumeRun: bootstrapIsResumeRun,
-                currentRunSeen: false,
-                currentSessionIds: new Set<string>(),
-                resumePromptRequestsToSkip: bootstrapIsResumeRun ? 1 : 0,
-                resumePromptChunksToSkip: 0,
-                renderedHumanMessageCounts: new Map<string, number>(),
-            } satisfies BootstrapReplayState
-            try {
-                entries
-                    .map(normalizeNotificationEntry)
-                    .filter((entry): entry is StoredLogEntry => entry !== null)
-                    .forEach((entry) => actions.ingestAcpFrame(entry))
-            } finally {
-                cache.bootstrapReplayState = previousReplayState
-                cache.bootstrapReplay = false
-            }
+            // Flag the run's resume-ness so the projection can drop the synthetic resume-context
+            // prompt (§6). Reset the per-pass occurrence counter so id-less replay frames key
+            // identically on a re-bootstrap (HMR), keeping the upsert idempotent. The forEach tags
+            // every frame `replay`, so the projection renders persisted human turns and side-effect
+            // telemetry stays suppressed for history.
+            actions.markBootstrapResumeRun(isResumeRun(run))
+            cache.replayOccCounts = {}
+            entries
+                .map(normalizeNotificationEntry)
+                .filter((entry): entry is StoredLogEntry => entry !== null)
+                .forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
 
             if (isTerminalRunStatus(run.status ?? null)) {
                 // Read-only history — surface the terminal status, do not open SSE. Flag the replay
@@ -1209,10 +1398,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                             return
                         }
                         if (isNotificationFrame(data)) {
-                            actions.ingestAcpFrame(data)
+                            // The SSE `id:` (the Redis stream id) keys this frame in the log — stable
+                            // across any re-read, so a reconnect's full re-broadcast upserts the same
+                            // key and never doubles the thread.
+                            actions.ingestAcpFrame(data, 'live', event.lastEventId || undefined)
                         } else if (isPermissionRequestFrame(data)) {
-                            // requestId-keyed dedup: the notification hash store doesn't cover this
-                            // envelope, so a reconnect's full replay re-delivers it verbatim.
+                            // requestId-keyed dedup: this top-level envelope isn't a notification, so a
+                            // reconnect's full replay re-delivers it verbatim.
                             const record = parsePermissionRequestFrame(data)
                             if (
                                 record &&
@@ -1519,53 +1711,82 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             closeLiveEventSource(props.streamKey)
         },
         reset: () => {
-            // `ingestedFrameHashes` clears via its own reducer on `reset` — keep it Redux-only so the
-            // dedup set and `threadItems` always reset together.
+            // `logStore` clears via its own reducer on `reset`, so the projection empties with it.
             cache.activeRun = undefined
             cache.turnStartedAtMs = undefined
             cache.isBootstrapping = false
             cache.sseConnectedAtMs = undefined
+            cache.replayOccCounts = undefined
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
             // Kill any connection a prior hot-reload build orphaned, before the caller's bootstrap
             // replays history — otherwise the stale stream races the replay and doubles the thread.
             closeLiveEventSource(props.streamKey)
         },
-        pushHumanMessage: () => {
-            // Stamp the start of the turn this message opens, so per-turn duration metrics on a
-            // follow-up aren't measured from the first turn's start. Skipped while replaying history
-            // (the stamp would be "now", not the historical turn time, and replay emits no telemetry).
-            if (cache.bootstrapReplay !== true) {
-                cache.turnStartedAtMs = Date.now()
-            }
+        pushHumanMessage: ({ content }) => {
+            // The echo is always a live turn (replayed human turns render straight from the log), so
+            // stamp the turn start for per-turn duration metrics and inject it as a `client`-sourced
+            // log entry the projection renders in order.
+            cache.turnStartedAtMs = Date.now()
+            cache.clientSeq = ((cache.clientSeq as number | undefined) ?? 0) + 1
+            actions.ingestLogEntry(
+                `client-human:${cache.clientSeq}`,
+                { type: 'notification', notification: { method: '_client/human_message', params: { content } } },
+                'client'
+            )
         },
-        ingestAcpFrame: ({ entry }) => {
+        pushErrorItem: ({ errorMessage, variant }) => {
+            // Client-side errors (terminal failure, stream disconnect) aren't wire frames — inject
+            // them as `client`-sourced log entries so the projection renders them in thread order.
+            cache.clientSeq = ((cache.clientSeq as number | undefined) ?? 0) + 1
+            actions.ingestLogEntry(
+                `client-error:${cache.clientSeq}`,
+                {
+                    type: 'notification',
+                    notification: { method: '_client/error', params: { message: errorMessage, variant } },
+                },
+                'client'
+            )
+        },
+        ingestAcpFrame: ({ entry, source, eventId }) => {
             const notification = entry?.notification
             if (!notification) {
                 return
             }
-            // Content-dedup: a reconnect with `?start=latest` may replay frames already folded in from
-            // the `logs/` bootstrap (Redis-stream IDs aren't comparable to S3-log IDs). Match on the
-            // serialized notification body and drop repeats before they mutate thread state. The hash
-            // set is a reducer (see `ingestedFrameHashes`) so it survives a state-preserving reload in
-            // sync with `threadItems`; the live hot path is still a single O(1) `has` lookup here, with
-            // the Set copy deferred to the `markFrameIngested` reducer only on a genuinely new frame.
-            const hash = hashLogEntry(entry)
-            if (values.ingestedFrameHashes.has(hash)) {
+            const method = notification.method
+            const isReplay = source === 'replay'
+
+            // Pre-update tool status for the once-per-transition `tool_call_completed` telemetry,
+            // read from the projection BEFORE the upsert merges this update in.
+            let preToolStatus: ToolInvocationStatus | undefined
+            if (method === 'session/update') {
+                const u = notification.params?.update
+                if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
+                    preToolStatus = values.toolInvocations.get(String(u.toolCallId ?? ''))?.status
+                }
+            }
+
+            // Idempotent upsert into the keyed log — the single source of truth. A re-ingested frame
+            // (bootstrap↔live overlap, reconnect re-broadcast, HMR re-bootstrap) keys the same, so the
+            // one-shot side effects below run only on a genuinely new key.
+            const occCounts =
+                (cache.replayOccCounts as Record<string, number> | undefined) ?? (cache.replayOccCounts = {})
+            const key = computeEntryKey(entry, eventId, source, occCounts)
+            const isNew = !(key in values.logStore.byKey)
+            actions.ingestLogEntry(key, entry, source)
+            if (!isNew) {
                 return
             }
-            actions.markFrameIngested(hash)
-            const method = notification.method
-            const replayState = cache.bootstrapReplayState as BootstrapReplayState | null | undefined
-            noteCurrentRunBoundary(replayState ?? null, notification)
 
-            // Custom `_posthog/*` notification namespace emitted by the agent-server.
+            // Custom `_posthog/*` notification namespace emitted by the agent-server. Thread items
+            // (errors, status, compaction, task notifications, progress, human turns) are derived by
+            // the projection straight from the log — handled here only for their value-fold side
+            // effects (telemetry, usage/resources/mode folds, permission routing).
             if (method === '_posthog/run_started') {
                 // TASK_RUN_STARTED telemetry — emit once per run on the first `_posthog/run_started`
-                // frame. `cold_start` is true unless the run was pre-warmed. Suppressed while
-                // replaying history (the run started in a prior session) — `markRunStarted` below
-                // still runs so the thread's started/thinking state stays correct.
-                if (!values.runStarted && cache.bootstrapReplay !== true) {
+                // frame. Suppressed while replaying history (the run started in a prior session);
+                // `markRunStarted` still runs so started/thinking state stays correct.
+                if (!values.runStarted && !isReplay) {
                     const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
                     cache.turnStartedAtMs = Date.now()
                     posthog.capture('task_run_started', {
@@ -1579,7 +1800,6 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         cold_start: true,
                     })
                 }
-                // Provisioning is over once the agent has started — clear the disconnect-telemetry flag.
                 cache.isBootstrapping = false
                 actions.markRunStarted()
                 return
@@ -1590,31 +1810,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
             if (method === '_posthog/progress') {
                 const progress = (notification.params ?? {}) as PosthogProgressParams
-                const label = stringifyOptional(progress.label)
-                const detail = stringifyOptional(progress.detail)
-                actions.setCurrentProgress(label ?? detail ?? '')
-                const step = stringifyOptional(progress.step)
-                const group = stringifyOptional(progress.group)
-                if (step && group && label) {
-                    actions.upsertProgressItem({
-                        group,
-                        step,
-                        status: stringifyOptional(progress.status),
-                        label,
-                        ...(detail !== undefined ? { detail } : {}),
-                    })
-                }
+                actions.setCurrentProgress(
+                    stringifyOptional(progress.label) ?? stringifyOptional(progress.detail) ?? ''
+                )
                 return
             }
-            if (method === '_posthog/error') {
-                const error = (notification.params ?? {}) as PosthogErrorParams
-                actions.pushErrorItem(String(error.message ?? notification.error?.message ?? 'Agent error'))
-                return
-            }
-            // The agent-server persists the permission lifecycle to the run log as these two
-            // notifications — pending approvals are re-derived from them on bootstrap (a reload
-            // mid-approval would otherwise lose the card while the agent stays blocked), and a
-            // resolution observed here (e.g. answered in another tab) clears the local card.
+            // The agent-server persists the permission lifecycle to the run log — pending approvals
+            // are re-derived on bootstrap (a reload mid-approval would otherwise lose the card while
+            // the agent stays blocked), and a resolution observed here clears the local card.
             if (isPosthogNotification(notification, '_posthog/permission_request')) {
                 const record = parsePermissionRequestFrame(notification.params ?? {})
                 if (
@@ -1622,7 +1825,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     !values.seenPermissionRequestIds.has(record.requestId) &&
                     !values.resolvedPermissionRequestIds.has(record.requestId)
                 ) {
-                    actions.routePermissionRequest(record, cache.bootstrapReplay === true)
+                    actions.routePermissionRequest(record, isReplay)
                 }
                 return
             }
@@ -1633,64 +1836,15 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 }
                 return
             }
-            // Seeded / persisted user turns. Live messages are already echoed into the thread by
-            // maxThreadLogic (`pushSandboxHumanMessage`) the moment they're sent, so only render this
-            // frame on `logs/` bootstrap replay — otherwise a live turn would render the user's
-            // message twice (once on send, once when the relay echoes the command back). This is also
-            // the only path that surfaces a converted LangGraph thread's human turns.
-            if (isPosthogNotification(notification, '_posthog/user_message')) {
-                if (cache.bootstrapReplay === true) {
-                    const text = extractUserMessageText(notification.params?.content)
-                    // Persisted prompts may carry the `<posthog_context>…</posthog_context>` wrapper
-                    // added when attachments are present; strip it so a replayed prompt matches the
-                    // live one.
-                    const unwrapped = unwrapUserMessageContent(text)
-                    if (unwrapped) {
-                        rememberRenderedHumanMessage(replayState ?? null, unwrapped)
-                        actions.pushHumanMessage(unwrapped)
-                    }
-                }
-                return
-            }
-            // The agent reports, per turn, which PostHog products an answer was grounded in. Union
-            // them by id into the persistent resources bar — accumulates across the whole session.
+            // The agent reports, per turn, which PostHog products an answer was grounded in.
             if (isPosthogNotification(notification, '_posthog/resources_used')) {
                 actions.mergeResourcesUsed(notification.params?.products ?? [])
                 return
             }
-            // Token usage + cost + context-window breakdown. The Codex adapter sends two split
-            // frames; the Claude adapter sends a single combined frame (used + cost-as-number +
-            // breakdown). The permissive fold tolerates both. The numeric used/size aggregate that
+            // Token usage + cost + context-window breakdown. The numeric used/size aggregate that
             // drives the percentage ring arrives separately on a session/update (handled below).
             if (isPosthogNotification(notification, '_posthog/usage_update')) {
                 actions.setContextUsage(foldUsageNotification(values.contextUsage, notification.params ?? {}))
-                return
-            }
-            // Context-compaction start/end. The in-progress frame pushes a spinner item; the
-            // completed frame clears that spinner (Twig renders nothing for the completed case)
-            // rather than leaving it hanging beside the `compact_boundary` divider that follows.
-            if (isPosthogNotification(notification, '_posthog/status')) {
-                const status = String(notification.params?.status ?? '')
-                const isComplete = notification.params?.isComplete === true
-                if (status === 'compacting' && isComplete) {
-                    actions.clearCompactingStatus()
-                    return
-                }
-                actions.pushStatusItem(status, isComplete)
-                return
-            }
-            if (isPosthogNotification(notification, '_posthog/compact_boundary')) {
-                const params = notification.params
-                actions.pushCompactBoundaryItem({
-                    trigger: params?.trigger,
-                    preTokens: params?.preTokens,
-                    contextSize: params?.contextSize,
-                })
-                return
-            }
-            if (isPosthogNotification(notification, '_posthog/task_notification')) {
-                const params = notification.params
-                actions.pushTaskNotificationItem({ status: params?.status, summary: params?.summary })
                 return
             }
             // Diagnostic only — no UI; kept for resume telemetry / crash-affordance work.
@@ -1700,191 +1854,67 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
             if (method?.startsWith('_posthog/')) {
-                // _posthog/console, _posthog/sandbox_output, _posthog/git_checkpoint, ... — still dropped.
+                // _posthog/error, _posthog/status, _posthog/compact_boundary, _posthog/task_notification,
+                // _posthog/user_message → rendered by the projection. _posthog/console, _posthog/
+                // sandbox_output, _posthog/git_checkpoint, … → no UI. No side effect either way.
                 return
             }
-
+            // session/prompt never renders and the resume-context filter is handled in the projection.
             if (method === 'session/prompt') {
-                if (
-                    replayState?.isResumeRun &&
-                    replayState.resumePromptRequestsToSkip > 0 &&
-                    isCurrentRunNotification(replayState, notification)
-                ) {
-                    replayState.resumePromptRequestsToSkip -= 1
-                    replayState.resumePromptChunksToSkip += countPromptBlocks(notification.params?.prompt)
-                }
                 return
             }
-
             if (!isSessionUpdateNotification(notification)) {
                 return
             }
-
             const update = notification.params?.update
-            // The numeric used/size usage aggregate is session/update-framed but isn't in
-            // KNOWN_SESSION_UPDATES — special-case it before isKnownSessionUpdate to drive the ring
-            // without widening the tool-render switch below.
+            // The numeric used/size usage aggregate is session/update-framed — fold it into the ring.
             if (isSessionUpdateUsage(update)) {
                 actions.setContextUsage(foldUsageAggregate(values.contextUsage, update))
                 return
             }
-            // The user's own turn is persisted to the run log as a `session/update`
-            // (`user_message_chunk`), so this is what restores human turns when a thread loads from
-            // `logs/`. Render it only on bootstrap replay — a live turn is already echoed into the
-            // thread by maxThreadLogic (`pushSandboxHumanMessage`) on send, so rendering the wire echo
-            // too would duplicate it. (The legacy `_posthog/user_message` handler above covers an
-            // older frame shape the backend no longer emits.)
+            // Wire user turns render only on replay (the projection branches on source) — no side effect.
             if (isSessionUpdateUserMessage(update)) {
-                if (cache.bootstrapReplay === true) {
-                    const text = String(update.content?.text ?? update.text ?? '')
-                    const unwrapped = unwrapUserMessageContent(text)
-                    const shouldSkip =
-                        unwrapped && shouldSkipBootstrapUserMessageChunk(replayState ?? null, notification, unwrapped)
-                    if (unwrapped && !shouldSkip) {
-                        actions.pushHumanMessage(unwrapped)
-                    }
-                }
                 return
             }
             if (!isKnownSessionUpdate(update)) {
                 return
             }
-
-            switch (update.sessionUpdate) {
-                case 'agent_message_chunk': {
-                    const id = String(update.messageId ?? 'current')
-                    actions.appendAssistantChunk(id, String(update.content?.text ?? update.text ?? ''))
-                    break
-                }
-                case 'agent_message': {
-                    const id = String(update.messageId ?? 'current')
-                    actions.finalizeAssistantMessage(id, String(update.content?.text ?? update.text ?? ''))
-                    break
-                }
-                case 'agent_thought_chunk': {
-                    // No messageId on the wire — all thought chunks share a fallback id distinct
-                    // from the assistant-message fallback so the two buffers never collide on a key.
-                    const id = String(update.messageId ?? 'current-thought')
-                    actions.appendThoughtChunk(id, String(update.content?.text ?? update.text ?? ''))
-                    break
-                }
-                case 'tool_call': {
-                    const toolCallId = String(update.toolCallId ?? '')
-                    if (!toolCallId) {
-                        break
-                    }
-                    const rawServerName = String(update.serverName ?? 'posthog')
-                    const rawToolName = String(update.toolName ?? '')
-                    const input = update.rawInput ?? update.input ?? {}
-                    actions.upsertToolInvocation({
-                        toolCallId,
-                        rawServerName,
-                        rawToolName,
-                        input,
-                        status: mapAcpStatus(update.status),
-                        title: update.title,
-                        kind: update.kind,
-                        locations: update.locations,
-                        contentBlocks: Array.isArray(update.content) ? update.content : [],
-                        meta: update._meta,
-                    })
-                    break
-                }
-                case 'tool_call_update': {
-                    const toolCallId = String(update.toolCallId ?? '')
-                    if (!toolCallId) {
-                        break
-                    }
-                    const existing = values.toolInvocations.get(toolCallId)
-                    const status = mapAcpStatus(update.status ?? existing?.status)
-                    // Keep the runtime object checks — the wire payload is typed, not validated.
-                    const rawInput =
-                        update.rawInput && typeof update.rawInput === 'object'
-                            ? update.rawInput
-                            : update.input && typeof update.input === 'object'
-                              ? update.input
-                              : undefined
-                    // On a permission denial Twig stamps the reason under `_meta.claudeCode.toolResponse`;
-                    // prefer it for the error when the update carries no explicit error, and fall back to
-                    // the notification-level error (and, for the inline `canUseTool` path that sends no
-                    // `_meta`, to the existing/content error) so neither path regresses.
-                    const denialReason = status === 'failed' ? extractDenialReason(update._meta) : undefined
-                    const errorMessage =
-                        update.error?.message ??
-                        denialReason ??
-                        (status === 'failed' ? notification.error?.message : undefined)
-                    const updateContent = Array.isArray(update.content) ? update.content : []
-
-                    if (!existing) {
-                        // A reconnect with `?start=latest` can deliver a terminal update whose creating
-                        // `tool_call` frame was lost. Upsert a minimal invocation from the update so the
-                        // tool card still renders instead of silently vanishing. No completion telemetry
-                        // here — without the creation frame there's no reliable start time or tool name.
-                        const rawServerName = 'posthog'
-                        const rawToolName = ''
-                        actions.upsertToolInvocation({
-                            toolCallId,
-                            rawServerName,
-                            rawToolName,
-                            input: rawInput ?? {},
-                            status,
-                            title: update.title,
-                            locations: update.locations,
-                            contentBlocks: updateContent,
-                            meta: update._meta,
-                            ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
-                        })
-                        break
-                    }
-
-                    const nextInput = rawInput ?? existing.input
-                    const nextMeta = update._meta ?? existing.meta
-                    const resolvedForTelemetry = resolveToolCall({
-                        ...existing,
-                        input: nextInput,
-                        meta: nextMeta,
-                    })
-                    actions.updateToolInvocation(toolCallId, {
-                        status,
-                        title: update.title ?? existing.title,
-                        progress: update.progress ?? existing.progress,
-                        output: update.rawOutput ?? existing.output,
-                        locations: update.locations ?? existing.locations,
-                        contentBlocks: [...existing.contentBlocks, ...updateContent],
-                        error: errorMessage !== undefined ? { message: errorMessage } : existing.error,
-                        ...(rawInput ? { input: rawInput } : {}),
-                        ...(update._meta ? { meta: update._meta } : {}),
-                    })
-                    // TOOL_CALL_COMPLETED telemetry (optional) — emit once when a tool call first
-                    // transitions to a terminal status. `duration_ms` is measured from the turn start
-                    // since per-tool start timing isn't carried on the wire. Suppressed while replaying
-                    // history so a reopen doesn't re-count prior-session tool calls; the missing-creation
-                    // case is handled above and never reaches here. Report the key resolved from the
-                    // latest raw input/meta without storing it in stream state.
-                    if (
-                        cache.bootstrapReplay !== true &&
-                        (status === 'completed' || status === 'failed') &&
-                        existing.status !== 'completed' &&
-                        existing.status !== 'failed'
-                    ) {
-                        const startedAt = cache.turnStartedAtMs as number | undefined
-                        posthog.capture('tool_call_completed', {
-                            conversation_id: props.conversationId,
-                            trace_id: values.traceId,
-                            tool_call_id: toolCallId,
-                            tool_qualified_name: resolvedForTelemetry.resolvedKey,
-                            status,
-                            duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
-                            execution_type: 'sandbox',
-                        })
-                    }
-                    break
-                }
-                case 'current_mode_update': {
-                    actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
-                    break
-                }
+            if (update.sessionUpdate === 'current_mode_update') {
+                actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
+                return
             }
+            if (update.sessionUpdate === 'tool_call_update') {
+                // TOOL_CALL_COMPLETED telemetry — emit once when a tool call first transitions to a
+                // terminal status. `preToolStatus` (read before the upsert) gates the once-only fire;
+                // the resolved key comes from the merged invocation in the projection. Suppressed on
+                // replay, and skipped when the creating `tool_call` was lost (no pre-status).
+                const toolCallId = String(update.toolCallId ?? '')
+                if (!toolCallId) {
+                    return
+                }
+                const status = mapAcpStatus(update.status ?? preToolStatus)
+                if (
+                    !isReplay &&
+                    preToolStatus !== undefined &&
+                    preToolStatus !== 'completed' &&
+                    preToolStatus !== 'failed' &&
+                    (status === 'completed' || status === 'failed')
+                ) {
+                    const invocation = values.toolInvocations.get(toolCallId)
+                    const startedAt = cache.turnStartedAtMs as number | undefined
+                    posthog.capture('tool_call_completed', {
+                        conversation_id: props.conversationId,
+                        trace_id: values.traceId,
+                        tool_call_id: toolCallId,
+                        tool_qualified_name: invocation ? resolveToolCall(invocation).resolvedKey : undefined,
+                        status,
+                        duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
+                        execution_type: 'sandbox',
+                    })
+                }
+                return
+            }
+            // agent_message_chunk / agent_message / agent_thought_chunk / tool_call → projection only.
         },
     })),
 ])
