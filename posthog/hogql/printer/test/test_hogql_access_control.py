@@ -1,5 +1,4 @@
 from posthog.test.base import BaseTest
-from unittest.mock import Mock, patch
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -123,7 +122,6 @@ class TestAccessControlGuard(BaseTest):
         guard = build_access_control_guard(dashboards, table_type, context)
         assert guard is None
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_blocked_ids_bind_as_single_sensitive_placeholder(self):
         """
         The deny list compiles to one ``%(..._sensitive)s`` placeholder bound to a list,
@@ -184,7 +182,6 @@ class TestAccessControlGuard(BaseTest):
         assert "[HIDDEN]" in rendered
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""
 

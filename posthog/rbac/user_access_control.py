@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
-import posthoganalytics
 from opentelemetry import trace
 from rest_framework import serializers
 
@@ -1001,29 +1000,14 @@ class UserAccessControl:
         ``filter_queryset_by_access_level`` instead of reimplementing the precedence rules.
 
         Consumed by HogQL object-level access control (schema filtering / printer guard) and by
-        the query cache fingerprint. Gated behind the ``hogql-object-access-control`` flag so the
-        feature can be rolled out independently; empty for org admins (they bypass object AC) and
-        when there is no team / EE / entitlement. Gating here (rather than at the call sites) keeps
-        the cache fingerprint and the printer guard consistent and avoids stale cached results when
-        the flag flips.
+        the query cache fingerprint. Empty for org admins (they bypass object AC) and when there is
+        no team / EE / entitlement.
         """
         if not EE_AVAILABLE or not self._team or self.is_organization_admin:
             return {}
 
         if not self.access_controls_supported:
             # Without the entitlement, stale rules in the DB must be ignored, not enforced
-            return {}
-
-        if not posthoganalytics.feature_enabled(
-            "hogql-object-access-control",
-            str(self._team.uuid),
-            groups={"organization": str(self._team.organization_id), "project": str(self._team.id)},
-            group_properties={
-                "organization": {"id": str(self._team.organization_id)},
-                "project": {"id": str(self._team.id)},
-            },
-            send_feature_flag_events=False,
-        ):
             return {}
 
         object_rows_by_resource: dict[APIScopeObject, list[_AccessControl]] = defaultdict(list)

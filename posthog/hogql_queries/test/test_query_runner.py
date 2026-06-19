@@ -1311,9 +1311,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert scopes <= restricted
 
     @parameterized.expand(RUNNER_BASES)
-    @mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
     def test_object_grant_changes_cache_key(self, _name, base):
-        # Object-level cache partitioning is gated behind the hogql-object-access-control flag.
         from products.notebooks.backend.models import Notebook
 
         # Resource-level access granted so we isolate the object-level effect.
@@ -1426,9 +1424,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
         assert len(ac_queries) == 1, ac_queries
 
-    @mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
     def test_object_level_deny_on_queried_resource_partitions_cache(self):
-        # Object-level cache partitioning is gated behind the hogql-object-access-control flag.
         from products.notebooks.backend.models import Notebook
 
         # Resource-level access granted so we isolate the object-level effect.
@@ -1448,9 +1444,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert runner.get_cache_payload().get("restricted_objects", {}).get("notebook") == [str(notebook.id)]
         assert runner.get_cache_key() != key_unblocked
 
-    @mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
     def test_object_level_deny_on_unqueried_resource_is_ignored(self):
-        # Object-level cache partitioning is gated behind the hogql-object-access-control flag.
         from products.notebooks.backend.models import Notebook
 
         # Deny a specific notebook object, but the query reads surveys - the deny is irrelevant.
