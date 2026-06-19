@@ -338,9 +338,8 @@ class TestPollSharedChannelThreadReplies(BaseTest):
 
         ticket = Ticket.objects.filter(team=self.team).get()
         self.assertEqual(ticket.teams_conversation_id, f"{CHANNEL_ID};messageid=root-1")
-        ticket.created_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-        ticket.teams_thread_replies_synced_at = None
-        ticket.save(update_fields=["created_at", "teams_thread_replies_synced_at"])
+        ticket.teams_thread_replies_synced_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+        ticket.save(update_fields=["teams_thread_replies_synced_at"])
 
         mock_get.side_effect = [
             _resp(json_data={"value": [], "@odata.deltaLink": "DELTA3"}),
