@@ -4150,6 +4150,8 @@ snapshots:
         hash: v1.k794b7964.ea34a8cf895551499ca3bacabcde98ea445e2caea7fdc5b9f75de7d1d6dd8e6b.UfvafB3BxwBsJ8t1xHzxTmm5sRu0_xMGrAp6e4ldb5Y
     mcp-apps-insight-actors--event-counts--light:
         hash: v1.k794b7964.f3ff99b4ec1920b2df7c65cb407482896b99b2ea34d4bfbb4cad722b05d25f9a.6K2QCgM8Znsuz_zMA2jTZW884aJ29-cvc1OWldMEzgc
+    mcp-apps-insight-actors--membership-only--light:
+        hash: v1.k794b7964.3263f51bb5e1b404a97a77e07b44ab0cbc1c52a01a05df893e1a313b8e2b508c._i8f7n9Oh_pGBu7KItLLVGcnk667LWGiAoubOlNLd4I
     mcp-apps-insight-actors--with-recordings--light:
         hash: v1.k794b7964.af9ec36dd0d406f45eec2bf3fafb8dbe63b0eba139c5fff4b33e83cf24668f8e.hQ3brX3MIHwfCM95Re7Ti6Z8bsY2zq-He2uM63uuvUw
     mcp-apps-lifecycle--grouped--light:
