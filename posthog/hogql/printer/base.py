@@ -607,7 +607,10 @@ class BasePrinter(Visitor[str]):
                     raise QueryError(
                         f"Table function '{table_type.table.name}' requires at most {table_type.table.max_args} argument{'s' if table_type.table.max_args > 1 else ''}"
                     )
-                if node.table_args is not None and len(node.table_args) > 0:
+                # Emit parens whenever this is an explicit call — including a zero-arg call like
+                # `duckdb_secrets()` (table_args == []). Without them a nullary table function would
+                # print as a bare identifier and fail at execution as an unknown table.
+                if node.table_args is not None:
                     sql = f"{sql}({', '.join([self.visit(arg) for arg in node.table_args])})"
             elif node.table_args is not None:
                 raise QueryError(f"Table '{table_type.table.to_printed_hogql()}' does not accept arguments")

@@ -601,25 +601,25 @@ def _aggregate_table_function_arity(
     take the smallest required-arg count as `min` and the largest as `max` — with `max = None` when
     any overload is variadic (unbounded). Names are lowercased to match `available_table_functions`.
     """
-    arity: dict[str, dict[str, int | None]] = {}
+    mins: dict[str, int] = {}
+    maxes: dict[str, int | None] = {}
     for raw_name, required, variadic in rows:
         if not isinstance(raw_name, str) or not IDENTIFIER_FUNCTION_NAME_RE.fullmatch(raw_name):
             continue
         name = raw_name.lower()
         required = max(0, int(required))
-        entry = arity.get(name)
-        if entry is None:
-            arity[name] = {"min": required, "max": None if variadic else required}
+        if name not in mins:
+            mins[name] = required
+            maxes[name] = None if variadic else required
             continue
-        current_min = entry["min"]
-        if current_min is None or required < current_min:
-            entry["min"] = required
-        current_max = entry["max"]
-        if variadic or current_max is None:
-            entry["max"] = None
-        elif required > current_max:
-            entry["max"] = required
-    return arity
+        if required < mins[name]:
+            mins[name] = required
+        current_max = maxes[name]
+        if variadic:
+            maxes[name] = None
+        elif current_max is not None and required > current_max:
+            maxes[name] = required
+    return {name: {"min": mins[name], "max": maxes[name]} for name in mins}
 
 
 def filter_postgres_incremental_fields(

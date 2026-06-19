@@ -112,15 +112,15 @@ def build_opaque_function_call_table(
     jsonb_array_elements_text, regexp_split_to_table, …) without needing per-function schemas.
 
     `min_args`/`max_args` come from connection introspection (`table_function_arity`). When they're
-    known we enforce them; when the arity is unknown (`min_args is None` — e.g. metadata predating
-    arity capture) we don't fabricate a floor and instead defer argument validation to the engine.
-    A correct floor matters for nullary table functions like `duckdb_secrets()`, which must accept a
-    zero-argument call.
+    known we enforce them; when the arity is unknown (both `None` — e.g. metadata predating arity
+    capture) we don't fabricate a floor and defer argument validation to the engine. Either way the
+    call is still a function call (`requires_args=True`) so the printer emits the parentheses — a
+    correct floor is what lets nullary table functions like `duckdb_secrets()` accept a zero-arg call.
     """
     return OpaqueFunctionCallTable(
         name=name,
         fields={name: UnknownDatabaseField(name=name, nullable=True)},
-        requires_args=min_args is not None,
+        requires_args=True,
         min_args=min_args,
         max_args=max_args,
     )
@@ -135,7 +135,7 @@ class OpaqueFunctionCallTable(FunctionCallTable, DANGEROUS_NoTeamIdCheckTable):
 
     fields: dict[str, FieldOrTable]
     name: str
-    requires_args: bool = False
+    requires_args: bool = True
     min_args: Optional[int] = None
     max_args: Optional[int] = None
 
