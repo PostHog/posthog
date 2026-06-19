@@ -162,11 +162,9 @@ export function FunnelsDefinitionFields({
                 menu={{ className: '!max-h-[400px]' }}
                 value={config ? funnelConfigToOptionKey(config, stepLabels.length) : undefined}
                 onChange={(key) =>
-                    onSetAlertFormValue('config', {
-                        ...config,
-                        type: 'FunnelsAlertConfig',
-                        ...funnelConfigForOptionKey(key),
-                    })
+                    // Each key fully determines the config, so build a fresh one rather than spreading
+                    // the previous config (whose type/metric/funnel_step would all be overwritten anyway).
+                    onSetAlertFormValue('config', { type: 'FunnelsAlertConfig', ...funnelConfigForOptionKey(key) })
                 }
                 options={funnelConversionOptions(stepLabels)}
             />

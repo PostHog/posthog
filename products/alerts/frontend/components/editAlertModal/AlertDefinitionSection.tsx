@@ -119,7 +119,7 @@ export function AlertDefinitionSection({
                     isBreakdownValid={isBreakdownValid}
                     alertMode={alertMode}
                 />
-            ) : isFunnelsAlertConfig(alertForm.config) ? (
+            ) : isFunnelAlert ? (
                 <FunnelsDefinitionFields
                     alertForm={alertForm}
                     stepLabels={funnelStepLabels}
