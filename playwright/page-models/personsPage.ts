@@ -37,7 +37,6 @@ export class PersonsPage {
 
     async goToList(): Promise<void> {
         await this.page.goto('/persons')
-        await expect(this.table).toBeVisible()
         // Wait for the initial data load to complete (at least one person link visible)
         await expect(this.table.getByRole('link').first()).toBeVisible()
     }
