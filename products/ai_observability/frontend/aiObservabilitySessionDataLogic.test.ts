@@ -29,7 +29,6 @@ jest.mock('./generated/api', () => ({
 const mockApi = api as jest.Mocked<typeof api>
 
 const SESSION_ID = 'test-session-uuid'
-const TAB_ID = '1'
 
 const traceSummary = (id: string, extra: Partial<LLMTrace> = {}): LLMTrace =>
     ({
@@ -83,7 +82,6 @@ function buildProps(opts: Partial<SessionDataLogicProps> = {}): SessionDataLogic
     return {
         sessionId: SESSION_ID,
         query: buildQuery(),
-        tabId: TAB_ID,
         ...opts,
     }
 }
@@ -91,16 +89,14 @@ function buildProps(opts: Partial<SessionDataLogicProps> = {}): SessionDataLogic
 // Helper: get the dataNodeLogic mounted by the session data logic so we can
 // directly populate response (mirrors how `cachedResults` flows in production).
 function dataNode(props: SessionDataLogicProps): ReturnType<typeof dataNodeLogic.build> {
-    const tabScope = props.tabId ?? 'default'
-    const scopedSessionId = `${props.sessionId}:${tabScope}`
     const insightProps: InsightLogicProps<DataTableNode> = {
-        dashboardItemId: `new-Session.${scopedSessionId}`,
-        dataNodeCollectionId: scopedSessionId,
+        dashboardItemId: `new-Session.${props.sessionId}`,
+        dataNodeCollectionId: props.sessionId,
     }
     return dataNodeLogic({
         query: props.query.source,
         key: insightVizDataNodeKey(insightProps),
-        dataNodeCollectionId: scopedSessionId,
+        dataNodeCollectionId: props.sessionId,
     })
 }
 
@@ -115,10 +111,7 @@ describe('aiObservabilitySessionDataLogic — bulk session-events loader', () =>
         jest.resetAllMocks()
         initKeaTests()
         sceneLogic({ scenes }).mount()
-        sceneLogic.actions.setTabs([
-            { id: TAB_ID, title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
-        sessionLogic = aiObservabilitySessionLogic({ tabId: TAB_ID })
+        sessionLogic = aiObservabilitySessionLogic()
         sessionLogic.mount()
     })
 

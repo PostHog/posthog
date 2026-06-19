@@ -409,7 +409,7 @@ function TurnSummaryLine({ summary, summaryUrl }: { summary: TraceSummary; summa
     )
 }
 
-function TurnBody({ turn, isLoading }: { turn: SessionTurn; isLoading: boolean }): JSX.Element {
+function TurnBody({ turn, isLoading }: { turn: SessionTurn; isLoading: boolean }): JSX.Element | null {
     if (isLoading) {
         return (
             <div className="flex items-center gap-2 text-muted text-sm py-2">
