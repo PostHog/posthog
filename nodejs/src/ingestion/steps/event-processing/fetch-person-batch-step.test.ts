@@ -91,7 +91,7 @@ describe('createFetchPersonBatchStep', () => {
         )
     })
 
-    it('returns null person when person not found', async () => {
+    it('returns undefined person when person not found', async () => {
         const event = createTestPluginEvent({
             distinct_id: 'unknown-user',
             event: '$exception',
@@ -106,11 +106,11 @@ describe('createFetchPersonBatchStep', () => {
         expect(results[0].type).toBe(PipelineResultType.OK)
         if (isOkResult(results[0])) {
             expect(results[0].value.event.properties).toEqual({ existing: 'property' })
-            expect(results[0].value.person).toBeNull()
+            expect(results[0].value.person).toBeUndefined()
         }
     })
 
-    it('returns null person when distinct_id is missing', async () => {
+    it('returns undefined person when distinct_id is missing', async () => {
         const event = createTestPluginEvent({
             distinct_id: '',
             event: '$exception',
@@ -123,7 +123,7 @@ describe('createFetchPersonBatchStep', () => {
         expect(results[0].type).toBe(PipelineResultType.OK)
         if (isOkResult(results[0])) {
             expect(results[0].value.event.properties).toEqual({ existing: 'property' })
-            expect(results[0].value.person).toBeNull()
+            expect(results[0].value.person).toBeUndefined()
         }
         expect(mockPersonRepository.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
     })
@@ -151,10 +151,10 @@ describe('createFetchPersonBatchStep', () => {
 
         expect(results).toHaveLength(2)
         if (isOkResult(results[0])) {
-            expect(results[0].value.person).not.toBeNull()
+            expect(results[0].value.person).toBeDefined()
         }
         if (isOkResult(results[1])) {
-            expect(results[1].value.person).toBeNull()
+            expect(results[1].value.person).toBeUndefined()
         }
     })
 
@@ -181,10 +181,10 @@ describe('createFetchPersonBatchStep', () => {
 
         expect(results).toHaveLength(2)
         if (isOkResult(results[0])) {
-            expect(results[0].value.person).not.toBeNull()
+            expect(results[0].value.person).toBeDefined()
         }
         if (isOkResult(results[1])) {
-            expect(results[1].value.person).toBeNull()
+            expect(results[1].value.person).toBeUndefined()
         }
         // Should only query for the event with distinct_id
         expect(mockPersonRepository.fetchPersonsByDistinctIds).toHaveBeenCalledWith(

@@ -42,18 +42,19 @@ import { createFlushHogTransformerStep } from '~/ingestion/steps/event-processin
 import { createHogTransformEventStep } from '~/ingestion/steps/event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '~/ingestion/steps/event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '~/ingestion/steps/event-processing/normalize-process-person-flag-step'
+import { createPrepareEventStep } from '~/ingestion/steps/event-processing/prepare-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/steps/event-processing/readonly-process-groups-step'
 import {
     SplitAiEventsStepConfig,
     createSplitAiEventsStep,
 } from '~/ingestion/steps/event-processing/split-ai-events-step'
+import { createStripPersonUpdatePropertiesStep } from '~/ingestion/steps/event-processing/strip-person-update-properties-step'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
 
 import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from './outputs'
-import { createAiPrepareEventStep } from './pipelines/steps/ai-prepare-event-step'
 import { createProcessAiEventStep } from './pipelines/steps/process-ai-event-step'
 
 export interface AiIngestionPipelineConfig {
@@ -202,7 +203,10 @@ export function createAiIngestionPipeline<
                                                 .pipe(createHogTransformEventStep(hogTransformer))
                                                 .pipe(createNormalizeEventStep())
                                                 .pipe(createProcessAiEventStep())
-                                                .pipe(createAiPrepareEventStep())
+                                                // Read-only: drop person-update props so they don't
+                                                // leak into person_properties (person is never written).
+                                                .pipe(createStripPersonUpdatePropertiesStep())
+                                                .pipe(createPrepareEventStep())
                                                 // Read-only group-type resolution (no new group types created).
                                                 .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
                                                 .pipe(createCreateEventStep(EVENTS_OUTPUT))
