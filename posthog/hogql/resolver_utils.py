@@ -160,11 +160,24 @@ def suggest_field_names(
     """Return up to `limit` field names from `scope` that are close matches
     to `name` (difflib ratio >= 0.6). Returns an empty list when no scope
     is available or no plausible matches are found.
+
+    PostHog-standardized properties (names starting with `$`, e.g.
+    `$exception_types`) live under the JSON `properties` field, not as bare
+    columns. When such a name fails to resolve and a `properties` field is in
+    scope, steer toward `properties.<name>` so the 'Did you mean' hint nudges
+    callers (and LLMs) to the correct access path.
     """
     candidates = collect_available_field_names(scope, context)
-    if not candidates:
-        return []
-    return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
+    suggestions: list[str] = []
+    if name.startswith("$") and "properties" in candidates:
+        suggestions.append(f"properties.{name}")
+    if candidates:
+        suggestions.extend(
+            match
+            for match in difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
+            if match not in suggestions
+        )
+    return suggestions[:limit]
 
 
 def lookup_table_by_name(

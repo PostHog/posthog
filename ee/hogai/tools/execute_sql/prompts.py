@@ -24,6 +24,7 @@ Use this tool to generate a HogQL query, which is PostHog's variant of SQL that 
 
 # Events and properties
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
+Event properties — including `$`-prefixed ones — live under the `properties` field and must be accessed as `properties.$name`, never as a bare column. For example, error tracking exception data is on the `$exception` event under `properties.$exception_types`, `properties.$exception_values`, and `properties.$exception_sources` (these are 1-indexed arrays, so the first type is `properties.$exception_types[1]`). Referencing `$exception_types[1]` without the `properties.` prefix fails with `Unable to resolve field: $exception_types`.
 
 # Linked tables
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.

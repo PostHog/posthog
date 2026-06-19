@@ -166,6 +166,8 @@ Choose appropriate operators based on the query intent:
 - `$exception_stack_trace`: Stack trace information
 - `$exception_sources`: Source file paths where error occurred as a list of strings
 
+These `$exception_*` keys are event properties stored on the `$exception` event. As a property-filter `key` (in the filter output above) use the bare name, e.g. `$exception_types`. But whenever you write raw HogQL/SQL against the `events` table, the same keys must be accessed through the `properties` JSON field — never as bare columns — and the list-typed ones are 1-indexed arrays: `properties.$exception_types[1]`, `properties.$exception_values[1]`, `properties.$exception_sources[1]`. Writing a bare `$exception_types` in SQL fails with `Unable to resolve field: $exception_types`.
+
 **Context Properties (event type)**:
 - `$current_url`: URL where error occurred
 - `$browser`: Browser type

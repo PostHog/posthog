@@ -509,6 +509,19 @@ class TestResolver(BaseTest):
             f"expected a plausible suggestion in: {message}",
         )
 
+    def test_unresolved_dollar_property_suggests_properties_prefix(self):
+        # $exception_types lives under properties, so steer a bare reference there
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(
+                self._select("SELECT $exception_types FROM events"),
+                self.context,
+                dialect="clickhouse",
+            )
+        message = str(ctx.exception)
+        self.assertIn("Unable to resolve field: $exception_types", message)
+        self.assertIn("Did you mean:", message)
+        self.assertIn("properties.$exception_types", message)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):
         expr = self._select("select distinct_id, person.id from person_distinct_ids")
