@@ -369,6 +369,11 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     class Trigger(models.TextChoices):
         MANUAL = "manual", "Manual"
+        COLD_RUN = "cold_run", "Cold Run"
+        STALE_REFRESH = "stale_refresh", "Stale Refresh"
+        AUTO_REFRESH = "auto_refresh", "Auto Refresh"
+        CONFIG_CHANGE = "config_change", "Config Change"
+        # Deprecated: never emitted, retained for old rows.
         EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
         EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
         EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"
