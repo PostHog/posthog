@@ -49,8 +49,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
 
     return (
-        <div className="flex flex-col gap-4" data-quill>
-            <div className="flex flex-wrap items-center justify-between gap-3" data-not-quill>
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
                     <McpDateFilter
                         dateFrom={dateFilter.dateFrom}
@@ -78,11 +78,11 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     data-attr="mcp-dashboard-test-account-filter"
                 />
             </div>
-            <section>
+            <section data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
                 <KpiTiles kpis={kpis} intentClusterCount={intentClusterCount} kpisLoading={kpisLoading} theme={theme} />
             </section>
-            <section>
+            <section data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Usage</h2>
                 <div className="flex flex-col gap-[22px]">
                     <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-3">
