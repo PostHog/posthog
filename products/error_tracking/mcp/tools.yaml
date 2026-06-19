@@ -154,9 +154,6 @@ tools:
     error-tracking-issues-cohort-update:
         operation: error_tracking_issues_cohort_update
         enabled: false
-    error-tracking-issues-create:
-        operation: error_tracking_issues_create
-        enabled: false
     error-tracking-issues-destroy:
         operation: error_tracking_issues_destroy
         enabled: false
