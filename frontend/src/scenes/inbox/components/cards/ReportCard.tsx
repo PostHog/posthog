@@ -8,7 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
 import { InboxFlatListTabKey, SignalReport, SignalReportStatus } from '../../types'
-import { DismissalReasonValue } from '../../utils/dismissalReasons'
+import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -155,10 +155,17 @@ export function ReportCard({
 
     const { isArchiving, onArchiveClick } = useReportArchive({ reportId: report.id, cardTitle, onArchive })
 
+    // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
+    const dismissalLabel = isArchived ? dismissalReasonLabel(report.dismissal_reason) : null
+
     // PR cards show repo · source; reports show source · status · actionability.
     const showMeta = hasPr
         ? repoSlug != null || hasSource
-        : hasSource || !isReady || report.actionability != null || report.is_suggested_reviewer === true
+        : hasSource ||
+          !isReady ||
+          report.actionability != null ||
+          report.is_suggested_reviewer === true ||
+          !!dismissalLabel
 
     return (
         <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
@@ -212,6 +219,13 @@ export function ReportCard({
                             )}
                             {!hasPr && report.actionability && (
                                 <SignalReportActionabilityBadge actionability={report.actionability} />
+                            )}
+                            {dismissalLabel && (
+                                <Tooltip title={report.dismissal_note || undefined}>
+                                    <LemonTag size="small" icon={<IconArchive />}>
+                                        {dismissalLabel}
+                                    </LemonTag>
+                                </Tooltip>
                             )}
                         </div>
                     ) : null}

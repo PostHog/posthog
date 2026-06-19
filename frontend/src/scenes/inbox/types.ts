@@ -46,6 +46,10 @@ export interface SignalReport {
     source_products?: string[]
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
+    /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
+    dismissal_reason?: string | null
+    /** Free-form note from the latest dismissal artefact (when archived). */
+    dismissal_note?: string | null
 }
 
 export enum SignalReportStatus {
@@ -108,7 +112,7 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     reports: 'Reports',
     'not-actionable': 'Not actionable',
     runs: 'Runs',
-    archived: 'Archived',
+    archived: 'Archive',
     config: 'Configuration',
 }
 
