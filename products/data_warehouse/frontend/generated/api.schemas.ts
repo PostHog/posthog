@@ -152,6 +152,58 @@ export interface WarehouseStatusResponseApi {
 }
 
 /**
+ * * `caught_up` - caught_up
+ * * `lagging` - lagging
+ * * `error` - error
+ * * `not_started` - not_started
+ */
+export type WarehouseSyncStatusStateEnumApi =
+    (typeof WarehouseSyncStatusStateEnumApi)[keyof typeof WarehouseSyncStatusStateEnumApi]
+
+export const WarehouseSyncStatusStateEnumApi = {
+    CaughtUp: 'caught_up',
+    Lagging: 'lagging',
+    Error: 'error',
+    NotStarted: 'not_started',
+} as const
+
+export interface _SyncErrorApi {
+    /** Human-readable error message. */
+    message: string
+    /** When the current error first occurred. */
+    since: string
+}
+
+export interface WarehouseSyncStatusApi {
+    /** Overall freshness state.
+     *
+     * * `caught_up` - caught_up
+     * * `lagging` - lagging
+     * * `error` - error
+     * * `not_started` - not_started */
+    state: WarehouseSyncStatusStateEnumApi
+    /**
+     * Timestamp the warehouse is fresh through for this project, or null if no data yet.
+     * @nullable
+     */
+    fresh_through: string | null
+    /**
+     * Seconds behind now, or null if unknown.
+     * @nullable
+     */
+    lag_seconds: number | null
+    /**
+     * Last time the backfill made progress.
+     * @nullable
+     */
+    last_activity_at: string | null
+    /** Current error, or null when healthy. */
+    error: _SyncErrorApi | null
+    /** When this status was computed. */
+    updated_at: string
+}
+
+/**
  * * `String` - String
  * * `Number` - Number
  * * `Boolean` - Boolean

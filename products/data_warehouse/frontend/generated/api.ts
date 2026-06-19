@@ -48,6 +48,7 @@ import type {
     WarehouseSavedQueriesListParams,
     WarehouseSavedQueryDraftsListParams,
     WarehouseStatusResponseApi,
+    WarehouseSyncStatusApi,
     WarehouseTablesListParams,
     WarehouseViewLinkListParams,
     WarehouseViewLinksListParams,
@@ -363,6 +364,23 @@ export const dataWarehouseWarehouseStatusRetrieve = async (
     options?: RequestInit
 ): Promise<WarehouseStatusResponseApi> => {
     return apiMutator<WarehouseStatusResponseApi>(getDataWarehouseWarehouseStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataWarehouseWarehouseSyncStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/warehouse_sync_status/`
+}
+
+/**
+ * Freshness of this project's event data in the managed warehouse.
+ */
+export const dataWarehouseWarehouseSyncStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WarehouseSyncStatusApi> => {
+    return apiMutator<WarehouseSyncStatusApi>(getDataWarehouseWarehouseSyncStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

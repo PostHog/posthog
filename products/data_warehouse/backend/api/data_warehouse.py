@@ -34,6 +34,8 @@ from products.data_modeling.backend.models.data_modeling_job import DataModeling
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.api import managed_warehouse
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
+from products.data_warehouse.backend.warehouse_sync.contracts import WarehouseSyncStatusSerializer
+from products.data_warehouse.backend.warehouse_sync.status import get_warehouse_sync_status
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -907,6 +909,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def warehouse_status(self, request: Request, **kwargs) -> Response:
         """Get the current provisioning status of the managed warehouse."""
         return managed_warehouse.status_for(self.team.organization_id)
+
+    @extend_schema(responses={200: WarehouseSyncStatusSerializer})
+    @action(methods=["GET"], detail=False, url_path="warehouse_sync_status")
+    def warehouse_sync_status(self, request: Request, **kwargs) -> Response:
+        """Freshness of this project's event data in the managed warehouse."""
+        dto = get_warehouse_sync_status(self.team.id)
+        return Response(WarehouseSyncStatusSerializer(dto).data)
 
     @extend_schema(
         responses={

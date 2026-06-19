@@ -48989,6 +48989,58 @@ export namespace Schemas {
       connection?: WarehouseConnection | null;
     }
 
+    /**
+     * * `caught_up` - caught_up
+     * * `lagging` - lagging
+     * * `error` - error
+     * * `not_started` - not_started
+     */
+    export type WarehouseSyncStatusStateEnum = typeof WarehouseSyncStatusStateEnum[keyof typeof WarehouseSyncStatusStateEnum];
+
+
+    export const WarehouseSyncStatusStateEnum = {
+      CaughtUp: 'caught_up',
+      Lagging: 'lagging',
+      Error: 'error',
+      NotStarted: 'not_started',
+    } as const;
+
+    export interface _SyncError {
+      /** Human-readable error message. */
+      message: string;
+      /** When the current error first occurred. */
+      since: string;
+    }
+
+    export interface WarehouseSyncStatus {
+      /** Overall freshness state.
+       *
+       * * `caught_up` - caught_up
+       * * `lagging` - lagging
+       * * `error` - error
+       * * `not_started` - not_started */
+      state: WarehouseSyncStatusStateEnum;
+      /**
+         * Timestamp the warehouse is fresh through for this project, or null if no data yet.
+         * @nullable
+         */
+      fresh_through: string | null;
+      /**
+         * Seconds behind now, or null if unknown.
+         * @nullable
+         */
+      lag_seconds: number | null;
+      /**
+         * Last time the backfill made progress.
+         * @nullable
+         */
+      last_activity_at: string | null;
+      /** Current error, or null when healthy. */
+      error: _SyncError | null;
+      /** When this status was computed. */
+      updated_at: string;
+    }
+
     export interface WeeklyDigestResponse {
       /** Unique visitors. */
       visitors: NumericMetric;

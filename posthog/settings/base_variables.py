@@ -58,11 +58,15 @@ SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type
 # GitHub secret alert relay URL - set in US deployment to forward alerts to EU
 GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RELAY_URL", optional=True)
 
-# Internal team on PostHog Cloud US that receives `$ai_generation` /
-# `$ai_embedding` events emitted by PostHog products (PostHog Code,
-# background agents, etc). Used by /api/llm_analytics/personal_spend/.
+# Internal team on PostHog Cloud that receives capture events emitted by PostHog products
+# (PostHog Code, background agents, the warehouse event backfill, `$ai_generation`, etc).
+# Read back by features that report on PostHog's own product telemetry.
 # Override in tests via @override_settings to point at a per-test team.
-LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2
+INTERNAL_TELEMETRY_TEAM_ID: int = get_from_env("INTERNAL_TELEMETRY_TEAM_ID", 2, type_cast=int)
+
+# Back-compat alias for AI observability (/api/llm_analytics/personal_spend/), which reads
+# `$ai_generation` / `$ai_embedding` events from the same internal project.
+LLM_ANALYTICS_INTERNAL_TEAM_ID: int = INTERNAL_TELEMETRY_TEAM_ID
 
 # Duckgres - URL, internal secret, and PG endpoint for the managed warehouse service
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
