@@ -22,6 +22,14 @@ class ExperimentMetricsRecalculationWorkflowInputs:
 
 
 @dataclasses.dataclass
+class ExperimentSingleMetricRetryWorkflowInputs:
+    """Input to the single-metric retry workflow: recompute one failed metric inside an existing run."""
+
+    recalculation_id: str  # UUID as string
+    metric_uuid: str
+
+
+@dataclasses.dataclass
 class ExperimentMetricToRecalculate:
     """A single metric to recalculate.
 

@@ -195,3 +195,70 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=other, status="completed")
         resp = self.client.get(self._by_id_url(exp.id, str(row.id)))
         assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    # ------------------------------------------------------------------
+    # POST /metrics_recalculation/{id}/retry_metric/
+    # ------------------------------------------------------------------
+
+    def _retry_url(self, exp_id: int, recalc_id: str) -> str:
+        return f"/api/projects/{self.team.id}/experiments/{exp_id}/metrics_recalculation/{recalc_id}/retry_metric/"
+
+    def _failed_recalc_with_metric(self, exp: Experiment, *, metric_status: str) -> ExperimentMetricsRecalculation:
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="failed" if metric_status == "failed" else "completed",
+            metric_uuids=["m1"],
+            query_to=datetime(2026, 2, 1, tzinfo=UTC),
+            metric_errors={"m1": {"step": "calculation", "message": "boom"}} if metric_status == "failed" else {},
+        )
+        assert exp.metrics and exp.start_date is not None and recalc.query_to is not None
+        config_fp = compute_metric_fingerprint(
+            exp.metrics[0],
+            exp.start_date,
+            get_experiment_stats_method(exp),
+            exp.exposure_criteria,
+            only_count_matured_users=exp.only_count_matured_users,
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid="m1",
+            fingerprint=compute_recalc_fingerprint(config_fp, str(recalc.id)),
+            query_from=exp.start_date,
+            query_to=recalc.query_to,
+            status=metric_status,
+            result=None if metric_status == "failed" else {"ok": True},
+            error_message="boom" if metric_status == "failed" else None,
+        )
+        return recalc
+
+    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
+    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    def test_retry_metric_starts_workflow_and_returns_payload(self, mock_run, mock_connect):
+        exp = self._launched_experiment(flag_key="retry-ok")
+        recalc = self._failed_recalc_with_metric(exp, metric_status="failed")
+        resp = self.client.post(self._retry_url(exp.id, str(recalc.id)), {"metric_uuid": "m1"}, format="json")
+        assert resp.status_code == status.HTTP_200_OK, resp.content
+        assert resp.json()["id"] == str(recalc.id)
+        assert mock_run.called
+
+    def test_retry_metric_404_for_unknown_recalc(self):
+        exp = self._launched_experiment(flag_key="retry-404")
+        resp = self.client.post(
+            self._retry_url(exp.id, "00000000-0000-0000-0000-000000000001"),
+            {"metric_uuid": "m1"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_retry_metric_400_for_non_failed_metric(self):
+        exp = self._launched_experiment(flag_key="retry-not-failed")
+        recalc = self._failed_recalc_with_metric(exp, metric_status="completed")
+        resp = self.client.post(self._retry_url(exp.id, str(recalc.id)), {"metric_uuid": "m1"}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_retry_metric_400_for_missing_metric_uuid(self):
+        exp = self._launched_experiment(flag_key="retry-no-uuid")
+        recalc = self._failed_recalc_with_metric(exp, metric_status="failed")
+        resp = self.client.post(self._retry_url(exp.id, str(recalc.id)), {}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST

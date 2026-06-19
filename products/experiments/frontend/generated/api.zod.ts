@@ -245,6 +245,20 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
     .describe('Request body for triggering a metrics recalculation.')
 
 /**
+ * Recompute a single failed metric within an existing recalculation, reusing the run's query_to.
+ *
+ * Returns the recalculation payload (still `failed` while the retry runs). Clients poll
+ * `GET metrics_recalculation/{id}/` to see the metric's result/error update.
+ */
+export const ExperimentsMetricsRecalculationRetryMetricCreateBody = /* @__PURE__ */ zod
+    .object({
+        metric_uuid: zod
+            .string()
+            .describe('UUID of the failed metric to recompute within the existing recalculation run.'),
+    })
+    .describe('Request body for retrying a single failed metric within an existing recalculation.')
+
+/**
  * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
  *
  * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator

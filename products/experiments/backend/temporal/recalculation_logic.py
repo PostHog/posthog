@@ -129,6 +129,18 @@ def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetric
     return metrics_to_recalculate
 
 
+def resolve_metric_type(experiment: Experiment, metric_uuid: str) -> str:
+    """Primary/secondary classification for one metric, matching discovery's labeling. Defaults to 'primary'.
+
+    Used by the single-metric retry to thread the same metric_type into the calc activity that the batch
+    workflow derives from discovery.
+    """
+    for metric in discover_experiment_metrics(experiment):
+        if metric.metric_uuid == metric_uuid:
+            return metric.metric_type
+    return "primary"
+
+
 @database_sync_to_async
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()

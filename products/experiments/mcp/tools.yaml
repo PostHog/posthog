@@ -858,6 +858,9 @@ tools:
     experiments-metrics-recalculation-retrieve:
         operation: experiments_metrics_recalculation_retrieve
         enabled: false
+    experiments-metrics-recalculation-retry-metric-create:
+        operation: experiments_metrics_recalculation_retry_metric_create
+        enabled: false
     experiments-prompt-templates-retrieve:
         operation: experiments_prompt_templates_retrieve
         enabled: false

@@ -19,10 +19,17 @@ type MetricErrorStateProps = {
     metric: ExperimentMetric
     query?: Record<string, any>
     onRetry?: () => void
+    retrying?: boolean
     height?: number
 }
 
-export const MetricErrorState = ({ error, query, onRetry, height = 200 }: MetricErrorStateProps): JSX.Element => {
+export const MetricErrorState = ({
+    error,
+    query,
+    onRetry,
+    retrying = false,
+    height = 200,
+}: MetricErrorStateProps): JSX.Element => {
     const { openSupportForm } = useActions(supportLogic)
 
     const errorMessage = parseErrorMessage(error.detail)
@@ -51,6 +58,8 @@ export const MetricErrorState = ({ error, query, onRetry, height = 200 }: Metric
                         type="primary"
                         size="xsmall"
                         onClick={onRetry}
+                        loading={retrying}
+                        disabledReason={retrying ? 'Retrying…' : undefined}
                         sideAction={
                             query
                                 ? {

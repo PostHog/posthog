@@ -12,15 +12,17 @@ Module-level free functions (not methods on ExperimentService) so the API view c
 from datetime import timedelta
 from uuid import UUID
 
-from django.db import transaction
+from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
+from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -31,7 +33,12 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
-from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics, find_metric_dict
+from products.experiments.backend.temporal.recalculation_logic import (
+    _get_recalc_state,
+    discover_experiment_metrics,
+    find_metric_dict,
+    resolve_metric_type,
+)
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. Sized to be safely above the workflow's worst-case end-to-end runtime
@@ -264,3 +271,115 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
         }
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Single-metric retry
+#
+# Recompute one failed metric inside an existing (terminal) recalculation, reusing the run's pinned query_to.
+# The calc activity (shared with the batch flow) overwrites the metric's result row in place; the finalize step
+# below clears the metric's error entry on success and recomputes run status. The run is never reopened to
+# in_progress, so the per-experiment active-run uniqueness constraint is never engaged.
+# ---------------------------------------------------------------------------
+
+
+def request_single_metric_retry(
+    experiment: Experiment, recalc: ExperimentMetricsRecalculation, metric_uuid: str
+) -> dict:
+    """Validate a single-metric retry against an existing run and return its serialized payload.
+
+    The caller (view) starts the retry workflow when this returns. Rejects: metric not in the run, the metric
+    is not currently failed, or the run never started (no query_to to reuse).
+    """
+    if recalc.experiment_id != experiment.id:
+        raise ValidationError("Recalculation does not belong to this experiment")
+    if metric_uuid not in (recalc.metric_uuids or []):
+        raise ValidationError("Metric is not part of this recalculation")
+    if recalc.query_to is None:
+        raise ValidationError("Recalculation has not started; nothing to retry against")
+
+    results = get_run_results(recalc)
+    result_by_uuid = {r["metric_uuid"]: r for r in results}
+    has_error_entry = metric_uuid in (recalc.metric_errors or {})
+    row = result_by_uuid.get(metric_uuid)
+    is_failed_row = row is not None and row["status"] == ExperimentMetricResult.Status.FAILED
+    if not has_error_entry and not is_failed_row:
+        raise ValidationError("Metric is not in a failed state")
+
+    payload = build_job_payload(recalc, results=results)
+    payload["results"] = results
+    return payload
+
+
+def _resolve_single_metric_retry_context_sync(recalculation_id: str, metric_uuid: str) -> dict:
+    """Sync core of the context resolver (see resolve_single_metric_retry_context). Unit-testable directly."""
+    state = _get_recalc_state(recalculation_id)
+    if metric_uuid not in state.metric_uuids:
+        raise ApplicationError(
+            f"metric_uuid {metric_uuid} is not in recalc {recalculation_id}'s metric set", non_retryable=True
+        )
+    if state.query_to is None:
+        raise ApplicationError(
+            f"recalc {recalculation_id} has no query_to — cannot retry a metric on a run that never started",
+            non_retryable=True,
+        )
+    with team_scope(state.team_id, canonical=True):
+        experiment = Experiment.objects.get(id=state.experiment_id)
+        metric_type = resolve_metric_type(experiment, metric_uuid)
+    return {
+        "experiment_id": state.experiment_id,
+        "query_to": state.query_to.isoformat(),
+        "metric_type": metric_type,
+    }
+
+
+def _finalize_single_metric_retry_sync(recalculation_id: str, metric_uuid: str) -> None:
+    """Sync core of the finalize step (see finalize_single_metric_retry). Unit-testable directly."""
+    state = _get_recalc_state(recalculation_id)
+    with team_scope(state.team_id, canonical=True), transaction.atomic():
+        recalc = (
+            ExperimentMetricsRecalculation.objects.select_for_update()
+            .select_related("experiment")
+            .get(id=recalculation_id)
+        )
+        results = get_run_results(recalc)
+        result_by_uuid = {r["metric_uuid"]: r for r in results}
+
+        metric_errors = recalc.metric_errors or {}
+        retried = result_by_uuid.get(metric_uuid)
+        if retried is not None and retried["status"] == ExperimentMetricResult.Status.COMPLETED:
+            metric_errors.pop(metric_uuid, None)
+
+        # Assign before deriving counters: _derive_counters reads recalc.metric_errors for discovery-only
+        # failures, so the cleared entry must be reflected to flip status correctly.
+        recalc.metric_errors = metric_errors
+        _, failed = _derive_counters(recalc, results=results)
+        recalc.status = (
+            ExperimentMetricsRecalculation.Status.COMPLETED
+            if failed == 0
+            else ExperimentMetricsRecalculation.Status.FAILED
+        )
+        recalc.save(update_fields=["metric_errors", "status"])
+
+
+@database_sync_to_async
+def resolve_single_metric_retry_context(recalculation_id: str, metric_uuid: str) -> dict:
+    """Read the run's experiment_id, query_to (ISO), and the metric's type, for the retry calc activity.
+
+    Validates the metric belongs to the run and the run has a query_to (it must already have started). Runs in
+    the retry workflow before the calc activity, since workflows can't touch the DB.
+    """
+    close_old_connections()
+    return _resolve_single_metric_retry_context_sync(recalculation_id, metric_uuid)
+
+
+@database_sync_to_async
+def finalize_single_metric_retry(recalculation_id: str, metric_uuid: str) -> None:
+    """Reconcile the run row after a single-metric retry calc.
+
+    Clears the metric's error entry if it now has a COMPLETED result row, then recomputes status (completed
+    only when no failures remain). query_to / started_at / completed_at are left untouched: a single-metric
+    retry never reopens the run.
+    """
+    close_old_connections()
+    _finalize_single_metric_retry_sync(recalculation_id, metric_uuid)

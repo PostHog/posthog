@@ -28,6 +28,7 @@ import type {
     PatchedExperimentHoldoutApi,
     PatchedExperimentSavedMetricApi,
     RecalculateMetricsRequestApi,
+    RetryMetricRequestApi,
     RunningTimeCalculationInputApi,
     RunningTimeCalculationResultApi,
     ShipVariantApi,
@@ -609,6 +610,38 @@ export const experimentsMetricsRecalculationRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getExperimentsMetricsRecalculationRetryMetricCreateUrl = (
+    projectId: string,
+    id: number,
+    recalculationId: string
+) => {
+    return `/api/projects/${projectId}/experiments/${id}/metrics_recalculation/${recalculationId}/retry_metric/`
+}
+
+/**
+ * Recompute a single failed metric within an existing recalculation, reusing the run's query_to.
+ *
+ * Returns the recalculation payload (still `failed` while the retry runs). Clients poll
+ * `GET metrics_recalculation/{id}/` to see the metric's result/error update.
+ */
+export const experimentsMetricsRecalculationRetryMetricCreate = async (
+    projectId: string,
+    id: number,
+    recalculationId: string,
+    retryMetricRequestApi: RetryMetricRequestApi,
+    options?: RequestInit
+): Promise<ExperimentMetricsRecalculationApi> => {
+    return apiMutator<ExperimentMetricsRecalculationApi>(
+        getExperimentsMetricsRecalculationRetryMetricCreateUrl(projectId, id, recalculationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(retryMetricRequestApi),
         }
     )
 }

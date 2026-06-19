@@ -44325,6 +44325,14 @@ export namespace Schemas {
 
     export type RetrieveFileDownloadResponse = RetrieveBasicOutput | RetrieveCompletedOutput | RetrieveFailedOutput;
 
+    /**
+     * Request body for retrying a single failed metric within an existing recalculation.
+     */
+    export interface RetryMetricRequest {
+      /** UUID of the failed metric to recompute within the existing recalculation run. */
+      metric_uuid: string;
+    }
+
     export interface ReviewQueueCreate {
       /**
          * Human-readable queue name.
