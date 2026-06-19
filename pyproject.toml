@@ -557,6 +557,21 @@ ignore_imports = [
     "products.logs.backend.presentation.views.api -> products.exports.backend.models.exported_asset",
     "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.api.hog_function",
     "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.models.hog_functions.hog_function",
+    # TODO: notebooks presentation wave — the moved NotebookViewSet still reaches in-product
+    # internals (collab, kernel runtime, query validation, models) and the tasks sandbox
+    # directly. Thin it to parse -> facade -> serialize and delete each entry.
+    # backend:contract-check stays off until this list is empty.
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.activity_logging",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab_stream",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.kernel_runtime",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.markdown_collab",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.models",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.presence",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.python_analysis",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.query_validation",
+    "products.notebooks.backend.presentation.views.notebook -> products.tasks.backend.exceptions",
+    "products.notebooks.backend.presentation.views.notebook -> products.tasks.backend.services.sandbox",
 ]
 
 [tool.ty.rules]

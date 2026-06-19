@@ -1,10 +1,17 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from products.customer_analytics.backend.models import Account
+from django.apps import apps
+
 from products.notebooks.backend import logic
 from products.notebooks.backend.facade import api, content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+
+def _create_account(team):
+    # apps.get_model avoids a notebooks -> customer_analytics import edge (the FK is a string ref).
+    Account = apps.get_model("customer_analytics", "Account")
+    return Account.objects.unscoped().create(team=team, name="Acme")
 
 
 class TestNotebooksFacade(BaseTest):
@@ -70,7 +77,7 @@ class TestNotebooksFacade(BaseTest):
         self.assertFalse(api.group_has_notebook(43))
 
     def test_create_account_notebook_and_list_notes(self):
-        account = Account.objects.unscoped().create(team=self.team, name="Acme")
+        account = _create_account(self.team)
         data = api.create_account_notebook(
             self.team.id, account.id, title="Recap", content=self._doc(), created_by_id=self.user.id
         )
@@ -81,7 +88,7 @@ class TestNotebooksFacade(BaseTest):
         self.assertEqual(notes[0].title, "Recap")
 
     def test_list_account_notes_excludes_deleted_and_non_internal(self):
-        account = Account.objects.unscoped().create(team=self.team, name="Acme")
+        account = _create_account(self.team)
         deleted = Notebook.objects.create(
             team=self.team, title="d", deleted=True, visibility=Notebook.Visibility.INTERNAL
         )

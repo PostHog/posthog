@@ -58,9 +58,9 @@ from products.exports.backend.models.exported_asset import (
     asset_for_token,
     get_content_response,
 )
-from products.notebooks.backend.api.notebook import NotebookSerializer
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, filter_notebook_content_for_sharing
 from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
 from products.product_analytics.backend.api.insight import InsightSerializer
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
