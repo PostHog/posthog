@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
-import { areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
+import { alertsUnsupportedReason, areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
 
 export type AlertsButtonProps = LemonButtonProps & {
     insight: Partial<QueryBasedInsightModel>
@@ -26,17 +26,12 @@ export function AlertsButton({ insight, insightLogicProps, text, ...props }: Ale
     const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
 
     const supported = areAlertsSupportedForInsight(insight.query, { hogqlAlertsEnabled, funnelAlertsEnabled })
-    // List only the insight types this account can actually alert on — naming a flag-gated type the
-    // user doesn't have would disclose an unreleased feature.
-    const availableTypes = ['trends', hogqlAlertsEnabled && 'SQL', funnelAlertsEnabled && 'funnel']
-        .filter(Boolean)
-        .join(', ')
     // Existing alerts must stay manageable even if the gating flag is later disabled —
     // they keep evaluating server-side, so the user needs a way in to edit or disable them.
     const disabledReason =
         supported || (alerts?.length ?? 0) > 0
             ? undefined
-            : `Alerts are only available for ${availableTypes} insights. Change the insight representation to add alerts.`
+            : alertsUnsupportedReason({ hogqlAlertsEnabled, funnelAlertsEnabled })
 
     return (
         <LemonButton
