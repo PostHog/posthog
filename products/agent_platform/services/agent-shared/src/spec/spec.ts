@@ -1177,6 +1177,18 @@ export interface AgentSession {
      * surfaces them in the chat UI / Slack thread.
      */
     pending_elevation_requests: PendingElevationRequest[]
+    /**
+     * Author iteration session — created via the preview ingress path (the
+     * Django-side preview-proxy, or a direct ingress call carrying a valid
+     * `aud=agent-ingress.preview` JWT). Output adapters (slack reply, webhook
+     * publish) noop instead of POSTing externally; the analytics sink tags
+     * `$ai_*` events with `preview: true` so production observability
+     * dashboards can filter author iteration noise. Cron is implicitly safe
+     * because the janitor only schedules off `live_revision_id`, so preview
+     * sessions never originate from cron. False for every session created via
+     * the live ingress path.
+     */
+    is_preview: boolean
     created_at: string
     updated_at: string
 }

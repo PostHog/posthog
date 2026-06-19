@@ -1273,6 +1273,8 @@ export interface AgentApprovalRequestApi {
     team_id: number
     /** Revision the gated call was proposed against. */
     revision_id: string
+    /** Mirrors the owning session's `is_preview`. True when the request originated from a draft revision running in preview mode — render a preview badge in the approvals queue so reviewers can tell author-iteration approvals apart from production traffic. */
+    is_preview: boolean
     /** Turn number within the session that emitted the call. */
     turn: number
     /** pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result. */
@@ -1493,6 +1495,8 @@ export interface AgentSessionSummaryApi {
      */
     preview: string | null
     retry_count: number
+    /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on the row so authors can distinguish iteration from live traffic. */
+    is_preview: boolean
     created_at: string
     updated_at: string
 }
@@ -1608,6 +1612,8 @@ export interface AgentApplicationSessionsRetrieveResponseApi {
     pending_inputs: AgentConversationMessageApi[]
     /** Times the janitor has re-queued this session after a stuck-running detection. */
     retry_count: number
+    /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on session detail so authors can distinguish iteration from live traffic. */
+    is_preview: boolean
     created_at: string
     updated_at: string
     /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
@@ -1705,6 +1711,8 @@ export interface AgentFleetLiveSessionSummaryApi {
      * @nullable
      */
     preview: string | null
+    /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Render a preview badge on the row so author iteration is distinguishable from live traffic. */
+    is_preview: boolean
     created_at: string
     updated_at: string
 }
@@ -1868,6 +1876,13 @@ export const AgentApplicationsPreviewProxyFormat = {
 } as const
 
 export type AgentApplicationsPreviewTokenParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string
+}
+
+export type AgentApplicationsPreviewTokenMintParams = {
     /**
      * Target draft revision. Must belong to this application and not be live.
      */

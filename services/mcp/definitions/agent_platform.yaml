@@ -160,6 +160,9 @@ tools:
     agent-applications-preview-token:
         operation: agent_applications_preview_token
         enabled: false
+    agent-applications-preview-token-mint:
+        operation: agent_applications_preview_token_mint
+        enabled: false
     agent-applications-retrieve:
         operation: agent_applications_retrieve
         enabled: true

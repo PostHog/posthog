@@ -30,7 +30,7 @@ import {
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
                      idempotency_key, trigger_metadata, state,
                      conversation, pending_inputs, principal, retry_count,
-                     usage_total, acl, pending_elevation_requests,
+                     usage_total, acl, pending_elevation_requests, is_preview,
                      created_at, updated_at`
 
 export class PgSessionQueue implements SessionQueue {
@@ -38,14 +38,19 @@ export class PgSessionQueue implements SessionQueue {
 
     async enqueue(session: AgentSession): Promise<void> {
         await this.pool.query(
+            // `is_preview` is immutable post-create — intentionally NOT in the
+            // ON CONFLICT update set. A retried enqueue of the same id (rare,
+            // but possible via the runner's append flow) must not flip a live
+            // session into preview: the side-effect-isolation contract for the
+            // runner relies on it being stable across the row's lifetime.
             `INSERT INTO agent_session
                 (id, application_id, revision_id, team_id, external_key,
                  idempotency_key, trigger_metadata, state,
                  conversation, pending_inputs, principal, retry_count,
-                 usage_total, acl, pending_elevation_requests,
+                 usage_total, acl, pending_elevation_requests, is_preview,
                  created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10::jsonb,
-                     $11::jsonb, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17)
+                     $11::jsonb, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17, $18)
              ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state,
                 conversation = EXCLUDED.conversation,
@@ -70,6 +75,7 @@ export class PgSessionQueue implements SessionQueue {
                 JSON.stringify(session.usage_total ?? EMPTY_USAGE_TOTAL),
                 JSON.stringify(session.acl ?? []),
                 JSON.stringify(session.pending_elevation_requests ?? []),
+                session.is_preview,
                 session.created_at,
                 session.updated_at,
             ]
@@ -378,14 +384,27 @@ export class PgSessionQueue implements SessionQueue {
         return r.rowCount ?? 0
     }
 
-    async findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null> {
+    async findByExternalKey(
+        applicationId: string,
+        externalKey: string,
+        scope: { isPreview: boolean; revisionId: string }
+    ): Promise<AgentSession | null> {
+        // The preview/live discriminator lives in SQL, not in JS post-filtering
+        // — the `ORDER BY updated_at DESC LIMIT 1` would otherwise return the
+        // most recent row regardless of scope, and a JS-side reject would
+        // strand any older same-scope row. Filtering in the WHERE clause
+        // guarantees the lookup never reaches a row outside its scope.
+        // `revision_id` constrains only preview rows; see the interface docs.
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
              FROM agent_session
-             WHERE application_id = $1 AND external_key = $2
+             WHERE application_id = $1
+               AND external_key = $2
+               AND is_preview = $3
+               AND ($3 = FALSE OR revision_id = $4)
              ORDER BY updated_at DESC
              LIMIT 1`,
-            [applicationId, externalKey]
+            [applicationId, externalKey, scope.isPreview, scope.revisionId]
         )
         if (r.rowCount === 0) {
             return null
@@ -558,6 +577,7 @@ interface DbRow {
     usage_total: unknown
     acl: unknown
     pending_elevation_requests: unknown
+    is_preview: boolean
     created_at: Date
     updated_at: Date
 }
@@ -615,6 +635,7 @@ function rowToSession(row: DbRow): AgentSession {
         pending_elevation_requests: Array.isArray(row.pending_elevation_requests)
             ? (row.pending_elevation_requests as PendingElevationRequest[])
             : [],
+        is_preview: row.is_preview === true,
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
     }

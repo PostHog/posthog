@@ -533,6 +533,7 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         resolvedIdentities,
         http: deps.http,
         posthogApiBaseUrl: deps.posthogApiBaseUrl,
+        isPreview: deps.session.is_preview,
     }
 }
 
