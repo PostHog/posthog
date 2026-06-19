@@ -1,12 +1,12 @@
 import { useId } from 'react'
 
-export interface PostHogLogomarkV2Props {
+export interface PostHogLogomarkProps {
     className?: string
     'aria-hidden'?: boolean | 'true' | 'false'
 }
 
-/** Redesigned PostHog logomark — gradient icon only. Use for compact placements, app icons, and favicons. */
-export function PostHogLogomarkV2({ className, 'aria-hidden': ariaHidden }: PostHogLogomarkV2Props): JSX.Element {
+/** Redesigned PostHog logomark — gradient icon only. Works on both light and dark backgrounds; use for compact placements, app icons, and favicons. */
+export function PostHogLogomark({ className, 'aria-hidden': ariaHidden }: PostHogLogomarkProps): JSX.Element {
     const u = useId().replace(/:/g, '')
     return (
         <svg

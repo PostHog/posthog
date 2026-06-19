@@ -1,12 +1,12 @@
 import { useId } from 'react'
 
-export interface PostHogLogoV2Props {
+export interface PostHogLogoGradientProps {
     className?: string
     'aria-hidden'?: boolean | 'true' | 'false'
 }
 
-/** Primary redesigned PostHog logo — gradient icon + wordmark, horizontal lockup. Use on light/neutral backgrounds where the full-color brand mark is wanted. */
-export function PostHogLogoV2({ className, 'aria-hidden': ariaHidden }: PostHogLogoV2Props): JSX.Element {
+/** Redesigned PostHog logo — gradient icon + wordmark, horizontal lockup. The primary brand mark; pairs with PostHogLogoWhite on dark surfaces (see PostHogLogo for the auto-swapping version). */
+export function PostHogLogoGradient({ className, 'aria-hidden': ariaHidden }: PostHogLogoGradientProps): JSX.Element {
     const u = useId().replace(/:/g, '')
     return (
         <svg
