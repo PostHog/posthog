@@ -13,72 +13,97 @@ be tested independently.
 
 ## Guidelines (locked)
 
-- All ingestion code lives in one place inside `nodejs/src`.
-- Code shared between CDP and ingestion lives in a common folder.
-- Each ingestion lane has its own directory under `src/ingestion/lanes/` (Phase 4).
-- The pipeline-building framework lives in `src/ingestion/framework/`; shared pipeline steps in
-  `src/ingestion/steps/` (Phase 4).
+> Naming/structure updated per PR #64506 review (reviewer `pl`): the per-product directories are
+> **pipelines**, not "lanes" — "lane" is reserved for the ingestion lanes (main, overflow, …).
+
+- All ingestion code lives in one place inside `nodejs/src/ingestion`, and `src/ingestion/` holds
+  only code **owned by the ingestion team**. Code owned by other teams — logs/traces, the
+  session-recording **API service**, the recording **rasterizer** — lives **outside**
+  `src/ingestion/` so code ownership and reviewers can be scoped to the ingestion team cleanly.
+- Code shared between CDP and ingestion lives in a common folder, and shares the **minimum** surface
+  — prefer interfaces and read-only repositories over full implementations.
+- Each ingestion **pipeline** has its own directory under `src/ingestion/pipelines/<name>/`.
+  Pipeline directory names are single-word lowercase, matching the pipeline/consumer name:
+  `sessionreplay`, `errortracking`, `clientwarnings` (not `session-replay` / `error-tracking` /
+  `ingestionwarnings`). Reserve the word **lane** for the ingestion lanes (main, overflow, …) — a
+  pipeline is not a lane.
+- The pipeline-building framework lives in `src/ingestion/framework/`. Pipeline **steps** live with
+  their pipeline (`pipelines/<name>/steps/`) or, when shared across pipelines, in
+  `src/ingestion/common/steps/` — there is **no** top-level `src/ingestion/steps/`.
+- ingestion must **never** import CDP (and CDP never imports ingestion) — both go through `common/`.
 - Cross-directory imports use the `~/` alias (the codebase standard); reserve relative paths for
-  same-directory siblings (`./`) (Phase 5).
+  same-directory siblings (`./`).
 - Test selection follows the dependency graph:
   - No ingestion tests run when CDP-only code is modified.
   - No CDP tests run when ingestion-only code is modified.
-  - When common code changes, **everything** runs (CDP + all ingestion lanes).
+  - When common code changes, **everything** runs (CDP + all ingestion pipelines).
 - All tests must pass. No tests are removed.
 - If a test file mixes CDP and ingestion logic, split the ingestion logic into its own test.
-- Unit tests live beside the files they test. Integration and e2e tests live in separate folders.
+- **Unit tests live beside the files they test; integration and e2e tests live under `tests/`**
+  (mirroring the src path so the `pipelines/<name>` segment is preserved for CI selection). Confirmed
+  by jose-sequeira on the PR.
 - All CI, scripts, etc. adapt to the new layout.
 - Group files by semantic separation within every folder (e.g. `common/persons`, `common/groups`,
   `common/personhog`) — avoid flat dumps.
-- No renaming of files; prefer moves over rewrites. Change a file only when:
+- Prefer moves over rewrites. The directory renames above (`lanes/` -> `pipelines/`, hyphenated names
+  -> single-word) are moves, not file rewrites. Change a file's contents only when:
   - imports need fixing, or
   - CDP and ingestion logic in the same file can be separated, or
   - duplicated methods can be merged.
 
 ## Locked taxonomy
 
-### Ingestion lanes (each gets isolated test selection)
+### Ingestion pipelines (each gets isolated test selection)
 
-| Lane                | Current source                                                                           |
-| ------------------- | ---------------------------------------------------------------------------------------- |
-| `analytics`         | `src/ingestion/analytics` (core event pipeline)                                          |
-| `heatmaps`          | `src/ingestion/heatmaps`                                                                 |
-| `ingestionwarnings` | `src/ingestion/clientwarnings` (+ shared `common/ingestion-warnings.ts`)                 |
-| `logs`              | `src/logs-ingestion` (move in)                                                           |
-| `metrics`           | `src/metrics-ingestion` (move in)                                                        |
-| `session-replay`    | merge of `src/session-recording` + `src/session-replay` + `src/ingestion/session_replay` |
-| `ai`                | `src/ingestion/ai`                                                                       |
-| `error-tracking`    | `src/ingestion/error-tracking`                                                           |
+Under `src/ingestion/pipelines/<name>/` — single-word lowercase names matching the pipeline/consumer.
+Phase 4 shipped these under `src/ingestion/lanes/` with hyphenated names; Phase 7 renames the parent
+to `pipelines/` and the dirs to the names below (directory moves).
 
-Lane-dir naming note: `clientwarnings` becomes the `ingestionwarnings` lane via a directory
-move (allowed — it is a move, not a file rename). Deferred to Phase 2.
+| Pipeline         | Current dir (Phase 4)              | Notes                                      |
+| ---------------- | ---------------------------------- | ------------------------------------------ |
+| `analytics`      | `lanes/analytics`                  | core event pipeline                        |
+| `heatmaps`       | `lanes/heatmaps`                   |                                            |
+| `clientwarnings` | `lanes/ingestionwarnings`          | rename back to `clientwarnings`            |
+| `metrics`        | `lanes/metrics`                    |                                            |
+| `sessionreplay`  | `lanes/session-replay`             | session-recording **ingestion only**       |
+| `ai`             | `lanes/ai`                         |                                            |
+| `errortracking`  | `lanes/error-tracking`             | rename to `errortracking`                  |
 
-### Ingestion-shared (a change here runs all lane tests)
+Moving **out** of `src/ingestion/` (owned by other teams — PR #64506 review):
 
-`pipelines/` (the framework), `common/`, `outputs/`, `event-processing/`,
-`event-preprocessing/`, `cookieless/`, `personhog/`, `tophog/`, `utils/`, `api/`.
+- `logs` (and traces) — not ingestion-team-owned; relocate out of `src/ingestion/` (Phase 7).
+- session-recording **API service** (`session-replay/recording-api`) — a separate service run by
+  another team (Cymbal-like); separate it out.
+- recording **rasterizer** (`session-replay/recording-rasterizer`) — orthogonal to session-recording
+  ingestion; move out.
 
-Phase 4 regroups these: `pipelines/` (+ `tophog/`) -> `framework/`; `event-processing/` +
-`event-preprocessing/` -> `steps/`; `cookieless/` -> `common/`. A change in any of them still runs
-all lane tests.
+### Ingestion-shared (a change here runs all pipeline tests)
+
+`framework/` (the pipeline-building framework, from `pipelines/` + `tophog/`), `common/` (incl.
+`common/steps/` for cross-pipeline steps + `common/cookieless/`), `outputs/`, `personhog/`, `utils/`,
+`api/`. There is no top-level `steps/`: shared steps live in `common/steps/`, pipeline-specific steps
+in `pipelines/<name>/steps/`.
 
 Placement rule for each shared module = the narrowest scope covering all its importers:
 
-- imported only by ingestion lanes -> `ingestion/common/`
-- also imported by CDP / servers (e.g. `personhog`, `outputs`, `event-processing`) -> top-level
-  `common/` (the CDP ∩ ingestion tier).
+- imported only by ingestion pipelines -> `ingestion/common/`
+- also imported by CDP / servers (e.g. `personhog`, `outputs`) -> top-level `common/` (the CDP ∩
+  ingestion tier), sharing the **minimal** surface (interfaces / read-only repositories), not full
+  implementations.
 
 ### Out of scope (untouched "other / infra")
 
 `servers`, `api` (top-level), `ai-observability`, `worker` (minus `worker/ingestion`, which folds
-into ingestion), `kafka`, `config`, `schema`, `generated`.
+into ingestion), `kafka`, `config`, `schema`, `generated`. Plus the other-team code being moved out
+of ingestion (logs/traces, recording-api, rasterizer) once relocated.
 
 ## The invariant (what the whole refactor serves)
 
 The import graph must be a DAG:
 
-- a lane may import `{ common, ingestion/common, pipelines }` only — **never another lane**;
-- common code may **never** import a lane;
+- a pipeline may import `{ common, ingestion/common, framework }` only — **never another pipeline**
+  (composition roots like the consumers/servers are exempt and may wire pipelines together);
+- common code may **never** import a pipeline;
 - ingestion may **never** import CDP and CDP may **never** import ingestion — both go through `common`.
 
 The CI path-based test selection is only _correct_ once this DAG holds. Everything else
@@ -378,12 +403,69 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
 > `.github/workflows/` and must stay backwards-compatible with unrebased PRs). The items below are the
 > plan for that next PR.
 
-- [ ] Extend `dorny/paths-filter` to emit per-lane + common + cdp flags (lanes now under
-      `src/ingestion/lanes/<lane>/`; shared = `framework/`, `steps/`, `common/`; e2e tests under
-      `tests/ingestion/lanes/<lane>/`).
+- [ ] Extend `dorny/paths-filter` to emit per-pipeline + common + cdp flags (pipelines under
+      `src/ingestion/pipelines/<name>/` after Phase 7; shared = `framework/`, `common/`; integration/e2e
+      tests under `tests/ingestion/pipelines/<name>/`).
 - [ ] Gate jest runs by changed area; verify the rules table.
 - [ ] Update scripts/docs to the new layout.
 - [ ] **Exit gate:** `pnpm test:full` green in CI (full suite).
+
+### Phase 7 — address PR #64506 review feedback
+
+Sixteen review threads from reviewer `pl` (ingestion lead). They revise naming/structure decisions
+from Phases 2–4, so the Guidelines + Locked taxonomy above are updated to match; the items below are
+the work to realign the code. All are directory/structure moves — run them one-per-iteration with the
+loop gate (codemod -> `pnpm format` -> guard/tsc/lint -> CI). **Sequencing:** Phase 7 lands before
+Phase 6, because the CI per-pipeline selection keys off the final `pipelines/<name>` paths. Open
+product-owner question (do NOT assume): whether Phase 7 ships in this PR or the follow-up — flag it,
+do not block the plan on it.
+
+Naming (pipelines, not lanes; single-word dirs):
+
+- [ ] Rename `src/ingestion/lanes/` -> `src/ingestion/pipelines/` (dir move + codemod; update guard
+      `laneOf`/`LANES`, jest/tsconfig globs, and `tests/ingestion/lanes/` -> `tests/ingestion/pipelines/`).
+      [heatmaps "pipeline not a lane"; tracker line 18]
+- [ ] Rename pipeline dirs to single-word lowercase: `session-replay` -> `sessionreplay`,
+      `error-tracking` -> `errortracking`, `ingestionwarnings` -> `clientwarnings`. [sessionreplay nit;
+      errortracking nit; clientwarnings nit]
+
+Move other-team code out of `src/ingestion/` (ownership / reviewers):
+
+- [ ] Move `logs` (and traces) out of `src/ingestion/` — not ingestion-team-owned. [logs thread]
+- [ ] Separate the session-recording **API service** (`recording-api`) out of ingestion — separate
+      service run by another team. [recording-api thread, already marked resolved — confirm + execute]
+- [ ] Move the recording **rasterizer** out of ingestion — orthogonal to session-recording ingestion.
+      [rasterizer thread]
+
+Steps placement (no top-level `steps/`):
+
+- [ ] Remove `src/ingestion/steps/`: shared steps -> `common/steps/`, pipeline-specific steps ->
+      `pipelines/<name>/steps/`. [apply-cookieless-processing thread]
+- [ ] Move `common/event-pipeline/prefetchPersonsStep.ts` and `processPersonlessDistinctIdsBatchStep.ts`
+      into steps (`common/steps/`); the latter lacks tests (note, leave for now). [prefetch + personless
+      step threads]
+
+CDP boundary (ingestion must not import CDP):
+
+- [ ] Remove the CDP import in `ingestion/common/event-pipeline/transformEventStep.ts` (invert via a
+      `common/` contract). [transformEventStep "issue"]
+- [ ] Resolve the CDP import in the error-tracking `per-issue-guarded-rate-limiter.service.test.ts`
+      (relocate the shared test helper to a neutral spot, or invert). [rate-limiter test "question"]
+- [ ] Tighten the boundary guard to flag ingestion->CDP edges and drive that baseline to 0.
+
+Common surface minimization:
+
+- [ ] Audit `common/persons` + `common/groups` repositories — confirm CDP needs only the interfaces or
+      the read repository, and narrow the shared surface accordingly. [postgres-person-repository thread]
+
+Misc:
+
+- [ ] `evaluation-scheduler/evaluation-scheduler.ts:27` — investigate the "out of place" line and tidy.
+      [evaluation-scheduler nit]
+- [x] Tests location: pl suggested moving all tests beside code; jose confirmed **integration + e2e in
+      `tests/`, unit tests alongside** — current layout already matches, no change. [event-filters thread]
+- [ ] **Exit gate:** full suite green in CI; guard baseline clean (no ingestion->CDP, no
+      pipeline->pipeline); pipeline naming consistent.
 
 ## Status log
 
@@ -604,3 +686,15 @@ first-class `tsconfig` alias). The merges + moves left ~158 ingestion files mixi
   broken, guard 0, eslint 0, prettier clean, no fs-path hazards, master merge still conflict-free. With this,
   every infra-dependent ingestion test (e2e + integration) lives under `tests/ingestion/` mirroring src so
   Phase 6 can still attribute by lane; unit tests stay co-located. Pushing for CI to confirm.
+- PR #64506 review feedback folded into the plan. Reviewer `pl` (ingestion lead) left 16 threads that
+  revise naming/structure: per-product dirs are **pipelines**, not "lanes" ("lane" = main/overflow), so
+  `lanes/` -> `pipelines/` with single-word dir names (`sessionreplay`, `errortracking`, `clientwarnings`);
+  `src/ingestion/` should hold only ingestion-team-owned code, so logs/traces, the recording-api service,
+  and the rasterizer move out; no top-level `steps/` (use `pipelines/<name>/steps` or `common/steps`);
+  ingestion must not import CDP (two real violations flagged: `transformEventStep`, an error-tracking
+  rate-limiter test); `common/` should share only interfaces/read-only repos with CDP. The tests-location
+  thread is resolved (jose: integration+e2e in `tests/`, unit alongside — current layout already matches).
+  Updated the Guidelines + Locked taxonomy + invariant to this nomenclature and added **Phase 7** (one task
+  per thread). Phase 7 sequences before Phase 6 (CI selection keys off the final `pipelines/<name>` paths);
+  open question (flagged, not assumed): whether Phase 7 ships in this PR or the follow-up. No code moved yet
+  — this is the plan + guideline adaptation only.
