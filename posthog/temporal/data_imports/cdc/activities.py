@@ -628,6 +628,28 @@ class CDCExtractActivity:
             columns=filtered,
         )
 
+    def _build_event_name_map(self) -> dict[str, str]:
+        """Map each schema's source-qualified `schema.table` name to its stored `name`.
+
+        WAL events are always qualified (`public.orders`) but `name` may be stored bare
+        (`orders`), so an exact-equality match silently drops every change for a bare row.
+        """
+        default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
+        mapping: dict[str, str] = {}
+        for schema in self.cdc_schemas:
+            metadata = schema.sync_type_config.get("schema_metadata") or {}
+            src_schema = metadata.get("source_schema")
+            src_table = metadata.get("source_table_name")
+            if isinstance(src_schema, str) and isinstance(src_table, str):
+                qualified = f"{src_schema}.{src_table}"
+            elif "." in schema.name:
+                qualified = schema.name
+            else:
+                qualified = f"{default_schema or 'public'}.{schema.name}"
+            mapping[qualified] = schema.name
+            mapping.setdefault(schema.name, schema.name)  # also match a bare-emitted name
+        return mapping
+
     # ------------------------------------------------------------------
     # WAL read loop with periodic micro-batch flushes
     # ------------------------------------------------------------------
@@ -639,17 +661,20 @@ class CDCExtractActivity:
         extractions that hit the activity timeout don't have to replay events
         on the next run.
         """
-        cdc_table_names = {s.name for s in self.cdc_schemas}
+        event_name_to_schema_name = self._build_event_name_map()
         self.batcher = ChangeEventBatcher()
 
         for event in self.reader.read_changes():
             activity.heartbeat()
 
-            # The publication should be scoped to CDC-enabled tables only, so in
-            # practice this filter is a no-op. It's a safety net in case the
-            # publication includes extra tables (e.g. self-managed mode).
-            if event.table_name not in cdc_table_names:
+            # Resolve to the schema's stored `name` so downstream keying lines up. Log
+            # unmatched drops: a silent drop here is how a name mismatch starves a table.
+            canonical_name = event_name_to_schema_name.get(event.table_name)
+            if canonical_name is None:
+                self.log.debug("cdc_event_dropped_unmatched_table", table=event.table_name)
                 continue
+            if canonical_name != event.table_name:
+                event = dataclasses.replace(event, table_name=canonical_name)
 
             event = self._project_event_columns(event)
             self.batcher.add(event)
