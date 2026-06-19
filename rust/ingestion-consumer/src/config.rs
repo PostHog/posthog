@@ -127,12 +127,15 @@ pub struct Config {
     #[envconfig(default = "3")]
     pub max_retries: u32,
 
-    /// Maximum in-flight batches per worker. MUST match
-    /// `INGESTION_WORKER_CONCURRENT_BATCHES` on the Node.js side, which is
-    /// passed into `BatchingPipeline.concurrentBatches`. The consumer caps
-    /// itself via a per-worker `Semaphore`; the worker still responds 503
-    /// if it sees `feed()` rejection, so any divergence is observable via
-    /// `ingestion_api_batch_capacity_rejections_total`.
+    /// Soft cap on in-flight batches per worker, enforced by a per-worker
+    /// `Semaphore`. Ideally aligned with the worker's
+    /// `BatchingPipeline.concurrentBatches` (`INGESTION_WORKER_CONCURRENT_BATCHES`
+    /// on the Node.js side) so the happy path backpressures by waiting for a
+    /// permit before the worker fills up. It need not match exactly: if the
+    /// worker still responds 503, the transport treats it as retriable
+    /// backpressure and retries with a longer, jittered backoff. Divergence
+    /// remains observable via `ingestion_api_batch_capacity_rejections_total`.
+    /// (A future adaptive-concurrency controller will replace this static cap.)
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 

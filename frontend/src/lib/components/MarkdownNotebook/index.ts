@@ -1,5 +1,6 @@
 export { MarkdownNotebook } from './MarkdownNotebook'
 export type { MarkdownNotebookAskAIRequest, MarkdownNotebookProps } from './MarkdownNotebook'
+export type { InsertCommand, MarkdownNotebookInsertMenuApi } from './editorTypes'
 export {
     getMarkdownNotebookDefaultRegistry,
     createMarkdownNotebookRegistry,

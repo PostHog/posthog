@@ -3,7 +3,9 @@ use crate::{
     frames::{record_frame_resolution_failure, Context, ContextLine, Frame},
     langs::CommonFrameMetadata,
     sanitize_string,
-    symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
+    symbolication::symbol_store::{
+        chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog,
+    },
 };
 use common_types::error_tracking::FrameId;
 use reqwest::Url;
