@@ -71,6 +71,9 @@ tools:
     data-warehouse-warehouse-status-retrieve:
         operation: data_warehouse_warehouse_status_retrieve
         enabled: false
+    data-warehouse-warehouse-sync-status-retrieve:
+        operation: data_warehouse_warehouse_sync_status_retrieve
+        enabled: false
     fix-hogql-create:
         operation: fix_hogql_create
         enabled: false
