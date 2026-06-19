@@ -158,26 +158,26 @@ class TestEngineActivities(BaseTest):
         self.assertEqual(run.status, VisionActionRunStatus.FAILED)
         self.assertEqual(run.error, {"message": "x"})
 
-    def test_emit_captures_event(self) -> None:
+    def test_emit_produces_internal_event(self) -> None:
         action = _action(self.team)
         run = VisionActionRun(
             vision_action=action, team=self.team, idempotency_key="k", output={"slack": "hello *world*"}
         )
         run.save()
 
-        captured = MagicMock()
-        captured.raise_for_status = MagicMock()
-        with patch.object(act, "capture_internal_routed", return_value=captured) as mock_capture:
+        # Delivery rides the private internal-events channel (not the public capture pipeline), so it
+        # can't be forged with the project token.
+        with patch.object(act, "produce_internal_event") as mock_emit:
             act._emit(EmitActionReadyInputs(run_id=run.id, team_id=self.team.id))
 
-        mock_capture.assert_called_once()
-        kwargs = mock_capture.call_args.kwargs
-        self.assertEqual(kwargs["event_name"], "$replay_vision_action_ready")
-        self.assertEqual(kwargs["event_uuid"], str(run.id))
-        self.assertEqual(kwargs["properties"]["vision_action_id"], str(action.id))
-        self.assertEqual(kwargs["properties"]["slack_text"], "hello *world*")
-        self.assertFalse(kwargs["process_person_profile"])
-        captured.raise_for_status.assert_called_once()
+        mock_emit.assert_called_once()
+        kwargs = mock_emit.call_args.kwargs
+        self.assertEqual(kwargs["team_id"], self.team.id)
+        event = kwargs["event"]
+        self.assertEqual(event.event, "$replay_vision_action_ready")
+        self.assertEqual(event.uuid, str(run.id))
+        self.assertEqual(event.properties["vision_action_id"], str(action.id))
+        self.assertEqual(event.properties["slack_text"], "hello *world*")
 
 
 # --- workflow orchestration (activities mocked at the temporalio.workflow boundary) ---

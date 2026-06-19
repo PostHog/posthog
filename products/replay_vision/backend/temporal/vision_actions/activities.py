@@ -9,7 +9,7 @@ from django.db import transaction
 import structlog
 from temporalio import activity
 
-from posthog.api.capture_dispatch import capture_internal_routed
+from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.vision_action import (
@@ -32,7 +32,6 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
 logger = structlog.get_logger(__name__)
 
 _EVENT_NAME = "$replay_vision_action_ready"
-_EVENT_SOURCE = "replay_vision"
 
 
 @activity.defn
@@ -142,22 +141,22 @@ def _emit(inputs: EmitActionReadyInputs) -> None:
     team = run.team
 
     action_url = f"{settings.SITE_URL}/project/{team.id}/replay/vision-actions/{action.id}"
-    properties = {
-        "$insert_id": str(run.id),
-        "vision_action_id": str(action.id),
-        "scanner_id": str(action.scanner_id) if action.scanner_id else None,
-        "vision_action_run_id": str(run.id),
-        "slack_text": run.output.get("slack", ""),
-        "action_url": action_url,
-    }
-    result = capture_internal_routed(
-        token=team.api_token,
-        event_name=_EVENT_NAME,
-        event_source=_EVENT_SOURCE,
-        distinct_id=replay_vision_distinct_id(team.id),
-        timestamp=datetime.now(UTC),
-        properties=properties,
-        process_person_profile=False,
-        event_uuid=str(run.id),
+    # Private internal event (cdp_internal_events topic), NOT the public capture pipeline — an
+    # internal_destination HogFunction filtered on vision_action_id delivers it. This is non-forgeable
+    # with the public project token, and (unlike capture) it does NOT land in the analytics events
+    # table — VisionActionRun is the durable history. `uuid=run.id` keeps the emit idempotent on retry.
+    produce_internal_event(
+        team_id=team.id,
+        event=InternalEventEvent(
+            event=_EVENT_NAME,
+            distinct_id=replay_vision_distinct_id(team.id),
+            uuid=str(run.id),
+            properties={
+                "vision_action_id": str(action.id),
+                "scanner_id": str(action.scanner_id) if action.scanner_id else None,
+                "vision_action_run_id": str(run.id),
+                "slack_text": run.output.get("slack", ""),
+                "action_url": action_url,
+            },
+        ),
     )
-    result.raise_for_status()
