@@ -21280,6 +21280,34 @@ class AssistantRetentionActorsQuery(BaseModel):
     )
 
 
+class AssistantStickinessActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Compare | None = Field(
+        default=None,
+        description=("Whether to pull from the previous period when `compareFilter` is enabled in the source."),
+    )
+    day: int = Field(
+        ...,
+        description=(
+            "The number of active intervals to drill into — the X-axis value of the"
+            " stickiness bar. Despite the name, this is an interval **count**, not a"
+            " date: for a daily insight, `day: 13` lists the users who were active on"
+            " exactly 13 days within the source's date range."
+        ),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    series: int | None = Field(
+        default=None,
+        description=("0-based index of the series to drill into when the source has multiple series. Defaults to 0."),
+    )
+    source: AssistantStickinessQuery = Field(
+        ...,
+        description=("The source stickiness insight query whose bar we are drilling into."),
+    )
+
+
 class AssistantTrendsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

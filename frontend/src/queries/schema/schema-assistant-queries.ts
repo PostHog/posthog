@@ -1418,6 +1418,38 @@ export interface AssistantRetentionActorsQuery {
 }
 
 /**
+ * Drills into a stickiness insight to list the persons behind one bar — the users who were active
+ * in exactly `day` intervals within the source's date range (e.g. active on exactly 13 days).
+ * Returned rows are `distinct_id`, `email`, and `name`.
+ *
+ * Pair this with `query-stickiness`: run the stickiness query first to read the distribution
+ * (the X-axis is the number of active intervals, the Y-axis is the number of users), then call this
+ * tool with the **same** stickiness query as `source` and `day` set to the bar you want to drill into.
+ *
+ * Stickiness drilldown is membership-based and does not surface a matched-recordings column, so
+ * `includeRecordings` is intentionally omitted (as with lifecycle and retention).
+ */
+export interface AssistantStickinessActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source stickiness insight query whose bar we are drilling into. */
+    source: AssistantStickinessQuery
+
+    /**
+     * The number of active intervals to drill into — the X-axis value of the stickiness bar.
+     * Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13`
+     * lists the users who were active on exactly 13 days within the source's date range.
+     */
+    day: integer
+
+    /** 0-based index of the series to drill into when the source has multiple series. Defaults to 0. */
+    series?: integer
+
+    /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
+    compare?: 'current' | 'previous'
+}
+
+/**
  * Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency,
  * token usage, costs, errors, and other metadata. Use for AI observability — debugging
  * slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.

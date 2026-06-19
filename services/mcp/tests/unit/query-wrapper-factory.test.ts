@@ -95,6 +95,7 @@ describe('createQueryWrapper _posthogUrl', () => {
         lifecycleActors: ReturnType<typeof vi.fn>
         pathsActors: ReturnType<typeof vi.fn>
         retentionActors: ReturnType<typeof vi.fn>
+        stickinessActors: ReturnType<typeof vi.fn>
     } {
         const actorsResponse = {
             query: { kind: 'ActorsQuery', source: { kind: 'InsightActorsQuery' } },
@@ -106,14 +107,21 @@ describe('createQueryWrapper _posthogUrl', () => {
         const lifecycleActors = vi.fn().mockResolvedValue(actorsResponse)
         const pathsActors = vi.fn().mockResolvedValue(actorsResponse)
         const retentionActors = vi.fn().mockResolvedValue(actorsResponse)
+        const stickinessActors = vi.fn().mockResolvedValue(actorsResponse)
         const context = {
             api: {
-                query: vi.fn().mockReturnValue({ trendsActors, lifecycleActors, pathsActors, retentionActors }),
+                query: vi.fn().mockReturnValue({
+                    trendsActors,
+                    lifecycleActors,
+                    pathsActors,
+                    retentionActors,
+                    stickinessActors,
+                }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
             stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
         } as unknown as Context
-        return { context, trendsActors, lifecycleActors, pathsActors, retentionActors }
+        return { context, trendsActors, lifecycleActors, pathsActors, retentionActors, stickinessActors }
     }
 
     const actorsSchema = z.object({
@@ -165,6 +173,21 @@ describe('createQueryWrapper _posthogUrl', () => {
         expect(trendsActors).not.toHaveBeenCalled()
         expect(lifecycleActors).not.toHaveBeenCalled()
         expect(pathsActors).not.toHaveBeenCalled()
+        expect(result._posthogUrl).toContain('DataTableNode')
+    })
+
+    it('dispatches StickinessQuery source to stickinessActors', async () => {
+        const { context, trendsActors, lifecycleActors, pathsActors, retentionActors, stickinessActors } =
+            createActorsDispatchContext()
+        const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
+
+        const result = (await tool.handler(context, { source: { kind: 'StickinessQuery' } })) as any
+
+        expect(stickinessActors).toHaveBeenCalledOnce()
+        expect(trendsActors).not.toHaveBeenCalled()
+        expect(lifecycleActors).not.toHaveBeenCalled()
+        expect(pathsActors).not.toHaveBeenCalled()
+        expect(retentionActors).not.toHaveBeenCalled()
         expect(result._posthogUrl).toContain('DataTableNode')
     })
 
@@ -338,8 +361,8 @@ describe('createQueryWrapper actors dispatch', () => {
         const factory = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })
         const tool = factory()
 
-        await expect(tool.handler(context, { source: { kind: 'StickinessQuery' } })).rejects.toThrow(
-            'Unsupported source kind for actors query: StickinessQuery'
+        await expect(tool.handler(context, { source: { kind: 'FunnelsQuery' } })).rejects.toThrow(
+            'Unsupported source kind for actors query: FunnelsQuery'
         )
     })
 })
