@@ -69,7 +69,9 @@ export function deriveFunnelAlertPreview(
     // Alerts evaluate the current period, so drop previous rows before normalizing (mirrors the backend).
     const result = _currentPeriodOnly(rawResult)
     if (result.length === 0) {
-        return null
+        // Data existed but was all previous-period (compare on, no current rows) — show no-data, not
+        // the "not loaded yet" hint.
+        return { status: 'no-data' }
     }
     // A non-breakdown funnel returns list[step]; a breakdown funnel returns list[list[step]].
     const isBreakdown = Array.isArray(result[0])

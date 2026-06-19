@@ -766,6 +766,18 @@ describe('alertFormLogic', () => {
                 undefined,
                 { status: 'ok', values: [value(null, 10, false)], isBreakdown: false, hasBounds: false },
             ],
+            [
+                'compared funnel with only previous-period rows shows no-data, not unloaded',
+                {
+                    result: [
+                        { order: 0, count: 800, compare_label: 'previous', breakdown_value: null },
+                        { order: 1, count: 120, compare_label: 'previous', breakdown_value: null },
+                    ],
+                },
+                FROM_START,
+                undefined,
+                { status: 'no-data' },
+            ],
         ])('%s', (_name, insightData, config, bounds, expected) => {
             expect(
                 deriveFunnelAlertPreview(insightData as Record<string, any> | null, config as any, bounds as any)
