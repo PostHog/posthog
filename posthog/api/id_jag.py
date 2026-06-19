@@ -37,6 +37,9 @@ ACCESS_TOKEN_TYPE = "at+jwt"
 # RFC 7521/7523 — JWT Bearer grant type identifier.
 JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 
+# draft-ietf-oauth-identity-assertion-authz-grant §7.2 — advertised in metadata for ID-JAG discovery.
+ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag"
+
 
 GENERIC_ID_JAG_REJECTION = "ID-JAG could not be verified"
 
@@ -121,6 +124,20 @@ def _get_site_url() -> str:
             error_code="server_error",
         )
     return site_url
+
+
+def _get_allowed_audiences() -> list[str]:
+    """Accepted ID-JAG `aud` values — the authorization-server issuer the client discovered.
+    Always includes SITE_URL; Cloud adds the OAuth proxy via ID_JAG_ALLOWED_AUDIENCES."""
+    extra = [a.rstrip("/") for a in (settings.ID_JAG_ALLOWED_AUDIENCES or []) if a]
+    return [_get_site_url(), *extra]
+
+
+def _get_allowed_resources() -> list[str]:
+    """Accepted ID-JAG `resource` values — the MCP resource identifier the client discovered.
+    Always includes SITE_URL; Cloud adds the MCP hosts via ID_JAG_ALLOWED_RESOURCES."""
+    extra = [r.rstrip("/") for r in (settings.ID_JAG_ALLOWED_RESOURCES or []) if r]
+    return [_get_site_url(), *extra]
 
 
 def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClient:
@@ -268,7 +285,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
     except jwt.PyJWTError as e:
         raise InvalidGrantError(f"ID-JAG signing key resolution failed: {e}")
 
-    expected_audience = _get_site_url()
+    allowed_audiences = _get_allowed_audiences()
 
     try:
         claims = cast(
@@ -277,7 +294,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
                 assertion,
                 signing_key.key,
                 algorithms=["RS256", "RS384", "RS512"],
-                audience=expected_audience,
+                audience=allowed_audiences,
                 leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                 options={
                     "require": ["iss", "sub", "aud", "exp", "iat", "client_id"],
@@ -322,7 +339,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
     resource = claims.get("resource")
     if not resource:
         raise InvalidGrantError("ID-JAG is missing the resource claim (RFC 8707)")
-    if resource.rstrip("/") != expected_audience:
+    if resource.rstrip("/") not in _get_allowed_resources():
         raise InvalidTargetError(f"ID-JAG resource {resource!r} does not match this resource server")
 
     client_id = claims.get("client_id")
@@ -397,7 +414,7 @@ def _construct_access_token_payload(
         "iss": _get_site_url(),
         "sub": _get_sub(provider_name, cast(str, claims.get("sub"))),
         "email": verified_email,
-        "aud": claims.get("resource"),
+        "aud": str(claims.get("resource") or "").rstrip("/"),
         "client_id": claims.get("client_id"),
         "scope": " ".join(granted_scopes),
         "app_org": provider_name,

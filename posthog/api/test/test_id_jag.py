@@ -581,6 +581,47 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_target")
 
+    @override_settings(ID_JAG_ALLOWED_AUDIENCES=["https://oauth.posthog.com"])
+    def test_accepts_aud_matching_configured_allowed_audience(self) -> None:
+        # A spec-compliant client derives `aud` from the advertised auth-server issuer
+        # (the OAuth proxy), not SITE_URL. That value must be accepted when allowlisted.
+        assertion = _make_id_jag(audience="https://oauth.posthog.com")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+    @override_settings(ID_JAG_ALLOWED_RESOURCES=["https://mcp.posthog.com"])
+    def test_accepts_resource_matching_configured_allowed_resource(self) -> None:
+        # The ID-JAG `resource` is the advertised MCP resource identifier, not SITE_URL.
+        # The minted access token is audience-restricted to that resource (EMA §5.1).
+        assertion = _make_id_jag(resource="https://mcp.posthog.com/")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        claims = jwt.decode(
+            resp.json()["access_token"],
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience="https://mcp.posthog.com",
+            issuer=_AUTH_SERVER_URL,
+        )
+        self.assertEqual(claims["aud"], "https://mcp.posthog.com")
+
+    @override_settings(ID_JAG_ALLOWED_RESOURCES=["https://mcp.posthog.com"])
+    def test_round_trip_with_mcp_resource_authenticates_on_resource_side(self) -> None:
+        # End-to-end: a token minted for the MCP resource must be accepted by the
+        # resource server (IDJagAccessTokenAuthentication), not just issued.
+        assertion = _make_id_jag(
+            resource="https://mcp.posthog.com",
+            scope="user:read",
+            extra_claims={"email": "user@example.com", "email_verified": True},
+        )
+        issue_resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(issue_resp.status_code, status.HTTP_200_OK, issue_resp.content)
+        access_token = issue_resp.json()["access_token"]
+
+        api_resp = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {access_token}")
+        self.assertEqual(api_resp.status_code, status.HTTP_200_OK, api_resp.content)
+        self.assertEqual(api_resp.json()["email"], "user@example.com")
+
     def test_rejects_when_domain_has_no_id_jag_issuer_configured(self) -> None:
         # ID-JAG is opt-in per domain. With `id_jag_issuer_url` cleared, an
         # otherwise valid ID-JAG must be rejected — the org hasn't bound an IdP yet.

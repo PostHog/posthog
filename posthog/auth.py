@@ -591,6 +591,10 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             if not site_url:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
+            # The token's `aud` is the MCP resource it was minted for (id_jag._construct_access_token_payload).
+            # Accept SITE_URL plus any advertised MCP resource identifier; `iss` stays SITE_URL (we mint it).
+            allowed_audiences = [site_url, *(r.rstrip("/") for r in (settings.ID_JAG_ALLOWED_RESOURCES or []) if r)]
+
             # Try the active signing key first, then any keys being rotated out. A wrong
             # key fails the signature check, so we move on; a key that matches but fails
             # claim validation (expiry, audience, …) raises the real error to report.
@@ -601,7 +605,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                         token,
                         verification_key,
                         algorithms=["RS256"],
-                        audience=site_url,
+                        audience=allowed_audiences,
                         issuer=site_url,
                         leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                         options={

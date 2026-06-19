@@ -71,6 +71,11 @@ export function ConfigureIdJagModal(): JSX.Element {
                             a draft.
                         </LemonBanner>
                     )}
+                    <LemonBanner type="info">
+                        Configure your IdP to grant <code>user:read</code> plus the scopes each tool needs (for the MCP
+                        server, also <code>organization:read</code> and <code>project:read</code>). Tokens issued
+                        without these will be rejected with an insufficient-scope error.
+                    </LemonBanner>
                 </LemonModal.Content>
                 <LemonModal.Footer>
                     <LemonButton loading={isIdJagConfigSubmitting} type="primary" htmlType="submit">
