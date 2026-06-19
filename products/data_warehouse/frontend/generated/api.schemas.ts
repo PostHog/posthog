@@ -1396,6 +1396,7 @@ export interface CredentialApi {
  * * `Appstack` - Appstack
  * * `Razorpay` - Razorpay
  * * `Neon` - Neon
+ * * `NewRelic` - NewRelic
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -2031,6 +2032,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Appstack: 'Appstack',
     Razorpay: 'Razorpay',
     Neon: 'Neon',
+    NewRelic: 'NewRelic',
     Custom: 'Custom',
 } as const
 
