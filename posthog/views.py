@@ -197,7 +197,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "clickhouse": in_cloud
         or _traced("preflight.is_clickhouse_connected", is_clickhouse_connected)
         or settings.TEST,
-        "kafka": in_cloud or _traced("preflight.is_kafka_connected", is_kafka_connected) or settings.TEST,
+        "kafka": in_cloud or _traced("preflight.is_kafka_connected", is_kafka_connected),
         "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
         "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
         "cloud": in_cloud,

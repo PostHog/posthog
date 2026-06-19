@@ -372,22 +372,36 @@ def test_readyz_skips_prestop_check_when_setting_is_empty(client: Client):
     assert resp.status_code == 200
 
 
-def test_is_kafka_connected_short_circuits_under_debug_or_test():
-    # Both DEBUG and TEST instances avoid the live probe — keeps local dev and
-    # the test suite from needing a real broker.
-    with patch("posthog.health.settings.DEBUG", False), patch("posthog.health.settings.TEST", True):
-        assert is_kafka_connected() is True
-    with patch("posthog.health.settings.DEBUG", True), patch("posthog.health.settings.TEST", False):
+@pytest.mark.parametrize("debug,test", [(False, True), (True, False)])
+def test_is_kafka_connected_short_circuits_under_debug_or_test(debug, test):
+    # Either DEBUG or TEST avoids the live probe — keeps local dev and the test
+    # suite from needing a real broker.
+    with patch("posthog.health.settings.DEBUG", debug), patch("posthog.health.settings.TEST", test):
         assert is_kafka_connected() is True
 
 
-def test_is_kafka_connected_returns_false_when_probe_raises():
+@pytest.mark.parametrize(
+    "break_producer",
+    [
+        pytest.param(
+            lambda m: setattr(m, "side_effect", Exception("producer build failed")),
+            id="producer_build_raises",
+        ),
+        pytest.param(
+            lambda m: setattr(m.return_value.producer.list_topics, "side_effect", Exception("broker unreachable")),
+            id="list_topics_raises",
+        ),
+    ],
+)
+def test_is_kafka_connected_returns_false_when_probe_fails(break_producer):
+    # Either step failing — building the producer or the metadata round-trip — is
+    # treated as the broker being unreachable.
     with (
         patch("posthog.health.settings.DEBUG", False),
         patch("posthog.health.settings.TEST", False),
         patch("posthog.health.get_producer") as get_producer_mock,
     ):
-        get_producer_mock.side_effect = Exception("broker unreachable")
+        break_producer(get_producer_mock)
         assert is_kafka_connected() is False
 
 

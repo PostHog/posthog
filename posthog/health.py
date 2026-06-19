@@ -258,7 +258,10 @@ def is_kafka_connected() -> bool:
         # union type — cast to narrow it.
         cast(ConfluentProducer, producer.producer).list_topics(timeout=3)
     except Exception:
-        logger.debug("kafka_connection_failure", exc_info=True)
+        # Surface at warning, not debug: this probe exists so a self-hosted operator
+        # can see *why* /preflight blocks setup. Debug logs are off by default, which
+        # would leave them with a red light and no reason.
+        logger.warning("kafka_connection_failure", exc_info=True)
         return False
     return True
 

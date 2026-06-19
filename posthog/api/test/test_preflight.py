@@ -320,8 +320,9 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     def test_preflight_kafka_reflects_probe_on_self_hosted(self):
         # Regression for #54702: the kafka probe was removed, hardcoding the
         # response to False off-cloud and blocking self-hosted Live-mode setup.
-        # Override TEST so the `or settings.TEST` short-circuit doesn't mask
-        # the probe's result.
+        # Patch is_kafka_connected at the view's import site so the preflight
+        # wiring is exercised directly; TEST=False also defeats the helper's own
+        # DEBUG/TEST short-circuit as belt-and-braces.
         self.client.logout()
         with self.is_cloud(False):
             with (
