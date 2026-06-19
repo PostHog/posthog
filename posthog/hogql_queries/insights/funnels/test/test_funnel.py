@@ -6122,3 +6122,127 @@ class TestFunnelStepsCompareUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([s["order"] for s in previous_steps], [0, 1])
         self.assertEqual([s["count"] for s in previous_steps], [0, 0])
         self.assertEqual([s["name"] for s in previous_steps], ["step one", "step two"])
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestFunnelStepsBreakdownCompareUDF(ClickhouseTestMixin, APIBaseTest):
+    """Compare-to-previous composed with a breakdown on the funnel STEPS viz. A breakdown funnel
+    returns N inner funnels (a list-of-lists); with compare on it returns 2·N — N current and N
+    previous — each inner funnel preserving its breakdown_value and each step tagged compare_label."""
+
+    maxDiff = None
+
+    def _build_query(
+        self,
+        breakdown: str = "$browser",
+        date_from: str = "2021-06-07 00:00:00",
+        date_to: str = "2021-06-13 23:59:59",
+        compare: bool = True,
+        compare_to: Optional[str] = None,
+    ) -> FunnelsQuery:
+        return FunnelsQuery(
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            breakdownFilter=BreakdownFilter(breakdown=breakdown),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="steps",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+            compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
+        )
+
+    @staticmethod
+    def _by_label_and_value(results) -> dict[tuple[str, tuple], list[dict]]:
+        # results is a list of inner funnels (list-of-lists). Key each by (compare_label, breakdown_value).
+        return {(group[0]["compare_label"], tuple(group[0]["breakdown_value"])): group for group in results}
+
+    def _conversion(self, browser: str, day: int) -> list[dict]:
+        return [
+            {"event": "step one", "timestamp": datetime(2021, 6, day, 10), "properties": {"$browser": browser}},
+            {"event": "step two", "timestamp": datetime(2021, 6, day, 11), "properties": {"$browser": browser}},
+        ]
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_breakdown_compare_returns_2n_tagged_inner_funnels(self, _feature_enabled):
+        # Current window 2021-06-07..13 and the default previous window 2021-05-31..06-06 each
+        # contain one Chrome conversion and one Safari conversion.
+        journeys_for(
+            {
+                "current_chrome": self._conversion("Chrome", 8),
+                "current_safari": self._conversion("Safari", 9),
+                "previous_chrome": self._conversion("Chrome", 1),
+                "previous_safari": self._conversion("Safari", 2),
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        # 2 breakdown values × 2 periods = 4 inner funnels, each a full step list tagged by both
+        # period and value.
+        self.assertEqual(len(results), 4)
+        for group in results:
+            self.assertEqual([s["order"] for s in group], [0, 1])
+            for step in group:
+                self.assertIn(step["compare_label"], ("current", "previous"))
+                self.assertIsNotNone(step["breakdown_value"])
+
+        groups = self._by_label_and_value(results)
+        self.assertEqual(
+            set(groups.keys()),
+            {
+                ("current", ("Chrome",)),
+                ("current", ("Safari",)),
+                ("previous", ("Chrome",)),
+                ("previous", ("Safari",)),
+            },
+        )
+        for group in groups.values():
+            self.assertEqual([s["count"] for s in group], [1, 1])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_breakdown_value_present_in_only_one_period_is_zeroed_on_the_other(self, _feature_enabled):
+        # Chrome converts in both periods. Safari only in current; Firefox only in previous. Each
+        # one-sided value must still be represented on the missing side as a zeroed inner funnel,
+        # not omitted — so the chart can draw a (current, previous) pair for every breakdown value.
+        journeys_for(
+            {
+                "current_chrome": self._conversion("Chrome", 8),
+                "current_safari": self._conversion("Safari", 9),
+                "previous_chrome": self._conversion("Chrome", 1),
+                "previous_firefox": self._conversion("Firefox", 2),
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        groups = self._by_label_and_value(results)
+
+        # Every breakdown value is represented in BOTH periods (the union across periods).
+        self.assertEqual(
+            set(groups.keys()),
+            {
+                ("current", ("Chrome",)),
+                ("current", ("Safari",)),
+                ("current", ("Firefox",)),
+                ("previous", ("Chrome",)),
+                ("previous", ("Safari",)),
+                ("previous", ("Firefox",)),
+            },
+        )
+
+        # Populated where the value actually converted; zeroed where it didn't occur that period.
+        self.assertEqual([s["count"] for s in groups[("current", ("Chrome",))]], [1, 1])
+        self.assertEqual([s["count"] for s in groups[("current", ("Safari",))]], [1, 1])
+        self.assertEqual([s["count"] for s in groups[("current", ("Firefox",))]], [0, 0])
+        self.assertEqual([s["count"] for s in groups[("previous", ("Chrome",))]], [1, 1])
+        self.assertEqual([s["count"] for s in groups[("previous", ("Safari",))]], [0, 0])
+        self.assertEqual([s["count"] for s in groups[("previous", ("Firefox",))]], [1, 1])
+
+        # A zeroed side still carries the full step skeleton (names/orders) so the chart draws bars.
+        safari_previous = groups[("previous", ("Safari",))]
+        self.assertEqual([s["name"] for s in safari_previous], ["step one", "step two"])
+        self.assertEqual([s["order"] for s in safari_previous], [0, 1])

@@ -43,6 +43,7 @@ import {
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import {
     TIME_INTERVAL_BOUNDS,
+    aggregateBreakdownCompareResult,
     aggregateBreakdownResult,
     aggregateFunnelCompareResult,
     aggregationLabelForHogQL,
@@ -53,6 +54,7 @@ import {
     getReferenceStep,
     getVisibilityKey,
     isBreakdownFunnelResults,
+    isFunnelStepsBreakdownCompareResult,
     isFunnelStepsCompareResult,
     isFunnelWithEnoughSteps,
     isFunnelWithIncompleteDataWarehouseStep,
@@ -368,6 +370,13 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         const breakdownProperty = breakdownFilter?.breakdowns
                             ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
                             : (breakdownFilter?.breakdown ?? undefined)
+                        // Breakdown + compare: pair each breakdown value's current and previous
+                        // funnels so the grouped bars share a color (previous desaturated). Must
+                        // precede the plain breakdown path, which would otherwise treat each period
+                        // as an independent breakdown value (and double-count the step aggregate).
+                        if (isStepsFunnel && isFunnelStepsBreakdownCompareResult(results)) {
+                            return aggregateBreakdownCompareResult(results, breakdownProperty)
+                        }
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
                     return results.sort((a, b) => a.order - b.order)

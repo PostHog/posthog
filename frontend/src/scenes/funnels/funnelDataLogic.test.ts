@@ -11,6 +11,7 @@ import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, Insig
 
 import {
     funnelResult,
+    funnelResultStepsBreakdownCompare,
     funnelResultStepsCompare,
     funnelResultTimeToConvert,
     funnelResultTimeToConvertCompare,
@@ -1535,6 +1536,64 @@ describe('funnelDataLogic', () => {
                 expect(step.nested_breakdown).toHaveLength(1)
                 expect(step.nested_breakdown?.[0].compare_label).toBeUndefined()
             })
+        })
+    })
+
+    describe('steps breakdown compare (grouped bars)', () => {
+        const stepsQuery: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [],
+            funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+            breakdownFilter: { breakdown: '$browser' },
+            compareFilter: { compare: true },
+        }
+
+        async function loadBreakdownCompare(result: unknown): Promise<void> {
+            const insight: Partial<InsightModel> = {
+                filters: { insight: InsightType.FUNNELS },
+                result: result as InsightModel['result'],
+            }
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(stepsQuery)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+        }
+
+        it('pairs current+previous bars per breakdown value within each step', async () => {
+            await loadBreakdownCompare(funnelResultStepsBreakdownCompare.result)
+
+            expect(logic.values.isComparedFunnel).toBe(true)
+            const steps = logic.values.visibleStepsWithConversionMetrics
+            expect(steps).toHaveLength(2)
+
+            // Chrome (current 100) outranks Safari (current 40): Chrome pair first, then Safari pair,
+            // current before previous within each value.
+            expect(steps[0].nested_breakdown?.map((b) => [b.breakdown_value, b.compare_label])).toEqual([
+                [['Chrome'], 'current'],
+                [['Chrome'], 'previous'],
+                [['Safari'], 'current'],
+                [['Safari'], 'previous'],
+            ])
+            expect(steps[0].nested_breakdown?.map((b) => b.count)).toEqual([100, 80, 40, 25])
+
+            // The step's aggregate (shown in the legend) is the current period's total only —
+            // not current+previous summed together.
+            expect(steps[0].count).toBe(140) // 100 Chrome + 40 Safari
+            expect(steps[1].count).toBe(70) // 50 Chrome + 20 Safari
+        })
+
+        it('colors each breakdown value distinctly and desaturates its previous-period bar', async () => {
+            await loadBreakdownCompare(funnelResultStepsBreakdownCompare.result)
+
+            const [chromeCur, chromePrev, safariCur, safariPrev] =
+                logic.values.visibleStepsWithConversionMetrics[0].nested_breakdown!
+            const color = logic.values.getFunnelsColor
+
+            // Distinct hue per breakdown value...
+            expect(color(chromeCur)).not.toBe(color(safariCur))
+            // ...with each value's previous-period bar the same hue, desaturated.
+            expect(color(chromePrev)).toBe(dimPreviousPeriodColor(color(chromeCur)))
+            expect(color(safariPrev)).toBe(dimPreviousPeriodColor(color(safariCur)))
         })
     })
 })
