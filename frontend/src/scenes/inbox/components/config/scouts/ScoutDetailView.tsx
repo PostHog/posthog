@@ -12,6 +12,7 @@ import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SCOUT_RUNS_WINDOW_SPAN, scoutRunsWindowLabel } from '../../../utils/scoutRunsWindow'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
 import { ScoutRowCard } from './ScoutRowCard'
+import { ScoutRunHistorySection } from './ScoutRunHistorySection'
 
 /**
  * Full-width scout detail surface, rendered over the inbox list at `/inbox/scouts/:skillName`.
@@ -78,9 +79,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
 
                     <ScoutSignalsSection skillName={skillName} />
 
-                    <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
-                        Run history is coming to this view soon.
-                    </div>
+                    <ScoutRunHistorySection skillName={skillName} />
                 </>
             )}
         </div>
