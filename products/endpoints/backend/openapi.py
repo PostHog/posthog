@@ -82,9 +82,25 @@ def generate_openapi_spec(
                                 }
                             },
                         },
-                        "400": {"description": "Invalid request"},
+                        "400": {
+                            "description": (
+                                "Invalid request, or the query is too expensive to run inline. "
+                                "Query-cost failures carry a stable `code`: `query_timeout`, "
+                                "`query_memory_limit`, `query_too_large`, or `query_estimated_too_slow` — "
+                                "narrow the query's scope (e.g. a smaller date range) or materialize the endpoint."
+                            ),
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+                        },
                         "401": {"description": "Authentication required"},
                         "404": {"description": "Endpoint not found"},
+                        "503": {
+                            "description": (
+                                "The shared ClickHouse query pool is momentarily at capacity (`code`: "
+                                "`query_capacity`). Retry shortly; materialize the endpoint to run on dedicated "
+                                "compute that isn't affected by shared query load."
+                            ),
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+                        },
                     },
                 }
             }
@@ -108,6 +124,24 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion, team_
     is_materialized = bool(version and version.is_materialized and version.saved_query)
 
     schemas: dict = {
+        "Error": {
+            "type": "object",
+            "description": "Error response body.",
+            "properties": {
+                "type": {"type": "string", "description": "Error category, e.g. 'validation_error'."},
+                "code": {
+                    "type": "string",
+                    "description": "Stable machine-readable error code, e.g. 'query_timeout' or 'query_capacity'.",
+                },
+                "detail": {"type": "string", "description": "Human-readable explanation and remediation."},
+                "attr": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "The request field that caused the error, when applicable.",
+                },
+            },
+            "required": ["type", "code", "detail"],
+        },
         "EndpointRunRequest": {
             "type": "object",
             "properties": {

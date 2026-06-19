@@ -54,6 +54,13 @@ from posthog.clickhouse.query_tagging import (
 from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
@@ -61,6 +68,7 @@ from posthog.synthetic_user import SyntheticUser
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.data_load.saved_query_service import trigger_saved_query_schedule
+from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
@@ -85,6 +93,40 @@ logger = structlog.get_logger(__name__)
 LAST_EXECUTED_THROTTLE = timedelta(minutes=30)
 
 ExecutionType = Literal["materialized", "materialized_fallback", "inline", "ducklake", "ducklake_fallback"]
+
+# ClickHouse cost guardrails. These are deterministic, customer-caused query-performance
+# failures (the query won't succeed until its scope shrinks or the endpoint is materialized),
+# not PostHog system faults — so they get their own metric status and an actionable 400
+# (code + remediation) instead of falling through to status="error" and paging on-call.
+# Each maps the wrapped CH exception to a stable client-facing `code` and message.
+_QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
+    ClickHouseQueryTimeOut: (
+        "query_timeout",
+        "This query exceeded the execution time limit. Narrow its scope (e.g. a smaller date range) "
+        "or materialize the endpoint for dedicated compute. See https://posthog.com/docs/api/endpoints.",
+    ),
+    ClickHouseQueryMemoryLimitExceeded: (
+        "query_memory_limit",
+        "This query exceeded the memory limit. Narrow its scope (e.g. a smaller date range) "
+        "or materialize the endpoint. See https://posthog.com/docs/api/endpoints.",
+    ),
+    ClickHouseQuerySizeExceeded: (
+        "query_too_large",
+        "The query text is too large to execute. Simplify the query or materialize the endpoint. "
+        "See https://posthog.com/docs/api/endpoints.",
+    ),
+    ClickHouseEstimatedQueryExecutionTimeTooLong: (
+        "query_estimated_too_slow",
+        "This query is estimated to run too long. Reduce its scope by narrowing the time range "
+        "or materialize the endpoint. See https://posthog.com/docs/api/endpoints.",
+    ),
+}
+
+
+def _is_query_capacity_error(error: BaseException) -> bool:
+    """True for ClickHouse cost-guardrail and capacity errors — customer query-performance
+    problems, not system faults, so they skip error-tracking capture and failure signals."""
+    return isinstance(error, (*_QUERY_PERFORMANCE_ERRORS, ClickHouseAtCapacity))
 
 
 def _emit_endpoint_failure_signal(
@@ -499,6 +541,17 @@ class EndpointExecutionService(PydanticModelMixin):
         except ConcurrencyLimitExceeded:
             ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
+        except tuple(_QUERY_PERFORMANCE_ERRORS) as e:
+            execution_status = "query_performance"
+            error_label = type(e).__name__
+            code, detail = _QUERY_PERFORMANCE_ERRORS[type(e)]
+            logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
+            raise EndpointQueryTooExpensive(detail, code=code)
+        except ClickHouseAtCapacity:
+            execution_status = "capacity"
+            error_label = "ClickHouseAtCapacity"
+            logger.warning("Endpoint query hit shared ClickHouse capacity", endpoint_name=endpoint.name)
+            raise EndpointAtCapacity()
         except Exception as e:
             execution_status = "error"
             error_label = type(e).__name__
@@ -709,6 +762,15 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
+            # Query cost/capacity guardrails are customer-caused, not system faults: skip
+            # error-tracking capture and the failure signal, and let execute() classify them.
+            if _is_query_capacity_error(e):
+                logger.warning(
+                    "Materialized endpoint query hit a performance/capacity limit",
+                    endpoint_name=endpoint.name,
+                    reason=type(e).__name__,
+                )
+                raise
             logger.exception(
                 "Materialized endpoint execution failed",
                 endpoint_name=endpoint.name,
@@ -814,6 +876,15 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
+            # Query cost/capacity guardrails are customer-caused, not system faults: skip
+            # error-tracking capture and the failure signal, and let execute() classify them.
+            if _is_query_capacity_error(e):
+                logger.warning(
+                    "Inline endpoint query hit a performance/capacity limit",
+                    endpoint_name=endpoint.name,
+                    reason=type(e).__name__,
+                )
+                raise
             logger.exception(
                 "Inline endpoint execution failed",
                 endpoint_name=endpoint.name,
