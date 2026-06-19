@@ -1392,6 +1392,9 @@ export interface CredentialApi {
  * * `Streamlabs` - Streamlabs
  * * `Datorama` - Datorama
  * * `Ahrefs` - Ahrefs
+ * * `Lightfield` - Lightfield
+ * * `Appstack` - Appstack
+ * * `Razorpay` - Razorpay
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -2023,6 +2026,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Streamlabs: 'Streamlabs',
     Datorama: 'Datorama',
     Ahrefs: 'Ahrefs',
+    Lightfield: 'Lightfield',
+    Appstack: 'Appstack',
+    Razorpay: 'Razorpay',
     Custom: 'Custom',
 } as const
 

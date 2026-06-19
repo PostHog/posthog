@@ -1,3 +1,8 @@
+export interface DateRangeFilter {
+    dateFrom: string | null
+    dateTo: string | null
+}
+
 export interface RoleBasedMessage {
     role: string
     content: string | { type: string; content: string } | MultiModalContentItem[]

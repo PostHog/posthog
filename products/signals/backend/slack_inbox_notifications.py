@@ -1,10 +1,11 @@
 """Slack notifications for signals inbox items.
 
-Each suggested reviewer on a ready report is routed to exactly one Slack channel:
-their own configured channel if they set one (filtered by their min-priority),
-otherwise the team-default channel, otherwise nowhere. Reviewers sharing a channel —
-notably everyone falling back to the team default — get a single post that mentions
-only the reviewers routed there. A report with no resolvable reviewers posts nothing.
+Mirrors the inbox Reports tab's actionability gate: a report notifies only if it's actionable
+(its latest actionability judgment is immediately_actionable or requires_human_input) — READY is
+enforced upstream — and has at least one suggested reviewer that resolves to a destination.
+Each reviewer is routed to one channel: their own configured channel if set (filtered by their
+min-priority), otherwise the team-default channel. Reviewers sharing a channel get a single post
+mentioning only the reviewers routed there. A report with no resolvable reviewer sends nothing.
 All sends are best-effort.
 """
 
@@ -29,10 +30,17 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
+)
+
+# Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
+# report notifies iff its latest actionability judgment is one of these (and it's READY).
+_ACTIONABLE_VALUES = frozenset(
+    {ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value, ActionabilityChoice.REQUIRES_HUMAN_INPUT.value}
 )
 
 logger = logging.getLogger(__name__)
@@ -133,6 +141,24 @@ def _latest_priority(report: SignalReport) -> str | None:
     if not isinstance(data, dict):
         return None
     value = data.get("priority")
+    return value if isinstance(value, str) else None
+
+
+def _latest_actionability(report: SignalReport) -> str | None:
+    art = (
+        report.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+        .order_by("-created_at")
+        .first()
+    )
+    if art is None:
+        return None
+    try:
+        data = json.loads(art.content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("actionability")
     return value if isinstance(value, str) else None
 
 
@@ -550,10 +576,11 @@ def _build_reviewer_routes(
 ) -> list[_ChannelRoute]:
     """Route each resolvable suggested reviewer to a single destination channel.
 
-    Own channel (filtered by the reviewer's min-priority) if set, else the team
-    default, else nowhere. A reviewer filtered out of their own channel does not fall
-    back to the team channel — that was their choice. Reviewers sharing a destination
-    are grouped so each channel is posted to once, mentioning only its own reviewers.
+    Own channel (filtered by the reviewer's min-priority) if set, else the team default,
+    else nowhere. A reviewer filtered out of their own channel does not fall back to the
+    team channel — that was their choice. Reviewers sharing a destination are grouped so
+    each channel is posted to once, mentioning only its own reviewers. A report whose
+    reviewers don't resolve to a channel sends nothing.
     """
     reviewer_user_ids = _resolve_suggested_reviewer_user_ids(report)
     if not reviewer_user_ids:
@@ -621,11 +648,17 @@ def dispatch_inbox_item_notifications(
         )
         return 0
 
-    priority = _latest_priority(report)
-    # Don't notify until a priority is persisted — an unprioritised report isn't ready for the inbox.
-    if _priority_rank(priority) is None:
+    # Mirror the inbox Reports tab: notify only for actionable reports (READY is enforced upstream
+    # in the notification activity). Priority is read below for the message label and min-priority
+    # routing, but it's optional now — an actionable report notifies even without a priority.
+    if _latest_actionability(report) not in _ACTIONABLE_VALUES:
+        logger.info(
+            "dispatch_inbox_item_notifications: report not actionable, skipping",
+            extra={"report_id": report_id, "team_id": team_id},
+        )
         return 0
 
+    priority = _latest_priority(report)
     team_integration = _get_team_slack_integration(team_id)
     team_channel = _team_notification_channel(team_id) if team_integration is not None else None
 
@@ -636,6 +669,19 @@ def dispatch_inbox_item_notifications(
         team_channel=team_channel,
     )
     if not routes:
+        # No reviewer resolved to a destination: no suggested reviewers linked to a user, none met
+        # their min-priority, or there's no own/team channel to fall back to. This is the most
+        # common reason an actionable report sends nothing — log the inputs so it's diagnosable.
+        logger.info(
+            "dispatch_inbox_item_notifications: no reviewer routes resolved, skipping",
+            extra={
+                "report_id": report_id,
+                "team_id": team_id,
+                "priority": priority,
+                "has_team_integration": team_integration is not None,
+                "has_team_channel": team_channel is not None,
+            },
+        )
         return 0
 
     sources = source_products or []
@@ -677,4 +723,8 @@ def dispatch_inbox_item_notifications(
                 _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
         except Exception:
             logger.exception("Failed to deliver signals inbox-item Slack notification", extra=log_context)
+    logger.info(
+        "dispatch_inbox_item_notifications: complete",
+        extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},
+    )
     return sent

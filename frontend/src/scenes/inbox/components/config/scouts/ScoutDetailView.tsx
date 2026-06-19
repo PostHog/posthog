@@ -122,8 +122,8 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
                 </div>
             ) : (
                 <>
-                    {emissionRows.map(({ emission, run }) => (
-                        <ScoutEmissionCard key={emission.id} emission={emission} run={run} />
+                    {emissionRows.map(({ emission, run, report }) => (
+                        <ScoutEmissionCard key={emission.id} emission={emission} run={run} report={report} />
                     ))}
                     {!runsWindowComplete && (
                         <span className="text-xs text-muted">

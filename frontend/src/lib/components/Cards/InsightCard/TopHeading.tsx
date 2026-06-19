@@ -32,6 +32,7 @@ export function TopHeading({
     hasTileOverrides,
     resolvedDateRange,
     showInsightType = true,
+    showDate = true,
     dateFromOverride,
     dateToOverride,
 }: {
@@ -40,6 +41,7 @@ export function TopHeading({
     hasTileOverrides?: boolean | null
     resolvedDateRange?: ResolvedDateRangeResponse | null
     showInsightType?: boolean
+    showDate?: boolean
     dateFromOverride?: string | null
     dateToOverride?: string | null
 }): JSX.Element {
@@ -76,7 +78,7 @@ export function TopHeading({
             typeLabel={insightType?.name}
             typeTitle={insightType?.description}
             showTypeLabel={showInsightType}
-            dateText={dateText}
+            dateText={showDate ? dateText : null}
             dateTooltip={resolvedDateTooltip}
         >
             {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}

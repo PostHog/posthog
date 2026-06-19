@@ -46,6 +46,14 @@ describe('useChartMargins', () => {
         expect(render({ series: [], labels: [] }).left).toBeGreaterThanOrEqual(20)
     })
 
+    it('reserves room for the [0, 1] fallback y-ticks when there is no data', () => {
+        // Empty data renders a [0, 1] domain whose ticks format as "0.00".."1.00" (4 chars). The
+        // margin must fit them, not collapse to the bare floor — otherwise the labels clip.
+        const empty = render({ series: [], labels: [] })
+        const fourCharLabelReserve = '0.00'.length * 10 // matches the mocked measureLabelWidth
+        expect(empty.left).toBeGreaterThanOrEqual(fourCharLabelReserve)
+    })
+
     it('adds left space for a y-axis title', () => {
         const withoutTitle = render()
         const withTitle = render({ yAxisLabel: 'Unique users' })
