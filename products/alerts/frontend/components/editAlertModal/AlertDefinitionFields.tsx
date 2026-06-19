@@ -97,21 +97,20 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
         return (
             <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
                 {statusTag}
-                Across {preview.values.length} breakdown values, conversion is currently{' '}
+                Across {preview.values.length} breakdown values, currently{' '}
                 <strong>
                     {format(Math.min(...rates))}–{format(Math.max(...rates))}
                 </strong>
+                {/* The tag + banner colour carry the breach/ok state; only add what they can't — which
+                    values breach, or (when no threshold is set yet) a prompt to set one. */}
                 {!preview.hasBounds ? (
-                    <> — the alert fires if any value breaches. Set a threshold to preview which would.</>
+                    <> — fires if any value breaches. Set a threshold to preview.</>
                 ) : wouldFire ? (
                     <>
-                        . <strong>{breaching.length}</strong> would breach (
-                        {breaching.map((value) => `${value.label ?? 'conversion'} ${format(value.rate)}`).join(', ')}) —
-                        the alert would fire on its next check.
+                        {' '}
+                        · {breaching.map((value) => `${value.label ?? 'conversion'} ${format(value.rate)}`).join(', ')}
                     </>
-                ) : (
-                    <>. All values are within your threshold.</>
-                )}
+                ) : null}
             </LemonBanner>
         )
     }
@@ -119,14 +118,8 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
     return (
         <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
             {statusTag}
-            This funnel currently converts at <strong>{format(preview.values[0].rate)}</strong>
-            {!preview.hasBounds ? (
-                <> — set a threshold to preview whether it would fire.</>
-            ) : wouldFire ? (
-                <> — that breaches your threshold, so the alert would fire on its next check.</>
-            ) : (
-                <> — within your threshold.</>
-            )}
+            Currently converting at <strong>{format(preview.values[0].rate)}</strong>
+            {!preview.hasBounds ? <> — set a threshold to preview whether it would fire.</> : null}
         </LemonBanner>
     )
 }
