@@ -22,6 +22,7 @@ from products.error_tracking.backend.facade import (
     api as facade_api,
     issues as issues_facade,
 )
+from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 from products.error_tracking.backend.presentation.views.external_references import (
     ErrorTrackingExternalReferenceSerializer,
 )
@@ -146,11 +147,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     serializer_class = ErrorTrackingIssueReadSerializer
 
     def list(self, request: request.Request, *args: object, **kwargs: object) -> Response:
-        issues = facade_api.list_issues_detailed(self.team.id)
-        page = self.paginate_queryset(issues)
-        if page is not None:
-            return self.get_paginated_response(ErrorTrackingIssueReadSerializer(page, many=True).data)
-        return Response(ErrorTrackingIssueReadSerializer(issues, many=True).data)
+        return paginate_via_facade(
+            self,
+            request,
+            lambda limit, offset: facade_api.list_issues_detailed(self.team.id, limit=limit, offset=offset),
+        )
 
     def retrieve(self, request: request.Request, *args: object, **kwargs: object) -> Response | JsonResponse:
         issue_id = UUID(str(kwargs["pk"]))

@@ -16,7 +16,7 @@ from posthog.models.user import User
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError
+from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError, get_issue
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -40,9 +40,12 @@ class InvalidIssueStatusError(Exception):
     pass
 
 
-def _get_issue(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue:
+def _get_issue(team_id: int, issue_id: UUID | str, *, select_related: tuple[str, ...] = ()) -> ErrorTrackingIssue:
+    qs = ErrorTrackingIssue.objects.all()
+    if select_related:
+        qs = qs.select_related(*select_related)
     try:
-        return ErrorTrackingIssue.objects.get(team_id=team_id, id=issue_id)
+        return qs.get(team_id=team_id, id=issue_id)
     except ErrorTrackingIssue.DoesNotExist as err:
         raise ErrorTrackingIssueNotFoundError from err
 
@@ -58,8 +61,12 @@ def _status_from_string(status: str) -> "ErrorTrackingIssue.Status | None":
     return None
 
 
-def update_issue(team_id: int, issue_id: UUID, *, fields: dict[str, Any], user: User, was_impersonated: bool) -> None:
-    issue = _get_issue(team_id, issue_id)
+def update_issue(
+    team_id: int, issue_id: UUID, *, fields: dict[str, Any], user: User, was_impersonated: bool
+) -> ErrorTrackingIssue:
+    # Fetch via the detail queryset so the returned instance is response-ready
+    # (first_seen, assignment, external issues, cohorts) without a second read.
+    issue = get_issue(issue_id=issue_id, team_id=team_id)
     status_before = issue.status
     name_before = issue.name
     status_after = fields.get("status")
@@ -97,6 +104,8 @@ def update_issue(team_id: int, issue_id: UUID, *, fields: dict[str, Any], user: 
         )
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
 
+    return issue
+
 
 def merge_issues(team_id: int, issue_id: UUID, source_ids: list[str]) -> None:
     issue = _get_issue(team_id, issue_id)
@@ -124,7 +133,7 @@ def set_issue_cohort(team_id: int, issue_id: UUID, cohort_id: int) -> None:
 def assign_issue(
     team_id: int, issue_id: UUID, assignee: dict[str, Any] | None, *, user: User, was_impersonated: bool
 ) -> None:
-    issue = _get_issue(team_id, issue_id)
+    issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated)
     sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
 

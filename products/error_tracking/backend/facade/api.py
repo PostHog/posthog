@@ -117,8 +117,13 @@ def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
     return _to_issue(issue)
 
 
-def list_issues_detailed(team_id: int) -> list[contracts.ErrorTrackingIssue]:
-    return [_to_issue(issue) for issue in logic.get_issue_detail_queryset(team_id)]
+def list_issues_detailed(
+    team_id: int, *, limit: int | None = None, offset: int = 0
+) -> tuple[list[contracts.ErrorTrackingIssue], int]:
+    qs = logic.get_issue_detail_queryset(team_id)
+    total = qs.count()
+    rows = qs if limit is None else qs[offset : offset + limit]
+    return [_to_issue(issue) for issue in rows], total
 
 
 def issue_exists(team_id: int) -> bool:

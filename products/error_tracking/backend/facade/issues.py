@@ -19,8 +19,8 @@ InvalidIssueStatusError = _mutations.InvalidIssueStatusError
 def update_issue(
     team_id: int, issue_id: UUID, *, fields: dict[str, Any], user: Any, was_impersonated: bool
 ) -> contracts.ErrorTrackingIssue:
-    _mutations.update_issue(team_id, issue_id, fields=fields, user=user, was_impersonated=was_impersonated)
-    return api.get_issue(issue_id=issue_id, team_id=team_id)
+    issue = _mutations.update_issue(team_id, issue_id, fields=fields, user=user, was_impersonated=was_impersonated)
+    return api._to_issue(issue)
 
 
 def merge_issues(team_id: int, issue_id: UUID, source_ids: list[str]) -> None:
