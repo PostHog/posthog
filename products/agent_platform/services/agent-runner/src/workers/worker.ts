@@ -30,6 +30,10 @@ import {
     categorize,
     createLogger,
     CredentialBroker,
+    IdentityCredentialStore,
+    IdentityLinkStateStore,
+    IdentityProvider,
+    IdentityStore,
     FailureNotifier,
     GatewayClient,
     getSecretAllowedHosts,
@@ -166,6 +170,16 @@ export interface WorkerDeps {
      * leave unset; tools that try to resolve get null and degrade.
      */
     credentialBroker?: CredentialBroker
+    /**
+     * Per-asker identity linking (spec.identity_providers). Passed through to
+     * `runSession` → `ctx.identity`. Omit to disable identity tools.
+     */
+    identityCredentials?: IdentityCredentialStore
+    identityLinks?: IdentityLinkStateStore
+    identities?: IdentityStore
+    /** OAuth callback base; `/link/<provider>/callback` is appended. */
+    linkRedirectBaseUrl?: string
+    posthogIdentityProviderFactory?: (cfg: { id: string; scopes: string[] }) => IdentityProvider
     /**
      * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
      * Production wires this via `makePerAskerAuth({ identities, posthogDb })`.
@@ -520,6 +534,11 @@ export class Worker {
                 memoryStore: this.deps.memoryStore,
                 tabularStore: this.deps.tabularStore,
                 credentialBroker: this.deps.credentialBroker,
+                identityCredentials: this.deps.identityCredentials,
+                identityLinks: this.deps.identityLinks,
+                identities: this.deps.identities,
+                linkRedirectBaseUrl: this.deps.linkRedirectBaseUrl,
+                posthogIdentityProviderFactory: this.deps.posthogIdentityProviderFactory,
                 isAskerInApproverScope: this.deps.isAskerInApproverScope,
                 mcpClients: openedMcpClients,
                 mcpFailures,

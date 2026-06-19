@@ -45,6 +45,8 @@ import {
     newTestPrefix as newMemoryTestPrefix,
     PgApprovalStore,
     PgCredentialBroker,
+    PgIdentityCredentialStore,
+    PgIdentityLinkStateStore,
     PgIdentityStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
@@ -362,6 +364,11 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const credentialBroker = new PgCredentialBroker(pool, {
         encryptionSaltKeys: HARNESS_ENCRYPTION_SALT_KEYS,
     })
+    // Persistent linked-credential + OAuth link-state stores for identity linking.
+    const identityCredentials = new PgIdentityCredentialStore(pool, {
+        encryptionSaltKeys: HARNESS_ENCRYPTION_SALT_KEYS,
+    })
+    const identityLinks = new PgIdentityLinkStateStore(pool)
     // Real S3 (SeaweedFS) memory store with a per-cluster random prefix —
     // teardown wipes it. Failing here means SeaweedFS isn't up; fix the dev
     // stack rather than mocking around it.
@@ -420,6 +427,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         sandboxInstances,
         broker,
         credentialBroker,
+        identityCredentials,
+        identityLinks,
+        identities,
+        linkRedirectBaseUrl: 'http://callback.test',
         bus,
         logs: logSink,
         analytics: analyticsSink,
