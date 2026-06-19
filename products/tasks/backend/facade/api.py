@@ -203,11 +203,11 @@ def _hedgehog_config(user: "User") -> dict | None:
     }
 
 
-def _user_basic_info(user: "User | None") -> contracts.UserBasicInfo | None:
+def _user_basic_info(user: "User | None") -> contracts.TaskUserBasicInfo | None:
     """Map a core ``User`` to the display DTO (matches ``UserBasicSerializer`` fields)."""
     if user is None:
         return None
-    return contracts.UserBasicInfo(
+    return contracts.TaskUserBasicInfo(
         id=user.id,
         uuid=user.uuid,
         distinct_id=str(user.distinct_id),

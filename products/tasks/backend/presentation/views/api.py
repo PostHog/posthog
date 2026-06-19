@@ -1239,7 +1239,7 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @extend_schema(responses={200: TaskAutomationSerializer})
+    @extend_schema(request=None, responses={200: TaskAutomationSerializer})
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
         automation = tasks_facade.run_task_automation_now(pk, self.team_id, getattr(request.user, "id", None))

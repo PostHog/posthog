@@ -48,6 +48,56 @@ export interface TaskRunErrorResponseApi {
 }
 
 /**
+ * @nullable
+ */
+export type TaskUserBasicInfoApiHedgehogConfig = { [key: string]: unknown } | null
+
+/**
+ * Response shape for a `created_by` user — mirrors core `UserBasicSerializer` output.
+ */
+export interface TaskUserBasicInfoApi {
+    id: number
+    uuid: string
+    distinct_id: string
+    first_name: string
+    last_name: string
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    hedgehog_config?: TaskUserBasicInfoApiHedgehogConfig
+    /** @nullable */
+    role_at_organization?: string | null
+}
+
+/**
+ * List response for sandbox environments (subset of fields).
+ */
+export interface SandboxEnvironmentDTOApi {
+    id: string
+    name: string
+    network_access_level: string
+    allowed_domains?: string[]
+    repositories?: string[]
+    private: boolean
+    internal: boolean
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+}
+
+export interface PaginatedSandboxEnvironmentDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SandboxEnvironmentDTOApi[]
+}
+
+/**
  * * `trusted` - Trusted
  * * `full` - Full
  * * `custom` - Custom
@@ -58,6 +108,229 @@ export const NetworkAccessLevelEnumApi = {
     Trusted: 'trusted',
     Full: 'full',
     Custom: 'custom',
+} as const
+
+/**
+ * Request body for creating or updating a sandbox environment.
+ */
+export interface SandboxEnvironmentWriteApi {
+    /**
+     * Display name for the environment.
+     * @maxLength 255
+     */
+    name: string
+    /** Network access policy: trusted (default allowlist), full (unrestricted), or custom.
+     *
+     * * `trusted` - Trusted
+     * * `full` - Full
+     * * `custom` - Custom */
+    network_access_level?: NetworkAccessLevelEnumApi
+    /**
+     * Allowed domains for custom network access.
+     * @items.maxLength 255
+     */
+    allowed_domains?: string[]
+    /** Whether to include default trusted domains (GitHub, npm, PyPI). */
+    include_default_domains?: boolean
+    /**
+     * Repositories this environment applies to (format: org/repo).
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /** Encrypted environment variables (write-only, never returned in responses). */
+    environment_variables?: unknown
+    /** If true, only the creator can see this environment; otherwise the whole team can. */
+    private?: boolean
+}
+
+/**
+ * Request body for creating or updating a sandbox environment.
+ */
+export interface PatchedSandboxEnvironmentWriteApi {
+    /**
+     * Display name for the environment.
+     * @maxLength 255
+     */
+    name?: string
+    /** Network access policy: trusted (default allowlist), full (unrestricted), or custom.
+     *
+     * * `trusted` - Trusted
+     * * `full` - Full
+     * * `custom` - Custom */
+    network_access_level?: NetworkAccessLevelEnumApi
+    /**
+     * Allowed domains for custom network access.
+     * @items.maxLength 255
+     */
+    allowed_domains?: string[]
+    /** Whether to include default trusted domains (GitHub, npm, PyPI). */
+    include_default_domains?: boolean
+    /**
+     * Repositories this environment applies to (format: org/repo).
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /** Encrypted environment variables (write-only, never returned in responses). */
+    environment_variables?: unknown
+    /** If true, only the creator can see this environment; otherwise the whole team can. */
+    private?: boolean
+}
+
+/**
+ * Detail/create/update/run response for a task automation.
+ */
+export interface TaskAutomationDTOApi {
+    id: string
+    name: string
+    prompt: string
+    /** @nullable */
+    repository: string | null
+    /** @nullable */
+    github_integration: number | null
+    cron_expression: string
+    timezone: string
+    /** @nullable */
+    template_id: string | null
+    enabled: boolean
+    /** @nullable */
+    last_run_at: string | null
+    /** @nullable */
+    last_run_status: string | null
+    last_task_id: string
+    /** @nullable */
+    last_task_run_id: string | null
+    /** @nullable */
+    last_error: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedTaskAutomationDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskAutomationDTOApi[]
+}
+
+/**
+ * Request body for creating or updating a task automation.
+ */
+export interface TaskAutomationWriteApi {
+    /**
+     * Display name (stored as the backing task's title).
+     * @maxLength 255
+     */
+    name: string
+    /** The automation prompt (stored as the backing task's description). */
+    prompt: string
+    /**
+     * Target repository in the format organization/repository.
+     * @maxLength 255
+     */
+    repository: string
+    /**
+     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
+     * @nullable
+     */
+    github_integration?: number | null
+    /**
+     * Standard 5-field cron expression (minute hour day month weekday).
+     * @maxLength 100
+     */
+    cron_expression: string
+    /**
+     * IANA timezone the schedule runs in.
+     * @maxLength 128
+     */
+    timezone?: string
+    /**
+     * Optional template identifier this automation was created from.
+     * @maxLength 255
+     * @nullable
+     */
+    template_id?: string | null
+    /** Whether the schedule is active; paused when false. */
+    enabled?: boolean
+}
+
+/**
+ * Request body for creating or updating a task automation.
+ */
+export interface PatchedTaskAutomationWriteApi {
+    /**
+     * Display name (stored as the backing task's title).
+     * @maxLength 255
+     */
+    name?: string
+    /** The automation prompt (stored as the backing task's description). */
+    prompt?: string
+    /**
+     * Target repository in the format organization/repository.
+     * @maxLength 255
+     */
+    repository?: string
+    /**
+     * GitHub integration to run as. Defaults to the team's GitHub integration when omitted.
+     * @nullable
+     */
+    github_integration?: number | null
+    /**
+     * Standard 5-field cron expression (minute hour day month weekday).
+     * @maxLength 100
+     */
+    cron_expression?: string
+    /**
+     * IANA timezone the schedule runs in.
+     * @maxLength 128
+     */
+    timezone?: string
+    /**
+     * Optional template identifier this automation was created from.
+     * @maxLength 255
+     * @nullable
+     */
+    template_id?: string | null
+    /** Whether the schedule is active; paused when false. */
+    enabled?: boolean
+}
+
+/**
+ * * `error_tracking` - Error Tracking
+ * * `eval_clusters` - Eval Clusters
+ * * `user_created` - User Created
+ * * `automation` - Automation
+ * * `slack` - Slack
+ * * `support_queue` - Support Queue
+ * * `session_summaries` - Session Summaries
+ * * `signal_report` - Signal Report
+ * * `signals_scout` - Signals Scout
+ * * `support_reply` - Support Reply
+ */
+export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
+
+export const OriginProductEnumApi = {
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    UserCreated: 'user_created',
+    Automation: 'automation',
+    Slack: 'slack',
+    SupportQueue: 'support_queue',
+    SessionSummaries: 'session_summaries',
+    SignalReport: 'signal_report',
+    SignalsScout: 'signals_scout',
+    SupportReply: 'support_reply',
+} as const
+
+/**
+ * * `implementation` - Implementation
+ */
+export type SignalReportTaskRelationshipEnumApi =
+    (typeof SignalReportTaskRelationshipEnumApi)[keyof typeof SignalReportTaskRelationshipEnumApi]
+
+export const SignalReportTaskRelationshipEnumApi = {
+    Implementation: 'implementation',
 } as const
 
 /**
@@ -114,215 +387,6 @@ export interface UserBasicApi {
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
-
-export interface SandboxEnvironmentListApi {
-    readonly id: string
-    /** @maxLength 255 */
-    name: string
-    network_access_level?: NetworkAccessLevelEnumApi
-    /**
-     * List of allowed domains for custom network access
-     * @items.maxLength 255
-     */
-    allowed_domains?: string[]
-    /**
-     * List of repositories this environment applies to (format: org/repo)
-     * @items.maxLength 255
-     */
-    repositories?: string[]
-    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
-    private?: boolean
-    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
-    internal?: boolean
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedSandboxEnvironmentListListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SandboxEnvironmentListApi[]
-}
-
-export interface SandboxEnvironmentApi {
-    readonly id: string
-    /** @maxLength 255 */
-    name: string
-    network_access_level?: NetworkAccessLevelEnumApi
-    /**
-     * List of allowed domains for custom network access
-     * @items.maxLength 255
-     */
-    allowed_domains?: string[]
-    /** Whether to include default trusted domains (GitHub, npm, PyPI) */
-    include_default_domains?: boolean
-    /**
-     * List of repositories this environment applies to (format: org/repo)
-     * @items.maxLength 255
-     */
-    repositories?: string[]
-    /** Encrypted environment variables (write-only, never returned in responses) */
-    environment_variables?: unknown
-    /** Whether this environment has any environment variables set */
-    readonly has_environment_variables: boolean
-    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
-    private?: boolean
-    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
-    readonly internal: boolean
-    /** Computed domain allowlist based on network_access_level and allowed_domains */
-    readonly effective_domains: readonly string[]
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PatchedSandboxEnvironmentApi {
-    readonly id?: string
-    /** @maxLength 255 */
-    name?: string
-    network_access_level?: NetworkAccessLevelEnumApi
-    /**
-     * List of allowed domains for custom network access
-     * @items.maxLength 255
-     */
-    allowed_domains?: string[]
-    /** Whether to include default trusted domains (GitHub, npm, PyPI) */
-    include_default_domains?: boolean
-    /**
-     * List of repositories this environment applies to (format: org/repo)
-     * @items.maxLength 255
-     */
-    repositories?: string[]
-    /** Encrypted environment variables (write-only, never returned in responses) */
-    environment_variables?: unknown
-    /** Whether this environment has any environment variables set */
-    readonly has_environment_variables?: boolean
-    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
-    private?: boolean
-    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
-    readonly internal?: boolean
-    /** Computed domain allowlist based on network_access_level and allowed_domains */
-    readonly effective_domains?: readonly string[]
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    readonly updated_at?: string
-}
-
-export interface TaskAutomationApi {
-    readonly id: string
-    /** @maxLength 255 */
-    name: string
-    prompt: string
-    /** @maxLength 255 */
-    repository: string
-    /** @nullable */
-    github_integration?: number | null
-    /** @maxLength 100 */
-    cron_expression: string
-    /** @maxLength 128 */
-    timezone?: string
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    enabled?: boolean
-    /** @nullable */
-    readonly last_run_at: string | null
-    /** @nullable */
-    readonly last_run_status: string | null
-    /** @nullable */
-    readonly last_task_id: string | null
-    /** @nullable */
-    readonly last_task_run_id: string | null
-    /** @nullable */
-    readonly last_error: string | null
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedTaskAutomationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaskAutomationApi[]
-}
-
-export interface PatchedTaskAutomationApi {
-    readonly id?: string
-    /** @maxLength 255 */
-    name?: string
-    prompt?: string
-    /** @maxLength 255 */
-    repository?: string
-    /** @nullable */
-    github_integration?: number | null
-    /** @maxLength 100 */
-    cron_expression?: string
-    /** @maxLength 128 */
-    timezone?: string
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    template_id?: string | null
-    enabled?: boolean
-    /** @nullable */
-    readonly last_run_at?: string | null
-    /** @nullable */
-    readonly last_run_status?: string | null
-    /** @nullable */
-    readonly last_task_id?: string | null
-    /** @nullable */
-    readonly last_task_run_id?: string | null
-    /** @nullable */
-    readonly last_error?: string | null
-    readonly created_at?: string
-    readonly updated_at?: string
-}
-
-/**
- * * `error_tracking` - Error Tracking
- * * `eval_clusters` - Eval Clusters
- * * `user_created` - User Created
- * * `automation` - Automation
- * * `slack` - Slack
- * * `support_queue` - Support Queue
- * * `session_summaries` - Session Summaries
- * * `signal_report` - Signal Report
- * * `signals_scout` - Signals Scout
- * * `support_reply` - Support Reply
- */
-export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
-
-export const OriginProductEnumApi = {
-    ErrorTracking: 'error_tracking',
-    EvalClusters: 'eval_clusters',
-    UserCreated: 'user_created',
-    Automation: 'automation',
-    Slack: 'slack',
-    SupportQueue: 'support_queue',
-    SessionSummaries: 'session_summaries',
-    SignalReport: 'signal_report',
-    SignalsScout: 'signals_scout',
-    SupportReply: 'support_reply',
-} as const
-
-/**
- * * `implementation` - Implementation
- */
-export type SignalReportTaskRelationshipEnumApi =
-    (typeof SignalReportTaskRelationshipEnumApi)[keyof typeof SignalReportTaskRelationshipEnumApi]
-
-export const SignalReportTaskRelationshipEnumApi = {
-    Implementation: 'implementation',
-} as const
 
 /**
  * Latest run details for this task

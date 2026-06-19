@@ -24,158 +24,203 @@ export const CodeInvitesRedeemCreateBody = /* @__PURE__ */ zod.object({
  */
 export const sandboxCreateBodyNameMax = 255
 
+export const sandboxCreateBodyNetworkAccessLevelDefault = `full`
 export const sandboxCreateBodyAllowedDomainsItemMax = 255
 
+export const sandboxCreateBodyIncludeDefaultDomainsDefault = false
 export const sandboxCreateBodyRepositoriesItemMax = 255
 
-export const SandboxCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(sandboxCreateBodyNameMax),
-    network_access_level: zod
-        .enum(['trusted', 'full', 'custom'])
-        .optional()
-        .describe('\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom'),
-    allowed_domains: zod
-        .array(zod.string().max(sandboxCreateBodyAllowedDomainsItemMax))
-        .optional()
-        .describe('List of allowed domains for custom network access'),
-    include_default_domains: zod
-        .boolean()
-        .optional()
-        .describe('Whether to include default trusted domains (GitHub, npm, PyPI)'),
-    repositories: zod
-        .array(zod.string().max(sandboxCreateBodyRepositoriesItemMax))
-        .optional()
-        .describe('List of repositories this environment applies to (format: org\/repo)'),
-    environment_variables: zod
-        .unknown()
-        .optional()
-        .describe('Encrypted environment variables (write-only, never returned in responses)'),
-    private: zod
-        .boolean()
-        .optional()
-        .describe('If true, only the creator can see this environment. Otherwise visible to whole team.'),
-})
+export const sandboxCreateBodyPrivateDefault = true
+
+export const SandboxCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(sandboxCreateBodyNameMax).describe('Display name for the environment.'),
+        network_access_level: zod
+            .enum(['trusted', 'full', 'custom'])
+            .describe('\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom')
+            .default(sandboxCreateBodyNetworkAccessLevelDefault)
+            .describe(
+                'Network access policy: trusted (default allowlist), full (unrestricted), or custom.\n\n\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom'
+            ),
+        allowed_domains: zod
+            .array(zod.string().max(sandboxCreateBodyAllowedDomainsItemMax))
+            .optional()
+            .describe('Allowed domains for custom network access.'),
+        include_default_domains: zod
+            .boolean()
+            .default(sandboxCreateBodyIncludeDefaultDomainsDefault)
+            .describe('Whether to include default trusted domains (GitHub, npm, PyPI).'),
+        repositories: zod
+            .array(zod.string().max(sandboxCreateBodyRepositoriesItemMax))
+            .optional()
+            .describe('Repositories this environment applies to (format: org\/repo).'),
+        environment_variables: zod
+            .unknown()
+            .optional()
+            .describe('Encrypted environment variables (write-only, never returned in responses).'),
+        private: zod
+            .boolean()
+            .default(sandboxCreateBodyPrivateDefault)
+            .describe('If true, only the creator can see this environment; otherwise the whole team can.'),
+    })
+    .describe('Request body for creating or updating a sandbox environment.')
 
 /**
  * API for managing sandbox environments that control network access for task runs.
  */
 export const sandboxPartialUpdateBodyNameMax = 255
 
+export const sandboxPartialUpdateBodyNetworkAccessLevelDefault = `full`
 export const sandboxPartialUpdateBodyAllowedDomainsItemMax = 255
 
+export const sandboxPartialUpdateBodyIncludeDefaultDomainsDefault = false
 export const sandboxPartialUpdateBodyRepositoriesItemMax = 255
 
-export const SandboxPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(sandboxPartialUpdateBodyNameMax).optional(),
-    network_access_level: zod
-        .enum(['trusted', 'full', 'custom'])
-        .optional()
-        .describe('\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom'),
-    allowed_domains: zod
-        .array(zod.string().max(sandboxPartialUpdateBodyAllowedDomainsItemMax))
-        .optional()
-        .describe('List of allowed domains for custom network access'),
-    include_default_domains: zod
-        .boolean()
-        .optional()
-        .describe('Whether to include default trusted domains (GitHub, npm, PyPI)'),
-    repositories: zod
-        .array(zod.string().max(sandboxPartialUpdateBodyRepositoriesItemMax))
-        .optional()
-        .describe('List of repositories this environment applies to (format: org\/repo)'),
-    environment_variables: zod
-        .unknown()
-        .optional()
-        .describe('Encrypted environment variables (write-only, never returned in responses)'),
-    private: zod
-        .boolean()
-        .optional()
-        .describe('If true, only the creator can see this environment. Otherwise visible to whole team.'),
-})
+export const sandboxPartialUpdateBodyPrivateDefault = true
 
+export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(sandboxPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Display name for the environment.'),
+        network_access_level: zod
+            .enum(['trusted', 'full', 'custom'])
+            .describe('\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom')
+            .default(sandboxPartialUpdateBodyNetworkAccessLevelDefault)
+            .describe(
+                'Network access policy: trusted (default allowlist), full (unrestricted), or custom.\n\n\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom'
+            ),
+        allowed_domains: zod
+            .array(zod.string().max(sandboxPartialUpdateBodyAllowedDomainsItemMax))
+            .optional()
+            .describe('Allowed domains for custom network access.'),
+        include_default_domains: zod
+            .boolean()
+            .default(sandboxPartialUpdateBodyIncludeDefaultDomainsDefault)
+            .describe('Whether to include default trusted domains (GitHub, npm, PyPI).'),
+        repositories: zod
+            .array(zod.string().max(sandboxPartialUpdateBodyRepositoriesItemMax))
+            .optional()
+            .describe('Repositories this environment applies to (format: org\/repo).'),
+        environment_variables: zod
+            .unknown()
+            .optional()
+            .describe('Encrypted environment variables (write-only, never returned in responses).'),
+        private: zod
+            .boolean()
+            .default(sandboxPartialUpdateBodyPrivateDefault)
+            .describe('If true, only the creator can see this environment; otherwise the whole team can.'),
+    })
+    .describe('Request body for creating or updating a sandbox environment.')
+
+/**
+ * API for managing scheduled task automations.
+ */
 export const taskAutomationsCreateBodyNameMax = 255
 
 export const taskAutomationsCreateBodyRepositoryMax = 255
 
 export const taskAutomationsCreateBodyCronExpressionMax = 100
 
+export const taskAutomationsCreateBodyTimezoneDefault = `UTC`
 export const taskAutomationsCreateBodyTimezoneMax = 128
 
 export const taskAutomationsCreateBodyTemplateIdMax = 255
 
-export const TaskAutomationsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(taskAutomationsCreateBodyNameMax),
-    prompt: zod.string(),
-    repository: zod.string().max(taskAutomationsCreateBodyRepositoryMax),
-    github_integration: zod.number().nullish(),
-    cron_expression: zod.string().max(taskAutomationsCreateBodyCronExpressionMax),
-    timezone: zod.string().max(taskAutomationsCreateBodyTimezoneMax).optional(),
-    template_id: zod.string().max(taskAutomationsCreateBodyTemplateIdMax).nullish(),
-    enabled: zod.boolean().optional(),
-})
+export const taskAutomationsCreateBodyEnabledDefault = true
 
-export const taskAutomationsUpdateBodyNameMax = 255
+export const TaskAutomationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(taskAutomationsCreateBodyNameMax)
+            .describe("Display name (stored as the backing task's title)."),
+        prompt: zod.string().describe("The automation prompt (stored as the backing task's description)."),
+        repository: zod
+            .string()
+            .max(taskAutomationsCreateBodyRepositoryMax)
+            .describe('Target repository in the format organization\/repository.'),
+        github_integration: zod
+            .number()
+            .nullish()
+            .describe("GitHub integration to run as. Defaults to the team's GitHub integration when omitted."),
+        cron_expression: zod
+            .string()
+            .max(taskAutomationsCreateBodyCronExpressionMax)
+            .describe('Standard 5-field cron expression (minute hour day month weekday).'),
+        timezone: zod
+            .string()
+            .max(taskAutomationsCreateBodyTimezoneMax)
+            .default(taskAutomationsCreateBodyTimezoneDefault)
+            .describe('IANA timezone the schedule runs in.'),
+        template_id: zod
+            .string()
+            .max(taskAutomationsCreateBodyTemplateIdMax)
+            .nullish()
+            .describe('Optional template identifier this automation was created from.'),
+        enabled: zod
+            .boolean()
+            .default(taskAutomationsCreateBodyEnabledDefault)
+            .describe('Whether the schedule is active; paused when false.'),
+    })
+    .describe('Request body for creating or updating a task automation.')
 
-export const taskAutomationsUpdateBodyRepositoryMax = 255
-
-export const taskAutomationsUpdateBodyCronExpressionMax = 100
-
-export const taskAutomationsUpdateBodyTimezoneMax = 128
-
-export const taskAutomationsUpdateBodyTemplateIdMax = 255
-
-export const TaskAutomationsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(taskAutomationsUpdateBodyNameMax),
-    prompt: zod.string(),
-    repository: zod.string().max(taskAutomationsUpdateBodyRepositoryMax),
-    github_integration: zod.number().nullish(),
-    cron_expression: zod.string().max(taskAutomationsUpdateBodyCronExpressionMax),
-    timezone: zod.string().max(taskAutomationsUpdateBodyTimezoneMax).optional(),
-    template_id: zod.string().max(taskAutomationsUpdateBodyTemplateIdMax).nullish(),
-    enabled: zod.boolean().optional(),
-})
-
+/**
+ * API for managing scheduled task automations.
+ */
 export const taskAutomationsPartialUpdateBodyNameMax = 255
 
 export const taskAutomationsPartialUpdateBodyRepositoryMax = 255
 
 export const taskAutomationsPartialUpdateBodyCronExpressionMax = 100
 
+export const taskAutomationsPartialUpdateBodyTimezoneDefault = `UTC`
 export const taskAutomationsPartialUpdateBodyTimezoneMax = 128
 
 export const taskAutomationsPartialUpdateBodyTemplateIdMax = 255
 
-export const TaskAutomationsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(taskAutomationsPartialUpdateBodyNameMax).optional(),
-    prompt: zod.string().optional(),
-    repository: zod.string().max(taskAutomationsPartialUpdateBodyRepositoryMax).optional(),
-    github_integration: zod.number().nullish(),
-    cron_expression: zod.string().max(taskAutomationsPartialUpdateBodyCronExpressionMax).optional(),
-    timezone: zod.string().max(taskAutomationsPartialUpdateBodyTimezoneMax).optional(),
-    template_id: zod.string().max(taskAutomationsPartialUpdateBodyTemplateIdMax).nullish(),
-    enabled: zod.boolean().optional(),
-})
+export const taskAutomationsPartialUpdateBodyEnabledDefault = true
 
-export const taskAutomationsRunCreateBodyNameMax = 255
-
-export const taskAutomationsRunCreateBodyRepositoryMax = 255
-
-export const taskAutomationsRunCreateBodyCronExpressionMax = 100
-
-export const taskAutomationsRunCreateBodyTimezoneMax = 128
-
-export const taskAutomationsRunCreateBodyTemplateIdMax = 255
-
-export const TaskAutomationsRunCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(taskAutomationsRunCreateBodyNameMax),
-    prompt: zod.string(),
-    repository: zod.string().max(taskAutomationsRunCreateBodyRepositoryMax),
-    github_integration: zod.number().nullish(),
-    cron_expression: zod.string().max(taskAutomationsRunCreateBodyCronExpressionMax),
-    timezone: zod.string().max(taskAutomationsRunCreateBodyTimezoneMax).optional(),
-    template_id: zod.string().max(taskAutomationsRunCreateBodyTemplateIdMax).nullish(),
-    enabled: zod.boolean().optional(),
-})
+export const TaskAutomationsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(taskAutomationsPartialUpdateBodyNameMax)
+            .optional()
+            .describe("Display name (stored as the backing task's title)."),
+        prompt: zod.string().optional().describe("The automation prompt (stored as the backing task's description)."),
+        repository: zod
+            .string()
+            .max(taskAutomationsPartialUpdateBodyRepositoryMax)
+            .optional()
+            .describe('Target repository in the format organization\/repository.'),
+        github_integration: zod
+            .number()
+            .nullish()
+            .describe("GitHub integration to run as. Defaults to the team's GitHub integration when omitted."),
+        cron_expression: zod
+            .string()
+            .max(taskAutomationsPartialUpdateBodyCronExpressionMax)
+            .optional()
+            .describe('Standard 5-field cron expression (minute hour day month weekday).'),
+        timezone: zod
+            .string()
+            .max(taskAutomationsPartialUpdateBodyTimezoneMax)
+            .default(taskAutomationsPartialUpdateBodyTimezoneDefault)
+            .describe('IANA timezone the schedule runs in.'),
+        template_id: zod
+            .string()
+            .max(taskAutomationsPartialUpdateBodyTemplateIdMax)
+            .nullish()
+            .describe('Optional template identifier this automation was created from.'),
+        enabled: zod
+            .boolean()
+            .default(taskAutomationsPartialUpdateBodyEnabledDefault)
+            .describe('Whether the schedule is active; paused when false.'),
+    })
+    .describe('Request body for creating or updating a task automation.')
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.

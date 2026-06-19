@@ -226,7 +226,7 @@ class CodeHomeDTO:
 
 
 @dataclass(frozen=True)
-class UserBasicInfo:
+class TaskUserBasicInfo:
     """Lightweight user info for display, mirroring core ``UserBasicSerializer`` output.
 
     Carries exactly the fields that serializer emits so presentation responses stay
@@ -259,7 +259,7 @@ class SandboxEnvironmentDTO:
     repositories: list[str] = Field(default_factory=list)
     effective_domains: list[str] = Field(default_factory=list)
     has_environment_variables: bool = False
-    created_by: UserBasicInfo | None = None
+    created_by: TaskUserBasicInfo | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

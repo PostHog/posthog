@@ -23,7 +23,7 @@ from products.tasks.backend.constants import (
     INITIAL_PERMISSION_MODE_CHOICES,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.contracts import SandboxEnvironmentDTO, TaskAutomationDTO, UserBasicInfo
+from products.tasks.backend.facade.contracts import SandboxEnvironmentDTO, TaskAutomationDTO, TaskUserBasicInfo
 from products.tasks.backend.logic.services.title_generator import generate_task_title
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.redis import get_tasks_cache
@@ -40,11 +40,11 @@ from products.tasks.backend.temporal.process_task.utils import (
 )
 
 
-class UserBasicInfoSerializer(DataclassSerializer):
+class TaskUserBasicInfoSerializer(DataclassSerializer):
     """Response shape for a `created_by` user — mirrors core `UserBasicSerializer` output."""
 
     class Meta:
-        dataclass = UserBasicInfo
+        dataclass = TaskUserBasicInfo
 
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
@@ -1603,7 +1603,7 @@ class TaskAutomationWriteSerializer(serializers.Serializer):
 class SandboxEnvironmentSerializer(DataclassSerializer):
     """Detail/create/update response for a sandbox environment."""
 
-    created_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = SandboxEnvironmentDTO
@@ -1627,7 +1627,7 @@ class SandboxEnvironmentSerializer(DataclassSerializer):
 class SandboxEnvironmentListSerializer(DataclassSerializer):
     """List response for sandbox environments (subset of fields)."""
 
-    created_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = SandboxEnvironmentDTO
