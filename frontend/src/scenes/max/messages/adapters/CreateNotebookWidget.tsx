@@ -4,9 +4,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { SandboxToolActivity } from '../../components/Activity'
+import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
+import { SandboxDataToolRow } from '../../sandbox/components/tool/SandboxDataToolRow'
 import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
-import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
 
 /** The notebook fields the widget renders, pulled from the REST payload. */
 export interface NotebookExtraction {
@@ -51,11 +51,11 @@ export function CreateNotebookWidget(props: SandboxToolRendererProps): JSX.Eleme
     const notebook = message.status === 'completed' ? extractNotebook(message) : null
 
     if (!notebook) {
-        return <FallbackMcpToolRenderer {...props} />
+        return <GenericMcpToolRenderer {...props} />
     }
 
     return (
-        <SandboxToolActivity {...props}>
+        <SandboxDataToolRow {...props}>
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                     <IconNotebook className="text-base" />
@@ -71,6 +71,6 @@ export function CreateNotebookWidget(props: SandboxToolRendererProps): JSX.Eleme
                     Open notebook
                 </LemonButton>
             </div>
-        </SandboxToolActivity>
+        </SandboxDataToolRow>
     )
 }

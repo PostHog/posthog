@@ -1,6 +1,6 @@
-import { SandboxToolActivity } from '../../components/Activity'
+import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
+import { SandboxDataToolRow } from '../../sandbox/components/tool/SandboxDataToolRow'
 import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
-import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
 import { VisualizationWidget, getArtifactOpenTarget } from '../VisualizationWidget'
 import { extractVisualizationArtifact } from './extractors'
 
@@ -14,19 +14,19 @@ export function CreateInsightWidget(props: SandboxToolRendererProps): JSX.Elemen
     const artifact = message.status === 'completed' ? extractVisualizationArtifact(message) : null
 
     if (!artifact) {
-        return <FallbackMcpToolRenderer {...props} />
+        return <GenericMcpToolRenderer {...props} />
     }
 
     const target = getArtifactOpenTarget(artifact.envelope, artifact.content)
 
     return (
-        <SandboxToolActivity {...props}>
+        <SandboxDataToolRow {...props}>
             <VisualizationWidget
                 content={artifact.content}
                 openUrl={target.url}
                 openTooltip={target.tooltip}
                 embedded
             />
-        </SandboxToolActivity>
+        </SandboxDataToolRow>
     )
 }

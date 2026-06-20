@@ -1,6 +1,6 @@
-import { SandboxToolActivity } from '../../components/Activity'
+import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
+import { SandboxDataToolRow } from '../../sandbox/components/tool/SandboxDataToolRow'
 import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
-import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
 import { VisualizationWidget } from '../VisualizationWidget'
 import { extractQueryResult } from './extractors'
 
@@ -14,12 +14,12 @@ export function QueryWidget(props: SandboxToolRendererProps): JSX.Element {
     const result = message.status === 'completed' ? extractQueryResult(message) : null
 
     if (!result) {
-        return <FallbackMcpToolRenderer {...props} />
+        return <GenericMcpToolRenderer {...props} />
     }
 
     return (
-        <SandboxToolActivity {...props}>
+        <SandboxDataToolRow {...props}>
             <VisualizationWidget content={result.content} openUrl={result.url} openTooltip="Open as insight" embedded />
-        </SandboxToolActivity>
+        </SandboxDataToolRow>
     )
 }

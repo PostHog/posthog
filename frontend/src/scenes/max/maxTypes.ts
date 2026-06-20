@@ -267,6 +267,8 @@ export interface SandboxToolCallMessage {
     status: 'pending' | 'in_progress' | 'completed' | 'failed'
     title?: string
     kind?: string
+    /** ACP `toolCall.locations` — file paths (with optional line) the tool touched. */
+    locations?: { path: string; line?: number }[]
     error?: { message?: string } | null
 }
 

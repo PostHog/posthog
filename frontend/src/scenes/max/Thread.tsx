@@ -90,6 +90,7 @@ import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
 import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
 import { RecordingsWidget, isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
+import { SandboxToolCall } from './sandbox/components/tool/SandboxToolCall'
 import { SandboxPullRequestCard } from './sandbox/SandboxPullRequestCard'
 import { SandboxRunContext } from './sandbox/SandboxRunContext'
 import {
@@ -97,7 +98,6 @@ import {
     SandboxStatusItem,
     SandboxTaskNotificationItem,
 } from './sandbox/SandboxThreadItems'
-import { lookupSandboxToolRenderer } from './sandbox/sandboxToolRegistry'
 import { resolveToolCall } from './sandbox/sandboxToolResolver'
 import { sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
@@ -148,6 +148,7 @@ function toolInvocationToMessage(
         status: invocation.status,
         title: invocation.title,
         kind: invocation.kind,
+        locations: invocation.locations,
         error: invocation.error,
     }
 }
@@ -161,8 +162,21 @@ function toolInvocationToMessage(
 function SandboxThread(): JSX.Element {
     // Drive the thinking indicator from real agent progress: show the latest `_posthog/progress`
     // message while the run is active, falling back to the canned rotation.
-    const { threadItems, toolInvocations, currentProgress, isThinking, streamPhase, runArtifacts } =
-        useValues(sandboxStreamLogic)
+    const {
+        threadItems,
+        toolInvocations,
+        currentProgress,
+        isThinking,
+        streamPhase,
+        runArtifacts,
+        turnComplete,
+        currentRunStatus,
+    } = useValues(sandboxStreamLogic)
+    // Staff/dev gate for the raw JSON inspector, computed once and passed down (narrow-subscribe).
+    const { user } = useValues(userLogic)
+    const { isDev } = useValues(preflightLogic)
+    const showRawToolDetails = !!(user?.is_staff || user?.is_impersonated || isDev)
+    const turnCancelled = currentRunStatus === 'cancelled'
     const hasActiveProgressItem = threadItems.some(
         (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
     )
@@ -215,14 +229,13 @@ function SandboxThread(): JSX.Element {
                     if (!message) {
                         return null
                     }
-                    const entry = lookupSandboxToolRenderer(message.resolvedKey)
                     return (
-                        <entry.Renderer
+                        <SandboxToolCall
                             key={item.id}
                             message={message}
-                            isLastInGroup
-                            icon={entry.icon}
-                            displayName={entry.displayName}
+                            showRawDetails={showRawToolDetails}
+                            turnComplete={turnComplete}
+                            turnCancelled={turnCancelled}
                         />
                     )
                 }

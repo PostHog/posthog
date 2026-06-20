@@ -2,13 +2,22 @@ import { useValues } from 'kea'
 import type { editor } from 'monaco-editor'
 import { useInView } from 'react-intersection-observer'
 
+import { IconPencil } from '@posthog/icons'
+
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { SandboxToolActivity } from '../../components/Activity'
+import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
+import { SandboxFilePath } from '../../sandbox/components/tool/SandboxFilePath'
+import { SandboxToolRow } from '../../sandbox/components/tool/SandboxToolRow'
+import { ToolTitle } from '../../sandbox/components/tool/toolRowPrimitives'
+import { resolveToolRowChrome } from '../../sandbox/components/tool/toolRowShared'
 import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
 import { findAllDiffContent, getDiffStats, languageFromPath, type ToolCallDiffContent } from '../../toolDiffContent'
+
+// Plan files live under the agent's plan directory; their diffs are noisy, so collapse them by default.
+const PLAN_PATH_MARKER = 'claude/plans/'
 
 // A stripped-down, unified diff that reads cleanly embedded in a chat card — mirrors the look of the
 // sandbox agent's own diff UI (unified style, soft-wrapped, compact font, no editor chrome). Module-level
@@ -39,24 +48,16 @@ const DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
     scrollbar: { alwaysConsumeMouseWheel: false, vertical: 'auto', horizontal: 'auto' },
 }
 
-function EditDiffBody({ diff, fallbackPath }: { diff: ToolCallDiffContent; fallbackPath?: string }): JSX.Element {
-    // Lazy-mount: render the cheap stat line always, but only instantiate the Monaco diff editor once
-    // the card scrolls near the viewport. This bounds the number of live editors to what's on screen.
+function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }): JSX.Element {
+    // Lazy-mount: only instantiate the Monaco diff editor once the card scrolls near the viewport. This
+    // bounds the number of live editors to what's on screen.
     const { ref, inView } = useInView({ rootMargin: '500px', triggerOnce: true })
     // Match the surrounding app theme — without this Monaco falls back to its default `vs` (white) theme,
     // which looks broken on a dark card. Same wiring CodeEditorImpl uses.
     const { isDarkModeOn } = useValues(themeLogic)
-    const path = diff.path ?? fallbackPath
-    const { added, removed } = getDiffStats(diff.oldText, diff.newText)
 
     return (
-        <div ref={ref} className="flex flex-col gap-1 w-full min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-                {path && <span className="font-mono text-xs text-muted truncate">{path}</span>}
-                <span className="font-mono text-xs shrink-0">
-                    <span className="text-success">+{added}</span> <span className="text-danger">-{removed}</span>
-                </span>
-            </div>
+        <div ref={ref} className="w-full min-w-0">
             {inView ? (
                 <MonacoDiffEditor
                     original={diff.oldText ?? ''}
@@ -73,30 +74,81 @@ function EditDiffBody({ diff, fallbackPath }: { diff: ToolCallDiffContent; fallb
     )
 }
 
+/** +added / -removed mono stat chip for a diff (or aggregate). */
+function DiffStats({ added, removed }: { added: number; removed: number }): JSX.Element {
+    return (
+        <span className="font-mono text-[13px] shrink-0">
+            <span className="text-success">+{added}</span> <span className="text-danger">-{removed}</span>
+        </span>
+    )
+}
+
 /**
- * Renderer for Edit/Write/MultiEdit/NotebookEdit tool calls. When the agent attached `type: "diff"`
- * content blocks (full-file old/new text), it shows an inline visual diff with +/- line stats inside
- * the standard tool card. Otherwise it degrades to the plain `SandboxToolActivity` card — this
- * renderer is a strict superset of `FallbackMcpToolRenderer`, so non-diff edits and not-yet-streamed
- * content render exactly as before.
+ * Renderer for Edit / Write / MultiEdit / NotebookEdit. When the agent attached `type: "diff"` content
+ * blocks (full-file old/new text) it shows the file path + line stats in the header and an inline visual
+ * diff in the body; MultiEdit lists one diff per edit. Without diff blocks it degrades to the generic
+ * card, so non-diff edits and not-yet-streamed content still render.
  */
 export function EditDiffRenderer(props: SandboxToolRendererProps): JSX.Element {
-    const { message, icon, displayName } = props
+    const { message, icon } = props
     const diffs = findAllDiffContent(message.content)
 
     if (diffs.length === 0) {
-        return <SandboxToolActivity message={message} icon={icon} displayName={displayName} />
+        return <GenericMcpToolRenderer {...props} />
     }
 
+    const chrome = resolveToolRowChrome(props)
     const fallbackPath = typeof message.rawInput.file_path === 'string' ? message.rawInput.file_path : undefined
+    const primaryPath = diffs[0].path ?? fallbackPath
+    const isSingle = diffs.length === 1
+
+    const total = diffs.reduce(
+        (acc, diff) => {
+            const stats = getDiffStats(diff.oldText, diff.newText)
+            return { added: acc.added + stats.added, removed: acc.removed + stats.removed }
+        },
+        { added: 0, removed: 0 }
+    )
+
+    const header =
+        isSingle && primaryPath ? (
+            <>
+                <SandboxFilePath path={primaryPath} />
+                <DiffStats {...total} />
+            </>
+        ) : (
+            <>
+                <ToolTitle>{message.title || `Edit ${diffs.length} files`}</ToolTitle>
+                <DiffStats {...total} />
+            </>
+        )
+
+    const content = (
+        <div className="flex flex-col gap-3 w-full min-w-0">
+            {diffs.map((diff, index) => {
+                const path = diff.path ?? fallbackPath
+                return (
+                    <div key={index} className="flex flex-col gap-1 w-full min-w-0">
+                        {!isSingle && path && <SandboxFilePath path={path} />}
+                        <DiffEditor diff={diff} path={path} />
+                    </div>
+                )
+            })}
+        </div>
+    )
 
     return (
-        <SandboxToolActivity message={message} icon={icon} displayName={displayName}>
-            <div className="flex flex-col gap-3 w-full min-w-0">
-                {diffs.map((diff, index) => (
-                    <EditDiffBody key={index} diff={diff} fallbackPath={fallbackPath} />
-                ))}
-            </div>
-        </SandboxToolActivity>
+        <SandboxToolRow
+            icon={icon ?? <IconPencil />}
+            isLoading={chrome.isLoading}
+            isFailed={chrome.isFailed}
+            wasCancelled={chrome.wasCancelled}
+            errorMessage={chrome.errorMessage}
+            defaultOpen={!(primaryPath ?? '').includes(PLAN_PATH_MARKER)}
+            content={content}
+            debugDetails={chrome.debugDetails}
+        >
+            {header}
+        </SandboxToolRow>
     )
 }

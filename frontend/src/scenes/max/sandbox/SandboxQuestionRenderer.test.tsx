@@ -87,8 +87,8 @@ describe('SandboxQuestionRenderer', () => {
     it('falls back to the generic tool card when the input has no questions', () => {
         renderCard(makeMessage({ rawInput: {}, rawOutput: undefined }))
 
-        // The fallback card exposes an "Input" collapse panel; the question recap never mounts.
-        expect(screen.getByText('Input')).toBeInTheDocument()
+        // The generic card renders instead of the question recap.
+        expect(screen.getByText('Question')).toBeInTheDocument()
         expect(screen.queryByText('Which goal matters most?')).not.toBeInTheDocument()
     })
 })

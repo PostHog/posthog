@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react'
+import { type ComponentType, type LazyExoticComponent, lazy } from 'react'
 
 import {
     IconAI,
@@ -30,28 +30,29 @@ import {
 import { IconRobot } from 'lib/lemon-ui/icons'
 
 import type { SandboxToolCallMessage } from '../maxTypes'
-import { CreateInsightWidget } from '../messages/adapters/CreateInsightWidget'
-import { CreateNotebookWidget } from '../messages/adapters/CreateNotebookWidget'
-import { EditDiffRenderer } from '../messages/adapters/EditDiffRenderer'
-import { ErrorTrackingWidget } from '../messages/adapters/ErrorTrackingWidget'
-import { QueryWidget } from '../messages/adapters/QueryWidget'
-import { SearchSessionRecordingsWidget } from '../messages/adapters/SearchSessionRecordingsWidget'
-import { UpsertDashboardWidget } from '../messages/adapters/UpsertDashboardWidget'
-import { FallbackMcpToolRenderer } from '../messages/FallbackMcpToolRenderer'
-import { SandboxQuestionRenderer } from './SandboxQuestionRenderer'
 
 export interface SandboxToolRendererProps {
     message: SandboxToolCallMessage
     isLastInGroup: boolean
     /**
-     * Resolved registry entry's icon — the registry's contribution to the card. Renderers that fall
-     * through to `FallbackMcpToolRenderer` use it for the header icon (built-ins get their friendly
-     * icon instead of the generic wrench). Optional so direct mounts default to the wrench.
+     * Resolved registry entry's icon — the registry's contribution to the card. Renderers use it for
+     * the header icon (built-ins get their friendly icon instead of the generic wrench). Optional so
+     * direct mounts default to the renderer's own fallback icon.
      */
     icon?: JSX.Element
     /** Resolved registry entry's stable display name, used as the header label when no title exists. */
     displayName?: string
+    /** Staff/dev gate (computed once at thread level): render the raw JSON inspector below the card. */
+    showRawDetails?: boolean
+    /** Turn-level signals so a still-incomplete tool reads as loading vs cancelled vs idle. */
+    turnComplete?: boolean
+    turnCancelled?: boolean
 }
+
+/** A renderer reachable eagerly or via a lazy chunk — both render identically in `SandboxToolCall`. */
+type SandboxToolRendererComponent =
+    | ComponentType<SandboxToolRendererProps>
+    | LazyExoticComponent<ComponentType<SandboxToolRendererProps>>
 
 export interface SandboxToolRegistryEntry {
     /**
@@ -64,7 +65,7 @@ export interface SandboxToolRegistryEntry {
     /** Display name / icon for fallback rendering and for the tool-call header line. */
     displayName: string
     icon: JSX.Element
-    Renderer: ComponentType<SandboxToolRendererProps>
+    Renderer: SandboxToolRendererComponent
 }
 
 export interface SandboxToolRegistry {
@@ -84,10 +85,42 @@ class MapBackedRegistry implements SandboxToolRegistry {
     }
 }
 
+// Renderers are code-split: the static graph below carries only icons, types, and lazy factories, so a
+// sandbox conversation pulls a renderer's chunk on first use, not at thread mount. The built-in tools
+// and the generic MCP card share one chunk (`builtinToolRenderers`); each heavy data-tool adapter and
+// the Monaco-backed diff renderer stay in their own chunks.
+const BuiltinToolRenderer = lazy(() =>
+    import('./components/tool/builtinToolRenderers').then((m) => ({ default: m.BuiltinToolRenderer }))
+)
+const EditToolRenderer = lazy(() =>
+    import('../messages/adapters/EditDiffRenderer').then((m) => ({ default: m.EditDiffRenderer }))
+)
+const InsightRenderer = lazy(() =>
+    import('../messages/adapters/CreateInsightWidget').then((m) => ({ default: m.CreateInsightWidget }))
+)
+const DashboardRenderer = lazy(() =>
+    import('../messages/adapters/UpsertDashboardWidget').then((m) => ({ default: m.UpsertDashboardWidget }))
+)
+const SessionRecordingsRenderer = lazy(() =>
+    import('../messages/adapters/SearchSessionRecordingsWidget').then((m) => ({
+        default: m.SearchSessionRecordingsWidget,
+    }))
+)
+const ErrorTrackingRenderer = lazy(() =>
+    import('../messages/adapters/ErrorTrackingWidget').then((m) => ({ default: m.ErrorTrackingWidget }))
+)
+const NotebookRenderer = lazy(() =>
+    import('../messages/adapters/CreateNotebookWidget').then((m) => ({ default: m.CreateNotebookWidget }))
+)
+const QueryRenderer = lazy(() => import('../messages/adapters/QueryWidget').then((m) => ({ default: m.QueryWidget })))
+const QuestionRenderer = lazy(() =>
+    import('./SandboxQuestionRenderer').then((m) => ({ default: m.SandboxQuestionRenderer }))
+)
+
 /**
- * Single module-level registry of MCP tool-name → renderer. All entries are registered at module
- * load — no dynamic registration, no hooks, no scene callbacks. Custom adapters are registered
- * per tool; any tool without one falls through to `FallbackMcpToolRenderer`.
+ * Single module-level registry of tool-name → renderer entry. All entries are registered at module
+ * load — no dynamic registration, no hooks, no scene callbacks. Custom adapters are registered per
+ * tool; any tool without one falls through to the built-in renderer's generic MCP card.
  */
 export const sandboxToolRegistry: SandboxToolRegistry = new MapBackedRegistry()
 
@@ -102,7 +135,7 @@ for (const key of ['insight-create', 'insight-update', 'insight-get', 'create_in
         key,
         displayName: 'Insight',
         icon: <IconGraph />,
-        Renderer: CreateInsightWidget,
+        Renderer: InsightRenderer,
     })
 }
 
@@ -112,7 +145,7 @@ for (const key of ['dashboard-create', 'dashboard-update', 'upsert_dashboard']) 
         key,
         displayName: 'Dashboard',
         icon: <IconDashboard />,
-        Renderer: UpsertDashboardWidget,
+        Renderer: DashboardRenderer,
     })
 }
 
@@ -122,7 +155,7 @@ for (const key of ['query-session-recordings-list', 'search_session_recordings',
         key,
         displayName: 'Session recordings',
         icon: <IconRewindPlay />,
-        Renderer: SearchSessionRecordingsWidget,
+        Renderer: SessionRecordingsRenderer,
     })
 }
 
@@ -138,7 +171,7 @@ for (const key of [
         key,
         displayName: 'Error tracking',
         icon: <IconWarning />,
-        Renderer: ErrorTrackingWidget,
+        Renderer: ErrorTrackingRenderer,
     })
 }
 
@@ -150,7 +183,7 @@ for (const key of ['notebooks-create', 'notebooks-partial-update', 'notebooks-re
         key,
         displayName: 'Notebook',
         icon: <IconNotebook />,
-        Renderer: CreateNotebookWidget,
+        Renderer: NotebookRenderer,
     })
 }
 
@@ -169,16 +202,16 @@ const QUERY_WRAPPER_TOOLS: { key: string; displayName: string; icon: JSX.Element
     { key: 'query-paths-actors', displayName: 'Paths persons', icon: <IconPerson /> },
 ]
 for (const { key, displayName, icon } of QUERY_WRAPPER_TOOLS) {
-    sandboxToolRegistry.register({ key, displayName, icon, Renderer: QueryWidget })
+    sandboxToolRegistry.register({ key, displayName, icon, Renderer: QueryRenderer })
 }
 
 // --- Claude built-in tools ---
-// Keyed by the stable SDK tool name (reachable via `_meta.claudeCode.toolName`). All reuse the
-// fallback card — the goal is a friendly title + icon, not a bespoke widget. The fallback header
-// already prefers Twig's rich `title` (e.g. "Edit `foo.ts`"), so these supply the icon and a stable
-// `displayName` for any frame whose title is empty. `Skill` is registered speculatively (not
-// enumerated in Twig's tools.ts) — zero cost if never emitted. File-editing built-ins are split out
-// below into a dedicated diff renderer.
+// Keyed by the stable SDK tool name (reachable via `_meta.claudeCode.toolName`). Bash/Read/Search/Web
+// get a dedicated per-tool card; the rest fall through to the generic MCP card — all inside the single
+// `BuiltinToolRenderer` chunk, which switches on the resolved tool name. The registry supplies the
+// friendly icon + a stable `displayName` for frames whose `title` is empty. `Skill` is registered
+// speculatively (not enumerated in the agent's tools.ts) — zero cost if never emitted. File-editing
+// built-ins are split out below into the dedicated diff renderer.
 const BUILTIN_TOOLS: { keys: string[]; displayName: string; icon: JSX.Element }[] = [
     { keys: ['Read', 'NotebookRead'], displayName: 'Read', icon: <IconEye /> },
     { keys: ['Grep', 'Glob', 'LS'], displayName: 'Search', icon: <IconSearch /> },
@@ -196,14 +229,14 @@ const BUILTIN_TOOLS: { keys: string[]; displayName: string; icon: JSX.Element }[
 ]
 for (const { keys, displayName, icon } of BUILTIN_TOOLS) {
     for (const key of keys) {
-        sandboxToolRegistry.register({ key, displayName, icon, Renderer: FallbackMcpToolRenderer })
+        sandboxToolRegistry.register({ key, displayName, icon, Renderer: BuiltinToolRenderer })
     }
 }
 
 // File-editing built-ins render an inline visual diff when the agent attaches `type: "diff"` content
-// blocks; EditDiffRenderer falls back to the same fallback card when none are present.
+// blocks; EditDiffRenderer falls back to the generic card when none are present.
 for (const key of ['Edit', 'Write', 'NotebookEdit', 'MultiEdit']) {
-    sandboxToolRegistry.register({ key, displayName: 'Edit', icon: <IconPencil />, Renderer: EditDiffRenderer })
+    sandboxToolRegistry.register({ key, displayName: 'Edit', icon: <IconPencil />, Renderer: EditToolRenderer })
 }
 
 // AskUserQuestion (the agent asking the user to pick between options) gets a bespoke renderer that
@@ -212,17 +245,17 @@ sandboxToolRegistry.register({
     key: 'AskUserQuestion',
     displayName: 'Question',
     icon: <IconAI />,
-    Renderer: SandboxQuestionRenderer,
+    Renderer: QuestionRenderer,
 })
 
-/** Looks up the renderer entry for a resolved tool key, falling back to the generic card. */
+/** Looks up the renderer entry for a resolved tool key, falling back to the generic built-in card. */
 export function lookupSandboxToolRenderer(resolvedKey: string): SandboxToolRegistryEntry {
     return (
         sandboxToolRegistry.lookup(resolvedKey) ?? {
             key: resolvedKey,
             displayName: resolvedKey,
             icon: <IconWrench />,
-            Renderer: FallbackMcpToolRenderer,
+            Renderer: BuiltinToolRenderer,
         }
     )
 }

@@ -116,12 +116,18 @@ describe('EditDiffRenderer', () => {
         expect(screen.getByTestId('monaco-diff')).toHaveAttribute('data-language', 'go')
     })
 
-    it('falls back to the plain tool card (no editor) when there is no diff block', () => {
-        const message = makeMessage({ title: 'Edit `foo.ts`', content: [{ type: 'text', text: 'no diff yet' }] })
+    it('falls back to the generic tool card (no editor) when there is no diff block', () => {
+        // A built-in Edit carries its name in `claudeToolName` with an empty wire `toolName`.
+        const message = makeMessage({
+            title: 'Edit `foo.ts`',
+            claudeToolName: 'Edit',
+            rawToolName: '',
+            content: [{ type: 'text', text: 'no diff yet' }],
+        })
         render(<EditDiffRenderer message={message} displayName="Edit" isLastInGroup />)
 
         expect(screen.queryByTestId('monaco-diff')).not.toBeInTheDocument()
-        // The standard tool card still renders its header.
+        // The generic card still renders the rich tool title as its header.
         expect(screen.getByText('Edit `foo.ts`')).toBeInTheDocument()
     })
 

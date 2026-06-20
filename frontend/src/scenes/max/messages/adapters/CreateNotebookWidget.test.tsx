@@ -1,6 +1,6 @@
 import type { SandboxToolCallMessage } from '../../maxTypes'
 import { lookupSandboxToolRenderer, sandboxToolRegistry } from '../../sandbox/sandboxToolRegistry'
-import { CreateNotebookWidget, extractNotebook } from './CreateNotebookWidget'
+import { extractNotebook } from './CreateNotebookWidget'
 
 function toolMessage(rawOutput: unknown, innerInput?: Record<string, unknown>): SandboxToolCallMessage {
     return {
@@ -20,13 +20,13 @@ describe('CreateNotebookWidget', () => {
     it.each(['notebooks-create', 'notebooks-partial-update', 'notebooks-retrieve', 'notebook-edit'])(
         'resolves %s to the notebook widget',
         (key) => {
-            expect(sandboxToolRegistry.lookup(key)?.Renderer).toBe(CreateNotebookWidget)
-            expect(lookupSandboxToolRenderer(key).Renderer).toBe(CreateNotebookWidget)
+            expect(sandboxToolRegistry.lookup(key)?.displayName).toBe('Notebook')
+            expect(lookupSandboxToolRenderer(key).displayName).toBe('Notebook')
         }
     )
 
     it('falls back to the generic renderer for an unknown inner tool key', () => {
-        expect(lookupSandboxToolRenderer('some-unwired-tool').Renderer).not.toBe(CreateNotebookWidget)
+        expect(lookupSandboxToolRenderer('some-unwired-tool').displayName).not.toBe('Notebook')
     })
 
     describe('extractNotebook', () => {
