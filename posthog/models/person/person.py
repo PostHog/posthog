@@ -276,6 +276,13 @@ class Person(models.Model):
         PersonDistinctId.objects.create(  # nosemgrep: no-direct-persons-db-orm
             person=self, distinct_id=distinct_id, team_id=self.team_id
         )  # nosemgrep: no-direct-persons-db-orm
+        # Keep the in-memory cache in sync with the row we just wrote. Without the ORM
+        # fallback, `distinct_ids` only reads `_distinct_ids`, so a person created via
+        # `objects.create(distinct_ids=[...])` would otherwise raise on `.distinct_ids`.
+        if getattr(self, "_distinct_ids", None) is None:
+            self._distinct_ids = []
+        if distinct_id not in self._distinct_ids:
+            self._distinct_ids.append(distinct_id)
 
     # :DEPRECATED: This should happen through the plugin server
     def _add_distinct_ids(self, distinct_ids: list[str]) -> None:
