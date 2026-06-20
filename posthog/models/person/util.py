@@ -233,6 +233,15 @@ if TEST:
             flush=False,
         )
 
+        # bulk_create bypasses Django signals, so the personhog fake mirror (which hooks
+        # post_save) never fires for these rows. Mirror them explicitly so person reads
+        # (actor resolution, etc.) routed through the fake can resolve them.
+        from posthog.test.personhog_fake import (
+            seed_persons_from_mapping,  # noqa: PLC0415 — test-only, avoids import cycle
+        )
+
+        seed_persons_from_mapping(person_mapping)
+
         return person_mapping
 
 
