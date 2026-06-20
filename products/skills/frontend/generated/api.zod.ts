@@ -9,6 +9,16 @@
  */
 import * as zod from 'zod'
 
+export const communitySkillsInstallCreateBodyNewNameMax = 64
+
+export const CommunitySkillsInstallCreateBody = /* @__PURE__ */ zod.object({
+    new_name: zod
+        .string()
+        .max(communitySkillsInstallCreateBodyNewNameMax)
+        .optional()
+        .describe("Name for the installed skill in your team. Defaults to the community skill's slug."),
+})
+
 export const llmSkillsCreateBodyNameMax = 64
 
 export const llmSkillsCreateBodyDescriptionMax = 4096
