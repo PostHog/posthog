@@ -70,10 +70,11 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ * Retrieve a single task by ID.
+ * @summary Get task
  */
 export const TasksRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this task.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

@@ -18,10 +18,10 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.db import transaction
-from django.db.models import CharField, Count, Exists, F, Min, Q, Subquery
+from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 
@@ -92,20 +92,24 @@ __all__ = [
     "TaskRunEnvironment",
     "TaskRunStatus",
     "append_task_run_log",
+    "beacon_task_presence",
     "bootstrap_task_run",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
+    "compute_repository_readiness",
     "create_and_run_task",
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
     "create_sandbox_environment",
+    "create_task",
     "create_task_automation",
     "create_task_run_connection_token",
     "delete_sandbox_environment",
     "delete_task_automation",
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
+    "finalize_task_staged_artifacts",
     "get_code_home",
     "get_code_workflow_config",
     "get_latest_pr_url_by_task",
@@ -114,18 +118,25 @@ __all__ = [
     "get_sandbox_snapshot",
     "get_stale_queued_task_run_ids",
     "get_task_automation",
+    "get_task_detail",
     "get_task_id_for_run",
     "get_task_run",
     "get_task_run_detail",
     "get_task_run_sandbox_connection",
     "get_task_run_stream_info",
+    "get_task_summaries",
+    "is_internal_debug_team",
     "is_task_visible_to_user",
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_url_subquery",
+    "leave_task_presence",
     "list_sandbox_environments",
     "list_task_automations",
+    "list_task_repositories",
     "list_task_runs",
+    "list_tasks",
     "prepare_task_run_artifact_uploads",
+    "prepare_task_staged_artifacts",
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
@@ -134,21 +145,27 @@ __all__ = [
     "refresh_team_code_workstreams",
     "relay_task_run_message",
     "reset_code_workflow_bindings",
+    "resolve_slack_thread_context",
     "resume_task_run_in_cloud",
+    "run_task",
     "run_task_automation_now",
     "save_code_workflow_bindings",
     "send_cancel",
     "send_user_message",
     "set_task_run_output",
+    "signal_report_queryset",
     "signal_task_run_user_message",
     "signal_workflow_completion",
+    "soft_delete_task",
     "start_task_run",
     "task_accessible_for_run_view",
     "task_exists",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
     "task_run_pr_url_exists_subquery",
+    "task_visible",
     "update_sandbox_environment",
+    "update_task",
     "update_task_automation",
     "update_task_run",
     "update_task_run_state",
@@ -302,6 +319,38 @@ def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
         created_at=run.created_at,
         updated_at=run.updated_at,
         completed_at=run.completed_at,
+    )
+
+
+def _task_detail_to_dto(task: Task) -> contracts.TaskDetailDTO:
+    """Map a ``Task`` to its HTTP detail DTO.
+
+    Mirrors ``TaskSerializer`` output exactly. ``latest_run`` is the task's most-recent run
+    (by ``created_at``) mapped to a ``TaskRunDetailDTO``; pass a queryset that has
+    ``prefetch_related("runs")`` and ``select_related("created_by")`` to avoid N+1s.
+    """
+    latest_run = task.latest_run
+    return contracts.TaskDetailDTO(
+        id=task.id,
+        task_number=task.task_number,
+        slug=task.slug,
+        title=task.title,
+        title_manually_set=task.title_manually_set,
+        description=task.description,
+        origin_product=task.origin_product,
+        repository=task.repository,
+        github_integration=task.github_integration_id,
+        github_user_integration=task.github_user_integration_id,
+        signal_report=task.signal_report_id,
+        json_schema=task.json_schema,
+        internal=task.internal,
+        archived=task.archived,
+        archived_at=task.archived_at,
+        ci_prompt=task.ci_prompt,
+        latest_run=_task_run_detail_to_dto(latest_run) if latest_run is not None else None,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+        created_by=_user_basic_info(task.created_by if task.created_by_id else None),
     )
 
 
@@ -2080,6 +2129,862 @@ def resume_task_run_in_cloud(
         return "workflow_failed", None, None
 
     return "resumed", _task_run_detail_to_dto(run), None
+
+
+# --- Task presentation CRUD + actions ---
+# These back the thin ``TaskViewSet``. They mirror the original viewset's querysets
+# (team scoping, ``task_visibility_q`` visibility, ordering, filters, annotations) and
+# orchestration (title generation, signal-report linkage, workflow triggers, S3 artifact
+# staging, presence beacons) byte-for-byte.
+
+
+def signal_report_queryset():
+    """The ``SignalReport`` manager queryset, for the task write serializer's report FK field.
+
+    Kept here so presentation never imports the ``signals`` product's models directly; team
+    scoping on the selected report is enforced by the serializer's ``validate_signal_report``.
+    """
+    from products.signals.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
+        SignalReport,
+    )
+
+    return SignalReport.objects.all()
+
+
+def is_internal_debug_team(team_id: int | None) -> bool:
+    """Whether the team is the PostHog-internal debugging team. Mirrors the original view helper."""
+    from django.conf import settings  # noqa: PLC0415
+
+    if settings.DEBUG and not settings.TEST:
+        return team_id == 1
+    return team_id == 2 and settings.CLOUD_DEPLOYMENT == "US"
+
+
+def _task_detail_queryset():
+    return Task.objects.select_related(
+        "created_by", "team", "github_integration", "github_user_integration"
+    ).prefetch_related("runs")
+
+
+def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bool = False):
+    qs = Task.objects.filter(team_id=team_id, deleted=False)
+    if not bypass_visibility:
+        qs = qs.filter(task_visibility_q(user_id))
+    return qs
+
+
+def get_task_detail(
+    task_id: str | UUID, team_id: int, user_id: int | None, *, bypass_visibility: bool = False
+) -> contracts.TaskDetailDTO | None:
+    """A single task as a detail DTO, team-scoped and visibility-gated.
+
+    ``bypass_visibility`` mirrors the ``?ph_debug=true`` retrieve path for internal-debug teams.
+    """
+    task = (
+        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility)
+        .select_related("created_by", "team", "github_integration", "github_user_integration")
+        .prefetch_related("runs")
+        .filter(id=task_id)
+        .first()
+    )
+    return _task_detail_to_dto(task) if task is not None else None
+
+
+def task_visible(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
+    """Whether a non-deleted task exists for the team and is visible to the user.
+
+    Mirrors the existence gate ``TaskViewSet.get_object()`` applied (team + ``deleted=False`` +
+    ``task_visibility_q``). Used by the ``run`` action to 404 before the usage gate, preserving
+    the original ordering.
+    """
+    return _visible_task_qs(team_id, user_id).filter(id=task_id).exists()
+
+
+def list_tasks(
+    team_id: int, user_id: int | None, *, filters: dict, is_debug_or_staff: bool
+) -> list[contracts.TaskDetailDTO]:
+    """All visible tasks for the team, mirroring ``TaskViewSet.safely_get_queryset`` for ``list``.
+
+    ``filters`` carries the request query params (origin_product, stage, organization, repository,
+    created_by, search, status, internal, archived). ``is_debug_or_staff`` gates the ``internal``
+    filter exactly as the original view did (``settings.DEBUG or request.user.is_staff``).
+    """
+    qs = _visible_task_qs(team_id, user_id).order_by("-created_at")
+
+    origin_product = filters.get("origin_product")
+    if origin_product:
+        qs = qs.filter(origin_product=origin_product)
+
+    stage = filters.get("stage")
+    if stage:
+        qs = qs.filter(runs__stage=stage)
+
+    organization = filters.get("organization")
+    repository = filters.get("repository")
+    created_by = filters.get("created_by")
+    search = filters.get("search")
+    status_filter = filters.get("status")
+
+    if repository:
+        repo_str = repository.strip().lower()
+        if "/" in repo_str:
+            qs = qs.filter(repository__iexact=repo_str)
+        else:
+            qs = qs.filter(repository__iendswith=f"/{repo_str}")
+
+    if organization:
+        org_str = organization.strip().lower()
+        qs = qs.filter(repository__istartswith=f"{org_str}/")
+
+    if created_by:
+        qs = qs.filter(created_by_id=created_by)
+
+    if search:
+        search_term = search.strip()
+        if search_term:
+            search_q = Q(title__icontains=search_term) | Q(description__icontains=search_term)
+            number_part = search_term.split("-")[-1].strip()
+            if number_part.isdigit():
+                search_q |= Q(task_number=int(number_part))
+            qs = qs.filter(search_q)
+
+    if status_filter:
+        latest_run_status = (
+            TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id").values("status")[:1]
+        )
+        qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
+
+    internal_param = filters.get("internal")
+    if internal_param is True and is_debug_or_staff:
+        qs = qs.filter(internal=True)
+    else:
+        qs = qs.filter(internal=False)
+
+    archived_param = filters.get("archived")
+    if archived_param == "true":
+        qs = qs.filter(archived=True)
+    elif archived_param == "all":
+        pass
+    else:
+        qs = qs.filter(archived=False)
+
+    qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").prefetch_related(
+        "runs"
+    )
+
+    if stage:
+        qs = qs.distinct()
+
+    return [_task_detail_to_dto(task) for task in qs]
+
+
+def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
+    """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
+    return list(
+        Task.objects.filter(team_id=team_id, deleted=False, internal=False)
+        .filter(task_visibility_q(user_id))
+        .exclude(repository__isnull=True)
+        .exclude(repository__exact="")
+        .values_list("repository", flat=True)
+        .distinct()
+        .order_by("repository")
+    )
+
+
+def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
+    """Summary fields for the requested tasks, mirroring ``TaskViewSet.summaries``."""
+    from django.db.models.functions import JSONObject  # noqa: PLC0415
+
+    latest_run = (
+        TaskRun.objects.filter(task=OuterRef("pk"))
+        .order_by("-created_at", "-id")
+        .annotate(_data=JSONObject(status="status", environment="environment"))
+    )
+    tasks = (
+        Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
+        .filter(task_visibility_q(user_id))
+        .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
+        .order_by("-created_at", "id")
+    )
+    summaries: list[contracts.TaskSummaryDTO] = []
+    for task in tasks:
+        raw = getattr(task, "_latest_run", None)
+        latest = (
+            contracts.TaskLatestRunSummaryDTO(status=raw.get("status"), environment=raw.get("environment"))
+            if isinstance(raw, dict)
+            else None
+        )
+        summaries.append(
+            contracts.TaskSummaryDTO(
+                id=task.id,
+                title=task.title,
+                repository=task.repository,
+                created_at=task.created_at,
+                updated_at=task.updated_at,
+                latest_run=latest,
+            )
+        )
+    return summaries
+
+
+def compute_repository_readiness(team_id: int, *, repository: str, window_days: int, refresh: bool) -> dict:
+    """Autonomy-readiness details for a repository. Thin wrapper over the internal computation."""
+    from posthog.models import Team  # noqa: PLC0415
+
+    from products.tasks.backend.repository_readiness import (  # noqa: PLC0415 — keep readiness deps off the api import path
+        compute_repository_readiness as _compute,
+    )
+
+    team = Team.objects.get(id=team_id)
+    return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
+
+
+def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> contracts.TaskDetailDTO:
+    """Create a task, mirroring ``TaskSerializer.create`` byte-for-byte.
+
+    Absorbs the cross-product ``SignalReportTask`` linkage, ``generate_task_title``, and
+    ``resolve_user_github_integration_for_task`` so no internal/other-product import leaks into
+    presentation. ``validated_data`` carries the validated write fields (integrations already
+    resolved to instances by the write serializer's PK fields).
+    """
+    from posthog.models import Team  # noqa: PLC0415
+
+    from products.signals.backend.models import (  # noqa: PLC0415 — cross-product write kept off the api import path
+        SignalReportTask,
+    )
+    from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        resolve_user_github_integration_for_task,
+    )
+
+    team = Team.objects.get(id=team_id)
+    validated_data = dict(validated_data)
+    validated_data["team"] = team
+    validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
+
+    if user_id is not None:
+        validated_data["created_by"] = User.objects.get(id=user_id)
+
+    link_relationship = validated_data.pop(
+        "signal_report_task_relationship",
+        SignalReportTask.Relationship.IMPLEMENTATION,
+    )
+
+    if not validated_data.get("github_integration"):
+        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        if default_integration:
+            validated_data["github_integration"] = default_integration
+
+    if (
+        validated_data.get("repository")
+        and validated_data.get("origin_product", Task.OriginProduct.USER_CREATED) == Task.OriginProduct.USER_CREATED
+        and not validated_data.get("github_user_integration")
+    ):
+        task_stub = Task(
+            team=team,
+            created_by=validated_data.get("created_by"),
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository=validated_data["repository"],
+            github_integration=validated_data.get("github_integration"),
+        )
+        github_user_integration = resolve_user_github_integration_for_task(task_stub, allow_refresh=False)
+        if github_user_integration is not None:
+            validated_data["github_user_integration"] = github_user_integration.integration
+
+    title = (validated_data.get("title") or "").strip()
+    if not title and validated_data.get("description"):
+        validated_data["title"] = generate_task_title(validated_data["description"])
+        validated_data.setdefault("title_manually_set", False)
+    elif title:
+        validated_data.setdefault("title_manually_set", True)
+
+    logger.info("Creating task with data: %s", validated_data)
+    with transaction.atomic():
+        task = Task.objects.create(**validated_data)
+        if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
+            SignalReportTask.objects.create(
+                team_id=task.team_id,
+                report_id=task.signal_report_id,
+                task=task,
+                relationship=link_relationship,
+            )
+
+    return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
+
+
+def update_task(
+    task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
+) -> contracts.TaskDetailDTO | None:
+    """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/visible."""
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    if task is None:
+        return None
+
+    validated_data = dict(validated_data)
+    # Immutable after creation; origin_product controls visibility, signal_report is set-once.
+    validated_data.pop("signal_report", None)
+    validated_data.pop("signal_report_task_relationship", None)
+    validated_data.pop("origin_product", None)
+    if "title" in validated_data and "title_manually_set" not in validated_data:
+        validated_data["title_manually_set"] = True
+    if "archived" in validated_data and validated_data["archived"] != task.archived:
+        validated_data["archived_at"] = django_timezone.now() if validated_data["archived"] else None
+
+    logger.info("perform_update called for task %s with validated_data: %s", task.id, validated_data)
+    for key, value in validated_data.items():
+        setattr(task, key, value)
+    task.save()
+    logger.info("Task %s updated successfully", task.id)
+
+    return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
+
+
+def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> bool:
+    """Soft-delete a task. Returns whether a task was found/visible and deleted."""
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    if task is None:
+        return False
+    logger.info("Soft deleting task %s", task.id)
+    task.soft_delete()
+    return True
+
+
+# --- Task staged artifacts (S3 + cache, attached to the next run) ---
+
+
+_TASK_STAGED_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
+
+
+def prepare_task_staged_artifacts(
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    artifacts: list[dict],
+    upload_expiration_seconds: int,
+) -> contracts.StagedArtifactPrepareResult | None:
+    """Reserve S3 keys + presigned POST forms for task attachments. ``None`` if task not found."""
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
+        build_task_staged_artifact_storage_path,
+        get_safe_artifact_name,
+    )
+
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    if task is None:
+        return None
+
+    prepared: list[contracts.StagedArtifactPreparedDTO] = []
+    for artifact in artifacts:
+        artifact_id = uuid4().hex
+        safe_name = get_safe_artifact_name(artifact["name"])
+        storage_path = build_task_staged_artifact_storage_path(task, artifact_id, safe_name)
+        presigned_post = object_storage.get_presigned_post(
+            storage_path,
+            conditions=[
+                ["content-length-range", 0, artifact["size"] + _TASK_STAGED_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES]
+            ],
+            expiration=upload_expiration_seconds,
+        )
+        if not presigned_post:
+            return contracts.StagedArtifactPrepareResult(error="Unable to generate upload URL")
+
+        prepared.append(
+            contracts.StagedArtifactPreparedDTO(
+                id=artifact_id,
+                name=safe_name,
+                type=artifact["type"],
+                source=artifact.get("source") or "",
+                size=artifact["size"],
+                content_type=artifact.get("content_type") or "",
+                storage_path=storage_path,
+                expires_in=upload_expiration_seconds,
+                presigned_post=presigned_post,
+            )
+        )
+
+    return contracts.StagedArtifactPrepareResult(artifacts=prepared)
+
+
+def finalize_task_staged_artifacts(
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    artifacts: list[dict],
+) -> contracts.StagedArtifactFinalizeResult | None:
+    """Verify staged S3 uploads and cache their metadata. ``None`` if task not found."""
+    from django.conf import settings  # noqa: PLC0415
+
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
+        STAGED_ARTIFACT_TTL_DAYS,
+        build_task_artifact_entry,
+        cache_task_staged_artifact,
+        get_safe_artifact_name,
+        tag_task_artifact,
+    )
+    from products.tasks.backend.presentation.serializers import (  # noqa: PLC0415
+        build_task_run_artifact_size_error,
+        get_task_run_artifact_max_size_bytes,
+    )
+
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    if task is None:
+        return None
+
+    artifact_prefix = f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}/staged/"
+    finalized: list[dict] = []
+    for artifact in artifacts:
+        artifact_id = artifact["id"]
+        storage_path = artifact["storage_path"]
+        if not storage_path.startswith(artifact_prefix) or f"/{artifact_id}/" not in storage_path:
+            return contracts.StagedArtifactFinalizeResult(error="Artifact storage path is invalid for this task")
+
+        s3_object = object_storage.head_object(storage_path)
+        if not s3_object:
+            return contracts.StagedArtifactFinalizeResult(error="Artifact upload not found in object storage")
+
+        content_length = s3_object.get("ContentLength")
+        if not isinstance(content_length, int):
+            return contracts.StagedArtifactFinalizeResult(error="Artifact upload metadata is unavailable")
+
+        safe_name = get_safe_artifact_name(artifact["name"])
+        content_type = artifact.get("content_type") or s3_object.get("ContentType") or ""
+        max_size_bytes = get_task_run_artifact_max_size_bytes(safe_name, content_type, artifact.get("type"))
+        if content_length > max_size_bytes:
+            return contracts.StagedArtifactFinalizeResult(
+                error=build_task_run_artifact_size_error(safe_name, max_size_bytes)
+            )
+
+        finalized.append(
+            build_task_artifact_entry(
+                artifact_id=artifact_id,
+                name=safe_name,
+                artifact_type=artifact["type"],
+                source=artifact.get("source") or "",
+                size=content_length,
+                content_type=content_type,
+                storage_path=storage_path,
+            )
+        )
+
+    for entry in finalized:
+        cache_task_staged_artifact(task, entry)
+        tag_task_artifact(entry["storage_path"], ttl_days=STAGED_ARTIFACT_TTL_DAYS, team_id=task.team_id)
+
+    return contracts.StagedArtifactFinalizeResult(artifacts=finalized)
+
+
+# --- Task run (the ``run`` action) ---
+
+
+def run_task(
+    task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
+) -> contracts.TaskRunResult | None:
+    """Create a run for a task and kick off its workflow, mirroring ``TaskViewSet.run``.
+
+    Returns ``None`` if the task isn't found/visible (the view raises 404). Otherwise a
+    ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
+    gate (429) is applied by the view before calling this.
+    """
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
+        RUN_ARTIFACT_TTL_DAYS,
+        build_task_staged_artifact_cache_key,
+        get_task_staged_artifacts,
+        tag_task_artifact,
+    )
+    from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        PrAuthorshipMode,
+        RunSource,
+        cache_github_user_token,
+        get_provider_for_runtime_adapter,
+        get_reasoning_effort_error,
+        parse_run_state,
+    )
+
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    if task is None:
+        return None
+
+    mode = validated_data.get("mode", "background")
+    branch = validated_data.get("branch")
+    resume_from_run_id = validated_data.get("resume_from_run_id")
+    pending_user_message = validated_data.get("pending_user_message")
+    pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
+    sandbox_environment_id = validated_data.get("sandbox_environment_id")
+    sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
+    pr_authorship_mode = validated_data.get("pr_authorship_mode")
+    run_source = validated_data.get("run_source")
+    signal_report_id = validated_data.get("signal_report_id")
+    runtime_adapter = validated_data.get("runtime_adapter")
+    model = validated_data.get("model")
+    reasoning_effort = validated_data.get("reasoning_effort")
+    github_user_token = validated_data.get("github_user_token")
+    initial_permission_mode = validated_data.get("initial_permission_mode")
+    if run_source == RunSource.SIGNAL_REPORT:
+        pr_authorship_mode = PrAuthorshipMode.BOT
+
+    runtime_state_fields = {
+        "pr_authorship_mode": pr_authorship_mode,
+        "run_source": run_source,
+        "signal_report_id": signal_report_id,
+        "runtime_adapter": runtime_adapter,
+        "model": model,
+        "reasoning_effort": reasoning_effort,
+    }
+
+    extra_state: dict | None = None
+    if pending_user_message is not None:
+        extra_state = {"pending_user_message": pending_user_message}
+    if pending_user_artifact_ids:
+        extra_state = extra_state or {}
+        extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
+    if initial_permission_mode is not None:
+        extra_state = extra_state or {}
+        extra_state["initial_permission_mode"] = initial_permission_mode
+
+    if resume_from_run_id:
+        previous_run = task.runs.filter(id=resume_from_run_id).first()
+        if not previous_run:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(kind="detail", detail="Invalid resume_from_run_id")
+            )
+
+        prev_state = parse_run_state(previous_run.state)
+        extra_state = extra_state or {}
+        extra_state["resume_from_run_id"] = str(resume_from_run_id)
+        if prev_state.snapshot_external_id:
+            extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
+
+        if prev_state.sandbox_environment_id and sandbox_environment_id is None:
+            sandbox_environment_id = prev_state.sandbox_environment_id
+
+        for field_name in runtime_state_fields:
+            if runtime_state_fields[field_name] is None:
+                runtime_state_fields[field_name] = getattr(prev_state, field_name)
+
+        pr_authorship_mode = runtime_state_fields["pr_authorship_mode"]
+        run_source = runtime_state_fields["run_source"]
+        signal_report_id = runtime_state_fields["signal_report_id"]
+        runtime_adapter = runtime_state_fields["runtime_adapter"]
+        model = runtime_state_fields["model"]
+        reasoning_effort = runtime_state_fields["reasoning_effort"]
+        if branch is None and prev_state.pr_base_branch is not None:
+            branch = prev_state.pr_base_branch
+
+    provider = get_provider_for_runtime_adapter(runtime_adapter)
+
+    for key, value in {
+        "pr_base_branch": branch,
+        "pr_authorship_mode": pr_authorship_mode,
+        "run_source": run_source,
+        "signal_report_id": signal_report_id,
+        "runtime_adapter": runtime_adapter,
+        "provider": provider,
+        "model": model,
+        "reasoning_effort": reasoning_effort,
+    }.items():
+        if value is not None:
+            extra_state = extra_state or {}
+            extra_state[key] = value.value if hasattr(value, "value") else value
+
+    reasoning_effort_error = get_reasoning_effort_error(
+        runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort
+    )
+    if reasoning_effort_error is not None:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error", code="invalid_input", detail=reasoning_effort_error, attr="reasoning_effort"
+            )
+        )
+
+    pr_authorship_mode, validation_error = _resolve_cloud_pr_authorship_mode(
+        task,
+        pr_authorship_mode=pr_authorship_mode,
+        request_user_id=user_id,
+        github_user_token=github_user_token,
+    )
+    if validation_error is not None:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind=validation_error.kind,
+                detail=validation_error.detail,
+                code=validation_error.code,
+                attr=validation_error.attr,
+            )
+        )
+    if pr_authorship_mode is not None:
+        extra_state = extra_state or {}
+        extra_state["pr_authorship_mode"] = (
+            pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
+        )
+
+    if credential_source := _github_credential_source_extra_state(pr_authorship_mode, github_user_token):
+        extra_state = extra_state or {}
+        extra_state.update(credential_source)
+
+    if sandbox_environment_id is not None:
+        sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+            environment_id=sandbox_environment_id,
+            team_id=task.team_id,
+            task_created_by_id=task.created_by_id,
+        )
+        if sandbox_environment is None:
+            if sandbox_environment_id_supplied_by_user:
+                return contracts.TaskRunResult(
+                    error=contracts.TaskValidationError(kind="detail", detail="Invalid sandbox_environment_id")
+                )
+        else:
+            extra_state = extra_state or {}
+            extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+            logger.info(
+                "Applying sandbox environment to task run",
+                extra={
+                    "task_id": str(task.id),
+                    "sandbox_environment_id": str(sandbox_environment.id),
+                    "sandbox_environment_name": sandbox_environment.name,
+                    "network_access_level": sandbox_environment.network_access_level,
+                },
+            )
+
+    staged_artifacts: list[dict] = []
+    if pending_user_artifact_ids:
+        staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, pending_user_artifact_ids)
+        if missing_artifact_ids:
+            return contracts.TaskRunResult(
+                error=contracts.TaskValidationError(
+                    kind="detail",
+                    detail="Some pending_user_artifact_ids are invalid or expired",
+                    missing_artifact_ids=missing_artifact_ids,
+                )
+            )
+
+    logger.info("Creating task run for task %s with mode=%s, branch=%s", task.id, mode, branch)
+    task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
+
+    if pending_user_artifact_ids:
+        run_artifacts: list[dict] = []
+        for staged_artifact in staged_artifacts:
+            storage_path = str(staged_artifact["storage_path"])
+            tag_task_artifact(storage_path, ttl_days=RUN_ARTIFACT_TTL_DAYS, team_id=task.team_id)
+            run_artifacts.append(dict(staged_artifact))
+
+        task_run.artifacts = run_artifacts
+        task_run.save(update_fields=["artifacts", "updated_at"])
+
+        for artifact_id in pending_user_artifact_ids:
+            get_tasks_cache().delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
+
+    if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
+        cache_github_user_token(str(task_run.id), github_user_token)
+
+    logger.info("Triggering workflow for task %s, run %s", task.id, task_run.id)
+    _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
+
+    return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
+
+
+# --- Task presence beacons ---
+
+
+def beacon_task_presence(task_id: str | UUID, team_id: int, user_id: int | None, *, device_id) -> str:
+    """Idempotent upsert of a presence row for a device watching a task.
+
+    Returns ``"not_found"`` (task not visible or device_id doesn't match the caller's push
+    token), or ``"ok"``. Mirrors ``TaskViewSet._presence_beacon``.
+    """
+    from posthog.models.user_push_token import UserPushToken  # noqa: PLC0415
+
+    from products.tasks.backend.models import TASK_PRESENCE_TTL_SECONDS, TaskPresence  # noqa: PLC0415
+
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    if task is None:
+        return "not_found"
+    push_token = UserPushToken.objects.filter(user_id=user_id, id=device_id).first()
+    if push_token is None:
+        return "not_found"
+
+    now = django_timezone.now()
+    # nosemgrep: idor-lookup-without-team — team scope is enforced by TaskScopedManager
+    # and via the `task` FK whose row is fetched (visibility-gated) above.
+    TaskPresence.objects.update_or_create(
+        task=task,
+        push_token=push_token,
+        defaults={
+            "team": task.team,
+            "user_id": user_id,
+            "expires_at": now + timedelta(seconds=TASK_PRESENCE_TTL_SECONDS),
+        },
+    )
+    return "ok"
+
+
+def leave_task_presence(task_id: str | UUID, team_id: int, user_id: int | None, *, device_id) -> str:
+    """Best-effort delete of a presence row. ``"not_found"`` if the task isn't visible, else ``"ok"``.
+
+    No 404 on missing presence rows — leave runs from blur/background handlers. Mirrors
+    ``TaskViewSet._presence_leave``.
+    """
+    from products.tasks.backend.models import TaskPresence  # noqa: PLC0415
+
+    task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
+    if task is None:
+        return "not_found"
+    TaskPresence.objects.filter(task=task, push_token_id=device_id, user_id=user_id).delete()
+    return "ok"
+
+
+# --- Slack thread context (internal debug) ---
+
+
+def _temporal_workflow_url(workflow_id: str | None) -> str | None:
+    from django.conf import settings  # noqa: PLC0415
+
+    if not workflow_id:
+        return None
+    base = getattr(settings, "TEMPORAL_UI_HOST", None)
+    namespace = getattr(settings, "TEMPORAL_NAMESPACE", None)
+    if not base or not namespace:
+        return None
+    return f"{base.rstrip('/')}/namespaces/{namespace}/workflows/{workflow_id}"
+
+
+def _slack_repo_research_dto(
+    team_id: int, state: dict, repo_research_runs_by_id: dict, *, build_task_view_url
+) -> contracts.SlackThreadContextRepoResearchDTO | None:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    research_task_id = state.get("repo_research_task_id")
+    research_run_id = state.get("repo_research_run_id")
+    if not research_task_id or not research_run_id:
+        return None
+    research_run = repo_research_runs_by_id.get(research_run_id)
+    sandbox_url = None
+    log_url = None
+    run_status = None
+    if research_run is not None:
+        sandbox_url = (research_run.state if isinstance(research_run.state, dict) else {}).get("sandbox_url")
+        run_status = research_run.status
+        try:
+            log_url = object_storage.get_presigned_url(research_run.log_url, expiration=3600)
+        except Exception:
+            logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
+            log_url = None
+    workflow_id = TaskRun.get_workflow_id(research_task_id, research_run_id)
+    return contracts.SlackThreadContextRepoResearchDTO(
+        task_id=research_task_id,
+        run_id=research_run_id,
+        status=run_status,
+        task_processing_workflow_id=workflow_id,
+        task_processing_workflow_url=_temporal_workflow_url(workflow_id),
+        sandbox_url=sandbox_url,
+        task_view_url=build_task_view_url(
+            f"/project/{team_id}/tasks/{research_task_id}?runId={research_run_id}&ph_debug=true"
+        ),
+        log_url=log_url,
+    )
+
+
+def resolve_slack_thread_context(
+    team_id: int, *, channel: str, thread_ts: str, url: str, build_url
+) -> contracts.SlackThreadContextResult:
+    """Resolve a parsed Slack permalink to its task, runs, and Temporal workflow handles.
+
+    Caller passes the already-parsed ``(channel, thread_ts)`` and a ``build_url`` callable
+    (``request.build_absolute_uri``) so the facade stays request-agnostic. Caller also enforces
+    the internal-debug gate before calling. Mirrors ``TaskViewSet.slack_thread_context``.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
+        SlackThreadTaskMapping,
+    )
+
+    mapping = (
+        SlackThreadTaskMapping.objects.select_related("task", "task__created_by")
+        .filter(channel=channel, thread_ts=thread_ts)
+        .first()
+    )
+    if mapping is None:
+        return contracts.SlackThreadContextResult(
+            outcome="no_mapping",
+            no_mapping_thread=contracts.SlackThreadContextThreadDTO(
+                url=url,
+                channel=channel,
+                thread_ts=thread_ts,
+                slack_workspace_id=None,
+                mentioning_slack_user_id=None,
+            ),
+        )
+
+    task = mapping.task
+    runs = list(TaskRun.objects.filter(task=task).order_by("created_at", "id"))
+    repo_research_run_ids = [
+        rid for run in runs if (rid := (run.state if isinstance(run.state, dict) else {}).get("repo_research_run_id"))
+    ]
+    repo_research_runs_by_id = (
+        {str(r.id): r for r in TaskRun.objects.filter(team=task.team, id__in=repo_research_run_ids)}
+        if repo_research_run_ids
+        else {}
+    )
+    task_url = build_url(f"/project/{task.team_id}/tasks/{task.id}?ph_debug=true")
+
+    run_dtos: list[contracts.SlackThreadContextRunDTO] = []
+    for run in runs:
+        state = run.state if isinstance(run.state, dict) else {}
+        output = run.output if isinstance(run.output, dict) else {}
+        task_processing_workflow_id = TaskRun.get_workflow_id(task.id, run.id)
+        mention_workflow_id = state.get("slack_mention_workflow_id")
+        try:
+            presigned_log_url = object_storage.get_presigned_url(run.log_url, expiration=3600)
+        except Exception:
+            logger.exception("slack_thread_context_log_presign_failed", extra={"run_id": str(run.id)})
+            presigned_log_url = None
+        run_dtos.append(
+            contracts.SlackThreadContextRunDTO(
+                id=str(run.id),
+                status=run.status,
+                created_at=run.created_at,
+                completed_at=run.completed_at,
+                sandbox_url=state.get("sandbox_url"),
+                pr_url=output.get("pr_url"),
+                error_message=run.error_message,
+                task_processing_workflow_id=task_processing_workflow_id,
+                task_processing_workflow_url=_temporal_workflow_url(task_processing_workflow_id),
+                mention_workflow_id=mention_workflow_id,
+                mention_workflow_url=_temporal_workflow_url(mention_workflow_id),
+                task_view_url=build_url(f"/project/{task.team_id}/tasks/{task.id}?runId={run.id}&ph_debug=true"),
+                log_url=presigned_log_url,
+                repo_research=_slack_repo_research_dto(
+                    task.team_id, state, repo_research_runs_by_id, build_task_view_url=build_url
+                ),
+            )
+        )
+
+    context = contracts.SlackThreadContextDTO(
+        thread=contracts.SlackThreadContextThreadDTO(
+            url=url,
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_workspace_id=mapping.slack_workspace_id,
+            mentioning_slack_user_id=mapping.mentioning_slack_user_id,
+        ),
+        task=contracts.SlackThreadContextTaskDTO(
+            id=str(task.id),
+            team_id=task.team_id,
+            title=task.title,
+            repository=task.repository,
+            origin_product=task.origin_product,
+            created_at=task.created_at,
+            url=task_url,
+        ),
+        runs=run_dtos,
+    )
+    return contracts.SlackThreadContextResult(outcome="ok", context=context)
 
 
 # --- Code workflow config (presentation CRUD) ---

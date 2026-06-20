@@ -229,68 +229,70 @@ export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255
 
-export const TasksCreateBody = /* @__PURE__ */ zod.object({
-    title: zod
-        .string()
-        .max(tasksCreateBodyTitleMax)
-        .optional()
-        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
-    title_manually_set: zod.boolean().optional(),
-    description: zod
-        .string()
-        .optional()
-        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
-    origin_product: zod
-        .enum([
-            'error_tracking',
-            'eval_clusters',
-            'user_created',
-            'automation',
-            'slack',
-            'support_queue',
-            'session_summaries',
-            'signal_report',
-            'signals_scout',
-            'support_reply',
-        ])
-        .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        )
-        .optional()
-        .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        ),
-    repository: zod
-        .string()
-        .max(tasksCreateBodyRepositoryMax)
-        .nullish()
-        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
-    github_integration: zod.number().nullish().describe('GitHub integration for this task'),
-    github_user_integration: zod
-        .uuid()
-        .nullish()
-        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
-    signal_report: zod.uuid().nullish(),
-    signal_report_task_relationship: zod
-        .enum(['implementation'])
-        .describe('\* `implementation` - Implementation')
-        .optional(),
-    json_schema: zod
-        .unknown()
-        .optional()
-        .describe('JSON schema for the task. This is used to validate the output of the task.'),
-    internal: zod
-        .boolean()
-        .optional()
-        .describe('If true, this task is for internal use and should not be exposed to end users.'),
-    archived: zod
-        .boolean()
-        .optional()
-        .describe(
-            'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
-        ),
-    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
-})
+export const TasksCreateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(tasksCreateBodyTitleMax)
+            .optional()
+            .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
+        title_manually_set: zod
+            .boolean()
+            .optional()
+            .describe('Whether the title was set by a human (vs auto-generated from the description).'),
+        description: zod
+            .string()
+            .optional()
+            .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+        origin_product: zod
+            .enum([
+                'error_tracking',
+                'eval_clusters',
+                'user_created',
+                'automation',
+                'slack',
+                'support_queue',
+                'session_summaries',
+                'signal_report',
+                'signals_scout',
+                'support_reply',
+            ])
+            .describe(
+                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            )
+            .optional()
+            .describe(
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            ),
+        repository: zod
+            .string()
+            .max(tasksCreateBodyRepositoryMax)
+            .nullish()
+            .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+        github_user_integration: zod
+            .uuid()
+            .nullish()
+            .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
+        signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
+        signal_report_task_relationship: zod
+            .enum(['implementation'])
+            .describe('\* `implementation` - Implementation')
+            .optional(),
+        json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
+        internal: zod
+            .boolean()
+            .optional()
+            .describe('If true, this task is for internal use and should not be exposed to end users.'),
+        archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
+        ci_prompt: zod
+            .string()
+            .nullish()
+            .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    })
+    .describe(
+        'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
+    )
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -299,68 +301,70 @@ export const tasksUpdateBodyTitleMax = 255
 
 export const tasksUpdateBodyRepositoryMax = 255
 
-export const TasksUpdateBody = /* @__PURE__ */ zod.object({
-    title: zod
-        .string()
-        .max(tasksUpdateBodyTitleMax)
-        .optional()
-        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
-    title_manually_set: zod.boolean().optional(),
-    description: zod
-        .string()
-        .optional()
-        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
-    origin_product: zod
-        .enum([
-            'error_tracking',
-            'eval_clusters',
-            'user_created',
-            'automation',
-            'slack',
-            'support_queue',
-            'session_summaries',
-            'signal_report',
-            'signals_scout',
-            'support_reply',
-        ])
-        .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        )
-        .optional()
-        .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        ),
-    repository: zod
-        .string()
-        .max(tasksUpdateBodyRepositoryMax)
-        .nullish()
-        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
-    github_integration: zod.number().nullish().describe('GitHub integration for this task'),
-    github_user_integration: zod
-        .uuid()
-        .nullish()
-        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
-    signal_report: zod.uuid().nullish(),
-    signal_report_task_relationship: zod
-        .enum(['implementation'])
-        .describe('\* `implementation` - Implementation')
-        .optional(),
-    json_schema: zod
-        .unknown()
-        .optional()
-        .describe('JSON schema for the task. This is used to validate the output of the task.'),
-    internal: zod
-        .boolean()
-        .optional()
-        .describe('If true, this task is for internal use and should not be exposed to end users.'),
-    archived: zod
-        .boolean()
-        .optional()
-        .describe(
-            'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
-        ),
-    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
-})
+export const TasksUpdateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(tasksUpdateBodyTitleMax)
+            .optional()
+            .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
+        title_manually_set: zod
+            .boolean()
+            .optional()
+            .describe('Whether the title was set by a human (vs auto-generated from the description).'),
+        description: zod
+            .string()
+            .optional()
+            .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+        origin_product: zod
+            .enum([
+                'error_tracking',
+                'eval_clusters',
+                'user_created',
+                'automation',
+                'slack',
+                'support_queue',
+                'session_summaries',
+                'signal_report',
+                'signals_scout',
+                'support_reply',
+            ])
+            .describe(
+                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            )
+            .optional()
+            .describe(
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            ),
+        repository: zod
+            .string()
+            .max(tasksUpdateBodyRepositoryMax)
+            .nullish()
+            .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+        github_user_integration: zod
+            .uuid()
+            .nullish()
+            .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
+        signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
+        signal_report_task_relationship: zod
+            .enum(['implementation'])
+            .describe('\* `implementation` - Implementation')
+            .optional(),
+        json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
+        internal: zod
+            .boolean()
+            .optional()
+            .describe('If true, this task is for internal use and should not be exposed to end users.'),
+        archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
+        ci_prompt: zod
+            .string()
+            .nullish()
+            .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    })
+    .describe(
+        'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
+    )
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -369,68 +373,70 @@ export const tasksPartialUpdateBodyTitleMax = 255
 
 export const tasksPartialUpdateBodyRepositoryMax = 255
 
-export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
-    title: zod
-        .string()
-        .max(tasksPartialUpdateBodyTitleMax)
-        .optional()
-        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
-    title_manually_set: zod.boolean().optional(),
-    description: zod
-        .string()
-        .optional()
-        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
-    origin_product: zod
-        .enum([
-            'error_tracking',
-            'eval_clusters',
-            'user_created',
-            'automation',
-            'slack',
-            'support_queue',
-            'session_summaries',
-            'signal_report',
-            'signals_scout',
-            'support_reply',
-        ])
-        .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        )
-        .optional()
-        .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        ),
-    repository: zod
-        .string()
-        .max(tasksPartialUpdateBodyRepositoryMax)
-        .nullish()
-        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
-    github_integration: zod.number().nullish().describe('GitHub integration for this task'),
-    github_user_integration: zod
-        .uuid()
-        .nullish()
-        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
-    signal_report: zod.uuid().nullish(),
-    signal_report_task_relationship: zod
-        .enum(['implementation'])
-        .describe('\* `implementation` - Implementation')
-        .optional(),
-    json_schema: zod
-        .unknown()
-        .optional()
-        .describe('JSON schema for the task. This is used to validate the output of the task.'),
-    internal: zod
-        .boolean()
-        .optional()
-        .describe('If true, this task is for internal use and should not be exposed to end users.'),
-    archived: zod
-        .boolean()
-        .optional()
-        .describe(
-            'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
-        ),
-    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
-})
+export const TasksPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(tasksPartialUpdateBodyTitleMax)
+            .optional()
+            .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
+        title_manually_set: zod
+            .boolean()
+            .optional()
+            .describe('Whether the title was set by a human (vs auto-generated from the description).'),
+        description: zod
+            .string()
+            .optional()
+            .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+        origin_product: zod
+            .enum([
+                'error_tracking',
+                'eval_clusters',
+                'user_created',
+                'automation',
+                'slack',
+                'support_queue',
+                'session_summaries',
+                'signal_report',
+                'signals_scout',
+                'support_reply',
+            ])
+            .describe(
+                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            )
+            .optional()
+            .describe(
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            ),
+        repository: zod
+            .string()
+            .max(tasksPartialUpdateBodyRepositoryMax)
+            .nullish()
+            .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+        github_user_integration: zod
+            .uuid()
+            .nullish()
+            .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
+        signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
+        signal_report_task_relationship: zod
+            .enum(['implementation'])
+            .describe('\* `implementation` - Implementation')
+            .optional(),
+        json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
+        internal: zod
+            .boolean()
+            .optional()
+            .describe('If true, this task is for internal use and should not be exposed to end users.'),
+        archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
+        ci_prompt: zod
+            .string()
+            .nullish()
+            .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    })
+    .describe(
+        'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
+    )
 
 /**
  * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.

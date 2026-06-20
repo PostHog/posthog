@@ -74,6 +74,206 @@ class TaskRunDTO:
 
 
 @dataclass(frozen=True)
+class TaskDetailDTO:
+    """The HTTP detail representation of a task.
+
+    Mirrors exactly the fields ``TaskSerializer`` emits, in order. ``github_integration`` and
+    ``github_user_integration`` are the integration primary keys (or ``None``), matching the
+    original ``PrimaryKeyRelatedField`` output. ``signal_report`` is the linked report id (or
+    ``None``). ``latest_run`` is the most-recent run as a ``TaskRunDetailDTO`` (or ``None``).
+    ``created_by`` mirrors core ``UserBasicSerializer`` output.
+    """
+
+    id: UUID
+    task_number: int | None
+    slug: str
+    title: str
+    title_manually_set: bool
+    description: str
+    origin_product: str
+    repository: str | None
+    github_integration: int | None
+    github_user_integration: UUID | None
+    signal_report: UUID | None
+    json_schema: dict | None
+    internal: bool
+    archived: bool
+    archived_at: datetime | None
+    ci_prompt: str | None
+    latest_run: "TaskRunDetailDTO | None" = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    created_by: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class TaskLatestRunSummaryDTO:
+    """The latest-run status/environment pair nested in a task summary response."""
+
+    status: str | None
+    environment: str | None
+
+
+@dataclass(frozen=True)
+class TaskSummaryDTO:
+    """The HTTP summary representation of a task.
+
+    Mirrors exactly the fields ``TaskSummarySerializer`` emits. ``latest_run`` carries the
+    most-recent run's ``status`` and ``environment`` (or ``None`` when the task has no runs).
+    """
+
+    id: UUID
+    title: str
+    repository: str | None
+    created_at: datetime
+    updated_at: datetime
+    latest_run: TaskLatestRunSummaryDTO | None = None
+
+
+@dataclass(frozen=True)
+class TaskValidationError:
+    """A structured validation-error payload the presentation layer renders as a 400/404.
+
+    ``kind`` distinguishes the response shape the original task views built:
+      - ``"validation_error"`` -> the ``{type, code, detail, attr}`` body.
+      - ``"detail"`` -> a plain ``{"detail": detail}`` body.
+      - ``"error"`` -> the ``{"error": detail}`` body.
+    ``missing_artifact_ids`` is included on the body only when set.
+    """
+
+    kind: str
+    detail: str
+    code: str | None = None
+    attr: str | None = None
+    missing_artifact_ids: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunResult:
+    """Outcome of the task ``run`` action.
+
+    Exactly one of ``task`` / ``error`` is set. ``task`` is the refreshed task detail DTO with
+    its new latest run; ``error`` carries the structured error the original view returned inline.
+    """
+
+    task: "TaskDetailDTO | None" = None
+    error: TaskValidationError | None = None
+
+
+@dataclass(frozen=True)
+class StagedArtifactPreparedDTO:
+    """One prepared staged upload, mirroring ``TaskStagedArtifactPrepareUploadResponseSerializer``."""
+
+    id: str
+    name: str
+    type: str
+    source: str
+    size: int
+    content_type: str
+    storage_path: str
+    expires_in: int
+    presigned_post: dict
+
+
+@dataclass(frozen=True)
+class StagedArtifactPrepareResult:
+    """Outcome of preparing staged uploads. ``error`` is set when a presigned POST could not be minted."""
+
+    artifacts: list[StagedArtifactPreparedDTO] | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class StagedArtifactFinalizeResult:
+    """Outcome of finalizing staged uploads. ``error`` is set on the first invalid/missing artifact."""
+
+    artifacts: list[dict] | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class SlackThreadContextRepoResearchDTO:
+    """The internal sandbox run the discovery agent used to pick a run's repo."""
+
+    task_id: str
+    run_id: str
+    status: str | None
+    task_processing_workflow_id: str
+    task_processing_workflow_url: str | None
+    sandbox_url: str | None
+    task_view_url: str
+    log_url: str | None
+
+
+@dataclass(frozen=True)
+class SlackThreadContextRunDTO:
+    """One TaskRun and its associated Temporal workflow handles for the slack-thread debug view."""
+
+    id: str
+    status: str
+    created_at: datetime | None
+    completed_at: datetime | None
+    sandbox_url: str | None
+    pr_url: str | None
+    error_message: str | None
+    task_processing_workflow_id: str
+    task_processing_workflow_url: str | None
+    mention_workflow_id: str | None
+    mention_workflow_url: str | None
+    task_view_url: str
+    log_url: str | None
+    repo_research: SlackThreadContextRepoResearchDTO | None = None
+
+
+@dataclass(frozen=True)
+class SlackThreadContextThreadDTO:
+    """Slack-side identifiers and mapping metadata for a thread → task lookup."""
+
+    url: str
+    channel: str
+    thread_ts: str
+    slack_workspace_id: str | None
+    mentioning_slack_user_id: str | None
+
+
+@dataclass(frozen=True)
+class SlackThreadContextTaskDTO:
+    """The PostHog Task linked to a Slack thread."""
+
+    id: str
+    team_id: int
+    title: str
+    repository: str | None
+    origin_product: str
+    created_at: datetime | None
+    url: str
+
+
+@dataclass(frozen=True)
+class SlackThreadContextDTO:
+    """Top-level response for the slack-thread debug endpoint."""
+
+    thread: SlackThreadContextThreadDTO
+    task: SlackThreadContextTaskDTO | None = None
+    runs: list[SlackThreadContextRunDTO] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SlackThreadContextResult:
+    """Outcome of resolving a slack-thread context.
+
+    ``outcome`` is one of ``"forbidden"`` (403), ``"bad_url"`` (400), ``"no_mapping"`` (404), or
+    ``"ok"`` (``context`` set). The error variants carry the partial payload the original view
+    returned in the body.
+    """
+
+    outcome: str
+    context: SlackThreadContextDTO | None = None
+    bad_url: str | None = None
+    no_mapping_thread: SlackThreadContextThreadDTO | None = None
+
+
+@dataclass(frozen=True)
 class TaskRunDetailDTO:
     """The HTTP detail representation of a task run.
 

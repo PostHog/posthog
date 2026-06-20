@@ -441,7 +441,7 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         ids = sorted(item["id"] for item in response.json()["results"])
         self.assertEqual(ids, [str(mine.id)])
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_other_user_task_returns_404(self, mock_workflow):
         other_user = self.create_organization_user("victim")
         task = self.create_task(created_by=other_user)
@@ -663,7 +663,7 @@ class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_write_action_on_other_user_task_still_returns_404(self, _mock_workflow):
         # POST /tasks/<id>/run/ is a write — bypass must NOT fire even when the
         # `?ph_debug=true` opt-in is set; that param is read-only.
@@ -1130,7 +1130,7 @@ class TestTaskAPI(BaseTaskAPITest):
         # archived_at should not be re-stamped because the value did not transition.
         self.assertEqual(task.archived_at, original_archived_at)
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_triggers_workflow(self, mock_workflow):
         task = self.create_task()
 
@@ -1165,7 +1165,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("signal_report", {"run_source": "signal_report"}, "read_only"),
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_resolves_mcp_scope_from_run_source(self, _name, payload, expected_scope, mock_workflow):
         task = self.create_task()
 
@@ -1178,7 +1178,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(mock_workflow.call_args.kwargs["posthog_mcp_scopes"], expected_scope)
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_sandbox_environment_id(self, mock_workflow):
         task = self.create_task(created_by=self.user)
         sandbox_environment = SandboxEnvironment.objects.create(
@@ -1211,7 +1211,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ),
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoints_reject_other_users_private_sandbox_environment(
         self, _name, endpoint, payload_template, mock_workflow
     ):
@@ -1240,7 +1240,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_drops_inaccessible_inherited_sandbox_environment_id(self, mock_workflow):
         other_user = self.create_organization_user("victim")
         task = self.create_task(created_by=self.user)
@@ -1270,7 +1270,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertNotIn("sandbox_environment_id", run.state)
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_pending_user_message(self, mock_workflow):
         task = self.create_task()
 
@@ -1291,7 +1291,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @patch("posthog.storage.object_storage.copy")
     @patch("posthog.storage.object_storage.tag")
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_attaches_staged_artifacts(self, mock_workflow, mock_tag, mock_copy):
         task = self.create_task()
         staged_artifact = build_task_artifact_entry(
@@ -1341,7 +1341,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @patch("posthog.storage.object_storage.copy")
     @patch("posthog.storage.object_storage.tag")
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_ignores_copy_failures_for_staged_artifacts(self, mock_workflow, mock_tag, mock_copy):
         mock_copy.side_effect = AssertionError("copy should not be called")
         task = self.create_task()
@@ -1382,7 +1382,7 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_creates_cloud_run_without_triggering_workflow(self, mock_workflow):
         task = self.create_task()
 
@@ -1416,7 +1416,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["run_source"], "manual")
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_caches_user_github_token(self, mock_workflow):
         integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
         task = Task.objects.create(
@@ -1444,7 +1444,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(get_cached_github_user_token(str(task_run.id)), "ghu_test_token")
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_workflow):
         task = self.create_task()
 
@@ -1462,7 +1462,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["code"], "github_authorization_required")
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_persists_user_integration_when_no_repo(self, mock_workflow):
         task = self.create_task(created_by=self.user)
         user_integration = _grant_user_github_access(self.user)
@@ -1482,7 +1482,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task.github_user_integration_id, user_integration.id)
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_falls_back_to_team_integration_when_no_user_integration(self, mock_workflow):
         integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
         task = self.create_task(created_by=self.user)
@@ -1633,7 +1633,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("auto",),
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_initial_permission_mode(self, mode, mock_workflow):
         task = self.create_task()
 
@@ -1648,7 +1648,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["initial_permission_mode"] == mode
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_omits_initial_permission_mode_when_not_set(self, mock_workflow):
         task = self.create_task()
 
@@ -1659,7 +1659,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert "initial_permission_mode" not in (task_run.state or {})
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_rejects_invalid_initial_permission_mode(self, mock_workflow):
         task = self.create_task()
 
@@ -1672,7 +1672,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_combines_pending_user_message_and_initial_permission_mode(self, mock_workflow):
         task = self.create_task()
 
@@ -1693,7 +1693,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["initial_permission_mode"] == "plan"
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_pr_authorship_metadata(self, mock_workflow):
         task = self.create_task()
         task.repository = "posthog/posthog"
@@ -1722,7 +1722,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task.github_user_integration_id == user_integration.id
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_caches_github_user_token_backcompat(self, mock_workflow):
         """Backward-compat: callers that ship ``github_user_token`` have it cached per-run."""
         task = self.create_task()
@@ -1748,7 +1748,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["github_credential_source"] == "caller_token"
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_accepts_token_even_without_linked_identity(self, mock_workflow):
         """A caller-supplied token satisfies the preflight on its own (no identity required)."""
         task = self.create_task()
@@ -1777,7 +1777,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("gpt_5_5_xhigh", "gpt-5.5", "xhigh"),
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_runtime_metadata(self, _case_name, model, reasoning_effort, mock_workflow):
         task = self.create_task()
 
@@ -1806,7 +1806,7 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @parameterized.expand([("auto",), ("read-only",), ("full-access",)])
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_preserves_codex_initial_permission_mode(self, initial_permission_mode, mock_workflow):
         task = self.create_task()
 
@@ -1844,7 +1844,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ),
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_rejects_mismatched_permission_mode(
         self,
         _case_name,
@@ -1876,7 +1876,7 @@ class TestTaskAPI(BaseTaskAPITest):
         }
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_rejects_user_authorship_without_github_identity(self, mock_workflow):
         task = self.create_task()
         task.repository = "posthog/posthog"
@@ -1896,7 +1896,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.json()["code"] == "github_authorization_required"
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_rejects_user_authorship_when_refresh_token_expired(self, mock_workflow):
         task = self.create_task()
         task.repository = "posthog/posthog"
@@ -1920,7 +1920,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.json()["code"] == "github_authorization_required"
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_rejects_non_creator_with_404(self, mock_workflow: MagicMock) -> None:
         # Cross-user run attempts are blocked at the queryset level: a teammate
         # cannot see (let alone run) someone else's task. The previous
@@ -1947,7 +1947,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert not TaskRun.objects.filter(task=task).exists()
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_rejects_user_authorship_when_access_token_missing(self, mock_workflow: MagicMock) -> None:
         task = self.create_task(created_by=self.user)
         task.repository = "posthog/posthog"
@@ -1978,7 +1978,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("missing_model", {"runtime_adapter": "codex"}, "model"),
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_rejects_incomplete_runtime_selection(self, _case_name, payload, expected_attr, mock_workflow):
         task = self.create_task()
 
@@ -2004,7 +2004,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("gpt_5_5_max", "gpt-5.5", "max", "low, medium, high, xhigh"),
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_rejects_unsupported_codex_reasoning_effort(
         self, _case_name, model, reasoning_effort, supported_values, mock_workflow
     ):
@@ -2032,7 +2032,7 @@ class TestTaskAPI(BaseTaskAPITest):
         }
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow):
         task = self.create_task()
 
@@ -2067,7 +2067,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("max",),
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_accepts_fable_reasoning_effort(self, reasoning_effort, mock_workflow):
         task = self.create_task()
 
@@ -2088,7 +2088,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_derives_provider_from_runtime_adapter(self, mock_workflow):
         task = self.create_task()
 
@@ -2108,7 +2108,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert latest_run["provider"] == "openai"
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_workflow):
         task = self.create_task()
 
@@ -2126,7 +2126,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.json()["code"] == "github_authorization_required"
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_user_integration_when_no_repo(self, mock_workflow):
         task = self.create_task(created_by=self.user)
         user_integration = _grant_user_github_access(self.user)
@@ -2146,7 +2146,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task.github_user_integration_id == user_integration.id
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_falls_back_to_team_integration_when_no_user_integration(self, mock_workflow):
         integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
         task = self.create_task(created_by=self.user)
@@ -2170,7 +2170,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["pr_authorship_mode"] == "bot"
         mock_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_resume_carries_forward_pr_authorship_metadata(self, mock_workflow):
         task = self.create_task()
         previous_run = TaskRun.objects.create(
@@ -2214,7 +2214,7 @@ class TestTaskAPI(BaseTaskAPITest):
         # Token passed on a BOT resume must not be cached — only USER mode runs use it.
         assert get_cached_github_user_token(str(task_run.id)) is None
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_resume_rejects_inherited_invalid_reasoning_effort(self, mock_workflow):
         task = self.create_task()
         previous_run = TaskRun.objects.create(
@@ -4294,7 +4294,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_head_object.assert_not_called()
 
     @patch("posthog.storage.object_storage.head_object")
-    @patch("products.tasks.backend.presentation.views.api.tag_task_artifact")
+    @patch("products.tasks.backend.logic.services.staged_artifacts.tag_task_artifact")
     def test_finalize_artifact_uploads_returns_only_newly_finalized(self, mock_tag, mock_head_object):
         mock_head_object.return_value = {"ContentLength": 4096, "ContentType": "application/pdf"}
         task = self.create_task()
@@ -4344,7 +4344,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(sorted(stored_ids), sorted([existing_artifact_id, new_artifact_id]))
 
     @patch("posthog.storage.object_storage.head_object")
-    @patch("products.tasks.backend.presentation.views.api.tag_task_artifact")
+    @patch("products.tasks.backend.logic.services.staged_artifacts.tag_task_artifact")
     def test_finalize_artifact_uploads_is_idempotent_for_existing_entry(self, mock_tag, mock_head_object):
         task = self.create_task()
         artifact_id = uuid.uuid4().hex
@@ -4444,7 +4444,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIn("10MB attachment limit for PDFs", response.json()["error"])
 
     @patch("posthog.storage.object_storage.head_object")
-    @patch("products.tasks.backend.presentation.views.api.tag_task_artifact")
+    @patch("products.tasks.backend.logic.services.staged_artifacts.tag_task_artifact")
     def test_finalize_artifact_uploads_is_atomic_for_partial_failures(self, mock_tag, mock_head_object):
         mock_head_object.side_effect = [
             {"ContentLength": 4096, "ContentType": "application/pdf"},
@@ -5657,7 +5657,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
 
 class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):
-    @patch("products.tasks.backend.presentation.views.api.compute_repository_readiness")
+    @patch("products.tasks.backend.facade.api.compute_repository_readiness")
     def test_repository_readiness_endpoint(self, mock_compute):
         mock_compute.return_value = {
             "repository": "posthog/posthog",
@@ -6781,7 +6781,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
             ("under_limit", CodeUsageStatus(is_rate_limited=False, limit_type=None, reset_at=None, is_pro=False)),
         ]
     )
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_proceeds_when_not_blocked(self, _name, gate_return, mock_gate, mock_workflow):
         mock_gate.return_value = gate_return

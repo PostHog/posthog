@@ -16,12 +16,12 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const TasksListSchema = TasksListQueryParams
 
-const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.PaginatedTaskList>> => ({
+const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.PaginatedTaskDetailDTOList>> => ({
     name: 'tasks-list',
     schema: TasksListSchema,
     handler: async (context: Context, params: z.infer<typeof TasksListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedTaskList>({
+        const result = await context.api.request<Schemas.PaginatedTaskDetailDTOList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/`,
             query: {
@@ -69,12 +69,12 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
 
 const TasksRetrieveSchema = TasksRetrieveParams.omit({ project_id: true })
 
-const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Schemas.Task>> => ({
+const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
     name: 'tasks-retrieve',
     schema: TasksRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof TasksRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Task>({
+        const result = await context.api.request<Schemas.TaskDetailDTO>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.id))}/`,
         })

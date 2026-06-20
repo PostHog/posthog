@@ -32307,99 +32307,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `implementation` - Implementation
-     */
-    export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
-
-
-    export const SignalReportTaskRelationshipEnum = {
-      Implementation: 'implementation',
-    } as const;
-
-    /**
-     * Latest run details for this task
-     * @nullable
-     */
-    export type TaskLatestRun = { [key: string]: unknown } | null;
-
-    export interface Task {
-      readonly id: string;
-      /** @nullable */
-      readonly task_number: number | null;
-      readonly slug: string;
-      /**
-         * Short human-readable title. Auto-generated from `description` when omitted.
-         * @maxLength 255
-         */
-      title?: string;
-      title_manually_set?: boolean;
-      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
-      description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
-       *
-       * * `error_tracking` - Error Tracking
-       * * `eval_clusters` - Eval Clusters
-       * * `user_created` - User Created
-       * * `automation` - Automation
-       * * `slack` - Slack
-       * * `support_queue` - Support Queue
-       * * `session_summaries` - Session Summaries
-       * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
-      origin_product?: OriginProductEnum;
-      /**
-         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
-         * @maxLength 255
-         * @nullable
-         */
-      repository?: string | null;
-      /**
-         * GitHub integration for this task
-         * @nullable
-         */
-      github_integration?: number | null;
-      /**
-         * User-scoped GitHub integration to use for user-authored cloud runs.
-         * @nullable
-         */
-      github_user_integration?: string | null;
-      /** @nullable */
-      signal_report?: string | null;
-      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
-      /** JSON schema for the task. This is used to validate the output of the task. */
-      json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
-      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
-      archived?: boolean;
-      /** @nullable */
-      readonly archived_at: string | null;
-      /**
-         * Latest run details for this task
-         * @nullable
-         */
-      readonly latest_run: TaskLatestRun;
-      readonly created_at: string;
-      readonly updated_at: string;
-      readonly created_by: UserBasic;
-      /**
-         * Custom prompt for CI fixes. If blank, a default prompt will be used.
-         * @nullable
-         */
-      ci_prompt?: string | null;
-    }
-
-    export interface PaginatedTaskList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Task[];
-    }
-
-    /**
      * * `claude` - claude
      * * `codex` - codex
      */
@@ -32509,6 +32416,61 @@ export namespace Schemas {
       completed_at?: string | null;
     }
 
+    /**
+     * @nullable
+     */
+    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Detail response for a task.
+     *
+     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+     */
+    export interface TaskDetailDTO {
+      id: string;
+      /** @nullable */
+      task_number: number | null;
+      slug: string;
+      title: string;
+      title_manually_set: boolean;
+      description: string;
+      origin_product: string;
+      /** @nullable */
+      repository: string | null;
+      /** @nullable */
+      github_integration: number | null;
+      /** @nullable */
+      github_user_integration: string | null;
+      /** @nullable */
+      signal_report: string | null;
+      /** @nullable */
+      json_schema: TaskDetailDTOJsonSchema;
+      internal: boolean;
+      archived: boolean;
+      /** @nullable */
+      archived_at: string | null;
+      /** Latest run details for this task */
+      latest_run?: TaskRunDetailDTO | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      ci_prompt: string | null;
+    }
+
+    export interface PaginatedTaskDetailDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskDetailDTO[];
+    }
+
     export interface PaginatedTaskRunDetailDTOList {
       count: number;
       /** @nullable */
@@ -32555,23 +32517,26 @@ export namespace Schemas {
       environment: TaskRunEnvironmentEnum | null;
     }
 
-    export interface TaskSummary {
-      readonly id: string;
-      readonly title: string;
+    /**
+     * Summary response for a task — reads from a frozen ``TaskSummaryDTO``.
+     */
+    export interface TaskSummaryDTO {
+      id: string;
+      title: string;
       /** @nullable */
-      readonly repository: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      readonly latest_run: TaskRunSummary | null;
+      repository: string | null;
+      created_at: string;
+      updated_at: string;
+      latest_run?: TaskRunSummary | null;
     }
 
-    export interface PaginatedTaskSummaryList {
+    export interface PaginatedTaskSummaryDTOList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: TaskSummary[];
+      results: TaskSummaryDTO[];
     }
 
     /**
@@ -39384,80 +39349,6 @@ export namespace Schemas {
     }
 
     /**
-     * Latest run details for this task
-     * @nullable
-     */
-    export type PatchedTaskLatestRun = { [key: string]: unknown } | null;
-
-    export interface PatchedTask {
-      readonly id?: string;
-      /** @nullable */
-      readonly task_number?: number | null;
-      readonly slug?: string;
-      /**
-         * Short human-readable title. Auto-generated from `description` when omitted.
-         * @maxLength 255
-         */
-      title?: string;
-      title_manually_set?: boolean;
-      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
-      description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
-       *
-       * * `error_tracking` - Error Tracking
-       * * `eval_clusters` - Eval Clusters
-       * * `user_created` - User Created
-       * * `automation` - Automation
-       * * `slack` - Slack
-       * * `support_queue` - Support Queue
-       * * `session_summaries` - Session Summaries
-       * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
-      origin_product?: OriginProductEnum;
-      /**
-         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
-         * @maxLength 255
-         * @nullable
-         */
-      repository?: string | null;
-      /**
-         * GitHub integration for this task
-         * @nullable
-         */
-      github_integration?: number | null;
-      /**
-         * User-scoped GitHub integration to use for user-authored cloud runs.
-         * @nullable
-         */
-      github_user_integration?: string | null;
-      /** @nullable */
-      signal_report?: string | null;
-      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
-      /** JSON schema for the task. This is used to validate the output of the task. */
-      json_schema?: unknown;
-      /** If true, this task is for internal use and should not be exposed to end users. */
-      internal?: boolean;
-      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
-      archived?: boolean;
-      /** @nullable */
-      readonly archived_at?: string | null;
-      /**
-         * Latest run details for this task
-         * @nullable
-         */
-      readonly latest_run?: PatchedTaskLatestRun;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      readonly created_by?: UserBasic;
-      /**
-         * Custom prompt for CI fixes. If blank, a default prompt will be used.
-         * @nullable
-         */
-      ci_prompt?: string | null;
-    }
-
-    /**
      * Request body for creating or updating a task automation.
      */
     export interface PatchedTaskAutomationWrite {
@@ -39568,6 +39459,81 @@ export namespace Schemas {
        *
        * * `local` - local */
       environment?: TaskRunUpdateEnvironmentEnum;
+    }
+
+    /**
+     * * `implementation` - Implementation
+     */
+    export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
+
+
+    export const SignalReportTaskRelationshipEnum = {
+      Implementation: 'implementation',
+    } as const;
+
+    /**
+     * Request body for creating or updating a task.
+     *
+     * Field required/default semantics match the ``Task`` model. The view passes
+     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
+     * facade ``create_task`` / ``update_task`` functions.
+     */
+    export interface PatchedTaskWrite {
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
+      title?: string;
+      /** Whether the title was set by a human (vs auto-generated from the description). */
+      title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
+      description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+       *
+       * * `error_tracking` - Error Tracking
+       * * `eval_clusters` - Eval Clusters
+       * * `user_created` - User Created
+       * * `automation` - Automation
+       * * `slack` - Slack
+       * * `support_queue` - Support Queue
+       * * `session_summaries` - Session Summaries
+       * * `signal_report` - Signal Report
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
+      origin_product?: OriginProductEnum;
+      /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+      /**
+         * GitHub integration for this task.
+         * @nullable
+         */
+      github_integration?: number | null;
+      /**
+         * User-scoped GitHub integration to use for user-authored cloud runs.
+         * @nullable
+         */
+      github_user_integration?: string | null;
+      /**
+         * Signal report this task implements, when created from a report.
+         * @nullable
+         */
+      signal_report?: string | null;
+      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
+      /** JSON schema used to validate the output of the task. */
+      json_schema?: unknown;
+      /** If true, this task is for internal use and should not be exposed to end users. */
+      internal?: boolean;
+      /** If true, the task is hidden from default list responses. */
+      archived?: boolean;
+      /**
+         * Custom prompt for CI fixes. If blank, a default prompt will be used.
+         * @nullable
+         */
+      ci_prompt?: string | null;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -48531,6 +48497,71 @@ export namespace Schemas {
          * @maxItems 5000
          */
       ids: string[];
+    }
+
+    /**
+     * Request body for creating or updating a task.
+     *
+     * Field required/default semantics match the ``Task`` model. The view passes
+     * ``validated_data`` (integration/report PK fields already resolved to instances) to the
+     * facade ``create_task`` / ``update_task`` functions.
+     */
+    export interface TaskWrite {
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
+      title?: string;
+      /** Whether the title was set by a human (vs auto-generated from the description). */
+      title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
+      description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+       *
+       * * `error_tracking` - Error Tracking
+       * * `eval_clusters` - Eval Clusters
+       * * `user_created` - User Created
+       * * `automation` - Automation
+       * * `slack` - Slack
+       * * `support_queue` - Support Queue
+       * * `session_summaries` - Session Summaries
+       * * `signal_report` - Signal Report
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
+      origin_product?: OriginProductEnum;
+      /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+      /**
+         * GitHub integration for this task.
+         * @nullable
+         */
+      github_integration?: number | null;
+      /**
+         * User-scoped GitHub integration to use for user-authored cloud runs.
+         * @nullable
+         */
+      github_user_integration?: string | null;
+      /**
+         * Signal report this task implements, when created from a report.
+         * @nullable
+         */
+      signal_report?: string | null;
+      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
+      /** JSON schema used to validate the output of the task. */
+      json_schema?: unknown;
+      /** If true, this task is for internal use and should not be exposed to end users. */
+      internal?: boolean;
+      /** If true, the task is hidden from default list responses. */
+      archived?: boolean;
+      /**
+         * Custom prompt for CI fixes. If blank, a default prompt will be used.
+         * @nullable
+         */
+      ci_prompt?: string | null;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };

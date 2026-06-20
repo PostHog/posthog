@@ -13,23 +13,23 @@ import type {
     ConnectionTokenResponseApi,
     PaginatedSandboxEnvironmentDTOListApi,
     PaginatedTaskAutomationDTOListApi,
-    PaginatedTaskListApi,
+    PaginatedTaskDetailDTOListApi,
     PaginatedTaskRunDetailDTOListApi,
-    PaginatedTaskSummaryListApi,
+    PaginatedTaskSummaryDTOListApi,
     PatchedSandboxEnvironmentWriteApi,
-    PatchedTaskApi,
     PatchedTaskAutomationWriteApi,
     PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
+    PatchedTaskWriteApi,
     RepositoryReadinessResponseApi,
     SandboxEnvironmentDTOApi,
     SandboxEnvironmentWriteApi,
     SandboxListParams,
     SlackThreadContextResponseApi,
-    TaskApi,
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
+    TaskDetailDTOApi,
     TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
     TaskRunAppendLogRequestApi,
@@ -54,6 +54,7 @@ import type {
     TaskStagedArtifactsPrepareUploadRequestApi,
     TaskStagedArtifactsPrepareUploadResponseApi,
     TaskSummariesRequestApi,
+    TaskWriteApi,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -61,23 +62,6 @@ import type {
     TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
 } from './api.schemas'
-
-// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
-type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
-
-type WritableKeys<T> = {
-    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
-}[keyof T]
-
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
-type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
-
-type Writable<T> = Pick<T, WritableKeys<T>>
-type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
-    ? {
-          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
-      }
-    : DistributeReadOnlyOverUnions<T>
 
 export const getCodeInvitesCheckAccessRetrieveUrl = () => {
     return `/api/code/invites/check-access/`
@@ -362,8 +346,8 @@ export const tasksList = async (
     projectId: string,
     params?: TasksListParams,
     options?: RequestInit
-): Promise<PaginatedTaskListApi> => {
-    return apiMutator<PaginatedTaskListApi>(getTasksListUrl(projectId, params), {
+): Promise<PaginatedTaskDetailDTOListApi> => {
+    return apiMutator<PaginatedTaskDetailDTOListApi>(getTasksListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -378,14 +362,14 @@ export const getTasksCreateUrl = (projectId: string) => {
  */
 export const tasksCreate = async (
     projectId: string,
-    taskApi?: NonReadonly<TaskApi>,
+    taskWriteApi?: TaskWriteApi,
     options?: RequestInit
-): Promise<TaskApi> => {
-    return apiMutator<TaskApi>(getTasksCreateUrl(projectId), {
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskApi),
+        body: JSON.stringify(taskWriteApi),
     })
 }
 
@@ -394,10 +378,15 @@ export const getTasksRetrieveUrl = (projectId: string, id: string) => {
 }
 
 /**
- * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ * Retrieve a single task by ID.
+ * @summary Get task
  */
-export const tasksRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<TaskApi> => {
-    return apiMutator<TaskApi>(getTasksRetrieveUrl(projectId, id), {
+export const tasksRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -413,14 +402,14 @@ export const getTasksUpdateUrl = (projectId: string, id: string) => {
 export const tasksUpdate = async (
     projectId: string,
     id: string,
-    taskApi?: NonReadonly<TaskApi>,
+    taskWriteApi?: TaskWriteApi,
     options?: RequestInit
-): Promise<TaskApi> => {
-    return apiMutator<TaskApi>(getTasksUpdateUrl(projectId, id), {
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskApi),
+        body: JSON.stringify(taskWriteApi),
     })
 }
 
@@ -434,14 +423,14 @@ export const getTasksPartialUpdateUrl = (projectId: string, id: string) => {
 export const tasksPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedTaskApi?: NonReadonly<PatchedTaskApi>,
+    patchedTaskWriteApi?: PatchedTaskWriteApi,
     options?: RequestInit
-): Promise<TaskApi> => {
-    return apiMutator<TaskApi>(getTasksPartialUpdateUrl(projectId, id), {
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTaskApi),
+        body: JSON.stringify(patchedTaskWriteApi),
     })
 }
 
@@ -509,8 +498,8 @@ export const tasksRunCreate = async (
     id: string,
     taskRunCreateRequestSchemaApi?: TaskRunCreateRequestSchemaApi,
     options?: RequestInit
-): Promise<TaskApi> => {
-    return apiMutator<TaskApi>(getTasksRunCreateUrl(projectId, id), {
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -970,8 +959,8 @@ export const tasksRunsStartCreate = async (
     id: string,
     taskRunStartRequestApi?: TaskRunStartRequestApi,
     options?: RequestInit
-): Promise<TaskApi> => {
-    return apiMutator<TaskApi>(getTasksRunsStartCreateUrl(projectId, taskId, id), {
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksRunsStartCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1109,8 +1098,8 @@ export const tasksSummariesCreate = async (
     taskSummariesRequestApi: TaskSummariesRequestApi,
     params?: TasksSummariesCreateParams,
     options?: RequestInit
-): Promise<PaginatedTaskSummaryListApi> => {
-    return apiMutator<PaginatedTaskSummaryListApi>(getTasksSummariesCreateUrl(projectId, params), {
+): Promise<PaginatedTaskSummaryDTOListApi> => {
+    return apiMutator<PaginatedTaskSummaryDTOListApi>(getTasksSummariesCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

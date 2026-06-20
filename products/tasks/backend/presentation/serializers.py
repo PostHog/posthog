@@ -2,25 +2,22 @@ import base64
 import binascii
 from zoneinfo import available_timezones
 
-from django.db import transaction
-from django.utils import timezone
-
 from croniter import croniter
-from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
+from drf_spectacular.utils import PolymorphicProxySerializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.models import SignalReportTask
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
     SandboxEnvironmentDTO,
     TaskAutomationDTO,
+    TaskDetailDTO,
     TaskRunDetailDTO,
+    TaskSummaryDTO,
     TaskUserBasicInfo,
 )
 from products.tasks.backend.facade.run_config import (
@@ -34,9 +31,6 @@ from products.tasks.backend.facade.run_config import (
     RuntimeAdapter,
     get_reasoning_effort_error,
 )
-from products.tasks.backend.logic.services.title_generator import generate_task_title
-from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.process_task.utils import resolve_user_github_integration_for_task
 
 
 class TaskUserBasicInfoSerializer(DataclassSerializer):
@@ -87,220 +81,6 @@ def build_task_run_artifact_size_error(
         return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit for PDFs in cloud runs"
 
     return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit"
-
-
-class TaskSerializer(serializers.ModelSerializer):
-    repository = serializers.CharField(
-        max_length=255,
-        required=False,
-        allow_blank=True,
-        allow_null=True,
-        help_text="Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
-    )
-    # UserIntegration is scoped to request.user in validate_github_user_integration.
-    github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=UserIntegration.objects.filter(kind="github"),
-        required=False,
-        allow_null=True,
-        help_text="User-scoped GitHub integration to use for user-authored cloud runs.",
-    )
-    latest_run = serializers.SerializerMethodField()
-    created_by = UserBasicSerializer(read_only=True)
-
-    title = serializers.CharField(
-        max_length=255,
-        required=False,
-        allow_blank=True,
-        help_text="Short human-readable title. Auto-generated from `description` when omitted.",
-    )
-    description = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Free-form description of the work to be done. Used as the prompt passed to the agent.",
-    )
-    origin_product = serializers.ChoiceField(
-        choices=Task.OriginProduct.choices,
-        required=False,
-        help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
-    )
-    # Write-only: which SignalReportTask row to create when linking a task to a report from the
-    # public task API (e.g. PostHog Code inbox). Only implementation is supported; research/repo
-    # selection links are created by server-side flows.
-    signal_report_task_relationship = serializers.ChoiceField(
-        choices=[
-            (
-                SignalReportTask.Relationship.IMPLEMENTATION.value,
-                SignalReportTask.Relationship.IMPLEMENTATION.label,
-            ),
-        ],
-        required=False,
-        write_only=True,
-    )
-
-    class Meta:
-        model = Task
-        fields = [
-            "id",
-            "task_number",
-            "slug",
-            "title",
-            "title_manually_set",
-            "description",
-            "origin_product",
-            "repository",
-            "github_integration",
-            "github_user_integration",
-            "signal_report",
-            "signal_report_task_relationship",
-            "json_schema",
-            "internal",
-            "archived",
-            "archived_at",
-            "latest_run",
-            "created_at",
-            "updated_at",
-            "created_by",
-            "ci_prompt",
-        ]
-        read_only_fields = [
-            "id",
-            "task_number",
-            "slug",
-            "archived_at",
-            "created_at",
-            "updated_at",
-            "created_by",
-            "latest_run",
-        ]
-
-    @extend_schema_field(serializers.DictField(allow_null=True, help_text="Latest run details for this task"))
-    def get_latest_run(self, obj):
-        latest_run = obj.latest_run
-        if latest_run:
-            run_dto = tasks_facade.get_task_run_detail(latest_run.id, obj.id, obj.team_id)
-            if run_dto is not None:
-                return TaskRunDetailSerializer(run_dto).data
-        return None
-
-    def validate_github_integration(self, value):
-        """Validate that the GitHub integration belongs to the same team"""
-        if value and value.team_id != self.context["team"].id:
-            raise serializers.ValidationError("Integration must belong to the same team")
-        return value
-
-    def validate_github_user_integration(self, value):
-        """Validate that the GitHub user integration belongs to the authenticated user."""
-        request = self.context.get("request")
-        user = getattr(request, "user", None)
-        if value and value.user_id != getattr(user, "id", None):
-            raise serializers.ValidationError("User integration must belong to the authenticated user")
-        return value
-
-    def validate_repository(self, value):
-        """Validate repository configuration"""
-        if not value:
-            return value
-
-        parts = value.split("/")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise serializers.ValidationError("Repository must be in the format organization/repository")
-
-        return value.lower()
-
-    def validate_signal_report(self, value):
-        if value and value.team_id != self.context["team"].id:
-            raise serializers.ValidationError("Signal report must belong to the same team")
-        return value
-
-    def validate(self, attrs: dict) -> dict:
-        rel = attrs.get("signal_report_task_relationship")
-        if rel is not None:
-            if not attrs.get("signal_report"):
-                raise serializers.ValidationError(
-                    {"signal_report_task_relationship": "Requires signal_report when set."}
-                )
-            if attrs.get("origin_product") != Task.OriginProduct.SIGNAL_REPORT:
-                raise serializers.ValidationError(
-                    {"signal_report_task_relationship": ("Requires origin_product signal_report when set.")}
-                )
-        if (
-            attrs.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
-            and attrs.get("github_user_integration") is not None
-        ):
-            raise serializers.ValidationError(
-                {"github_user_integration": "Signal report tasks use the team GitHub integration."}
-            )
-        return attrs
-
-    def create(self, validated_data):
-        validated_data["team"] = self.context["team"]
-        validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
-
-        if "request" in self.context and hasattr(self.context["request"], "user"):
-            validated_data["created_by"] = self.context["request"].user
-
-        link_relationship = validated_data.pop(
-            "signal_report_task_relationship",
-            SignalReportTask.Relationship.IMPLEMENTATION,
-        )
-
-        # Set default GitHub integration if not provided
-        if not validated_data.get("github_integration"):
-            default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
-            if default_integration:
-                validated_data["github_integration"] = default_integration
-
-        if (
-            validated_data.get("repository")
-            and validated_data.get("origin_product", Task.OriginProduct.USER_CREATED) == Task.OriginProduct.USER_CREATED
-            and not validated_data.get("github_user_integration")
-        ):
-            task_stub = Task(
-                team=self.context["team"],
-                created_by=validated_data.get("created_by"),
-                origin_product=Task.OriginProduct.USER_CREATED,
-                repository=validated_data["repository"],
-                github_integration=validated_data.get("github_integration"),
-            )
-            github_user_integration = resolve_user_github_integration_for_task(task_stub, allow_refresh=False)
-            if github_user_integration is not None:
-                validated_data["github_user_integration"] = github_user_integration.integration
-
-        title = validated_data.get("title", "").strip()
-        if not title and validated_data.get("description"):
-            validated_data["title"] = generate_task_title(validated_data["description"])
-            validated_data.setdefault("title_manually_set", False)
-        elif title:
-            validated_data.setdefault("title_manually_set", True)
-
-        # Inbox / PostHog Code: tasks created via this API with a signal report use the same
-        # origin_product as server-side flows, but only those flows previously called
-        # SignalReportTask.objects.create. Link implementation tasks here so report task
-        # listings (e.g. getSignalReportTasks) match autostarted implementations.
-        with transaction.atomic():
-            task = super().create(validated_data)
-            if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-                SignalReportTask.objects.create(
-                    team_id=task.team_id,
-                    report_id=task.signal_report_id,
-                    task=task,
-                    relationship=link_relationship,
-                )
-            return task
-
-    def update(self, instance, validated_data):
-        # These fields are immutable after creation. origin_product controls
-        # team-wide visibility (SIGNAL_REPORT tasks are visible to all members),
-        # so allowing updates would let a user escalate a private task's visibility.
-        # signal_report and its relationship are set-once associations.
-        validated_data.pop("signal_report", None)
-        validated_data.pop("signal_report_task_relationship", None)
-        validated_data.pop("origin_product", None)
-        if "title" in validated_data and "title_manually_set" not in validated_data:
-            validated_data["title_manually_set"] = True
-        if "archived" in validated_data and validated_data["archived"] != instance.archived:
-            validated_data["archived_at"] = timezone.now() if validated_data["archived"] else None
-        return super().update(instance, validated_data)
 
 
 class AgentDefinitionSerializer(serializers.Serializer):
@@ -417,6 +197,190 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "updated_at",
             "completed_at",
         ]
+
+
+# Only implementation is supported when linking a task to a report from the public task API
+# (e.g. PostHog Code inbox); research/repo-selection links are created by server-side flows.
+# The value/label mirror `signals` `SignalReportTask.Relationship.IMPLEMENTATION` — kept inline
+# so presentation never imports the other product's models.
+SIGNAL_REPORT_TASK_RELATIONSHIP_IMPLEMENTATION = "implementation"
+
+
+class TaskSerializer(DataclassSerializer):
+    """Detail response for a task.
+
+    Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+    ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+    ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+    """
+
+    latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
+    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = TaskDetailDTO
+        fields = [
+            "id",
+            "task_number",
+            "slug",
+            "title",
+            "title_manually_set",
+            "description",
+            "origin_product",
+            "repository",
+            "github_integration",
+            "github_user_integration",
+            "signal_report",
+            "json_schema",
+            "internal",
+            "archived",
+            "archived_at",
+            "latest_run",
+            "created_at",
+            "updated_at",
+            "created_by",
+            "ci_prompt",
+        ]
+
+
+class TaskWriteSerializer(serializers.Serializer):
+    """Request body for creating or updating a task.
+
+    Field required/default semantics match the ``Task`` model. The view passes
+    ``validated_data`` (integration/report PK fields already resolved to instances) to the
+    facade ``create_task`` / ``update_task`` functions.
+    """
+
+    title = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Short human-readable title. Auto-generated from `description` when omitted.",
+    )
+    title_manually_set = serializers.BooleanField(
+        required=False,
+        help_text="Whether the title was set by a human (vs auto-generated from the description).",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Free-form description of the work to be done. Used as the prompt passed to the agent.",
+    )
+    origin_product = serializers.ChoiceField(
+        choices=tasks_facade.TaskOriginProduct.choices,
+        required=False,
+        help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
+    )
+    repository = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+    )
+    github_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=Integration.objects.filter(kind="github"),
+        required=False,
+        allow_null=True,
+        help_text="GitHub integration for this task.",
+    )
+    # UserIntegration is scoped to request.user in validate_github_user_integration.
+    github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=UserIntegration.objects.filter(kind="github"),
+        required=False,
+        allow_null=True,
+        help_text="User-scoped GitHub integration to use for user-authored cloud runs.",
+    )
+    # Mirrors the ModelSerializer-generated FK field: queryset is the full report manager
+    # (team scope is enforced by validate_signal_report below). Bound lazily in __init__ so
+    # importing this module never touches the signals model.
+    signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=Integration.objects.none(),
+        required=False,
+        allow_null=True,
+        help_text="Signal report this task implements, when created from a report.",
+    )
+    # Write-only: which SignalReportTask row to create when linking a task to a report.
+    signal_report_task_relationship = serializers.ChoiceField(
+        choices=[(SIGNAL_REPORT_TASK_RELATIONSHIP_IMPLEMENTATION, "Implementation")],
+        required=False,
+        write_only=True,
+    )
+    json_schema = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="JSON schema used to validate the output of the task.",
+    )
+    internal = serializers.BooleanField(
+        required=False,
+        help_text="If true, this task is for internal use and should not be exposed to end users.",
+    )
+    archived = serializers.BooleanField(
+        required=False,
+        help_text="If true, the task is hidden from default list responses.",
+    )
+    ci_prompt = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # SignalReport is scoped to the request team by the field; bind its queryset lazily so
+        # importing this module never touches the signals model at import time.
+        self.fields["signal_report"].queryset = tasks_facade.signal_report_queryset()
+
+    def validate_github_integration(self, value):
+        """Validate that the GitHub integration belongs to the same team"""
+        if value and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Integration must belong to the same team")
+        return value
+
+    def validate_github_user_integration(self, value):
+        """Validate that the GitHub user integration belongs to the authenticated user."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if value and value.user_id != getattr(user, "id", None):
+            raise serializers.ValidationError("User integration must belong to the authenticated user")
+        return value
+
+    def validate_repository(self, value):
+        """Validate repository configuration"""
+        if not value:
+            return value
+
+        parts = value.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+
+        return value.lower()
+
+    def validate_signal_report(self, value):
+        if value and value.team_id != self.context["team"].id:
+            raise serializers.ValidationError("Signal report must belong to the same team")
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        rel = attrs.get("signal_report_task_relationship")
+        if rel is not None:
+            if not attrs.get("signal_report"):
+                raise serializers.ValidationError(
+                    {"signal_report_task_relationship": "Requires signal_report when set."}
+                )
+            if attrs.get("origin_product") != tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
+                raise serializers.ValidationError(
+                    {"signal_report_task_relationship": ("Requires origin_product signal_report when set.")}
+                )
+        if (
+            attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+            and attrs.get("github_user_integration") is not None
+        ):
+            raise serializers.ValidationError(
+                {"github_user_integration": "Signal report tasks use the team GitHub integration."}
+            )
+        return attrs
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
@@ -779,21 +743,18 @@ class TaskSummariesRequestSerializer(serializers.Serializer):
 
 
 class TaskRunSummarySerializer(serializers.Serializer):
-    status = serializers.ChoiceField(choices=TaskRun.Status.choices, allow_null=True)
-    environment = serializers.ChoiceField(choices=TaskRun.Environment.choices, allow_null=True)
+    status = serializers.ChoiceField(choices=tasks_facade.TaskRunStatus.choices, allow_null=True)
+    environment = serializers.ChoiceField(choices=tasks_facade.TaskRunEnvironment.choices, allow_null=True)
 
 
-class TaskSummarySerializer(serializers.ModelSerializer):
-    latest_run = serializers.SerializerMethodField()
+class TaskSummarySerializer(DataclassSerializer):
+    """Summary response for a task — reads from a frozen ``TaskSummaryDTO``."""
+
+    latest_run = TaskRunSummarySerializer(allow_null=True, required=False)
 
     class Meta:
-        model = Task
+        dataclass = TaskSummaryDTO
         fields = ["id", "title", "repository", "created_at", "updated_at", "latest_run"]
-        read_only_fields = fields
-
-    @extend_schema_field(TaskRunSummarySerializer(allow_null=True))
-    def get_latest_run(self, obj):
-        return getattr(obj, "_latest_run", None)
 
 
 class TaskListQuerySerializer(serializers.Serializer):
@@ -813,7 +774,7 @@ class TaskListQuerySerializer(serializers.Serializer):
     )
     status = serializers.ChoiceField(
         required=False,
-        choices=[choice.value for choice in TaskRun.Status],
+        choices=[choice.value for choice in tasks_facade.TaskRunStatus],
         help_text="Filter tasks by the status of their most recent run.",
     )
     internal = serializers.BooleanField(
@@ -1055,9 +1016,9 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
     REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
 
     environment = serializers.ChoiceField(
-        choices=[environment.value for environment in TaskRun.Environment],
+        choices=[environment.value for environment in tasks_facade.TaskRunEnvironment],
         required=False,
-        default=TaskRun.Environment.LOCAL,
+        default=tasks_facade.TaskRunEnvironment.LOCAL,
         help_text="Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.",
     )
     mode = serializers.ChoiceField(

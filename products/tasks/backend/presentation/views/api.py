@@ -1,19 +1,15 @@
 import os
 import re
 import json
-import uuid
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
-from datetime import datetime, timedelta
-from typing import Any, cast
+from datetime import datetime
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
-from django.db.models import OuterRef, Q, Subquery
-from django.db.models.functions import JSONObject
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
-from django.utils import timezone
 
 import requests as http_requests
 from drf_spectacular.types import OpenApiTypes
@@ -30,33 +26,24 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.models.integration import Integration
-from posthog.models.user_push_token import UserPushToken
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
-from posthog.storage import object_storage
-from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
     contracts as tasks_contracts,
 )
-from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
-from products.tasks.backend.logic.services.staged_artifacts import (
-    RUN_ARTIFACT_TTL_DAYS,
-    STAGED_ARTIFACT_TTL_DAYS,
-    build_task_artifact_entry,
-    build_task_staged_artifact_cache_key,
-    build_task_staged_artifact_storage_path,
-    cache_task_staged_artifact,
-    get_safe_artifact_name,
-    get_task_staged_artifacts,
-    tag_task_artifact,
+from products.tasks.backend.facade.access import cloud_usage_limit_response
+from products.tasks.backend.facade.metrics import (
+    StreamConnectionOutcome,
+    observe_stream_connection_closed,
+    observe_stream_connection_opened,
+    observe_stream_length_on_connect,
+    observe_stream_resume_gap,
 )
-from products.tasks.backend.logic.stream.redis_stream import (
+from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
     TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS,
     TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
@@ -64,15 +51,8 @@ from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamError,
     get_task_run_stream_key,
+    run_uses_dedicated_stream,
 )
-from products.tasks.backend.metrics import (
-    StreamConnectionOutcome,
-    observe_stream_connection_closed,
-    observe_stream_connection_opened,
-    observe_stream_length_on_connect,
-    observe_stream_resume_gap,
-)
-from products.tasks.backend.models import TASK_PRESENCE_TTL_SECONDS, SandboxEnvironment, Task, TaskPresence, TaskRun
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
@@ -117,24 +97,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskStagedArtifactsPrepareUploadResponseSerializer,
     TaskSummariesRequestSerializer,
     TaskSummarySerializer,
-    build_task_run_artifact_size_error,
-    get_task_run_artifact_max_size_bytes,
+    TaskWriteSerializer,
 )
-from products.tasks.backend.redis import get_tasks_cache, run_uses_dedicated_stream
-from products.tasks.backend.repository_readiness import compute_repository_readiness
-from products.tasks.backend.temporal.client import execute_task_processing_workflow
-from products.tasks.backend.temporal.process_task.utils import (
-    GitHubCredentialSource,
-    PrAuthorshipMode,
-    RunSource,
-    cache_github_user_token,
-    get_provider_for_runtime_adapter,
-    get_reasoning_effort_error,
-    parse_run_state,
-    resolve_user_github_integration_for_task,
-    user_github_integration_is_usable,
-)
-from products.tasks.backend.visibility import task_visibility_q
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -143,76 +107,6 @@ TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
 TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
-
-
-def _ensure_task_team_github_integration(task: Task) -> bool:
-    if task.github_integration_id is not None:
-        return True
-
-    github_integration = Integration.objects.filter(team_id=task.team_id, kind="github").first()
-    if github_integration is None:
-        return False
-
-    task.github_integration = github_integration
-    task.save(update_fields=["github_integration", "updated_at"])
-    return True
-
-
-def _resolve_cloud_pr_authorship_mode(
-    task: Task,
-    *,
-    pr_authorship_mode: PrAuthorshipMode | str | None,
-    request_user_id: int | None,
-    github_user_token: str | None,
-) -> tuple[PrAuthorshipMode | str | None, Response | None]:
-    if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
-        return pr_authorship_mode, None
-
-    if task.created_by_id != request_user_id:
-        return None, Response(
-            {
-                "type": "validation_error",
-                "code": "github_authorization_required",
-                "detail": "User-authored runs must be started by the task creator, or provide github_user_token.",
-                "attr": "pr_authorship_mode",
-            },
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
-    if user_github_integration is not None and user_github_integration_is_usable(user_github_integration):
-        if task.github_user_integration_id != user_github_integration.integration.id:
-            task.github_user_integration = user_github_integration.integration
-            task.save(update_fields=["github_user_integration", "updated_at"])
-        return PrAuthorshipMode.USER, None
-
-    if _ensure_task_team_github_integration(task):
-        return PrAuthorshipMode.BOT, None
-
-    return None, Response(
-        {
-            "type": "validation_error",
-            "code": "github_authorization_required",
-            "detail": ("Link a GitHub account with repo access before running user-authored cloud tasks."),
-            "attr": "pr_authorship_mode",
-        },
-        status=status.HTTP_400_BAD_REQUEST,
-    )
-
-
-def _github_credential_source_extra_state(
-    pr_authorship_mode: PrAuthorshipMode | str | None, github_user_token: str | None
-) -> dict[str, str]:
-    """Durable marker of which GitHub identity a run is pinned to, decided once at creation.
-
-    A caller-supplied token is owned by the caller and un-refreshable by us, so the refresh
-    loop must never swap it for the task creator's server integration. Persisting the source
-    in run state keeps that decision durable (the per-run token cache only lives ~6h).
-    """
-    if pr_authorship_mode != PrAuthorshipMode.USER:
-        return {}
-    source = GitHubCredentialSource.CALLER_TOKEN if github_user_token else GitHubCredentialSource.SERVER_INTEGRATION
-    return {"github_credential_source": source.value}
 
 
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
@@ -266,65 +160,12 @@ def _parse_slack_thread_url(url: str) -> tuple[str, str] | None:
     return channel, f"{raw_ts[:-6]}.{raw_ts[-6:]}"
 
 
-def _temporal_workflow_url(workflow_id: str | None) -> str | None:
-    if not workflow_id:
-        return None
-    base = getattr(settings, "TEMPORAL_UI_HOST", None)
-    namespace = getattr(settings, "TEMPORAL_NAMESPACE", None)
-    if not base or not namespace:
-        return None
-    return f"{base.rstrip('/')}/namespaces/{namespace}/workflows/{workflow_id}"
-
-
-def _slack_repo_research_payload(
-    request, team_id: int, state: dict[str, Any], repo_research_runs_by_id: dict[str, TaskRun]
-) -> dict[str, Any] | None:
-    """Build the repo-research block for a run, or None when the mention wasn't ambiguous."""
-    research_task_id = state.get("repo_research_task_id")
-    research_run_id = state.get("repo_research_run_id")
-    if not research_task_id or not research_run_id:
-        return None
-    research_run = repo_research_runs_by_id.get(research_run_id)
-    sandbox_url = None
-    log_url = None
-    run_status = None
-    if research_run is not None:
-        sandbox_url = (research_run.state if isinstance(research_run.state, dict) else {}).get("sandbox_url")
-        run_status = research_run.status
-        try:
-            log_url = object_storage.get_presigned_url(research_run.log_url, expiration=3600)
-        except Exception:
-            logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
-            log_url = None
-    workflow_id = TaskRun.get_workflow_id(research_task_id, research_run_id)
-    return {
-        "task_id": research_task_id,
-        "run_id": research_run_id,
-        "status": run_status,
-        "task_processing_workflow_id": workflow_id,
-        "task_processing_workflow_url": _temporal_workflow_url(workflow_id),
-        "sandbox_url": sandbox_url,
-        "task_view_url": request.build_absolute_uri(
-            f"/project/{team_id}/tasks/{research_task_id}?runId={research_run_id}&ph_debug=true"
-        ),
-        "log_url": log_url,
-    }
-
-
-_FULL_MCP_RUN_SOURCES: frozenset[RunSource | None] = frozenset({None, RunSource.MANUAL})
-
-
-def _resolve_posthog_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
-    run_source = parse_run_state(task_run.state).run_source
-    return "full" if run_source in _FULL_MCP_RUN_SOURCES else "read_only"
-
-
-class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+@extend_schema(tags=["tasks"])
+class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
     """
 
-    serializer_class = TaskSerializer
     authentication_classes = [
         SessionAuthentication,
         PersonalAPIKeyAuthentication,
@@ -332,8 +173,22 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    queryset = Task.objects.all()
     pagination_class = TasksPagination
+    # Fallback for drf-spectacular introspection only; every action declares its own
+    # request/response schema via @validated_request / @extend_schema.
+    serializer_class = TaskSerializer
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    def _write_serializer(self, data, *, partial: bool = False) -> TaskWriteSerializer:
+        serializer = TaskWriteSerializer(
+            data=data,
+            partial=partial,
+            context={"team": self.team, "team_id": self.team.id, "request": self.request},
+        )
+        serializer.is_valid(raise_exception=True)
+        return serializer
 
     @validated_request(
         query_serializer=TaskListQuerySerializer,
@@ -344,7 +199,57 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
     )
     def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
+        # Flatten the query-param multidict to single values, matching the original `params.get(...)`.
+        filters = {key: request.query_params.get(key) for key in request.query_params}
+        # internal/archived come from the validated query serializer (typed bool / choice).
+        filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
+        filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
+        is_debug_or_staff = settings.DEBUG or request.user.is_staff
+        tasks = tasks_facade.list_tasks(
+            self.team_id, self._user_id(), filters=filters, is_debug_or_staff=is_debug_or_staff
+        )
+        page = self.paginate_queryset(tasks)
+        if page is not None:
+            return self.get_paginated_response(TaskSerializer(page, many=True).data)
+        return Response(TaskSerializer(tasks, many=True).data)
+
+    @extend_schema(
+        responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
+        summary="Get task",
+        description="Retrieve a single task by ID.",
+    )
+    def retrieve(self, request, pk=None, **kwargs):
+        bypass_visibility = _is_internal_debug_team(self.team_id) and request.query_params.get("ph_debug") == "true"
+        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id(), bypass_visibility=bypass_visibility)
+        if task is None:
+            raise NotFound()
+        return Response(TaskSerializer(task).data)
+
+    @extend_schema(request=TaskWriteSerializer, responses={201: TaskSerializer})
+    def create(self, request, **kwargs):
+        serializer = self._write_serializer(request.data)
+        task = tasks_facade.create_task(self.team_id, self._user_id(), validated_data=dict(serializer.validated_data))
+        return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=TaskWriteSerializer, responses={200: TaskSerializer})
+    def update(self, request, pk=None, **kwargs):
+        return self.partial_update(request, pk=pk, **kwargs)
+
+    @extend_schema(request=TaskWriteSerializer, responses={200: TaskSerializer})
+    def partial_update(self, request, pk=None, **kwargs):
+        serializer = self._write_serializer(request.data, partial=True)
+        task = tasks_facade.update_task(
+            pk, self.team_id, self._user_id(), validated_data=dict(serializer.validated_data)
+        )
+        if task is None:
+            raise NotFound()
+        return Response(TaskSerializer(task).data)
+
+    @extend_schema(responses={204: None})
+    def destroy(self, request, pk=None, **kwargs):
+        if not tasks_facade.soft_delete_task(pk, self.team_id, self._user_id()):
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         responses={
@@ -365,16 +270,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         filter_backends=[],
     )
     def repositories(self, request, **kwargs):
-        repositories = (
-            Task.objects.filter(team=self.team, deleted=False, internal=False)
-            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
-            .exclude(repository__isnull=True)
-            .exclude(repository__exact="")
-            .values_list("repository", flat=True)
-            .distinct()
-            .order_by("repository")
-        )
-        serializer = TaskRepositoriesResponseSerializer({"repositories": list(repositories)})
+        repositories = tasks_facade.list_task_repositories(self.team_id, self._user_id())
+        serializer = TaskRepositoriesResponseSerializer({"repositories": repositories})
         return Response(serializer.data)
 
     @validated_request(
@@ -416,23 +313,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def summaries(self, request, **kwargs):
         ids = request.validated_data["ids"]
-        latest_run = (
-            TaskRun.objects.filter(task=OuterRef("pk"))
-            .order_by("-created_at", "-id")
-            .annotate(_data=JSONObject(status="status", environment="environment"))
-        )
-        tasks = (
-            Task.objects.filter(team=self.team, deleted=False, id__in=ids)
-            .filter(task_visibility_q(getattr(self.request.user, "id", None)))
-            .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
-            .order_by("-created_at", "id")
-        )
-        page = self.paginate_queryset(tasks)
+        summaries = tasks_facade.get_task_summaries(self.team_id, self._user_id(), ids=ids)
+        page = self.paginate_queryset(summaries)
         if page is not None:
-            serializer = TaskSummarySerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-        serializer = TaskSummarySerializer(tasks, many=True)
-        return Response(serializer.data)
+            return self.get_paginated_response(TaskSummarySerializer(page, many=True).data)
+        return Response(TaskSummarySerializer(summaries, many=True).data)
 
     @validated_request(
         query_serializer=RepositoryReadinessQuerySerializer,
@@ -456,8 +341,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         window_days = request.validated_query_data["window_days"]
         refresh = request.validated_query_data["refresh"]
 
-        result = compute_repository_readiness(
-            team=self.team,
+        result = tasks_facade.compute_repository_readiness(
+            self.team_id,
             repository=repository,
             window_days=window_days,
             refresh=refresh,
@@ -495,7 +380,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"detail": "slack-thread-context is restricted to PostHog-internal debugging."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        # 1. Get Slack URL from the request URL
         url = request.validated_query_data["url"]
         parsed = _parse_slack_thread_url(url)
         if parsed is None:
@@ -504,220 +388,26 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         channel, thread_ts = parsed
-        # 2. Find related tasks
-        mapping = (
-            SlackThreadTaskMapping.objects.select_related("task", "task__created_by")
-            .filter(channel=channel, thread_ts=thread_ts)
-            .first()
+        result = tasks_facade.resolve_slack_thread_context(
+            self.team_id, channel=channel, thread_ts=thread_ts, url=url, build_url=request.build_absolute_uri
         )
-        if mapping is None:
+        if result.outcome == "no_mapping":
+            thread = result.no_mapping_thread
             return Response(
                 {
                     "detail": "no_mapping",
                     "thread": {
-                        "url": url,
-                        "channel": channel,
-                        "thread_ts": thread_ts,
-                        "slack_workspace_id": None,
-                        "mentioning_slack_user_id": None,
+                        "url": thread.url,
+                        "channel": thread.channel,
+                        "thread_ts": thread.thread_ts,
+                        "slack_workspace_id": thread.slack_workspace_id,
+                        "mentioning_slack_user_id": thread.mentioning_slack_user_id,
                     },
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
-        task = mapping.task
-        # 3. Find runs for the task
-        runs = list(TaskRun.objects.filter(task=task).order_by("created_at", "id"))
-        # Include repo discovery runs, if present
-        repo_research_run_ids = [
-            rid
-            for run in runs
-            if (rid := (run.state if isinstance(run.state, dict) else {}).get("repo_research_run_id"))
-        ]
-        repo_research_runs_by_id: dict[str, TaskRun] = (
-            {str(r.id): r for r in TaskRun.objects.filter(team=task.team, id__in=repo_research_run_ids)}
-            if repo_research_run_ids
-            else {}
-        )
-        # `?ph_debug=true` allows to check tasks of all team members through /tasks/<id>
-        task_url = request.build_absolute_uri(f"/project/{task.team_id}/tasks/{task.id}?ph_debug=true")
-        run_payloads: list[dict[str, Any]] = []
-        # 4. Find workflows for the runs
-        for run in runs:
-            state = run.state if isinstance(run.state, dict) else {}
-            output = run.output if isinstance(run.output, dict) else {}
-            task_processing_workflow_id = TaskRun.get_workflow_id(task.id, run.id)
-            mention_workflow_id = state.get("slack_mention_workflow_id")
-            try:
-                presigned_log_url = object_storage.get_presigned_url(run.log_url, expiration=3600)
-            except Exception:
-                logger.exception("slack_thread_context_log_presign_failed", extra={"run_id": str(run.id)})
-                presigned_log_url = None
-            run_payloads.append(
-                {
-                    "id": str(run.id),
-                    "status": run.status,
-                    "created_at": run.created_at,
-                    "completed_at": run.completed_at,
-                    "sandbox_url": state.get("sandbox_url"),
-                    "pr_url": output.get("pr_url"),
-                    "error_message": run.error_message,
-                    "task_processing_workflow_id": task_processing_workflow_id,
-                    "task_processing_workflow_url": _temporal_workflow_url(task_processing_workflow_id),
-                    "mention_workflow_id": mention_workflow_id,
-                    "mention_workflow_url": _temporal_workflow_url(mention_workflow_id),
-                    "task_view_url": request.build_absolute_uri(
-                        f"/project/{task.team_id}/tasks/{task.id}?runId={run.id}&ph_debug=true"
-                    ),
-                    "log_url": presigned_log_url,
-                    "repo_research": _slack_repo_research_payload(
-                        request, task.team_id, state, repo_research_runs_by_id
-                    ),
-                }
-            )
-        payload = {
-            "thread": {
-                "url": url,
-                "channel": channel,
-                "thread_ts": thread_ts,
-                "slack_workspace_id": mapping.slack_workspace_id,
-                "mentioning_slack_user_id": mapping.mentioning_slack_user_id,
-            },
-            "task": {
-                "id": str(task.id),
-                "team_id": task.team_id,
-                "title": task.title,
-                "repository": task.repository,
-                "origin_product": task.origin_product,
-                "created_at": task.created_at,
-                "url": task_url,
-            },
-            "runs": run_payloads,
-        }
-        serializer = SlackThreadContextResponseSerializer(payload)
+        serializer = SlackThreadContextResponseSerializer(result.context)
         return Response(serializer.data)
-
-    def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team=self.team, deleted=False)
-        # `?ph_debug=true` allows to check tasks of all team members through /tasks/<id>
-        if not (
-            _is_internal_debug_team(self.team_id)
-            and self.action == "retrieve"
-            and self.request.query_params.get("ph_debug") == "true"
-        ):
-            qs = qs.filter(task_visibility_q(getattr(self.request.user, "id", None)))
-        qs = qs.order_by("-created_at")
-
-        params = self.request.query_params if hasattr(self, "request") else {}
-
-        # Filter by origin product
-        origin_product = params.get("origin_product")
-        if origin_product:
-            qs = qs.filter(origin_product=origin_product)
-
-        stage = params.get("stage")
-        if stage:
-            qs = qs.filter(runs__stage=stage)
-
-        # Filter by repository or organization using the repository field
-        organization = params.get("organization")
-        repository = params.get("repository")
-        created_by = params.get("created_by")
-        search = params.get("search")
-        status_filter = params.get("status")
-
-        if repository:
-            repo_str = repository.strip().lower()
-            if "/" in repo_str:
-                qs = qs.filter(repository__iexact=repo_str)
-            else:
-                qs = qs.filter(repository__iendswith=f"/{repo_str}")
-
-        if organization:
-            org_str = organization.strip().lower()
-            qs = qs.filter(repository__istartswith=f"{org_str}/")
-
-        if created_by:
-            qs = qs.filter(created_by_id=created_by)
-
-        # Only apply list-oriented filters on list — retrieve/update should always work if
-        # you have the ID. Without this guard, a client passing a query param while fetching
-        # a single task by ID would see an unexpected 404 when the task does not match.
-        if self.action == "list":
-            if search:
-                search_term = search.strip()
-                if search_term:
-                    search_q = Q(title__icontains=search_term) | Q(description__icontains=search_term)
-                    # Slugs look like "<team-prefix>-<task_number>". If the search term is a bare
-                    # number, or looks like "<prefix>-<number>", also match by task_number so users
-                    # can find tasks by slug.
-                    number_part = search_term.split("-")[-1].strip()
-                    if number_part.isdigit():
-                        search_q |= Q(task_number=int(number_part))
-                    qs = qs.filter(search_q)
-
-            if status_filter:
-                # `-id` is a deterministic tiebreaker when two runs share a `created_at`
-                # timestamp (e.g. both seeded with `timezone.now()` in the same tick).
-                latest_run_status = (
-                    TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id").values("status")[:1]
-                )
-                qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(
-                    _latest_run_status=status_filter
-                )
-
-            internal_param = getattr(self.request, "validated_query_data", {}).get("internal")
-            if internal_param is True and (settings.DEBUG or self.request.user.is_staff):
-                qs = qs.filter(internal=True)
-            else:
-                qs = qs.filter(internal=False)
-
-            archived_param = getattr(self.request, "validated_query_data", {}).get("archived")
-            if archived_param == "true":
-                qs = qs.filter(archived=True)
-            elif archived_param == "all":
-                pass
-            else:
-                qs = qs.filter(archived=False)
-
-        # select_related to avoid N+1 on created_by (UserBasicSerializer), team (slug property),
-        # and GitHub integrations returned on task rows.
-        qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").prefetch_related(
-            "runs"
-        )
-
-        # `stage` joins through `runs` and can produce duplicate task rows. If any other
-        # JOIN-producing filter is added above, broaden this guard (or move `.distinct()`
-        # to run unconditionally).
-        if stage:
-            qs = qs.distinct()
-
-        return qs
-
-    def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
-
-    def perform_create(self, serializer):
-        logger.info(f"Creating task with data: {serializer.validated_data}")
-        serializer.save(team=self.team)
-
-    def perform_destroy(self, instance):
-        task = cast(Task, instance)
-        logger.info(f"Soft deleting task {task.id}")
-        task.soft_delete()
-
-    def _trigger_workflow(self, task: Task, task_run: TaskRun) -> None:
-        try:
-            logger.info(f"Attempting to trigger task processing workflow for task {task.id}, run {task_run.id}")
-            execute_task_processing_workflow(
-                task_id=str(task.id),
-                run_id=str(task_run.id),
-                team_id=task.team.id,
-                user_id=getattr(self.request.user, "id", None),
-                posthog_mcp_scopes=_resolve_posthog_mcp_scopes(task_run),
-            )
-            logger.info(f"Workflow trigger completed for task {task.id}, run {task_run.id}")
-        except Exception as e:
-            logger.exception(f"Failed to trigger task processing workflow for task {task.id}, run {task_run.id}: {e}")
 
     @validated_request(
         request_serializer=TaskStagedArtifactsPrepareUploadRequestSerializer,
@@ -740,45 +430,21 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         required_scopes=["task:write"],
     )
     def staged_artifacts_prepare_upload(self, request, pk=None, **kwargs):
-        task = cast(Task, self.get_object())
-        artifacts = request.validated_data["artifacts"]
-
-        prepared_artifacts: list[dict] = []
-        for artifact in artifacts:
-            artifact_id = uuid.uuid4().hex
-            safe_name = get_safe_artifact_name(artifact["name"])
-            storage_path = build_task_staged_artifact_storage_path(task, artifact_id, safe_name)
-            presigned_post = object_storage.get_presigned_post(
-                storage_path,
-                conditions=[
-                    ["content-length-range", 0, artifact["size"] + TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES]
-                ],
-                expiration=TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
-            )
-            if not presigned_post:
-                return Response(
-                    TaskRunErrorResponseSerializer({"error": "Unable to generate upload URL"}).data,
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            prepared_artifacts.append(
-                {
-                    "id": artifact_id,
-                    "name": safe_name,
-                    "type": artifact["type"],
-                    "source": artifact.get("source") or "",
-                    "size": artifact["size"],
-                    "content_type": artifact.get("content_type") or "",
-                    "storage_path": storage_path,
-                    "expires_in": TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
-                    "presigned_post": presigned_post,
-                }
-            )
-
-        serializer = TaskStagedArtifactsPrepareUploadResponseSerializer(
-            {"artifacts": prepared_artifacts},
-            context=self.get_serializer_context(),
+        result = tasks_facade.prepare_task_staged_artifacts(
+            pk,
+            self.team_id,
+            self._user_id(),
+            artifacts=request.validated_data["artifacts"],
+            upload_expiration_seconds=TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
         )
+        if result is None:
+            raise NotFound()
+        if result.error is not None:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": result.error}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = TaskStagedArtifactsPrepareUploadResponseSerializer({"artifacts": result.artifacts})
         return Response(serializer.data)
 
     @validated_request(
@@ -802,80 +468,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         required_scopes=["task:write"],
     )
     def staged_artifacts_finalize_upload(self, request, pk=None, **kwargs):
-        task = cast(Task, self.get_object())
-        artifacts = request.validated_data["artifacts"]
-        artifact_prefix = f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}/staged/"
-        finalized_artifacts: list[dict] = []
-
-        for artifact in artifacts:
-            artifact_id = artifact["id"]
-            storage_path = artifact["storage_path"]
-            if not storage_path.startswith(artifact_prefix) or f"/{artifact_id}/" not in storage_path:
-                return Response(
-                    TaskRunErrorResponseSerializer({"error": "Artifact storage path is invalid for this task"}).data,
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            s3_object = object_storage.head_object(storage_path)
-            if not s3_object:
-                return Response(
-                    TaskRunErrorResponseSerializer({"error": "Artifact upload not found in object storage"}).data,
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            content_length = s3_object.get("ContentLength")
-            if not isinstance(content_length, int):
-                return Response(
-                    TaskRunErrorResponseSerializer({"error": "Artifact upload metadata is unavailable"}).data,
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            safe_name = get_safe_artifact_name(artifact["name"])
-            content_type = artifact.get("content_type") or s3_object.get("ContentType") or ""
-            max_size_bytes = get_task_run_artifact_max_size_bytes(
-                safe_name,
-                content_type,
-                artifact.get("type"),
-            )
-            if content_length > max_size_bytes:
-                return Response(
-                    TaskRunErrorResponseSerializer(
-                        {"error": build_task_run_artifact_size_error(safe_name, max_size_bytes)}
-                    ).data,
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            finalized_artifact = build_task_artifact_entry(
-                artifact_id=artifact_id,
-                name=safe_name,
-                artifact_type=artifact["type"],
-                source=artifact.get("source") or "",
-                size=content_length,
-                content_type=content_type,
-                storage_path=storage_path,
-            )
-            finalized_artifacts.append(finalized_artifact)
-
-        for finalized_artifact in finalized_artifacts:
-            cache_task_staged_artifact(task, finalized_artifact)
-            tag_task_artifact(
-                finalized_artifact["storage_path"],
-                ttl_days=STAGED_ARTIFACT_TTL_DAYS,
-                team_id=task.team_id,
-            )
-
-        serializer = TaskStagedArtifactsFinalizeUploadResponseSerializer(
-            {"artifacts": finalized_artifacts},
-            context=self.get_serializer_context(),
+        result = tasks_facade.finalize_task_staged_artifacts(
+            pk, self.team_id, self._user_id(), artifacts=request.validated_data["artifacts"]
         )
+        if result is None:
+            raise NotFound()
+        if result.error is not None:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": result.error}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = TaskStagedArtifactsFinalizeUploadResponseSerializer({"artifacts": result.artifacts})
         return Response(serializer.data)
-
-    def perform_update(self, serializer):
-        task = cast(Task, serializer.instance)
-        logger.info(f"perform_update called for task {task.id} with validated_data: {serializer.validated_data}")
-        serializer.save()
-        logger.info(f"Task {task.id} updated successfully")
-
-        return Response(TaskSerializer(task).data)
 
     @extend_schema(request=TaskRunCreateRequestSchemaSerializer)
     @validated_request(
@@ -893,190 +497,36 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
-        task = cast(Task, self.get_object())
+        # Original order: 404 if the task isn't visible, then gate (always cloud) before the run.
+        if not tasks_facade.task_visible(pk, self.team_id, self._user_id()):
+            raise NotFound()
 
-        # Always cloud: gate before creating the run.
         if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
             return limit_response
 
-        mode = request.validated_data.get("mode", "background")
-        branch = request.validated_data.get("branch")
-        resume_from_run_id = request.validated_data.get("resume_from_run_id")
-        pending_user_message = request.validated_data.get("pending_user_message")
-        pending_user_artifact_ids = request.validated_data.get("pending_user_artifact_ids") or []
-        sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
-        sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
-        pr_authorship_mode = request.validated_data.get("pr_authorship_mode")
-        run_source = request.validated_data.get("run_source")
-        signal_report_id = request.validated_data.get("signal_report_id")
-        runtime_adapter = request.validated_data.get("runtime_adapter")
-        model = request.validated_data.get("model")
-        reasoning_effort = request.validated_data.get("reasoning_effort")
-        github_user_token = request.validated_data.get("github_user_token")
-        initial_permission_mode = request.validated_data.get("initial_permission_mode")
-        if run_source == RunSource.SIGNAL_REPORT:
-            pr_authorship_mode = PrAuthorshipMode.BOT
+        result = tasks_facade.run_task(pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data))
+        if result is None:
+            raise NotFound()
+        if result.error is not None:
+            return self._task_error_response(result.error)
+        return Response(TaskSerializer(result.task).data)
 
-        runtime_state_fields = {
-            "pr_authorship_mode": pr_authorship_mode,
-            "run_source": run_source,
-            "signal_report_id": signal_report_id,
-            "runtime_adapter": runtime_adapter,
-            "model": model,
-            "reasoning_effort": reasoning_effort,
-        }
-
-        extra_state = None
-        if pending_user_message is not None:
-            extra_state = {"pending_user_message": pending_user_message}
-        if pending_user_artifact_ids:
-            extra_state = extra_state or {}
-            extra_state["pending_user_artifact_ids"] = pending_user_artifact_ids
-        if initial_permission_mode is not None:
-            extra_state = extra_state or {}
-            extra_state["initial_permission_mode"] = initial_permission_mode
-
-        if resume_from_run_id:
-            # prevent cross-task resume
-            previous_run = task.runs.filter(id=resume_from_run_id).first()
-            if not previous_run:
-                return Response({"detail": "Invalid resume_from_run_id"}, status=400)
-
-            # Derive snapshot_external_id from the validated previous run
-            prev_state = parse_run_state(previous_run.state)
-            extra_state = extra_state or {}
-            extra_state["resume_from_run_id"] = str(resume_from_run_id)
-            if prev_state.snapshot_external_id:
-                extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
-
-            if prev_state.sandbox_environment_id and sandbox_environment_id is None:
-                sandbox_environment_id = prev_state.sandbox_environment_id
-
-            for field_name in runtime_state_fields:
-                if runtime_state_fields[field_name] is None:
-                    runtime_state_fields[field_name] = getattr(prev_state, field_name)
-
-            pr_authorship_mode = runtime_state_fields["pr_authorship_mode"]
-            run_source = runtime_state_fields["run_source"]
-            signal_report_id = runtime_state_fields["signal_report_id"]
-            runtime_adapter = runtime_state_fields["runtime_adapter"]
-            model = runtime_state_fields["model"]
-            reasoning_effort = runtime_state_fields["reasoning_effort"]
-            if branch is None and prev_state.pr_base_branch is not None:
-                branch = prev_state.pr_base_branch
-
-        provider = get_provider_for_runtime_adapter(runtime_adapter)
-
-        for key, value in {
-            "pr_base_branch": branch,
-            "pr_authorship_mode": pr_authorship_mode,
-            "run_source": run_source,
-            "signal_report_id": signal_report_id,
-            "runtime_adapter": runtime_adapter,
-            "provider": provider,
-            "model": model,
-            "reasoning_effort": reasoning_effort,
-        }.items():
-            if value is not None:
-                extra_state = extra_state or {}
-                extra_state[key] = value.value if hasattr(value, "value") else value
-
-        reasoning_effort_error = get_reasoning_effort_error(
-            runtime_adapter=runtime_adapter,
-            model=model,
-            reasoning_effort=reasoning_effort,
-        )
-        if reasoning_effort_error is not None:
+    @staticmethod
+    def _task_error_response(error: tasks_contracts.TaskValidationError) -> Response:
+        if error.kind == "error":
             return Response(
-                {
-                    "type": "validation_error",
-                    "code": "invalid_input",
-                    "detail": reasoning_effort_error,
-                    "attr": "reasoning_effort",
-                },
-                status=400,
+                TaskRunErrorResponseSerializer({"error": error.detail}).data,
+                status=status.HTTP_400_BAD_REQUEST,
             )
-
-        pr_authorship_mode, validation_response = _resolve_cloud_pr_authorship_mode(
-            task,
-            pr_authorship_mode=pr_authorship_mode,
-            request_user_id=getattr(request.user, "id", None),
-            github_user_token=github_user_token,
+        if error.kind == "detail":
+            body: dict[str, Any] = {"detail": error.detail}
+            if error.missing_artifact_ids is not None:
+                body["missing_artifact_ids"] = error.missing_artifact_ids
+            return Response(body, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
+            status=status.HTTP_400_BAD_REQUEST,
         )
-        if validation_response is not None:
-            return validation_response
-        if pr_authorship_mode is not None:
-            extra_state = extra_state or {}
-            extra_state["pr_authorship_mode"] = (
-                pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
-            )
-
-        if credential_source := _github_credential_source_extra_state(pr_authorship_mode, github_user_token):
-            extra_state = extra_state or {}
-            extra_state.update(credential_source)
-
-        if sandbox_environment_id is not None:
-            sandbox_environment = SandboxEnvironment.get_accessible_for_task(
-                environment_id=sandbox_environment_id,
-                team_id=task.team_id,
-                task_created_by_id=task.created_by_id,
-            )
-            if sandbox_environment is None:
-                if sandbox_environment_id_supplied_by_user:
-                    return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
-            else:
-                extra_state = extra_state or {}
-                extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
-
-                logger.info(
-                    "Applying sandbox environment to task run",
-                    extra={
-                        "task_id": str(task.id),
-                        "sandbox_environment_id": str(sandbox_environment.id),
-                        "sandbox_environment_name": sandbox_environment.name,
-                        "network_access_level": sandbox_environment.network_access_level,
-                    },
-                )
-
-        staged_artifacts: list[dict[str, Any]] = []
-        if pending_user_artifact_ids:
-            staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, pending_user_artifact_ids)
-            if missing_artifact_ids:
-                return Response(
-                    {
-                        "detail": "Some pending_user_artifact_ids are invalid or expired",
-                        "missing_artifact_ids": missing_artifact_ids,
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
-
-        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
-
-        if pending_user_artifact_ids:
-            run_artifacts: list[dict] = []
-            for staged_artifact in staged_artifacts:
-                storage_path = str(staged_artifact["storage_path"])
-                tag_task_artifact(storage_path, ttl_days=RUN_ARTIFACT_TTL_DAYS, team_id=task.team_id)
-                run_artifacts.append(dict(staged_artifact))
-
-            task_run.artifacts = run_artifacts
-            task_run.save(update_fields=["artifacts", "updated_at"])
-
-            for artifact_id in pending_user_artifact_ids:
-                get_tasks_cache().delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
-
-        if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
-            cache_github_user_token(str(task_run.id), github_user_token)
-
-        logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
-
-        self._trigger_workflow(task, task_run)
-
-        task.refresh_from_db()
-
-        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
     @validated_request(
         request_serializer=TaskPresenceBeaconRequestSerializer,
@@ -1100,43 +550,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         url_path="presence",
         required_scopes=["task:write"],
     )
-    def presence(self, request, **kwargs):
+    def presence(self, request, pk=None, **kwargs):
+        device_id = request.validated_data["device_id"]
         if request.method == "DELETE":
-            return self._presence_leave(request)
-        return self._presence_beacon(request)
-
-    def _presence_beacon(self, request) -> Response:
-        task = cast(Task, self.get_object())
-        device_id = request.validated_data["device_id"]
-        push_token = UserPushToken.objects.filter(user=request.user, id=device_id).first()
-        if push_token is None:
+            outcome = tasks_facade.leave_task_presence(pk, self.team_id, self._user_id(), device_id=device_id)
+        else:
+            outcome = tasks_facade.beacon_task_presence(pk, self.team_id, self._user_id(), device_id=device_id)
+        if outcome == "not_found":
             raise NotFound("device_id does not match a push token registered by the caller")
-
-        # Lookup mirrors the unique constraint exactly so a stray row with a
-        # mismatched team/user (e.g. from a bug elsewhere) gets corrected on
-        # upsert instead of crashing into the constraint a second time.
-        # nosemgrep: idor-lookup-without-team — team scope is enforced by
-        # TaskScopedManager (DRF view sets the ContextVar) and via `task` FK
-        # whose row is fetched through self.get_object() above.
-        now = timezone.now()
-        TaskPresence.objects.update_or_create(
-            task=task,
-            push_token=push_token,
-            defaults={
-                "team": task.team,
-                "user": request.user,
-                "expires_at": now + timedelta(seconds=TASK_PRESENCE_TTL_SECONDS),
-            },
-        )
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    def _presence_leave(self, request) -> Response:
-        task = cast(Task, self.get_object())
-        device_id = request.validated_data["device_id"]
-        # No 404 on missing rows — the beacon-leave path runs from blur/background
-        # handlers that should be safe to call unconditionally without the client
-        # having to track whether a beacon was ever sent.
-        TaskPresence.objects.filter(task=task, push_token_id=device_id, user=request.user).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -1388,8 +809,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        task = Task.objects.get(id=started_task_id)
-        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+        task_dto = tasks_facade.get_task_detail(started_task_id, self.team_id, self._user_id())
+        if task_dto is None:
+            raise NotFound()
+        return Response(TaskSerializer(task_dto).data)
 
     @validated_request(
         request_serializer=TaskRunUpdateSerializer,
