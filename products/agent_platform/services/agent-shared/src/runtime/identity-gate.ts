@@ -97,6 +97,13 @@ export interface ToolIdentityDeps {
     applicationId: string
     /** Our OAuth callback URL for a provider. */
     redirectUriFor: (providerId: string) => string
+    /**
+     * When set, identity is refused with this reason. Used to fail closed in
+     * shared participant threads where the asker isn't the session owner —
+     * resolving the owner's credential for someone else would be a confused
+     * deputy (T1), so we don't resolve at all there.
+     */
+    unavailableReason?: string
 }
 
 export function createToolIdentity(deps: ToolIdentityDeps): {
@@ -104,6 +111,9 @@ export function createToolIdentity(deps: ToolIdentityDeps): {
 } {
     return {
         async resolve(providerId, scopes = []): Promise<IdentityResolution> {
+            if (deps.unavailableReason) {
+                return { kind: 'unavailable', provider: providerId, reason: deps.unavailableReason }
+            }
             const provider = deps.registry.get(providerId)
             if (!provider) {
                 return { kind: 'unavailable', provider: providerId, reason: 'unknown_provider' }

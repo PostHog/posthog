@@ -14,6 +14,7 @@ import {
     createToolIdentity,
     HttpClient,
     type IdentityProviderConfig,
+    MapIdentityProviderRegistry,
     PgIdentityCredentialStore,
     PgIdentityLinkStateStore,
     type ToolContext,
@@ -133,6 +134,33 @@ maybeDescribe('@posthog/identity-fetch × dogs (real PG + HTTP)', () => {
         } finally {
             await dog.close()
         }
+    })
+
+    it('fails closed in a shared participant session (T1)', async () => {
+        // No DB/IdP needed: the shared-session guard short-circuits resolve.
+        const identity = createToolIdentity({
+            registry: new MapIdentityProviderRegistry([]),
+            agentUserId: 'owner',
+            teamId: 1,
+            applicationId: randomUUID(),
+            redirectUriFor: (p) => `http://callback.test/${p}`,
+            unavailableReason: 'shared_session_unsupported',
+        })
+        const ctx: ToolContext = {
+            teamId: 1,
+            applicationId: randomUUID(),
+            sessionId: randomUUID(),
+            integrations: {},
+            secret: () => undefined,
+            secretAllowedHosts: () => undefined,
+            log: () => undefined,
+            identity,
+            http: new HttpClient({}),
+            posthogApiBaseUrl: '',
+        }
+        await expect(
+            getNativeTool('@posthog/identity-fetch').run({ provider: 'dogs', url: 'http://x/api' }, ctx)
+        ).rejects.toThrow('shared_session_unsupported')
     })
 
     it('refuses to send the bearer to a host outside the provider', async () => {

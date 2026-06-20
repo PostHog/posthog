@@ -78,7 +78,6 @@ import {
     SessionEventBus,
     SessionEventKind,
     SessionInputsStore,
-    SessionPrincipal,
     SLACK_BOT_TOKEN_KEY,
     SlackStatusReporter,
     slackTextFromContent,
@@ -92,7 +91,7 @@ import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResul
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
 import { lookupMcpToolApproval } from './mcp-tool-lookup'
-import { findLastUserSender, type IsAskerInApproverScope } from './per-asker-auth'
+import type { IsAskerInApproverScope } from './per-asker-auth'
 import { providerSafeName } from './provider-safe-names'
 
 export interface RunSessionDeps {
@@ -415,9 +414,11 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // the function exits through. Intentionally left at +0 indent to
     // keep the diff small; the contents are unchanged.
     try {
-        // Per-asker identity resolver. Author = the live asker for this run
-        // (last user-turn sender), so a resolved credential is always "act as
-        // THIS asker", never the session owner's.
+        // Identity resolution keys off the session OWNER (the authenticated
+        // principal), not whoever spoke last — a credential is never resolved
+        // for the wrong person. In a shared participant thread (any trusted user
+        // can post) owner != asker, so identity-gated tools fail closed there
+        // rather than act as the owner on a participant's behalf (T1).
         let identity: ToolContext['identity']
         if (deps.identityCredentials && deps.identityLinks && rev.spec.identity_providers.length > 0) {
             const registry = buildIdentityRegistry(rev.spec.identity_providers, {
@@ -427,8 +428,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 secret: (name) => deps.secrets[name],
                 posthogProviderFactory: deps.posthogIdentityProviderFactory,
             })
-            const asker: SessionPrincipal | null = findLastUserSender(session.conversation) ?? session.principal
-            const agentUserId = await agentUserIdForPrincipal(asker, {
+            const slackTrigger = rev.spec.triggers.find((t) => t.type === 'slack')
+            const sharedSession = slackTrigger?.type === 'slack' && slackTrigger.config.allow_workspace_participants
+            const agentUserId = await agentUserIdForPrincipal(session.principal, {
                 identities: deps.identities,
                 applicationId: rev.application_id,
                 teamId: session.team_id,
@@ -440,6 +442,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 teamId: session.team_id,
                 applicationId: rev.application_id,
                 redirectUriFor: (p) => `${base}/link/${p}/callback`,
+                unavailableReason: sharedSession ? 'shared_session_unsupported' : undefined,
             })
         }
         const toolDeps: AgentToolDeps = {
