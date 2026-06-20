@@ -3,9 +3,11 @@
 End-to-end demo of agent identity linking against a LOCAL stack.
 
 Creates + deploys an agent that needs a `dogs` OAuth credential, then drives the
-whole flow with a signed JWT principal (no browser needed): chat → auth_required
-link → OAuth authorize → ingress callback → chat again → the agent calls the dog
-API as the linked user.
+whole flow (no browser needed): chat → auth_required link → OAuth authorize →
+ingress callback → chat again → the agent calls the dog API as the linked user.
+
+Set CHAT_AUTH=jwt (default, signs a JWT principal) or CHAT_AUTH=posthog (drives
+the chat as your PostHog user via the PAT) — both are verified the same way.
 
 Prereqs (all local):
   1. hogli running the agent stack (ingress :3030, runner) WITH this branch's code
@@ -86,7 +88,7 @@ def main() -> None:
         die("Set POSTHOG_PAT to a local personal API key.")
 
     spec = {
-        "model": "claude-sonnet-4-5",
+        "model": "anthropic/claude-sonnet-4-6",
         "triggers": [
             {
                 "type": "chat",
@@ -129,7 +131,7 @@ def main() -> None:
     print(f"  app {app['id']}  slug={slug}")
 
     step("Create draft revision")
-    st, rev = req("POST", f"{API}/agent_applications/{slug}/revisions/", {"spec": {}}, PAT)
+    st, rev = req("POST", f"{API}/agent_applications/{slug}/revisions/", {"spec": spec}, PAT)
     if st not in (200, 201):
         die(f"create revision failed ({st}): {rev}")
     rev_id = rev["id"]
@@ -139,15 +141,10 @@ def main() -> None:
         "POST", f"{API}/agent_applications/{slug}/revisions/{rev_id}/set_env/", {"env": {"JWT_SECRET": JWT_SECRET}}, PAT
     )
 
-    step("Upload bundle (agent.md + spec with dogs identity provider)")
-    st, b = req(
-        "PUT",
-        f"{API}/agent_applications/{slug}/revisions/{rev_id}/bundle/",
-        {"agent_md": agent_md, "spec": spec, "skills": [], "tools": []},
-        PAT,
-    )
+    step("Write agent.md (spec already set at revision create)")
+    st, b = req("PUT", f"{API}/agent_applications/{slug}/revisions/{rev_id}/agent_md/", {"content": agent_md}, PAT)
     if st not in (200, 201):
-        die(f"bundle failed ({st}): {b}")
+        die(f"agent_md failed ({st}): {b}")
 
     step("Freeze + validate + promote")
     req("POST", f"{API}/agent_applications/{slug}/revisions/{rev_id}/freeze/", {}, PAT)
@@ -159,8 +156,11 @@ def main() -> None:
         die(f"promote failed ({st}): {p}")
     print(f"  live: {slug}")
 
-    # ---- Drive the chat as a JWT principal (no browser) ----
+    # ---- Drive the chat (no browser). CHAT_AUTH=jwt (default) or posthog. ----
     jwt = sign_jwt("demo-user-jwt")
+    chat_auth = os.environ.get("CHAT_AUTH", "jwt")
+    chat_bearer = PAT if chat_auth == "posthog" else jwt
+    print(f"  principal: {chat_auth}")
 
     def poll_tool_result(session_id: str, want: str, tries: int = 40) -> dict | None:
         for _ in range(tries):
@@ -179,8 +179,8 @@ def main() -> None:
             time.sleep(0.5)
         return None
 
-    step("Chat /run (JWT principal): ask about dogs")
-    st, run = req("POST", f"{INGRESS}/agents/{slug}/run", {"message": "what dogs do I have?"}, jwt)
+    step(f"Chat /run ({chat_auth} principal): ask about dogs")
+    st, run = req("POST", f"{INGRESS}/agents/{slug}/run", {"message": "what dogs do I have?"}, chat_bearer)
     if st != 200:
         die(f"/run failed ({st}): {run}")
     session_id = run["session_id"]
@@ -206,7 +206,9 @@ def main() -> None:
         die("OAuth callback did not succeed")
 
     step("Chat /send: ask again, now linked")
-    st, _ = req("POST", f"{INGRESS}/agents/{slug}/send", {"session_id": session_id, "message": "now try again"}, jwt)
+    st, _ = req(
+        "POST", f"{INGRESS}/agents/{slug}/send", {"session_id": session_id, "message": "now try again"}, chat_bearer
+    )
     ok = poll_tool_result(session_id, '"status":200') or poll_tool_result(session_id, "breed")
     if not ok:
         die("no successful dog API call after linking")
