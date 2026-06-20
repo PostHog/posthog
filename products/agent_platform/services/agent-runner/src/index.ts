@@ -39,6 +39,8 @@ import {
     NoopAnalyticsSink,
     PgApprovalStore,
     PgCredentialBroker,
+    PgIdentityCredentialStore,
+    PgIdentityLinkStateStore,
     PgIdentityStore,
     PgIntegrationStore,
     PgRevisionStore,
@@ -334,6 +336,12 @@ async function main(): Promise<void> {
         memoryStore,
         tabularStore,
         isAskerInApproverScope,
+        // Per-principal identity linking (spec.identity_providers): reuse the
+        // same agent DB + encryption the credential broker uses.
+        identityCredentials: new PgIdentityCredentialStore(agentDb, { encryptionSaltKeys: config.encryptionSaltKeys }),
+        identityLinks: new PgIdentityLinkStateStore(agentDb),
+        identities,
+        linkRedirectBaseUrl: config.linkRedirectBaseUrl,
         devMcpBearerToken: config.devMcpBearerToken,
         // Per-integration-kind host allowlist. Without this, any external MCP
         // ref with `auth.integration` fails closed at open with

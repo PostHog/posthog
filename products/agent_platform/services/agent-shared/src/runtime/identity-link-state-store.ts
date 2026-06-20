@@ -38,6 +38,9 @@ export interface CreateLinkStateInput {
 export interface IdentityLinkStateStore {
     /** Create a state row; returns its id (the OAuth `state` param). */
     create(input: CreateLinkStateInput): Promise<string>
+    /** Read (without consuming) which app + provider a state belongs to — lets a
+     *  callback rebuild the right provider before `consume`. Null if gone/used/expired. */
+    peek(id: string): Promise<{ applicationId: string; provider: string } | null>
     /** Atomically consume by id: returns the row exactly once, then never again. */
     consume(id: string): Promise<LinkState | null>
     /** Janitor sweep of expired/used rows. Returns count removed. */
@@ -45,6 +48,10 @@ export interface IdentityLinkStateStore {
 }
 
 const DEFAULT_LINK_STATE_TTL_MS = 10 * 60 * 1000
+
+// The `id` column is uuid — a malformed `state` from a tampered/garbage callback
+// would otherwise make Postgres throw on the cast. Treat non-uuid as "no row".
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 interface StateRow {
     id: string
@@ -83,7 +90,25 @@ export class PgIdentityLinkStateStore implements IdentityLinkStateStore {
         return id
     }
 
+    async peek(id: string): Promise<{ applicationId: string; provider: string } | null> {
+        if (!UUID_RE.test(id)) {
+            return null
+        }
+        const r = await this.pool.query<{ application_id: string; provider: string }>(
+            `SELECT application_id, provider FROM agent_identity_link_state
+              WHERE id = $1 AND used_at IS NULL AND expires_at > NOW()`,
+            [id]
+        )
+        if (r.rowCount === 0) {
+            return null
+        }
+        return { applicationId: r.rows[0].application_id, provider: r.rows[0].provider }
+    }
+
     async consume(id: string): Promise<LinkState | null> {
+        if (!UUID_RE.test(id)) {
+            return null
+        }
         // Single-use + unexpired in one atomic statement: the partial WHERE
         // guarantees a given row is returned by exactly one caller. A replayed
         // callback (same state id) finds used_at already set → no row.

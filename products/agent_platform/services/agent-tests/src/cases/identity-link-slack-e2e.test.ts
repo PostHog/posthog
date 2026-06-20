@@ -14,17 +14,11 @@
  */
 
 import { createHmac } from 'node:crypto'
+import request from 'supertest'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { type AuthProvider, jwtVerifier } from '@posthog/agent-ingress'
-import {
-    EncryptedEnvSecretResolver,
-    EncryptedFields,
-    HttpClient,
-    Oauth2AuthProvider,
-    PgIdentityCredentialStore,
-    PgIdentityLinkStateStore,
-} from '@posthog/agent-shared'
+import { EncryptedEnvSecretResolver, EncryptedFields, HttpClient } from '@posthog/agent-shared'
 
 import { buildCluster, Cluster, fauxCallTool, fauxText } from '../harness'
 import { DogServer, startDogServer } from '../harness/dog-oauth-server'
@@ -134,28 +128,17 @@ maybeDescribe('identity linking e2e (Slack + JWT, mocked inference)', () => {
         },
     ]
 
-    // Complete the OAuth link the way the Django callback will: browser hits
-    // /authorize → code+state → provider.complete exchanges + persists. Same
-    // pool/tables the running agent uses.
+    // Complete the link the real way: browser hits the IdP /authorize, which
+    // 302s to our callback; we drive that callback on the actual ingress route
+    // (GET /link/:provider/callback) — exercising peek → rebuild provider from
+    // spec+env → complete → persist, exactly as a deployed ingress does.
     const completeLink = async (authorizeUrl: string): Promise<void> => {
         const res = await fetch(authorizeUrl, { redirect: 'manual' })
         const loc = new URL(res.headers.get('location') ?? '')
-        const provider = new Oauth2AuthProvider({
-            config: {
-                id: 'dogs',
-                authorizeUrl: dog.authorizeUrl,
-                tokenUrl: dog.tokenUrl,
-                clientId: 'dogs-client',
-                scopes: ['read:dog'],
-            },
-            links: new PgIdentityLinkStateStore(c.pool),
-            credentials: new PgIdentityCredentialStore(c.pool, { encryptionSaltKeys: KEY }),
-            http: new HttpClient(),
-        })
-        await provider.complete({
-            stateId: loc.searchParams.get('state') ?? '',
-            query: { code: loc.searchParams.get('code') ?? '' },
-        })
+        await request(c.ingress)
+            .get(loc.pathname)
+            .query({ state: loc.searchParams.get('state') ?? '', code: loc.searchParams.get('code') ?? '' })
+            .expect(200)
     }
 
     it('Slack user: gated → link → authed dog API call', async () => {
@@ -238,7 +221,6 @@ maybeDescribe('identity linking e2e (Slack + JWT, mocked inference)', () => {
             encrypted_env: { JWT_SECRET: 'jwt-issuer-secret' },
         })
 
-        const request = (await import('supertest')).default
         const jwt = signJwt('jwt-issuer-secret', { sub: 'alice-jwt' })
         const auth = `Bearer ${jwt}`
         c.setScript([

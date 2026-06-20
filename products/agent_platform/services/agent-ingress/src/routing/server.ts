@@ -7,8 +7,20 @@
 import express, { Express, Request, Response } from 'express'
 import { z } from 'zod'
 
-import type { IdentityStore, SecretResolver } from '@posthog/agent-shared'
-import { createLogger, RevisionStore, SessionQueue, triggerAuthConfig } from '@posthog/agent-shared'
+import type {
+    EncryptedFields,
+    IdentityCredentialStore,
+    IdentityLinkStateStore,
+    IdentityStore,
+    SecretResolver,
+} from '@posthog/agent-shared'
+import {
+    buildIdentityRegistry,
+    createLogger,
+    RevisionStore,
+    SessionQueue,
+    triggerAuthConfig,
+} from '@posthog/agent-shared'
 
 const log = createLogger('ingress')
 
@@ -110,6 +122,22 @@ export interface BuildAppOpts {
      * prod. Optional — falls back to a direct HttpClient in tests.
      */
     http?: import('@posthog/agent-shared').HttpFetcher
+    /**
+     * Identity-linking stores + env decryptor. When all three are wired, the
+     * ingress serves `GET /link/:provider/callback`: it consumes the OAuth
+     * link-state row, rebuilds the provider from the app's spec + decrypted
+     * encrypted_env, and persists the credential. Optional — omitted in tests
+     * that don't exercise the callback.
+     */
+    identityCredentials?: IdentityCredentialStore
+    identityLinks?: IdentityLinkStateStore
+    envEncryption?: EncryptedFields
+}
+
+/** Minimal self-contained HTML for the OAuth callback result page. */
+function linkResultPage(message: string): string {
+    const safe = message.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c] ?? c)
+    return `<!doctype html><meta charset="utf-8"><title>PostHog agent linking</title><body style="font-family:system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#111"><h2>PostHog agent</h2><p style="font-size:1.05rem">${safe}</p></body>`
 }
 
 export function buildApp(opts: BuildAppOpts): Express {
@@ -146,6 +174,71 @@ export function buildApp(opts: BuildAppOpts): Express {
     app.get('/healthz', (_req, res) => {
         res.json({ ok: true })
     })
+
+    // OAuth identity-linking callback. The provider's `initiate` (run inside a
+    // tool's `ctx.identity.resolve`) pointed the IdP redirect here. We peek the
+    // single-use state to find the app, rebuild the provider from its spec +
+    // decrypted env, then `complete` (which consumes the state, exchanges the
+    // code, and persists the linked credential). Root-level — not under
+    // /agents/:slug — so the redirect URI is stable across routing modes.
+    app.get(
+        '/link/:provider/callback',
+        asyncHandler(async (req: Request, res: Response) => {
+            const { identityLinks, identityCredentials, envEncryption, http } = opts
+            if (!identityLinks || !identityCredentials || !envEncryption || !http) {
+                res.status(500).send(linkResultPage('Identity linking is not configured on this ingress.'))
+                return
+            }
+            const providerId = req.params.provider
+            const stateId = typeof req.query.state === 'string' ? req.query.state : ''
+            const code = typeof req.query.code === 'string' ? req.query.code : undefined
+            const errorParam = typeof req.query.error === 'string' ? req.query.error : undefined
+            if (errorParam) {
+                res.status(400).send(linkResultPage(`Authorization was denied (${errorParam}).`))
+                return
+            }
+            const peeked = await identityLinks.peek(stateId)
+            if (!peeked || peeked.provider !== providerId) {
+                res.status(400).send(
+                    linkResultPage('This link has expired or was already used — ask the agent for a fresh one.')
+                )
+                return
+            }
+            const application = await opts.revisions.getApplication(peeked.applicationId)
+            const revision = application?.live_revision_id
+                ? await opts.revisions.getRevision(application.live_revision_id)
+                : null
+            if (!revision) {
+                res.status(404).send(linkResultPage('The agent for this link is no longer available.'))
+                return
+            }
+            const env = envEncryption.decryptJsonEnv(revision.encrypted_env)
+            const registry = buildIdentityRegistry(revision.spec.identity_providers, {
+                links: identityLinks,
+                credentials: identityCredentials,
+                http,
+                secret: (name) => env[name],
+            })
+            const provider = registry.get(providerId)
+            if (!provider) {
+                res.status(400).send(linkResultPage(`Unknown provider "${providerId}".`))
+                return
+            }
+            try {
+                await provider.complete({ stateId, query: { code, error: errorParam } })
+            } catch (err) {
+                log.warn(
+                    { provider: providerId, err: err instanceof Error ? err.message : String(err) },
+                    'identity_link_callback_failed'
+                )
+                res.status(400).send(linkResultPage('Linking failed — please try again from the chat.'))
+                return
+            }
+            res.status(200).send(
+                linkResultPage(`Connected ${providerId}. You can close this tab and return to your chat.`)
+            )
+        })
+    )
 
     const authProvider = opts.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
     // Superset of every trigger's deps — each module's router picks what it

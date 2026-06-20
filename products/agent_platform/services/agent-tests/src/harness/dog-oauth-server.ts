@@ -22,6 +22,8 @@ export interface DogServerOptions {
     tokenTtlSeconds?: number
     /** Email returned by /userinfo. Default dog@posthog.com. */
     userEmail?: string
+    /** Fixed listen port (for a standalone dev server). Default 0 (random, for tests). */
+    port?: number
 }
 
 interface CodeRecord {
@@ -174,7 +176,7 @@ export async function startDogServer(opts: DogServerOptions = {}): Promise<DogSe
         send(404, { error: 'not_found' })
     })
 
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    await new Promise<void>((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', resolve))
     const port = (server.address() as AddressInfo).port
     const baseUrl = `http://127.0.0.1:${port}`
 

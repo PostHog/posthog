@@ -21,6 +21,8 @@ import {
     HttpClient,
     installProcessHandlers,
     PgCredentialBroker,
+    PgIdentityCredentialStore,
+    PgIdentityLinkStateStore,
     PgIdentityStore,
     PgRevisionStore,
     PgSessionQueue,
@@ -122,6 +124,11 @@ async function main(): Promise<void> {
         internalSigningKey: config.internalSigningKey,
         authProvider,
         credentialBroker,
+        // Identity linking: the OAuth callback route consumes a link-state row,
+        // rebuilds the provider from the app's spec + decrypted env, and persists.
+        identityCredentials: new PgIdentityCredentialStore(agentDb, { encryptionSaltKeys: config.encryptionSaltKeys }),
+        identityLinks: new PgIdentityLinkStateStore(agentDb),
+        envEncryption: encryption,
         http,
     })
     app.listen(config.port, () => {
