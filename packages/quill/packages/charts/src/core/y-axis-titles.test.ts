@@ -24,6 +24,7 @@ describe('resolveYAxisTitles', () => {
             { right: 'Conversion' },
         ],
         ['the list over the scalar fallback', [{ id: 'left', position: 'left' }], 'Scalar', {}],
+        ['no title for a whitespace-only label', [{ id: 'left', position: 'left', label: '   ' }], undefined, {}],
         [
             'three labeled axes',
             [

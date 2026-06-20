@@ -2,8 +2,9 @@ import React from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import { Y_AXIS_TITLE_MARGIN } from '../core/hooks/useChartMargins'
+import { TICK_GAP } from '../core/y-axis-gutters'
 import { normalizeAxisLabel } from '../utils/axis-labels'
-import { AXIS_LABEL_FONT, measureLabelWidth } from '../utils/text-measure'
+import { AXIS_LABEL_FONT, truncateToWidth } from '../utils/text-measure'
 
 export interface AxisTitlesProps {
     xAxisLabel?: string
@@ -35,41 +36,9 @@ const SVG_STYLE: React.CSSProperties = {
 
 const X_AXIS_TITLE_BASELINE_OFFSET = 6
 const Y_AXIS_TITLE_X = 12
-// Matches AxisLabels' tick gutter gap — the title clears the tick labels by the same amount.
-const TICK_GAP = 8
 const TITLE_EDGE_PADDING = 8
-const ELLIPSIS = '…'
 
-function measureAxisTitleWidth(label: string): number {
-    const measured = measureLabelWidth(label, AXIS_TITLE_FONT)
-    const fallback = label.length * 7
-    return measured > 0 ? measured : fallback
-}
-
-function truncateAxisTitle(label: string, maxWidth: number): string {
-    if (maxWidth <= 0 || measureAxisTitleWidth(label) <= maxWidth) {
-        return label
-    }
-
-    const ellipsisWidth = measureAxisTitleWidth(ELLIPSIS)
-    if (ellipsisWidth >= maxWidth) {
-        return ELLIPSIS
-    }
-
-    let low = 0
-    let high = label.length
-    while (low < high) {
-        const mid = Math.ceil((low + high) / 2)
-        const candidate = `${label.slice(0, mid).trimEnd()}${ELLIPSIS}`
-        if (measureAxisTitleWidth(candidate) <= maxWidth) {
-            low = mid
-        } else {
-            high = mid - 1
-        }
-    }
-
-    return `${label.slice(0, low).trimEnd()}${ELLIPSIS}`
-}
+const truncateAxisTitle = (label: string, maxWidth: number): string => truncateToWidth(label, maxWidth, AXIS_TITLE_FONT)
 
 interface YTitle {
     key: string
@@ -98,7 +67,13 @@ export function AxisTitles({
     if (orientation === 'horizontal') {
         const fullYAxisLabel = normalizeAxisLabel(yAxisLabel)
         if (!hideYAxis && fullYAxisLabel) {
-            yTitles.push({ key: 'y-cat', x: Y_AXIS_TITLE_X, rotation: -90, dataAttr: 'hog-chart-axis-title-y', label: fullYAxisLabel })
+            yTitles.push({
+                key: 'y-cat',
+                x: Y_AXIS_TITLE_X,
+                rotation: -90,
+                dataAttr: 'hog-chart-axis-title-y',
+                label: fullYAxisLabel,
+            })
         }
     } else {
         for (const { key, side, offset, width, title } of yGutters) {
@@ -108,9 +83,11 @@ export function AxisTitles({
             // Sit in the title band just outside this gutter's tick labels (which end at
             // `TICK_GAP + offset + width` from the plot edge), centered in the band.
             const outward = TICK_GAP + offset + width + Y_AXIS_TITLE_MARGIN / 2
+            const x =
+                side === 'left' ? dimensions.plotLeft - outward : dimensions.plotLeft + dimensions.plotWidth + outward
             yTitles.push({
                 key,
-                x: side === 'left' ? dimensions.plotLeft - outward : dimensions.plotLeft + dimensions.plotWidth + outward,
+                x,
                 rotation: side === 'left' ? -90 : 90,
                 dataAttr: side === 'left' ? 'hog-chart-axis-title-y' : 'hog-chart-axis-title-yr',
                 label: title,

@@ -37,6 +37,10 @@ export interface YAxisGutterOptions {
     titles?: Record<string, string>
 }
 
+/** Gap between the plot edge and a gutter's tick labels (and between a gutter and its title).
+ *  Shared by `AxisLabels` (tick placement) and `AxisTitles` (title placement). */
+export const TICK_GAP = 8
+
 function widestTickWidth(ticks: number[], formatter: (value: number) => string): number {
     return ticks.reduce((widest, tick) => Math.max(widest, measureLabelWidth(formatter(tick))), 0)
 }
@@ -75,7 +79,17 @@ export function computeYAxisGutters(
         const offset = axis.position === 'left' ? leftCum : rightCum
         const width = widestTickWidth(ticks, formatter)
         const title = titles?.[axisId]
-        gutters.push({ axisId, key: `y-${axisId}`, side: axis.position, offset, width, title, ticks, scale: axis.scale, formatter })
+        gutters.push({
+            axisId,
+            key: `y-${axisId}`,
+            side: axis.position,
+            offset,
+            width,
+            title,
+            ticks,
+            scale: axis.scale,
+            formatter,
+        })
         const step = width + GUTTER_GAP + (title ? Y_AXIS_TITLE_MARGIN : 0)
         if (axis.position === 'left') {
             leftCum += step

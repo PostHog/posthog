@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
+import { TICK_GAP } from '../core/y-axis-gutters'
 import { AXIS_LABEL_FONT, getTextMeasureCtx, truncateToWidth } from '../utils/text-measure'
 
 interface AxisLabelsProps {
@@ -126,8 +127,6 @@ const TICK_STYLE_BASE: React.CSSProperties = {
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
 }
-
-const TICK_GAP = 8
 
 interface ChartBox {
     width: number

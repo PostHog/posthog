@@ -115,13 +115,14 @@ export function useChartMargins({
         return axisIds.size > 1
     }, [series])
 
-    // One rotated-title band per titled axis, on that axis's side. Single-axis charts title only the
-    // default (left) axis; multi-axis charts reserve a band for each titled axis on each side.
+    // One rotated-title band per titled axis, on that axis's side. Charts with a single value axis —
+    // and horizontal charts, whose left axis is the category axis — title only the default (left)
+    // axis; multi-axis vertical charts reserve a band for each titled axis on each side.
     const titleReserve = useMemo<{ left: number; right: number }>(() => {
-        if (hideYAxis || isHorizontal || !yAxisTitles) {
+        if (hideYAxis || !yAxisTitles) {
             return { left: 0, right: 0 }
         }
-        if (!hasMultipleAxes) {
+        if (isHorizontal || !hasMultipleAxes) {
             return { left: yAxisTitles[DEFAULT_Y_AXIS_ID] ? Y_AXIS_TITLE_MARGIN : 0, right: 0 }
         }
         let left = 0

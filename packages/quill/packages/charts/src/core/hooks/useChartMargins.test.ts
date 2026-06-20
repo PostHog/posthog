@@ -64,6 +64,12 @@ describe('useChartMargins', () => {
         expect(render({ yAxisTitles: {} }).left).toBe(render().left)
     })
 
+    it('reserves the left title band for a horizontal chart category-axis title', () => {
+        const withoutTitle = render({ axisOrientation: 'horizontal' })
+        const withTitle = render({ axisOrientation: 'horizontal', yAxisTitles: { left: 'Series' } })
+        expect(withTitle.left).toBeGreaterThan(withoutTitle.left)
+    })
+
     it('reserves a title band per titled axis stacked on the same side', () => {
         const threeAxis: Series[] = [
             { key: 'a', label: 'A', data: [1, 2, 3] },

@@ -236,8 +236,8 @@ describe('TimeSeriesLineChart', () => {
                     }}
                 />
             )
-            const titleText = (selector: string): string[] =>
-                Array.from(container.querySelectorAll<SVGTextElement>(selector)).map((el) => el.textContent ?? '')
+            const titleText = (selector: string): (string | null)[] =>
+                Array.from(container.querySelectorAll<SVGTextElement>(selector)).map((el) => el.textContent)
             expect(titleText('[data-attr="hog-chart-axis-title-y"]')).toEqual(['Revenue'])
             expect(titleText('[data-attr="hog-chart-axis-title-yr"]')).toEqual(['Signups', 'Conversion'])
         })
