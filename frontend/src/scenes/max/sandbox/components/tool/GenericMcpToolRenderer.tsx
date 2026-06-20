@@ -1,10 +1,11 @@
+import clsx from 'clsx'
 import { memo } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
 import type { SandboxToolRendererProps } from '../../sandboxToolRegistry'
 import { SandboxToolActivity } from './SandboxToolActivity'
-import { compactInput, getContentText, stripCodeFences } from './toolContentUtils'
+import { compactInput, formatInput, getContentText, stripCodeFences } from './toolContentUtils'
 import { ToolOutput } from './ToolOutput'
 
 /**
@@ -38,13 +39,27 @@ export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(
         message.title || displayName || toolLabel
     )
 
+    // Subagent / MCP / unmapped tools show both the full input and the text output in the body.
+    const formattedInput = hasInput ? formatInput(inputForPreview) : ''
+    const body =
+        formattedInput || output ? (
+            <div className="flex flex-col gap-2 min-w-0">
+                {formattedInput && <ToolOutput>{formattedInput}</ToolOutput>}
+                {output && (
+                    <div className={clsx('min-w-0', formattedInput && 'border-t border-border-secondary pt-2')}>
+                        <ToolOutput>{output}</ToolOutput>
+                    </div>
+                )}
+            </div>
+        ) : undefined
+
     return (
         <SandboxToolActivity
             message={message}
             icon={icon ?? <IconWrench />}
             title={title}
             subtitle={preview ? <span className="font-mono text-link">{preview}</span> : undefined}
-            body={output ? <ToolOutput>{output}</ToolOutput> : undefined}
+            body={body}
             turnComplete={turnComplete}
             turnCancelled={turnCancelled}
         />

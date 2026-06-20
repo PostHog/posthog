@@ -2,6 +2,7 @@ import {
     compactInput,
     findResourceLink,
     formatInput,
+    getCommandOutput,
     getContentImage,
     getContentText,
     getFilename,
@@ -61,6 +62,30 @@ describe('toolContentUtils', () => {
             expect(
                 getContentText([{ type: 'content', content: { type: 'image', data: 'x', mimeType: 'image/png' } }])
             ).toBe('')
+        })
+    })
+
+    describe('getCommandOutput', () => {
+        it('drops a leading content block that echoes the command', () => {
+            const content = [
+                { type: 'text', text: 'ls -la' },
+                { type: 'text', text: 'total 8\nfile.ts' },
+            ]
+            expect(getCommandOutput(content, 'ls -la', undefined)).toBe('total 8\nfile.ts')
+        })
+
+        it('strips a "command\\noutput" prefix from a single block', () => {
+            expect(getCommandOutput([{ type: 'text', text: 'pwd\n/home/user' }], 'pwd', undefined)).toBe('/home/user')
+        })
+
+        it('returns plain output unchanged when it does not echo the command', () => {
+            expect(getCommandOutput([{ type: 'text', text: 'build succeeded' }], 'pnpm build', undefined)).toBe(
+                'build succeeded'
+            )
+        })
+
+        it('falls back to a string rawOutput when the command produced no content', () => {
+            expect(getCommandOutput([{ type: 'text', text: 'echo hi' }], 'echo hi', 'hi')).toBe('hi')
         })
     })
 

@@ -3,7 +3,6 @@ import { memo } from 'react'
 import { IconDocument, IconGlobe, IconSearch, IconTerminal } from '@posthog/icons'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
-import { Link } from 'lib/lemon-ui/Link'
 
 import { languageFromPath } from '../../../toolDiffContent'
 import type { SandboxToolRendererProps } from '../../sandboxToolRegistry'
@@ -12,6 +11,7 @@ import { SandboxFilePath } from './SandboxFilePath'
 import { SandboxToolActivity } from './SandboxToolActivity'
 import {
     MAX_URL_LENGTH,
+    getCommandOutput,
     getContentImage,
     getContentText,
     getFilename,
@@ -37,7 +37,7 @@ const BashToolRenderer = memo(function BashToolRenderer(props: SandboxToolRender
     const { message, icon, turnComplete, turnCancelled } = props
     const command = asString(message.rawInput.command)
     const description = asString(message.rawInput.description)
-    const output = stripAnsi(stripCodeFences(getContentText(message.content)))
+    const output = stripAnsi(stripCodeFences(getCommandOutput(message.content, command, message.rawOutput)))
 
     return (
         <SandboxToolActivity
@@ -128,24 +128,21 @@ const FetchToolRenderer = memo(function FetchToolRenderer(props: SandboxToolRend
     const query = asString(message.rawInput.query)
     const output = stripCodeFences(getContentText(message.content))
     const isSearch = !url && !!query
-
-    let subtitle: JSX.Element | undefined
-    if (url) {
-        subtitle = (
-            <Link to={url} target="_blank" title={url} className="font-mono">
-                {truncateText(url, MAX_URL_LENGTH)}
-            </Link>
-        )
-    } else if (query) {
-        subtitle = <span className="font-mono">{truncateText(query, MAX_URL_LENGTH)}</span>
-    }
+    // Render the URL as plain mono text — not a highlighted, openable link.
+    const target = url || query
 
     return (
         <SandboxToolActivity
             message={message}
             icon={icon ?? <IconGlobe />}
             title={message.title || (isSearch ? 'Web search' : 'Fetched')}
-            subtitle={subtitle}
+            subtitle={
+                target ? (
+                    <span className="font-mono" title={target}>
+                        {truncateText(target, MAX_URL_LENGTH)}
+                    </span>
+                ) : undefined
+            }
             body={output ? <ToolOutput>{output}</ToolOutput> : undefined}
             turnComplete={turnComplete}
             turnCancelled={turnCancelled}

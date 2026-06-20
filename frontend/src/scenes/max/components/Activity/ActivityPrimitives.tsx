@@ -104,6 +104,21 @@ export function ActivityHeader({
     const isInProgress = status === 'in_progress'
     const isFailed = status === 'failed'
 
+    const titleNode =
+        isInProgress && animate ? (
+            <ShimmeringContent>{title}</ShimmeringContent>
+        ) : (
+            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
+        )
+    const statusIcon = (
+        <ActivityStatusIcon
+            status={status}
+            showCompletionIcon={showCompletionIcon}
+            showProgressIcon={showProgressIcon}
+            failedIcon={failedIcon}
+        />
+    )
+
     return (
         <div
             className={clsx(
@@ -130,19 +145,15 @@ export function ActivityHeader({
                 <div className="min-w-0">
                     {children ? (
                         <div className="flex flex-col min-w-0">
-                            <div className="min-w-0">
-                                {isInProgress && animate ? (
-                                    <ShimmeringContent>{title}</ShimmeringContent>
-                                ) : (
-                                    <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
-                                )}
+                            {/* Status icon rides the first line with the title; the second line is the subtitle. */}
+                            <div className="flex items-center gap-1 min-w-0">
+                                <div className="min-w-0">{titleNode}</div>
+                                {statusIcon}
                             </div>
                             <div className="text-muted truncate min-w-0">{children}</div>
                         </div>
-                    ) : isInProgress && animate ? (
-                        <ShimmeringContent>{title}</ShimmeringContent>
                     ) : (
-                        <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
+                        titleNode
                     )}
                 </div>
                 {hasDetails && (
@@ -154,12 +165,7 @@ export function ActivityHeader({
                         </button>
                     </div>
                 )}
-                <ActivityStatusIcon
-                    status={status}
-                    showCompletionIcon={showCompletionIcon}
-                    showProgressIcon={showProgressIcon}
-                    failedIcon={failedIcon}
-                />
+                {!children && statusIcon}
             </div>
         </div>
     )

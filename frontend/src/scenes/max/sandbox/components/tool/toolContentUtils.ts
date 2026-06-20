@@ -45,18 +45,43 @@ function unwrapBlock(block: unknown): unknown {
     return block
 }
 
-/** Text of the first text content block (ACP-nested or flat), or '' when none carries text. */
-export function getContentText(content: unknown[]): string {
+/** Text of every text content block (ACP-nested or flat), in order. */
+export function getAllText(content: unknown[]): string[] {
+    const texts: string[] = []
     for (const block of content) {
         const inner = unwrapBlock(block)
         if (inner && typeof inner === 'object' && (inner as { type?: unknown }).type === 'text') {
             const text = (inner as { text?: unknown }).text
             if (typeof text === 'string') {
-                return text
+                texts.push(text)
             }
         }
     }
-    return ''
+    return texts
+}
+
+/** Text of the first text content block (ACP-nested or flat), or '' when none carries text. */
+export function getContentText(content: unknown[]): string {
+    return getAllText(content)[0] ?? ''
+}
+
+/**
+ * Output of a Bash-style command. The agent prepends the executed command as its own content block
+ * (or a `command\n…` prefix), so drop a leading line that echoes the command — leaving just stdout.
+ * Falls back to a string `rawOutput` when the command produced no content blocks.
+ */
+export function getCommandOutput(content: unknown[], command: string, rawOutput: unknown): string {
+    const blocks = getAllText(content)
+    const cmd = command.trim()
+    const trimmed = cmd && blocks[0]?.trim() === cmd ? blocks.slice(1) : blocks
+    let output = trimmed.join('\n')
+    if (cmd && output.trimStart().startsWith(cmd)) {
+        output = output.trimStart().slice(cmd.length).replace(/^\n+/, '')
+    }
+    if (!output.trim() && typeof rawOutput === 'string') {
+        output = rawOutput
+    }
+    return output
 }
 
 export interface ToolImageContent {
