@@ -872,6 +872,22 @@ snapshots:
         hash: v1.k794b7964.ab7297b86717669855b13de588050fe35027bbcd65350577ad49ab295ef7fde7.thV0LEZMDjM7qJrVZBSc1lRxSt63HSraPkRTuj6Invg
     components-hogcharts-timeseriesbarchart--y-axis-formats--light:
         hash: v1.k794b7964.5e57ae6566dc5688ca61fe8c77486391bca3d5e604cd16a52c6a4ceeda09967f.Dq7WVOiz4R9g8BlgBTrQqZ-s-wTr5u8_Qicu2UIQV1o
+    components-hogcharts-timeseriescombochart--basic--dark:
+        hash: v1.k794b7964.bfc46622a3f7aad15d01c33352f6bbe5f81604f49c6f781d764a50da443fb430.GJfT0GGBUb-IjU5gVl81-NOmzPyfLzi8S7Ii0QbgsQY
+    components-hogcharts-timeseriescombochart--basic--light:
+        hash: v1.k794b7964.4a9ef4688e15f5d3d106b95b861ea433379e4b67120b2755c07fb33a8c0515bc.Pun2kpeFXrxwosSa_DuVch_nAXXL41c3-XQcbWRjcDA
+    components-hogcharts-timeseriescombochart--dual-y-axis--dark:
+        hash: v1.k794b7964.d524c1d8169ecf87a6c13279257bde4dc7e1ba8fb6e68ff8deee0b8cef455701.JXNzycaGfUBvXP2YoR_ab0eNhgFpkaA6jcAfxnF7o1s
+    components-hogcharts-timeseriescombochart--dual-y-axis--light:
+        hash: v1.k794b7964.a6e074e11dfe7b66fd8a8a204e884d2593364ae64e9cef77510d924b763590a1.5ld6CAwccGdKktrerr3euExkM4Yv54SFBZ0eFIC7HeI
+    components-hogcharts-timeseriescombochart--stacked-bars-and-line--dark:
+        hash: v1.k794b7964.40b382d43e732a29704d74187782193af1aaab0102b767c5df7aed19c1c0dec8.Hmc67OBYl_lC1tNtHwCPHdiwHZFiFoZXuUOqtnBfPpc
+    components-hogcharts-timeseriescombochart--stacked-bars-and-line--light:
+        hash: v1.k794b7964.1d7f2772f41e3e782617fa20fdc325c31dce20210655bf2838f9a2960227094f.zUfOC23Kle59QG6X3ds5ThdsLYOV2TBdcI8ZaWHBmIQ
+    components-hogcharts-timeseriescombochart--with-goal-line--dark:
+        hash: v1.k794b7964.65dfcdbb4df857bbb377c60c6cb340b109dd2e40df4f5a70b4f1cad034b3341e.BiHsoQ1fk3BPMN89txx1vCjB6dbn8I0VC8KLVfyAHIs
+    components-hogcharts-timeseriescombochart--with-goal-line--light:
+        hash: v1.k794b7964.fca72e3fb3a88aa3db97dc25e9af44c3fa689ec28e61b2c97e9757ee1b319a79.39o1MmlThMGqkfgYaV4x-2zRybCKqSOH8wtgOPS9eZE
     components-hogcharts-timeserieslinechart--basic--dark:
         hash: v1.k794b7964.c6f75d025b51b76b7554ef0f7d8e4ec930a0245583b676ae4ace4ea23d5d252a.utXBnOCarm7Pt7ZxzP4p4ngKROPHxSbh39WSgVFkSiI
     components-hogcharts-timeserieslinechart--basic--light:
