@@ -1256,6 +1256,14 @@ class TestConversationSoftDelete(APIBaseTest):
 
 
 class TestConversationSandboxRoute(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Repo auto-routing runs on every first message; mock it so these tests stay deterministic
+        # and never reach the GitHub-integration lookups. Individual tests override the return value.
+        patcher = patch("ee.api.conversation.select_repository_for_message", new=AsyncMock(return_value=None))
+        self.mock_select_repo = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _sandbox_conversation(self) -> Conversation:
         return Conversation.objects.create(
             user=self.user,
@@ -1332,6 +1340,77 @@ class TestConversationSandboxRoute(APIBaseTest):
         self.assertEqual(conversation.title, "first message please")
         passed_conversation = m_session.call_args[0][0]
         self.assertEqual(str(passed_conversation.id), str(conversation.id))
+
+    def test_open_first_message_routes_repository_into_session(self):
+        # The auto-routed repository for a first message is threaded into the session opener.
+        conversation = self._sandbox_conversation()
+        self.mock_select_repo.return_value = "posthog/posthog-js"
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "fix the SDK", "trace_id": str(uuid.uuid4())},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.mock_select_repo.assert_awaited_once()
+        self.assertEqual(m_session.return_value.open.call_args.kwargs["repository"], "posthog/posthog-js")
+
+    def test_open_warm_does_not_route_repository(self):
+        # A content-less warm has no message to route on, so selection must not run.
+        conversation = self._sandbox_conversation()
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with patch("ee.api.conversation.SandboxSession") as m_session:
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": None},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.mock_select_repo.assert_not_awaited()
+        self.assertIsNone(m_session.return_value.open.call_args.kwargs["repository"])
+
+    def test_open_followup_does_not_route_repository(self):
+        # A conversation already backed by a Task is a followup/resume — it reuses the existing
+        # repository, so selection must not run again.
+        conversation = self._sandbox_conversation()
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        conversation.task = task
+        conversation.save(update_fields=["task"])
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=False
+        )
+        with (
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "follow up", "trace_id": str(uuid.uuid4())},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.mock_select_repo.assert_not_awaited()
+        self.assertIsNone(m_session.return_value.open.call_args.kwargs["repository"])
 
     def test_open_without_content_warms(self):
         # A null/absent content warms a sandbox; the session returns a fresh warm handle (200), or

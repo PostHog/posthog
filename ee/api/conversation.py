@@ -60,6 +60,7 @@ from products.posthog_ai.backend.message_routing import SandboxSession
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.constants import INITIAL_PERMISSION_MODE_CHOICES
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.repo_selection.cascade import select_repository_for_message
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
@@ -747,6 +748,23 @@ class ConversationViewSet(
             resumed_context = None
         return True, resumed_context
 
+    def _auto_route_repository(self, request: Request, conversation: Conversation, user: User) -> str | None:
+        """Auto-select the repository a sandbox conversation's first message is about.
+
+        Runs only on a first message — no backing Task yet (`task_id is None`) and real content.
+        Followups and resumes reuse the existing Task's repository, and warming has no message to
+        route on, so neither triggers the (potentially heavy) selection. Selection never raises;
+        any failure degrades to None — a repo-less sandbox — so it can't block the conversation.
+        """
+        if conversation.task_id is not None:
+            return None
+        content = request.data.get("content")
+        if not isinstance(content, str) or not content.strip():
+            return None
+        return asgi_async_to_sync(select_repository_for_message)(
+            self.team_id, user.pk, content, origin_product=Task.OriginProduct.POSTHOG_AI
+        )
+
     def _route_sandbox_message(
         self,
         request: Request,
@@ -757,8 +775,9 @@ class ConversationViewSet(
         created: bool = False,
     ) -> Response:
         user = cast(User, request.user)
+        repository = self._auto_route_repository(request, conversation, user)
         result = SandboxSession(conversation, user).open(
-            request.data, resumed_context=resumed_context, convert_to_acp=convert_to_acp
+            request.data, resumed_context=resumed_context, convert_to_acp=convert_to_acp, repository=repository
         )
         if result is None:
             # Warm intent that provisioned nothing (pool full / released) — no run to open. Drop the

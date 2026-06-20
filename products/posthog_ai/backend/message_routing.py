@@ -111,7 +111,12 @@ class SandboxSession(BaseSandboxService):
         self.conversation = conversation
 
     def open(
-        self, data: Mapping[str, Any], *, resumed_context: str | None = None, convert_to_acp: bool = False
+        self,
+        data: Mapping[str, Any],
+        *,
+        resumed_context: str | None = None,
+        convert_to_acp: bool = False,
+        repository: str | None = None,
     ) -> SandboxRouteResult | None:
         initial_permission_mode = self._initial_permission_mode(data.get("initial_permission_mode"))
         content = data.get("content")
@@ -125,7 +130,8 @@ class SandboxSession(BaseSandboxService):
 
         if self.conversation.task_id is None:
             # `resumed_context` / `convert_to_acp` only apply to the conversion event, which is
-            # always a first message (the gate requires `task_id is None`).
+            # always a first message (the gate requires `task_id is None`). `repository` is the
+            # auto-routed repo for this first message — followups/resumes reuse the existing Task.
             return self._handle_first_message(
                 content=content,
                 trace_id=trace_id,
@@ -133,6 +139,7 @@ class SandboxSession(BaseSandboxService):
                 initial_permission_mode=initial_permission_mode,
                 resumed_context=resumed_context,
                 convert_to_acp=convert_to_acp,
+                repository=repository,
             )
 
         current_run = self.conversation.current_run
@@ -244,6 +251,7 @@ class SandboxSession(BaseSandboxService):
         initial_permission_mode: InitialPermissionMode,
         resumed_context: str | None = None,
         convert_to_acp: bool = False,
+        repository: str | None = None,
     ) -> SandboxRouteResult:
         context_service = ContextService()
         # First turn — the prior-seen set is empty, so dedupe is a no-op.
@@ -262,7 +270,7 @@ class SandboxSession(BaseSandboxService):
             description=content,
             origin_product=Task.OriginProduct.POSTHOG_AI,
             user_id=self.user.pk,
-            repository=None,
+            repository=repository,
             create_pr=False,
             mode="interactive",
             inactivity_timeout_seconds=SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
