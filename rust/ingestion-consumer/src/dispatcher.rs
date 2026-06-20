@@ -265,12 +265,12 @@ impl Dispatcher {
             *table.in_flight.entry(worker.clone()).or_insert(0) += message_count;
             counter!(
                 "ingestion_consumer_dispatcher_sub_batches_assigned_total",
-                "worker" => worker.to_string(),
+                "worker" => worker.clone(),
             )
             .increment(1);
             counter!(
                 "ingestion_consumer_dispatcher_messages_routed_total",
-                "worker" => worker.to_string(),
+                "worker" => worker.clone(),
             )
             .increment(message_count as u64);
         }
