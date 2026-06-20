@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import (
     BooleanField,
@@ -30,6 +31,7 @@ from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from opentelemetry import trace
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -43,6 +45,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -100,6 +103,14 @@ from products.tasks.backend.models import TaskRun
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
+
+# `available_reviewers` returns every eligible org member in a single unpaginated payload.
+# Org membership is tiny in practice, so even the biggest
+# org today serialises to well under 100 KB. If an org ever exceeds this threshold we want a
+# signal that it's time to add real pagination, rather than silently truncating the list (the
+# old behaviour, which capped at 100 and dropped everyone alphabetically after ~"M").
+REVIEWER_PAGINATION_THRESHOLD = 1200
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -949,36 +960,65 @@ class SignalReportViewSet(
     @extend_schema(exclude=True)
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
     def available_reviewers(self, request, **kwargs):
-        login_to_user = get_org_member_github_login_to_user_map(self.team.id) or {}
-        query = (request.query_params.get("query") or "").strip().lower()
+        with tracer.start_as_current_span("signals.available_reviewers") as span:
+            login_to_user = get_org_member_github_login_to_user_map(self.team.id) or {}
+            query = (request.query_params.get("query") or "").strip().lower()
 
-        users_by_uuid = {str(user.uuid): user for user in login_to_user.values()}
+            users_by_uuid = {str(user.uuid): user for user in login_to_user.values()}
 
-        filtered_users = [
-            (user_uuid, user)
-            for user_uuid, user in users_by_uuid.items()
-            if not query
-            or query in f"{user.first_name} {user.last_name}".strip().lower()
-            or query in (user.email or "").lower()
-        ]
+            candidate_count = len(users_by_uuid)
+            span.set_attribute("signals.available_reviewers.candidate_count", candidate_count)
 
-        reviewers = {
-            user_uuid: {
-                "name": f"{user.first_name} {user.last_name}".strip(),
-                "email": user.email or "",
+            # The full candidate list is returned unpaginated. If an org grows past the threshold,
+            # report it (non-blocking) so we know to add pagination before the payload gets large.
+            # `capture_exception` logs an exception and is not deduplicated, so we throttle to at
+            # most one report per org per day via the cache — otherwise a >threshold org would log
+            # on every popover open. (The span's candidate_count attribute is recorded every request
+            # regardless, if a metric-based alert is preferred later.)
+            if (
+                not query
+                and candidate_count > REVIEWER_PAGINATION_THRESHOLD
+                and cache.add(f"signals:available_reviewers_over_threshold:{self.team.id}", True, 60 * 60 * 24)
+            ):
+                capture_exception(
+                    Exception(
+                        f"available_reviewers exceeded pagination threshold: {candidate_count} "
+                        f"candidates > {REVIEWER_PAGINATION_THRESHOLD}; this endpoint should be paginated."
+                    ),
+                    additional_properties={
+                        "team_id": self.team.id,
+                        "candidate_count": candidate_count,
+                        "threshold": REVIEWER_PAGINATION_THRESHOLD,
+                    },
+                )
+
+            filtered_users = [
+                (user_uuid, user)
+                for user_uuid, user in users_by_uuid.items()
+                if not query
+                or query in f"{user.first_name} {user.last_name}".strip().lower()
+                or query in (user.email or "").lower()
+            ]
+
+            reviewers = {
+                user_uuid: {
+                    "name": f"{user.first_name} {user.last_name}".strip(),
+                    "email": user.email or "",
+                }
+                for user_uuid, user in sorted(
+                    filtered_users,
+                    key=lambda item: (
+                        (item[1].first_name or "").lower(),
+                        (item[1].last_name or "").lower(),
+                        (item[1].email or "").lower(),
+                        item[0],
+                    ),
+                )
             }
-            for user_uuid, user in sorted(
-                filtered_users,
-                key=lambda item: (
-                    (item[1].first_name or "").lower(),
-                    (item[1].last_name or "").lower(),
-                    (item[1].email or "").lower(),
-                    item[0],
-                ),
-            )[:100]
-        }
 
-        return Response(reviewers)
+            span.set_attribute("signals.available_reviewers.result_count", len(reviewers))
+
+            return Response(reviewers)
 
     def destroy(self, request, *args, **kwargs):
         """Soft-delete a report and its signals via the deletion workflow."""
