@@ -9,6 +9,8 @@ import {
     type DataVizFixture,
     buildDataVisualizationQuery,
     getHogChart,
+    HOVER,
+    MONTHS,
     renderDataVisualization,
     sqlChart,
 } from '~/test/insight-testing'
@@ -33,9 +35,6 @@ afterEach(() => {
     cleanupJsdom()
     cleanup()
 })
-
-const MONTHS = ['2025-10-01', '2025-11-01', '2025-12-01', '2026-01-01', '2026-02-01', '2026-03-01']
-const HOVER = 2
 
 function barFixture(columns: { name: string; valueAt: (i: number) => unknown }[]): DataVizFixture {
     return {

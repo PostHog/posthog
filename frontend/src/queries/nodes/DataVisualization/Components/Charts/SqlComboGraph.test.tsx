@@ -5,7 +5,12 @@ import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
-import { type DataVizFixture, buildDataVisualizationQuery, renderDataVisualization } from '~/test/insight-testing'
+import {
+    type DataVizFixture,
+    buildDataVisualizationQuery,
+    MONTHS,
+    renderDataVisualization,
+} from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
 
 // Neither timeout is set globally (jest.setup leaves asyncUtilTimeout at 1s, jest.config has no
@@ -26,8 +31,6 @@ afterEach(() => {
     cleanupJsdom()
     cleanup()
 })
-
-const MONTHS = ['2025-10-01', '2025-11-01', '2025-12-01', '2026-01-01', '2026-02-01', '2026-03-01']
 
 const twoSeries = (): DataVizFixture => ({
     columns: ['month', 'a', 'b'],

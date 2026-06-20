@@ -13,7 +13,7 @@ export {
     renderWithInsights,
 } from './render-insight'
 export type { InsightQuery, RenderInsightProps, RenderWithInsightsProps } from './render-insight'
-export { buildDataVisualizationQuery, renderDataVisualization } from './render-data-visualization'
+export { buildDataVisualizationQuery, HOVER, MONTHS, renderDataVisualization } from './render-data-visualization'
 export type { DataVizFixture } from './render-data-visualization'
 export {
     breakdown,

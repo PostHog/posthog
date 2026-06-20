@@ -6,13 +6,17 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableVisualization } from '~/queries/nodes/DataVisualization/DataVisualization'
-import { AnyResponseType, DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { initKeaTests } from '../init'
 
 export const DATA_VIZ_TEST_KEY = 'sql-test-harness'
+
+/** Shared monthly x-axis for SQL chart test fixtures, and the default index tests hover/assert at. */
+export const MONTHS = ['2025-10-01', '2025-11-01', '2025-12-01', '2026-01-01', '2026-02-01', '2026-03-01']
+export const HOVER = 2
 
 /** Minimal `[columnName, clickhouseType]` + row-major results — the same shape the
  *  `/query` endpoint returns, distilled to what the chart selectors read. */
@@ -44,14 +48,10 @@ export function buildDataVisualizationQuery(overrides?: Partial<DataVisualizatio
     }
 }
 
-function isFixture(response: DataVizFixture | AnyResponseType): response is DataVizFixture {
-    return Array.isArray((response as DataVizFixture).types)
-}
-
 export interface RenderDataVisualizationProps {
     query?: DataVisualizationNode
-    /** Row-major fixture or a pre-built HogQL response, fed in via `cachedResults` to skip the network. */
-    response: DataVizFixture | AnyResponseType
+    /** Row-major fixture, fed in via `cachedResults` to skip the network. */
+    response: DataVizFixture
     /** Defaults to `{ 'product-analytics-quill-sql-charts': true }`; merge in more or override. */
     featureFlags?: Record<string, string | boolean>
     readOnly?: boolean
@@ -73,7 +73,7 @@ export function renderDataVisualization(props: RenderDataVisualizationProps): Re
     ffLogic.mount()
     ffLogic.actions.setFeatureFlags(Object.keys(featureFlags), featureFlags)
 
-    const cachedResults = isFixture(props.response) ? buildHogQLResponse(props.response) : props.response
+    const cachedResults = buildHogQLResponse(props.response)
 
     return render(
         <DataTableVisualization
