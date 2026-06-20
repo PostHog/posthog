@@ -1,5 +1,5 @@
 import { SandboxToolActivity, contentBlockText, renderContentBlocks } from '../components/Activity'
-import type { McpToolRendererProps } from '../mcpToolRegistry'
+import type { SandboxToolRendererProps } from '../sandbox/sandboxToolRegistry'
 
 export { contentBlockText, renderContentBlocks }
 
@@ -8,6 +8,6 @@ export { contentBlockText, renderContentBlocks }
  * MCPs, unknown inner tools, malformed `exec` commands. Renders a generic, greppable tool card so
  * the registry can ship incrementally.
  */
-export function FallbackMcpToolRenderer({ message, icon, displayName }: McpToolRendererProps): JSX.Element {
+export function FallbackMcpToolRenderer({ message, icon, displayName }: SandboxToolRendererProps): JSX.Element {
     return <SandboxToolActivity message={message} icon={icon} displayName={displayName} />
 }

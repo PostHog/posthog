@@ -244,10 +244,10 @@ export function isAgentMode(mode: unknown): mode is AgentMode {
 }
 
 /**
- * The shape `mcpToolRegistry` renderers receive — raw `ToolInvocation` stream state plus
+ * The shape `sandboxToolRegistry` renderers receive — raw `ToolInvocation` stream state plus
  * renderer-facing fields resolved at render time.
  */
-export interface McpToolCallMessage {
+export interface SandboxToolCallMessage {
     /** Stable id — the tool call id. */
     id: string
     /** Registry lookup key — the inner tool name for single-exec calls, otherwise the wire tool name. */

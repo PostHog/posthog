@@ -1,4 +1,4 @@
-import { resolveToolCall } from './mcpToolMessageResolver'
+import { resolveToolCall } from './sandbox/sandboxToolResolver'
 import type { PermissionRequestRecord } from './types/sandboxStreamTypes'
 
 /**

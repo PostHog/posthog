@@ -82,9 +82,7 @@ import { EnhancedToolCall, ToolRegistration, getToolDefinitionFromToolCall } fro
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
-import type { McpToolCallMessage } from './maxTypes'
-import { resolveToolCall } from './mcpToolMessageResolver'
-import { lookupMcpToolRenderer } from './mcpToolRegistry'
+import type { SandboxToolCallMessage } from './maxTypes'
 import { AssistantFailureMessage } from './messages/AssistantFailureMessage'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
@@ -99,6 +97,8 @@ import {
     SandboxStatusItem,
     SandboxTaskNotificationItem,
 } from './sandbox/SandboxThreadItems'
+import { lookupSandboxToolRenderer } from './sandbox/sandboxToolRegistry'
+import { resolveToolCall } from './sandbox/sandboxToolResolver'
 import { sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { TicketPrompt } from './TicketPrompt'
@@ -126,10 +126,10 @@ function isErrorMessage(message: ThreadMessage): boolean {
     return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
 }
 
-/** Maps a raw merged `ToolInvocation` into the flat `McpToolCallMessage` the registry renderers read. */
+/** Maps a raw merged `ToolInvocation` into the flat `SandboxToolCallMessage` the registry renderers read. */
 function toolInvocationToMessage(
     invocation: ReturnType<typeof sandboxStreamLogic.values.toolInvocations.get>
-): McpToolCallMessage | null {
+): SandboxToolCallMessage | null {
     if (!invocation) {
         return null
     }
@@ -155,7 +155,7 @@ function toolInvocationToMessage(
 /**
  * Sandbox-runtime thread renderer. Reads `sandboxStreamLogic.values.threadItems` (assistant text,
  * tool-invocation references, run separators, inline errors) and dispatches tool cards through
- * `mcpToolRegistry`. Coexistence sibling to the LangGraph thread render path; selected by
+ * `sandboxToolRegistry`. Coexistence sibling to the LangGraph thread render path; selected by
  * `conversation.agent_runtime === 'sandbox'`.
  */
 function SandboxThread(): JSX.Element {
@@ -215,7 +215,7 @@ function SandboxThread(): JSX.Element {
                     if (!message) {
                         return null
                     }
-                    const entry = lookupMcpToolRenderer(message.resolvedKey)
+                    const entry = lookupSandboxToolRenderer(message.resolvedKey)
                     return (
                         <entry.Renderer
                             key={item.id}

@@ -1,8 +1,8 @@
-import type { McpToolCallMessage } from '../../maxTypes'
-import { lookupMcpToolRenderer, mcpToolRegistry } from '../../mcpToolRegistry'
+import type { SandboxToolCallMessage } from '../../maxTypes'
+import { lookupSandboxToolRenderer, sandboxToolRegistry } from '../../sandbox/sandboxToolRegistry'
 import { CreateNotebookWidget, extractNotebook } from './CreateNotebookWidget'
 
-function toolMessage(rawOutput: unknown, innerInput?: Record<string, unknown>): McpToolCallMessage {
+function toolMessage(rawOutput: unknown, innerInput?: Record<string, unknown>): SandboxToolCallMessage {
     return {
         id: 'call-1',
         resolvedKey: 'notebooks-create',
@@ -20,13 +20,13 @@ describe('CreateNotebookWidget', () => {
     it.each(['notebooks-create', 'notebooks-partial-update', 'notebooks-retrieve', 'notebook-edit'])(
         'resolves %s to the notebook widget',
         (key) => {
-            expect(mcpToolRegistry.lookup(key)?.Renderer).toBe(CreateNotebookWidget)
-            expect(lookupMcpToolRenderer(key).Renderer).toBe(CreateNotebookWidget)
+            expect(sandboxToolRegistry.lookup(key)?.Renderer).toBe(CreateNotebookWidget)
+            expect(lookupSandboxToolRenderer(key).Renderer).toBe(CreateNotebookWidget)
         }
     )
 
     it('falls back to the generic renderer for an unknown inner tool key', () => {
-        expect(lookupMcpToolRenderer('some-unwired-tool').Renderer).not.toBe(CreateNotebookWidget)
+        expect(lookupSandboxToolRenderer('some-unwired-tool').Renderer).not.toBe(CreateNotebookWidget)
     })
 
     describe('extractNotebook', () => {

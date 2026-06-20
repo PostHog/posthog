@@ -7,7 +7,7 @@ import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { SandboxToolActivity } from '../../components/Activity'
-import type { McpToolRendererProps } from '../../mcpToolRegistry'
+import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
 import { findAllDiffContent, getDiffStats, languageFromPath, type ToolCallDiffContent } from '../../toolDiffContent'
 
 // A stripped-down, unified diff that reads cleanly embedded in a chat card — mirrors the look of the
@@ -80,7 +80,7 @@ function EditDiffBody({ diff, fallbackPath }: { diff: ToolCallDiffContent; fallb
  * renderer is a strict superset of `FallbackMcpToolRenderer`, so non-diff edits and not-yet-streamed
  * content render exactly as before.
  */
-export function EditDiffRenderer(props: McpToolRendererProps): JSX.Element {
+export function EditDiffRenderer(props: SandboxToolRendererProps): JSX.Element {
     const { message, icon, displayName } = props
     const diffs = findAllDiffContent(message.content)
 

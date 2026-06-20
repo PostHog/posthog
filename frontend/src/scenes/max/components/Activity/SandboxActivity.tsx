@@ -4,7 +4,7 @@ import { IconWarning, IconWrench } from '@posthog/icons'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 
-import type { McpToolCallMessage } from '../../maxTypes'
+import type { SandboxToolCallMessage } from '../../maxTypes'
 import { MessageTemplate } from '../../messages/MessageTemplate'
 import { Activity, ActivityToggleSection, ActivityStatus } from './ActivityPrimitives'
 
@@ -80,7 +80,7 @@ export function SandboxToolActivity({
     displayName,
     children,
 }: {
-    message: McpToolCallMessage
+    message: SandboxToolCallMessage
     icon?: JSX.Element
     displayName?: string
     children?: React.ReactNode

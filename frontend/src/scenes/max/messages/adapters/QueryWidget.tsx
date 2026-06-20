@@ -1,5 +1,5 @@
 import { SandboxToolActivity } from '../../components/Activity'
-import type { McpToolRendererProps } from '../../mcpToolRegistry'
+import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
 import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
 import { VisualizationWidget } from '../VisualizationWidget'
 import { extractQueryResult } from './extractors'
@@ -9,7 +9,7 @@ import { extractQueryResult } from './extractors'
  * `VisualizationWidget` as inline ephemeral visualizations. Pending calls and outputs without an
  * inline renderer fall back to the generic card.
  */
-export function QueryWidget(props: McpToolRendererProps): JSX.Element {
+export function QueryWidget(props: SandboxToolRendererProps): JSX.Element {
     const { message } = props
     const result = message.status === 'completed' ? extractQueryResult(message) : null
 

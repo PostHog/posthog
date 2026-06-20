@@ -2,14 +2,14 @@ import '@testing-library/jest-dom'
 
 import { render, screen } from '@testing-library/react'
 
-import type { McpToolCallMessage } from '../../maxTypes'
+import type { SandboxToolCallMessage } from '../../maxTypes'
 import { SandboxToolActivity } from './SandboxActivity'
 
 function expectBefore(first: HTMLElement, second: HTMLElement): void {
     expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 }
 
-function makeMessage(overrides: Partial<McpToolCallMessage> = {}): McpToolCallMessage {
+function makeMessage(overrides: Partial<SandboxToolCallMessage> = {}): SandboxToolCallMessage {
     return {
         id: 'tc-1',
         resolvedKey: 'query-trends',

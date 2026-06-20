@@ -1,5 +1,5 @@
 import { SandboxToolActivity } from '../../components/Activity'
-import type { McpToolRendererProps } from '../../mcpToolRegistry'
+import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
 import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
 import { VisualizationWidget, getArtifactOpenTarget } from '../VisualizationWidget'
 import { extractVisualizationArtifact } from './extractors'
@@ -9,7 +9,7 @@ import { extractVisualizationArtifact } from './extractors'
  * artifact lands (pending / in-progress / malformed output) we fall back to the generic card so
  * the call still renders something.
  */
-export function CreateInsightWidget(props: McpToolRendererProps): JSX.Element {
+export function CreateInsightWidget(props: SandboxToolRendererProps): JSX.Element {
     const { message } = props
     const artifact = message.status === 'completed' ? extractVisualizationArtifact(message) : null
 

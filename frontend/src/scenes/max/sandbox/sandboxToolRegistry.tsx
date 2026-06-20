@@ -29,19 +29,19 @@ import {
 // IconRobot is not exported from @posthog/icons — it lives only in the legacy lib icon set.
 import { IconRobot } from 'lib/lemon-ui/icons'
 
-import type { McpToolCallMessage } from './maxTypes'
-import { CreateInsightWidget } from './messages/adapters/CreateInsightWidget'
-import { CreateNotebookWidget } from './messages/adapters/CreateNotebookWidget'
-import { EditDiffRenderer } from './messages/adapters/EditDiffRenderer'
-import { ErrorTrackingWidget } from './messages/adapters/ErrorTrackingWidget'
-import { QueryWidget } from './messages/adapters/QueryWidget'
-import { SearchSessionRecordingsWidget } from './messages/adapters/SearchSessionRecordingsWidget'
-import { UpsertDashboardWidget } from './messages/adapters/UpsertDashboardWidget'
-import { FallbackMcpToolRenderer } from './messages/FallbackMcpToolRenderer'
-import { SandboxQuestionRenderer } from './sandbox/SandboxQuestionRenderer'
+import type { SandboxToolCallMessage } from '../maxTypes'
+import { CreateInsightWidget } from '../messages/adapters/CreateInsightWidget'
+import { CreateNotebookWidget } from '../messages/adapters/CreateNotebookWidget'
+import { EditDiffRenderer } from '../messages/adapters/EditDiffRenderer'
+import { ErrorTrackingWidget } from '../messages/adapters/ErrorTrackingWidget'
+import { QueryWidget } from '../messages/adapters/QueryWidget'
+import { SearchSessionRecordingsWidget } from '../messages/adapters/SearchSessionRecordingsWidget'
+import { UpsertDashboardWidget } from '../messages/adapters/UpsertDashboardWidget'
+import { FallbackMcpToolRenderer } from '../messages/FallbackMcpToolRenderer'
+import { SandboxQuestionRenderer } from './SandboxQuestionRenderer'
 
-export interface McpToolRendererProps {
-    message: McpToolCallMessage
+export interface SandboxToolRendererProps {
+    message: SandboxToolCallMessage
     isLastInGroup: boolean
     /**
      * Resolved registry entry's icon — the registry's contribution to the card. Renderers that fall
@@ -53,7 +53,7 @@ export interface McpToolRendererProps {
     displayName?: string
 }
 
-export interface McpToolRegistryEntry {
+export interface SandboxToolRegistryEntry {
     /**
      * Registry key. For single-exec PostHog tools, this is the **inner** tool name parsed from
      * `rawInput.command` (e.g. "execute-sql", "insight-create"); for `exec`'s discovery verbs,
@@ -64,22 +64,22 @@ export interface McpToolRegistryEntry {
     /** Display name / icon for fallback rendering and for the tool-call header line. */
     displayName: string
     icon: JSX.Element
-    Renderer: ComponentType<McpToolRendererProps>
+    Renderer: ComponentType<SandboxToolRendererProps>
 }
 
-export interface McpToolRegistry {
-    register: (entry: McpToolRegistryEntry) => void
-    lookup: (toolName: string) => McpToolRegistryEntry | null
+export interface SandboxToolRegistry {
+    register: (entry: SandboxToolRegistryEntry) => void
+    lookup: (toolName: string) => SandboxToolRegistryEntry | null
 }
 
-class MapBackedRegistry implements McpToolRegistry {
-    private entries = new Map<string, McpToolRegistryEntry>()
+class MapBackedRegistry implements SandboxToolRegistry {
+    private entries = new Map<string, SandboxToolRegistryEntry>()
 
-    register(entry: McpToolRegistryEntry): void {
+    register(entry: SandboxToolRegistryEntry): void {
         this.entries.set(entry.key, entry)
     }
 
-    lookup(toolName: string): McpToolRegistryEntry | null {
+    lookup(toolName: string): SandboxToolRegistryEntry | null {
         return this.entries.get(toolName) ?? null
     }
 }
@@ -89,7 +89,7 @@ class MapBackedRegistry implements McpToolRegistry {
  * load — no dynamic registration, no hooks, no scene callbacks. Custom adapters are registered
  * per tool; any tool without one falls through to `FallbackMcpToolRenderer`.
  */
-export const mcpToolRegistry: McpToolRegistry = new MapBackedRegistry()
+export const sandboxToolRegistry: SandboxToolRegistry = new MapBackedRegistry()
 
 // Custom adapters are registered here as they land. The single-exec inner tool names exist in two
 // conventions — hyphenated (the MCP yaml definitions) and snake_case (legacy Max tools) — so we
@@ -98,7 +98,7 @@ export const mcpToolRegistry: McpToolRegistry = new MapBackedRegistry()
 // --- Data tools: insight ---
 // VisualizationWidget renderer — create / update / read insight.
 for (const key of ['insight-create', 'insight-update', 'insight-get', 'create_insight']) {
-    mcpToolRegistry.register({
+    sandboxToolRegistry.register({
         key,
         displayName: 'Insight',
         icon: <IconGraph />,
@@ -108,7 +108,7 @@ for (const key of ['insight-create', 'insight-update', 'insight-get', 'create_in
 
 // --- Data tools: dashboard ---
 for (const key of ['dashboard-create', 'dashboard-update', 'upsert_dashboard']) {
-    mcpToolRegistry.register({
+    sandboxToolRegistry.register({
         key,
         displayName: 'Dashboard',
         icon: <IconDashboard />,
@@ -118,7 +118,7 @@ for (const key of ['dashboard-create', 'dashboard-update', 'upsert_dashboard']) 
 
 // --- Data tools: session recordings ---
 for (const key of ['query-session-recordings-list', 'search_session_recordings', 'filter_session_recordings']) {
-    mcpToolRegistry.register({
+    sandboxToolRegistry.register({
         key,
         displayName: 'Session recordings',
         icon: <IconRewindPlay />,
@@ -134,7 +134,7 @@ for (const key of [
     'search_error_tracking_issues',
     'filter_error_tracking_issues',
 ]) {
-    mcpToolRegistry.register({
+    sandboxToolRegistry.register({
         key,
         displayName: 'Error tracking',
         icon: <IconWarning />,
@@ -146,7 +146,7 @@ for (const key of [
 // The generated CRUD tools and the handwritten notebook-edit (the collab-safe content editor)
 // all return the same REST notebook payload.
 for (const key of ['notebooks-create', 'notebooks-partial-update', 'notebooks-retrieve', 'notebook-edit']) {
-    mcpToolRegistry.register({
+    sandboxToolRegistry.register({
         key,
         displayName: 'Notebook',
         icon: <IconNotebook />,
@@ -169,7 +169,7 @@ const QUERY_WRAPPER_TOOLS: { key: string; displayName: string; icon: JSX.Element
     { key: 'query-paths-actors', displayName: 'Paths persons', icon: <IconPerson /> },
 ]
 for (const { key, displayName, icon } of QUERY_WRAPPER_TOOLS) {
-    mcpToolRegistry.register({ key, displayName, icon, Renderer: QueryWidget })
+    sandboxToolRegistry.register({ key, displayName, icon, Renderer: QueryWidget })
 }
 
 // --- Claude built-in tools ---
@@ -196,19 +196,19 @@ const BUILTIN_TOOLS: { keys: string[]; displayName: string; icon: JSX.Element }[
 ]
 for (const { keys, displayName, icon } of BUILTIN_TOOLS) {
     for (const key of keys) {
-        mcpToolRegistry.register({ key, displayName, icon, Renderer: FallbackMcpToolRenderer })
+        sandboxToolRegistry.register({ key, displayName, icon, Renderer: FallbackMcpToolRenderer })
     }
 }
 
 // File-editing built-ins render an inline visual diff when the agent attaches `type: "diff"` content
 // blocks; EditDiffRenderer falls back to the same fallback card when none are present.
 for (const key of ['Edit', 'Write', 'NotebookEdit', 'MultiEdit']) {
-    mcpToolRegistry.register({ key, displayName: 'Edit', icon: <IconPencil />, Renderer: EditDiffRenderer })
+    sandboxToolRegistry.register({ key, displayName: 'Edit', icon: <IconPencil />, Renderer: EditDiffRenderer })
 }
 
 // AskUserQuestion (the agent asking the user to pick between options) gets a bespoke renderer that
 // lays the question + options out like the LangGraph question recap, rather than the generic JSON card.
-mcpToolRegistry.register({
+sandboxToolRegistry.register({
     key: 'AskUserQuestion',
     displayName: 'Question',
     icon: <IconAI />,
@@ -216,9 +216,9 @@ mcpToolRegistry.register({
 })
 
 /** Looks up the renderer entry for a resolved tool key, falling back to the generic card. */
-export function lookupMcpToolRenderer(resolvedKey: string): McpToolRegistryEntry {
+export function lookupSandboxToolRenderer(resolvedKey: string): SandboxToolRegistryEntry {
     return (
-        mcpToolRegistry.lookup(resolvedKey) ?? {
+        sandboxToolRegistry.lookup(resolvedKey) ?? {
             key: resolvedKey,
             displayName: resolvedKey,
             icon: <IconWrench />,

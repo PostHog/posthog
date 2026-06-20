@@ -1,6 +1,6 @@
-import { resolveToolCall, resolveToolKey } from './mcpToolMessageResolver'
+import { resolveToolCall, resolveToolKey } from './sandboxToolResolver'
 
-describe('mcpToolMessageResolver', () => {
+describe('sandboxToolResolver', () => {
     describe('resolveToolKey', () => {
         it('parses the inner tool name out of a single-exec call command', () => {
             const resolved = resolveToolKey('posthog', 'exec', { command: 'call insight-create {"name":"Signups"}' })

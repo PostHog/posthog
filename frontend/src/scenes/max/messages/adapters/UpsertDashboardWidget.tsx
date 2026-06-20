@@ -5,7 +5,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { SandboxToolActivity } from '../../components/Activity'
-import type { McpToolRendererProps } from '../../mcpToolRegistry'
+import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
 import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
 import { extractDashboard } from './extractors'
 
@@ -14,7 +14,7 @@ import { extractDashboard } from './extractors'
  * dashboard embed is deliberately deferred). Pre-completion or malformed output falls back to
  * the generic card.
  */
-export function UpsertDashboardWidget(props: McpToolRendererProps): JSX.Element {
+export function UpsertDashboardWidget(props: SandboxToolRendererProps): JSX.Element {
     const { message } = props
     const dashboard = message.status === 'completed' ? extractDashboard(message) : null
 

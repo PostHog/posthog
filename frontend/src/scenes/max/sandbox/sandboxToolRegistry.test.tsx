@@ -2,16 +2,16 @@ import '@testing-library/jest-dom'
 
 import { render, screen } from '@testing-library/react'
 
-import type { McpToolCallMessage } from './maxTypes'
-import { lookupMcpToolRenderer, mcpToolRegistry } from './mcpToolRegistry'
-import { CreateInsightWidget } from './messages/adapters/CreateInsightWidget'
-import { ErrorTrackingWidget } from './messages/adapters/ErrorTrackingWidget'
-import { QueryWidget } from './messages/adapters/QueryWidget'
-import { SearchSessionRecordingsWidget } from './messages/adapters/SearchSessionRecordingsWidget'
-import { UpsertDashboardWidget } from './messages/adapters/UpsertDashboardWidget'
-import { FallbackMcpToolRenderer } from './messages/FallbackMcpToolRenderer'
+import type { SandboxToolCallMessage } from '../maxTypes'
+import { CreateInsightWidget } from '../messages/adapters/CreateInsightWidget'
+import { ErrorTrackingWidget } from '../messages/adapters/ErrorTrackingWidget'
+import { QueryWidget } from '../messages/adapters/QueryWidget'
+import { SearchSessionRecordingsWidget } from '../messages/adapters/SearchSessionRecordingsWidget'
+import { UpsertDashboardWidget } from '../messages/adapters/UpsertDashboardWidget'
+import { FallbackMcpToolRenderer } from '../messages/FallbackMcpToolRenderer'
+import { lookupSandboxToolRenderer, sandboxToolRegistry } from './sandboxToolRegistry'
 
-function makeMessage(overrides: Partial<McpToolCallMessage> = {}): McpToolCallMessage {
+function makeMessage(overrides: Partial<SandboxToolCallMessage> = {}): SandboxToolCallMessage {
     return {
         id: 'tc-1',
         resolvedKey: 'Edit',
@@ -24,7 +24,7 @@ function makeMessage(overrides: Partial<McpToolCallMessage> = {}): McpToolCallMe
     }
 }
 
-describe('mcpToolRegistry data-tool widgets', () => {
+describe('sandboxToolRegistry data-tool widgets', () => {
     const cases: [string, React.ComponentType<any>][] = [
         ['insight-create', CreateInsightWidget],
         ['insight-update', CreateInsightWidget],
@@ -52,23 +52,23 @@ describe('mcpToolRegistry data-tool widgets', () => {
     ]
 
     it.each(cases)('resolves %s to its data-tool widget', (key, expectedRenderer) => {
-        const entry = mcpToolRegistry.lookup(key)
+        const entry = sandboxToolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.Renderer).toBe(expectedRenderer)
-        // lookupMcpToolRenderer returns the same registered entry, not the fallback.
-        expect(lookupMcpToolRenderer(key).Renderer).toBe(expectedRenderer)
+        // lookupSandboxToolRenderer returns the same registered entry, not the fallback.
+        expect(lookupSandboxToolRenderer(key).Renderer).toBe(expectedRenderer)
     })
 
     it('falls back to FallbackMcpToolRenderer for unknown / unregistered tool names', () => {
-        expect(mcpToolRegistry.lookup('mcp__user-installed__something')).toBeNull()
-        expect(lookupMcpToolRenderer('mcp__user-installed__something').Renderer).toBe(FallbackMcpToolRenderer)
+        expect(sandboxToolRegistry.lookup('mcp__user-installed__something')).toBeNull()
+        expect(lookupSandboxToolRenderer('mcp__user-installed__something').Renderer).toBe(FallbackMcpToolRenderer)
         // An inner tool we have not wired a widget for also falls through.
-        expect(lookupMcpToolRenderer('experiment-create').Renderer).toBe(FallbackMcpToolRenderer)
+        expect(lookupSandboxToolRenderer('experiment-create').Renderer).toBe(FallbackMcpToolRenderer)
         // Names that exist in no tool definition stay unregistered.
-        expect(mcpToolRegistry.lookup('insight-query')).toBeNull()
-        expect(mcpToolRegistry.lookup('read_insight')).toBeNull()
+        expect(sandboxToolRegistry.lookup('insight-query')).toBeNull()
+        expect(sandboxToolRegistry.lookup('read_insight')).toBeNull()
         // A single LLM trace has no inline renderer, so the tool stays on the fallback card.
-        expect(mcpToolRegistry.lookup('query-llm-trace')).toBeNull()
+        expect(sandboxToolRegistry.lookup('query-llm-trace')).toBeNull()
     })
 
     // Claude built-ins are keyed by their stable SDK name and all reuse the fallback renderer; the
@@ -103,15 +103,15 @@ describe('mcpToolRegistry data-tool widgets', () => {
 
     it.each(builtinCases)('resolves built-in %s to a registered entry with displayName "%s"', (key, displayName) => {
         // A registered built-in entry exists — the lookup is not the synthesized wrench fallback.
-        const entry = mcpToolRegistry.lookup(key)
+        const entry = sandboxToolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.displayName).toEqual(displayName)
-        expect(lookupMcpToolRenderer(key).displayName).toEqual(displayName)
+        expect(lookupSandboxToolRenderer(key).displayName).toEqual(displayName)
     })
 
     it('still falls back to the wrench card for an unmapped built-in-looking name', () => {
-        expect(mcpToolRegistry.lookup('NotARealTool')).toBeNull()
-        const fallback = lookupMcpToolRenderer('NotARealTool')
+        expect(sandboxToolRegistry.lookup('NotARealTool')).toBeNull()
+        const fallback = lookupSandboxToolRenderer('NotARealTool')
         expect(fallback.displayName).toEqual('NotARealTool')
         expect(fallback.Renderer).toBe(FallbackMcpToolRenderer)
     })
@@ -121,7 +121,7 @@ describe('mcpToolRegistry data-tool widgets', () => {
     // wrench and ignored the entry, so a built-in still rendered identically to the fallback.
     describe('rendered card consumes the registry entry', () => {
         it('renders the registry icon (not the wrench) and the displayName as the header', () => {
-            const entry = lookupMcpToolRenderer('Edit')
+            const entry = lookupSandboxToolRenderer('Edit')
             const message = makeMessage({ resolvedKey: 'Edit', title: '' })
             // Mounted exactly as Thread.tsx mounts it: pass the resolved entry's icon + displayName.
             render(

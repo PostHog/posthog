@@ -2,10 +2,10 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
-import type { McpToolCallMessage } from '../maxTypes'
+import type { SandboxToolCallMessage } from '../maxTypes'
 import { SandboxQuestionRenderer } from './SandboxQuestionRenderer'
 
-function makeMessage(overrides: Partial<McpToolCallMessage> = {}): McpToolCallMessage {
+function makeMessage(overrides: Partial<SandboxToolCallMessage> = {}): SandboxToolCallMessage {
     return {
         id: 'tc-1',
         resolvedKey: 'AskUserQuestion',
@@ -28,7 +28,7 @@ function makeMessage(overrides: Partial<McpToolCallMessage> = {}): McpToolCallMe
     }
 }
 
-function renderCard(message: McpToolCallMessage): void {
+function renderCard(message: SandboxToolCallMessage): void {
     render(<SandboxQuestionRenderer message={message} isLastInGroup displayName="Question" />)
 }
 

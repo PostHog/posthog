@@ -9,7 +9,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { getClaudeCodeMeta, resolveToolCall } from './mcpToolMessageResolver'
+import { getClaudeCodeMeta, resolveToolCall } from './sandbox/sandboxToolResolver'
 import { parseSandboxQuestions } from './sandboxQuestionUtils'
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
 import { defaultPermissionDecision, findAllowOptionId } from './sandboxToolPolicy'

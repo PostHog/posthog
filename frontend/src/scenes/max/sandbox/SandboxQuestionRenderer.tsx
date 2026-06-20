@@ -1,13 +1,13 @@
 import { IconAI } from '@posthog/icons'
 
 import { SandboxToolActivity } from '../components/Activity'
-import type { McpToolRendererProps } from '../mcpToolRegistry'
 import { FallbackMcpToolRenderer } from '../messages/FallbackMcpToolRenderer'
 import {
     extractSandboxQuestionAnswer,
     parseSandboxQuestionAnswers,
     parseSandboxQuestions,
 } from '../sandboxQuestionUtils'
+import type { SandboxToolRendererProps } from './sandboxToolRegistry'
 
 /**
  * Thread recap for the `AskUserQuestion` Claude built-in. The interactive answering happens in the
@@ -17,7 +17,7 @@ import {
  * header `StatusBadge`, and the per-question header label is dropped to keep the recap quiet. Malformed
  * input falls back to the generic tool card.
  */
-export function SandboxQuestionRenderer(props: McpToolRendererProps): JSX.Element {
+export function SandboxQuestionRenderer(props: SandboxToolRendererProps): JSX.Element {
     const { message, icon, displayName } = props
     const questions = parseSandboxQuestions(message.rawInput)
 

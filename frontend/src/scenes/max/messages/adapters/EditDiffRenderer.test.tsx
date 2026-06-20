@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
-import type { McpToolCallMessage } from '../../maxTypes'
+import type { SandboxToolCallMessage } from '../../maxTypes'
 import { EditDiffRenderer } from './EditDiffRenderer'
 
 // Monaco can't render in jsdom — stand it in for a marker that echoes the diff props we care about.
@@ -42,7 +42,7 @@ jest.mock('kea', () => ({
     useValues: () => ({ isDarkModeOn: mockDarkMode }),
 }))
 
-function makeMessage(overrides: Partial<McpToolCallMessage> = {}): McpToolCallMessage {
+function makeMessage(overrides: Partial<SandboxToolCallMessage> = {}): SandboxToolCallMessage {
     return {
         id: 'tc-1',
         resolvedKey: 'Edit',
