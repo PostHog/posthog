@@ -58,9 +58,11 @@ def _created_at_ms(value: object) -> int:
 def _seed_person(fake: FakePersonHogClient, person: Person, distinct_ids: list[str]) -> None:
     # Idempotent: ``add_person`` overwrites the person record but appends distinct ids,
     # so only hand it the ids the fake hasn't already mirrored for this person.
+    # Coerce to str: the ORM stores distinct ids in a CharField (so tests may pass ints),
+    # but the fake builds protobuf messages whose distinct_id field rejects non-strings.
     key = (person.team_id, person.pk)
     existing = {d.distinct_id for d in fake._distinct_ids.get(key, [])}
-    new_distinct_ids = [d for d in distinct_ids if d not in existing]
+    new_distinct_ids = [str(d) for d in distinct_ids if str(d) not in existing]
     fake.add_person(
         team_id=person.team_id,
         person_id=person.pk,
@@ -184,11 +186,13 @@ def _unmirror_distinct_id(sender: type[PersonDistinctId], instance: PersonDistin
     fake = _active_fake
     if fake is None:
         return
+    # Match the str coercion applied when seeding (the ORM CharField may hold an int).
+    distinct_id = str(instance.distinct_id)
     key = (instance.person.team_id, instance.person.pk)
     dids = fake._distinct_ids.get(key)
     if dids is not None:
-        fake._distinct_ids[key] = [d for d in dids if d.distinct_id != instance.distinct_id]
-    fake._persons_by_distinct_id.pop((instance.person.team_id, instance.distinct_id), None)
+        fake._distinct_ids[key] = [d for d in dids if d.distinct_id != distinct_id]
+    fake._persons_by_distinct_id.pop((instance.person.team_id, distinct_id), None)
 
 
 @receiver(post_delete, sender=Group)
