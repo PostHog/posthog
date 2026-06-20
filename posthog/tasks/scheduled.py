@@ -448,7 +448,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Sync the community skills catalog from GitHub hourly
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         crontab(minute="20"),
         sync_community_skills.s(),
         name="sync community skills catalog",
