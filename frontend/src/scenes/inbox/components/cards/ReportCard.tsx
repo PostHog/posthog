@@ -165,7 +165,12 @@ export function ReportCard({
     })
 
     // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
-    const dismissalLabel = isArchived ? dismissalReasonLabel(report.dismissal_reason) : null
+    // Key off the report still being suppressed, not the tab: a report that was dismissed, restored,
+    // then resolved keeps its old dismissal artefact, and showing that tag would mislabel finished work.
+    const dismissalLabel =
+        isArchived && report.status === SignalReportStatus.SUPPRESSED
+            ? dismissalReasonLabel(report.dismissal_reason)
+            : null
 
     // PR cards show repo · source; reports show source · status · actionability.
     const showMeta = hasPr
