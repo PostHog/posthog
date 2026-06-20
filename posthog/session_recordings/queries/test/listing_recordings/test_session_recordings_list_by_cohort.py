@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -156,16 +156,27 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     f"not-in-any-cohort-test_filter_with_static_and_dynamic_cohort_properties-4-{str(uuid4())}"
                 )
 
-                Person.objects.create(team=self.team, distinct_ids=[user_one], properties={"email": "in@static.cohort"})
+                # Pin person UUIDs: the static-cohort membership query snapshots an inlined
+                # person_id IN [...] list. UUIDT values depend on a process-global,
+                # frozen-ms-keyed counter shared across tests, so unpinned UUIDs make the
+                # snapshot order-dependent and flaky. Explicit UUIDs keep it deterministic.
+                Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[user_one],
+                    properties={"email": "in@static.cohort"},
+                    uuid=UUID("00000000-0000-0000-0000-000000000001"),
+                )
                 Person.objects.create(
                     team=self.team,
                     distinct_ids=[user_two],
                     properties={"email": "in@dynamic.cohort", "$some_prop": "some_val"},
+                    uuid=UUID("00000000-0000-0000-0000-000000000002"),
                 )
                 Person.objects.create(
                     team=self.team,
                     distinct_ids=[user_three],
                     properties={"email": "in@both.cohorts", "$some_prop": "some_val"},
+                    uuid=UUID("00000000-0000-0000-0000-000000000003"),
                 )
 
                 dynamic_cohort = Cohort.objects.create(
