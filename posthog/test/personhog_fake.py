@@ -22,13 +22,14 @@ from typing import TYPE_CHECKING
 
 from unittest.mock import patch
 
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import m2m_changed, post_delete, post_save
 from django.dispatch import receiver
 
 from posthog.models import Group, GroupTypeMapping, Person, PersonDistinctId
+from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.personhog_client.fake_client import FakePersonHogClient
 
-from products.cohorts.backend.models.cohort import CohortPeople
+from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -90,10 +91,14 @@ class MirroringFakePersonHogClient(FakePersonHogClient):
         self, request: cohort_pb2.InsertCohortMembersRequest, timeout: float | None = None
     ) -> cohort_pb2.InsertCohortMembersResponse:
         response = super().insert_cohort_members(request, timeout=timeout)
+        # Pin to the persons-DB write alias: ``CohortPeople`` lives only in the persons DB, and
+        # some tests patch ``django.db.router.db_for_read`` to a different alias to exercise
+        # cross-DB read/write splits. Without pinning, this read resolves to the patched alias
+        # (whose connection lacks ``posthog_cohortpeople``) and aborts the transaction.
         existing = set(
-            CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                cohort_id=request.cohort_id, person_id__in=list(request.person_ids)
-            ).values_list("person_id", flat=True)
+            CohortPeople.objects.using(PERSONS_DB_FOR_WRITE)  # nosemgrep: no-direct-persons-db-orm
+            .filter(cohort_id=request.cohort_id, person_id__in=list(request.person_ids))
+            .values_list("person_id", flat=True)
         )
         new_rows = [
             CohortPeople(cohort_id=request.cohort_id, person_id=pid, version=request.version)
@@ -101,7 +106,9 @@ class MirroringFakePersonHogClient(FakePersonHogClient):
             if pid not in existing
         ]
         if new_rows:
-            CohortPeople.objects.bulk_create(new_rows)  # nosemgrep: no-direct-persons-db-orm
+            CohortPeople.objects.using(PERSONS_DB_FOR_WRITE).bulk_create(
+                new_rows
+            )  # nosemgrep: no-direct-persons-db-orm
         return response
 
     def delete_cohort_member(
@@ -262,6 +269,21 @@ def _unseed_person(fake: FakePersonHogClient, person: Person) -> None:
         fake._persons_by_distinct_id.pop((person.team_id, did.distinct_id), None)
 
 
+def _seed_cohort_membership(fake: FakePersonHogClient, cohort_id: int, person_id: int) -> None:
+    # Idempotent: the fake's ``add_cohort_membership`` appends to the per-person membership list
+    # without deduping, so only register a membership the fake hasn't mirrored yet.
+    if (cohort_id, person_id) in fake._cohort_members:
+        return
+    fake.add_cohort_membership(person_id=person_id, cohort_id=cohort_id, is_member=True)
+
+
+def _unseed_cohort_membership(fake: FakePersonHogClient, cohort_id: int, person_id: int) -> None:
+    fake._cohort_members.pop((cohort_id, person_id), None)
+    memberships = fake._cohort_memberships.get(person_id)
+    if memberships is not None:
+        fake._cohort_memberships[person_id] = [m for m in memberships if m.cohort_id != cohort_id]
+
+
 @receiver(post_save, sender=Person)
 def _mirror_person(sender: type[Person], instance: Person, **kwargs: object) -> None:
     fake = _active_fake
@@ -342,3 +364,50 @@ def _unmirror_group_type_mapping(sender: type[GroupTypeMapping], instance: Group
     if fake is None:
         return
     _unseed_group_type_mapping(fake, instance)
+
+
+@receiver(post_save, sender=CohortPeople)
+def _mirror_cohort_membership(sender: type[CohortPeople], instance: CohortPeople, **kwargs: object) -> None:
+    # Cohort membership written through the personhog RPC seeds the fake directly. But tests also
+    # write ``CohortPeople`` straight through the ORM (``CohortPeople.objects.create`` or the
+    # ``Cohort.people`` M2M ``add``), which never touches personhog — mirror those into the fake so
+    # the read paths (``count_cohort_members`` / ``list_cohort_member_ids``) resolve.
+    fake = _active_fake
+    if fake is None:
+        return
+    _seed_cohort_membership(fake, instance.cohort_id, instance.person_id)
+
+
+@receiver(post_delete, sender=CohortPeople)
+def _unmirror_cohort_membership(sender: type[CohortPeople], instance: CohortPeople, **kwargs: object) -> None:
+    fake = _active_fake
+    if fake is None:
+        return
+    _unseed_cohort_membership(fake, instance.cohort_id, instance.person_id)
+
+
+@receiver(m2m_changed, sender=Cohort.people.through)
+def _mirror_cohort_people_m2m(
+    sender: type[CohortPeople],
+    instance: object,
+    action: str,
+    pk_set: set[int] | None,
+    **kwargs: object,
+) -> None:
+    # ``Cohort.people.add/remove/clear`` go through the M2M manager, which bulk-writes the through
+    # rows without firing per-row ``post_save``/``post_delete``. Mirror those bulk changes into the
+    # fake. ``instance`` is the ``Cohort``; ``pk_set`` holds the affected person ids.
+    fake = _active_fake
+    if fake is None or not isinstance(instance, Cohort):
+        return
+    cohort_id = instance.pk
+    if action == "post_add" and pk_set:
+        for person_id in pk_set:
+            _seed_cohort_membership(fake, cohort_id, person_id)
+    elif action == "post_remove" and pk_set:
+        for person_id in pk_set:
+            _unseed_cohort_membership(fake, cohort_id, person_id)
+    elif action == "pre_clear":
+        # ``clear`` provides no pk_set, so drop every membership for this cohort.
+        for cid, pid in [k for k in fake._cohort_members if k[0] == cohort_id]:
+            _unseed_cohort_membership(fake, cid, pid)
