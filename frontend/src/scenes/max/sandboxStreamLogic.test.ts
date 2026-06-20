@@ -10,10 +10,12 @@ import { initKeaTests } from '~/test/init'
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
 import {
+    extractRunArtifacts,
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
     MAX_SSE_RECONNECT_ATTEMPTS,
     mergeResourceProducts,
+    mergeRunArtifacts,
     parsePermissionRequestFrame,
     reconnectDelayMs,
     sandboxStreamLogic,
@@ -1249,6 +1251,98 @@ describe('sandboxStreamLogic', () => {
 
             expect(logic.values.currentRunStatus).toEqual('in_progress')
             expect(source.closed).toEqual(false)
+        })
+    })
+
+    describe('runArtifacts (git context)', () => {
+        const PR_URL = 'https://github.com/PostHog/posthog/pull/123'
+
+        it('mergeRunArtifacts is latest-wins and ignores undefined/empty values', () => {
+            const base = mergeRunArtifacts({}, { branch: 'feat/a', baseBranch: 'master' })
+            expect(base).toEqual({ branch: 'feat/a', baseBranch: 'master' })
+
+            // A later non-empty value overwrites; undefined/empty fields leave the prior value intact.
+            const next = mergeRunArtifacts(base, { branch: 'feat/b', baseBranch: undefined, prUrl: '' })
+            expect(next).toEqual({ branch: 'feat/b', baseBranch: 'master' })
+        })
+
+        it('extractRunArtifacts reads branch/base/pr from a bootstrap run and a live frame', () => {
+            expect(
+                extractRunArtifacts({
+                    branch: 'feat/x',
+                    state: { pr_base_branch: 'master', repository: 'PostHog/posthog' },
+                    output: { pr_url: PR_URL },
+                })
+            ).toEqual({ branch: 'feat/x', baseBranch: 'master', repo: 'PostHog/posthog', prUrl: PR_URL })
+
+            // A live task_run_state frame has no `state`, so only branch + pr_url are extracted.
+            expect(extractRunArtifacts({ branch: 'feat/x', output: { pr_url: PR_URL } })).toEqual({
+                branch: 'feat/x',
+                prUrl: PR_URL,
+            })
+        })
+
+        it('captures branch / base / pr from the bootstrap run fetch', async () => {
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([] as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                status: 'completed',
+                branch: 'feat/posthog-ai-sandboxes',
+                state: { pr_base_branch: 'master' },
+                output: { pr_url: PR_URL },
+            } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.runArtifacts).toEqual({
+                branch: 'feat/posthog-ai-sandboxes',
+                baseBranch: 'master',
+                prUrl: PR_URL,
+            })
+            expect(logic.values.hasGitArtifacts).toBe(true)
+        })
+
+        it('captures the pr url from a live task_run_state frame', async () => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await MockStream.latest().emitOpen()
+
+            await expectLogic(logic, async () => {
+                await MockStream.latest().emitMessage({
+                    type: 'task_run_state',
+                    status: 'in_progress',
+                    branch: 'feat/x',
+                    output: { pr_url: PR_URL },
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.runArtifacts).toMatchObject({ branch: 'feat/x', prUrl: PR_URL })
+            expect(logic.values.hasGitArtifacts).toBe(true)
+        })
+
+        it('stays empty and self-hideable for a run with no git context', async () => {
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([] as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.runArtifacts).toEqual({})
+            expect(logic.values.hasGitArtifacts).toBe(false)
+        })
+
+        it('clears runArtifacts on reset', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.mergeRunArtifacts({ branch: 'feat/x', prUrl: PR_URL })
+            }).toFinishAllListeners()
+            expect(logic.values.hasGitArtifacts).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.reset()
+            }).toFinishAllListeners()
+            expect(logic.values.runArtifacts).toEqual({})
+            expect(logic.values.hasGitArtifacts).toBe(false)
         })
     })
 
