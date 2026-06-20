@@ -17,7 +17,12 @@ import { InsightLogicProps } from '~/types'
 
 import { INSIGHT_TEST_ID } from './render-insight'
 import { trendsSeries } from './test-data'
-import { type InsightTooltipAccessor, createInsightTooltipAccessor } from './tooltip-helpers'
+import {
+    type InsightTooltipAccessor,
+    type SqlTooltipAccessor,
+    createInsightTooltipAccessor,
+    createSqlTooltipAccessor,
+} from './tooltip-helpers'
 
 const DEBOUNCE_TIMEOUT = 3000
 
@@ -165,5 +170,17 @@ export const chart = {
         const row = within(tooltip).getByText(label)
         const clickable = row.closest('tr') ?? row
         fireEvent.click(clickable)
+    },
+}
+
+/** Interactions for SQL (`DataVisualizationNode`) charts, which render quill's `DefaultTooltip`
+ *  instead of the InsightTooltip table — so the tooltip is parsed via `createSqlTooltipAccessor`.
+ *  `totalLabels` (the x-axis label count) is required: there's no canonical default series. */
+export const sqlChart = {
+    async hoverTooltip(index: number, totalLabels: number): Promise<SqlTooltipAccessor> {
+        const canvas = await screen.findByRole('img', { name: /chart with/i }, { timeout: DEBOUNCE_TIMEOUT })
+        const wrapper = canvas.parentElement!
+        const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels)
+        return createSqlTooltipAccessor(tooltip)
     },
 }
