@@ -1,4 +1,452 @@
 # serializer version: 1
+# name: TestBlastRadius.test_user_blast_radius
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
+            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('0', '1', '2', '3'))))))
+     GROUP BY person.id
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), in(persons.properties___group, tuple('0', '1', '2', '3')))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 99999
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_group_key_property
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
+  FROM
+    (SELECT tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 99999)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), equals(groups.key, 'special-workspace'))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT group_key)
+  FROM groups
+  WHERE team_id = 99999
+    AND group_type_index = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
+  FROM
+    (SELECT tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 99999)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), ilike(groups.key, '%org:%'))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_groups
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+            tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 99999)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), in(groups.properties___industry, tuple('0', '1', '2', '3')))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_groups.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT group_key)
+  FROM groups
+  WHERE team_id = 99999
+    AND group_type_index = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
+            tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 99999)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups
+  WHERE and(equals(groups.team_id, 99999), equals(groups.index, 0), and(in(groups.properties___industry, tuple('0', '1', '2', '3', '4')), in(groups.properties___industry, tuple('2', '3', '4', '5', '6'))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT group_key)
+  FROM groups
+  WHERE team_id = 99999
+    AND group_type_index = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.1
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
+  FROM
+    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), in(where_optimization.id,
+                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+     GROUP BY person.id
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
+                                                     (SELECT cohortpeople.person_id AS person_id
+                                                      FROM cohortpeople
+                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), in(persons.id,
+                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                      FROM cohortpeople
+                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 99999
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts
+  '''
+  SELECT person_id
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
+            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                         (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                          FROM person_static_cohort
+                                                                                                                                                          WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '4', '5', '6'))))))
+     GROUP BY person.id
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
+                                                     (SELECT person_static_cohort.person_id AS person_id
+                                                      FROM person_static_cohort
+                                                      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.properties___group, tuple('1', '2', '4', '5', '6'))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 99999
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
+  FROM
+    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                         (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                          FROM person_static_cohort
+                                                                                                                                                          WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(where_optimization.id,
+                                                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                         FROM cohortpeople
+                                                                                                                                                                                                                                                                         WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+     GROUP BY person.id
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
+                                                     (SELECT person_static_cohort.person_id AS person_id
+                                                      FROM person_static_cohort
+                                                      WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(persons.id,
+                                                                                                                                                                    (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                     FROM cohortpeople
+                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
+            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), 'none'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '3')))))))
+     GROUP BY person.id
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), or(ifNull(equals(persons.properties___group, 'none'), 0), in(persons.properties___group, tuple('1', '2', '3'))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.1
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 99999
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.2
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
+  FROM
+    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                          FROM cohortpeople
+                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
+     GROUP BY person.id
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE and(equals(persons.team_id, 99999), in(persons.id,
+                                                 (SELECT cohortpeople.person_id AS person_id
+                                                  FROM cohortpeople
+                                                  WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestFeatureFlag.test_creating_static_cohort
   '''
   SELECT "posthog_user"."id",
@@ -919,6 +1367,37 @@
          "posthog_experiment"."conclusion_comment"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.27
+  '''
+  /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
+  SELECT person_id
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000000']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.28
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT id
+  FROM person
+  INNER JOIN
+    (SELECT person_id
+     FROM person_static_cohort
+     WHERE team_id = 99999
+       AND cohort_id = 99999
+     GROUP BY person_id,
+              cohort_id,
+              team_id) cohort_persons ON cohort_persons.person_id = person.id
+  WHERE team_id = 99999
+  GROUP BY id
+  HAVING max(is_deleted) = 0
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.3
