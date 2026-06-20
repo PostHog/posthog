@@ -137,15 +137,17 @@ const SubagentToolRenderer = memo(function SubagentToolRenderer(props: SandboxTo
     const description = asString(message.rawInput.description) || message.title || ''
     const prompt = asString(message.rawInput.prompt)
     const output = stripCodeFences(getContentText(message.content))
+    // An echo-style subagent returns its prompt verbatim — don't render the same text twice.
+    const showOutput = !!output && output.trim() !== prompt.trim()
 
     const title =
         subagentType && description ? `${subagentType}: ${description}` : subagentType || description || 'Subagent'
 
     const body =
-        prompt || output ? (
+        prompt || showOutput ? (
             <div className="flex flex-col gap-2 min-w-0">
                 {prompt && <ToolOutput>{prompt}</ToolOutput>}
-                {output && (
+                {showOutput && (
                     <div className={clsx('min-w-0', prompt && 'border-t border-border-secondary pt-2')}>
                         <ToolOutput>{output}</ToolOutput>
                     </div>

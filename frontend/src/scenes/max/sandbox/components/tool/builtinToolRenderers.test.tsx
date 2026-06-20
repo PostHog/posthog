@@ -119,6 +119,22 @@ describe('builtin tool renderers', () => {
         expect(screen.getByText('Looks good to me')).toBeInTheDocument()
     })
 
+    it('does not duplicate an echo subagent whose output repeats the prompt', () => {
+        render(
+            <BuiltinToolRenderer
+                isLastInGroup
+                message={makeMessage({
+                    claudeToolName: 'Task',
+                    resolvedKey: 'Task',
+                    rawInput: { subagent_type: 'echo', description: 'echo it', prompt: 'ping' },
+                    content: [textBlock('ping')],
+                })}
+            />
+        )
+        fireEvent.click(screen.getByRole('button'))
+        expect(screen.getAllByText('ping')).toHaveLength(1)
+    })
+
     it.each([
         ['tools', 'List tools', '__posthog_exec_tools__'],
         ['info execute-sql', 'Read execute-sql', '__posthog_exec_info__'],

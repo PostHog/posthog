@@ -536,6 +536,37 @@ describe('sandboxStreamLogic', () => {
             expect(invocation?.input).toEqual({ command: 'call insight-create {"name":"Signups"}' })
         })
 
+        it('keeps a subagent inner tool call out of the top-level thread but in the invocation map', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 'parent',
+                    title: 'Task `review`',
+                    rawInput: { subagent_type: 'code-reviewer', description: 'review', prompt: 'check it' },
+                    status: 'in_progress',
+                    _meta: { claudeCode: { toolName: 'Task' } },
+                }),
+                sessionUpdate({
+                    sessionUpdate: 'tool_call',
+                    toolCallId: 'inner',
+                    title: 'Bash `echo hi`',
+                    rawInput: { command: 'echo hi' },
+                    status: 'completed',
+                    _meta: { claudeCode: { toolName: 'Bash', parentToolCallId: 'parent' } },
+                }),
+            ]
+
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const toolItems = logic.values.threadItems.filter((item) => item.type === 'tool_invocation')
+            expect(toolItems).toHaveLength(1)
+            expect(toolItems[0]).toEqual({ id: 'parent', type: 'tool_invocation', toolCallId: 'parent' })
+            // The inner call is still resolvable (so a parent card could render it) — it just isn't a sibling.
+            expect(logic.values.toolInvocations.get('inner')?.title).toEqual('Bash `echo hi`')
+        })
+
         it.each(['Edit', 'TodoWrite', 'Grep', 'Task'])(
             'keeps a built-in %s tool_call raw despite an empty wire toolName',
             async (sdkName) => {

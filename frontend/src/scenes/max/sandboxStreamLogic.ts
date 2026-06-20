@@ -304,6 +304,16 @@ async function fetchRunStatus(
 }
 
 /**
+ * The id of the parent Task tool call when this frame belongs to a subagent's inner work
+ * (`_meta.claudeCode.parentToolCallId`), else undefined. Inner calls are rolled into their parent
+ * Task card rather than surfaced as top-level thread items.
+ */
+export function subagentParentToolCallId(meta: unknown): string | undefined {
+    const parent = getClaudeCodeMeta(meta)?.parentToolCallId
+    return typeof parent === 'string' && parent ? parent : undefined
+}
+
+/**
  * Permission-denial reason from `_meta.claudeCode.toolResponse`, preferring `decisionReason` over
  * the generic `message`. Returns undefined when no `_meta` is present (the inline `canUseTool` path),
  * so the caller can fall back to the content text / existing error.
@@ -693,7 +703,9 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 meta: update._meta,
                 ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
             })
-            upsertInvocationItem(toolCallId)
+            if (!subagentParentToolCallId(update._meta)) {
+                upsertInvocationItem(toolCallId)
+            }
             return
         }
 
@@ -868,7 +880,11 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                     contentBlocks: Array.isArray(update.content) ? update.content : [],
                     meta: update._meta,
                 })
-                upsertInvocationItem(toolCallId)
+                // A subagent's inner tool calls carry the parent Task's id; they belong inside that
+                // card, not as top-level siblings, so keep them out of the thread.
+                if (!subagentParentToolCallId(update._meta)) {
+                    upsertInvocationItem(toolCallId)
+                }
                 break
             }
             case 'tool_call_update':
