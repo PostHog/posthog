@@ -635,7 +635,10 @@ def clear_dashboard_from_group_type_mapping(
         resp = client.get_group_type_mapping_by_dashboard_id(
             GetGroupTypeMappingByDashboardIdRequest(team_id=team_id, dashboard_id=dashboard_id)
         )
-        if resp.mapping and resp.mapping.group_type_index is not None:
+        # The proto `mapping` field is optional; an unset message is still truthy, so guard on
+        # HasField. Without this, no-match responses fall through to UpdateGroupTypeMapping with a
+        # zeroed project_id/group_type_index, which the server rejects with NOT_FOUND.
+        if resp.HasField("mapping"):
             client.update_group_type_mapping(
                 UpdateGroupTypeMappingRequest(
                     project_id=resp.mapping.project_id,

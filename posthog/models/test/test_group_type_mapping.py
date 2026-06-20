@@ -1011,8 +1011,9 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch(_CLIENT_PATCH)
     def test_personhog_no_matching_mapping_skips_update(self, mock_get_client, mock_routing_counter, mock_invalidate):
+        # An unset proto `mapping` is still a truthy message, so the guard checks HasField instead.
         mock_resp = MagicMock()
-        mock_resp.mapping = None
+        mock_resp.HasField.return_value = False
 
         mock_client = MagicMock()
         mock_client.get_group_type_mapping_by_dashboard_id.return_value = mock_resp

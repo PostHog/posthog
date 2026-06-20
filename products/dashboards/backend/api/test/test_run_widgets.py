@@ -608,6 +608,10 @@ class TestDashboardRunWidgets(APIBaseTest):
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_serializes_recordings_with_person(self, mock_list_recordings: MagicMock) -> None:
         person = Person.objects.create(team=self.team, properties={"email": "widget-test@example.com"})
+        # In production the recording's person is loaded via personhog, which always attaches the
+        # matched distinct_id (see proto_person_to_model). Mirror that here so the serializer's
+        # distinct_ids access is satisfied.
+        person._distinct_ids = ["widget-test-distinct"]
         recording = SessionRecording(
             session_id="019e6a07-04fe-792c-b828-49375b8d42e8",
             team=self.team,
