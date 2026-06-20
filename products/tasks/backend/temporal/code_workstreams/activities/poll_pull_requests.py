@@ -129,6 +129,7 @@ def poll_pull_requests_for_team(
                     "unresolved_threads": snap.get("unresolved_threads") or 0,
                     "mergeable": snap.get("mergeable"),
                     "author_login": snap.get("author_login"),
+                    "head_branch": snap.get("head_branch"),
                     "requested_reviewer_logins": snap.get("requested_reviewer_logins") or [],
                     "pr_updated_at": parse_datetime(snap["updated_at"]) if snap.get("updated_at") else None,
                     "fingerprint": fingerprint,

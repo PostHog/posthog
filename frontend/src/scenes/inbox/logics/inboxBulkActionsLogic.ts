@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
+import { captureInboxReportAction } from '../inboxAnalytics'
 import type { DismissalReasonValue } from '../utils/dismissalReasons'
 import type { inboxBulkActionsLogicType } from './inboxBulkActionsLogicType'
 
@@ -83,6 +84,14 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
                 return
             }
             const trimmedNote = note.trim().slice(0, 4000)
+            // Only the structured reason — the free-form note can carry proprietary text.
+            captureInboxReportAction({
+                actionType: 'dismiss',
+                surface: 'bulk_bar',
+                isBulk: true,
+                bulkSize: reportIds.length,
+                extra: { dismissal_reason: reason },
+            })
             const results = await Promise.allSettled(
                 reportIds.map((id) =>
                     api.signalReports.setState(id, {
