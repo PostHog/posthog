@@ -22,7 +22,7 @@ def _make_strategy(team) -> PersonStrategy:
     return PersonStrategy(team=team, query=query, paginator=paginator)
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestPersonStrategyGetActors(PersonhogTestMixin, BaseTest):
     def test_basic_person_lookup(self):
         person = self._seed_person(

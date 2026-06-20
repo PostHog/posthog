@@ -1300,7 +1300,7 @@ class TestTicketManager(BaseTest):
         self.assertEqual(ticket2.ticket_number, 2)
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestTicketPersonData(PersonhogTestMixin, APIBaseTest):
     """Tests that ticket person enrichment produces identical results

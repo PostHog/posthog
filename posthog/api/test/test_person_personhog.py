@@ -21,7 +21,7 @@ from products.cohorts.backend.models.cohort import Cohort
 UUID_NONEXISTENT = "550e8400-e29b-41d4-a716-446655440000"
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestRetrievePerson(PersonhogTestMixin, APIBaseTest):
     def test_retrieve_by_uuid(self):
         person = self._seed_person(
@@ -76,7 +76,7 @@ class TestRetrievePerson(PersonhogTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestUpdatePerson(PersonhogTestMixin, APIBaseTest):
     @mock.patch("posthog.api.person.capture_internal_routed")
     def test_update_properties_by_uuid(self, mock_capture):
@@ -120,7 +120,7 @@ class TestUpdatePerson(PersonhogTestMixin, APIBaseTest):
         self._assert_personhog_called("get_person")
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestSplitPerson(PersonhogTestMixin, APIBaseTest):
     @mock.patch("posthog.api.person.split_person")
     def test_split_by_uuid(self, mock_split):
@@ -151,7 +151,7 @@ class TestSplitPerson(PersonhogTestMixin, APIBaseTest):
         mock_split.delay.assert_not_called()
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestCohortsByPerson(PersonhogTestMixin, APIBaseTest):
     def test_cohorts_by_uuid(self):
         person = self._seed_person(
@@ -182,7 +182,7 @@ class TestCohortsByPerson(PersonhogTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestDeleteProperty(PersonhogTestMixin, APIBaseTest):
     @mock.patch("posthog.api.person.capture_internal_routed")
     def test_uuid_lookup(self, mock_capture):
@@ -238,7 +238,7 @@ class TestDeleteProperty(PersonhogTestMixin, APIBaseTest):
         assert resp.status_code != 201
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestBatchByDistinctIds(PersonhogTestMixin, APIBaseTest):
     def test_happy_path(self):
         self._seed_person(team=self.team, distinct_ids=["user_1"], properties={"email": "user1@example.com"})
@@ -343,7 +343,7 @@ class TestBatchByDistinctIds(PersonhogTestMixin, APIBaseTest):
         assert distinct_ids[200] not in results
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestDestroyPerson(PersonhogTestMixin, APIBaseTest):
     def test_destroy_returns_202(self):
         person = self._seed_person(team=self.team, distinct_ids=["did-1"])
@@ -387,7 +387,7 @@ class TestDestroyPerson(PersonhogTestMixin, APIBaseTest):
         self._assert_personhog_not_called("delete_persons")
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
     def test_bulk_delete_by_ids(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["did-1"])

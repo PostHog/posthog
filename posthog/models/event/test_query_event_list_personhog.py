@@ -13,7 +13,7 @@ from posthog.personhog_client.test_helpers import PersonhogTestMixin
 UUID_NONEXISTENT = "550e8400-e29b-41d4-a716-446655440000"
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestParseRequestParamsPersonRouting(PersonhogTestMixin, BaseTest):
     def test_uuid_person_id_resolves_distinct_ids(self):
         person = self._seed_person(team=self.team, distinct_ids=["id1", "id2"])

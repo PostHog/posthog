@@ -47,3 +47,25 @@ def pytest_unconfigure() -> None:
     # gone — observed as exit code 139 (SIGSEGV) on the Temporal CI shards. Restore the
     # default heap state so shutdown behaves exactly as without the boot window.
     gc.unfreeze()
+
+
+@pytest.fixture(autouse=True)
+def _activate_personhog_fake(request: pytest.FixtureRequest):
+    """Route person/group reads through the in-memory personhog fake for every test.
+
+    Production removed the ORM fallback from person/group data access, so without an
+    active personhog client those reads raise. We activate ``FakePersonHogClient`` and
+    mirror ORM writes into it (see ``posthog/test/personhog_fake.py``).
+
+    The personhog client's own unit tests manage the client/gate themselves and assert
+    on real (un-faked) behavior, so they opt out.
+    """
+    if "personhog_client" in str(request.node.path):
+        yield
+        return
+
+    # Imported lazily so the heavy posthog.models import stays off the conftest-load path.
+    from posthog.test.personhog_fake import activate_personhog_fake  # noqa: PLC0415
+
+    with activate_personhog_fake():
+        yield

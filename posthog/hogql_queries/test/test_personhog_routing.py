@@ -52,7 +52,7 @@ def _extract_distinct_id_field_chain(where: Optional[ast.Expr]) -> list[str | in
     return field.chain
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestEventsQueryRunnerPersonRouting(PersonhogTestMixin, BaseTest):
     def test_uuid_person_id_expands_distinct_ids(self):
         person = self._seed_person(team=self.team, distinct_ids=["id1", "id2"])
@@ -94,7 +94,7 @@ class TestEventsQueryRunnerPersonRouting(PersonhogTestMixin, BaseTest):
         self._assert_personhog_not_called("get_person")
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestSessionsQueryRunnerPersonRouting(PersonhogTestMixin, BaseTest):
     def test_uuid_person_id_expands_distinct_ids(self):
         person = self._seed_person(team=self.team, distinct_ids=["id1", "id2"])

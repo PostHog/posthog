@@ -301,7 +301,7 @@ class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
             assert dids == []
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestGetPersonAndDistinctIdsForIdentifierIntegration(PersonhogTestMixin, BaseTest):
     def test_lookup_by_distinct_id(self):
         person = self._seed_person(

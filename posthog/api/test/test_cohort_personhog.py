@@ -13,7 +13,7 @@ from posthog.personhog_client.test_helpers import PersonhogTestMixin
 from products.cohorts.backend.models.cohort import Cohort
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestValidatePersonUuidsExist(PersonhogTestMixin, BaseTest):
     def _create_person_with_uuid(self, *, team, uuid, distinct_ids):
         """Create a person in the DB (and fake client when personhog is active)."""
@@ -78,7 +78,7 @@ class TestValidatePersonUuidsExist(PersonhogTestMixin, BaseTest):
 UUID_NONEXISTENT = "550e8400-e29b-41d4-a716-446655440099"
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestRemovePersonFromStaticCohort(PersonhogTestMixin, APIBaseTest):
     def test_removes_person_and_routes_through_personhog(self):
         person = self._seed_person(team=self.team, distinct_ids=["d1"], properties={"email": "test@test.com"})

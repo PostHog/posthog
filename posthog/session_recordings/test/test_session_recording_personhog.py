@@ -115,7 +115,7 @@ class TestLoadPersonRouting(SimpleTestCase):
             mock_errors_counter.labels.assert_called_once()
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestLoadPersonIntegration(PersonhogTestMixin, BaseTest):
     def test_person_found(self):
         person = self._seed_person(team=self.team, distinct_ids=["test_user"], properties={"email": "test@example.com"})

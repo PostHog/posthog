@@ -198,7 +198,6 @@ from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
 )
-from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
@@ -207,7 +206,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
-from posthog.test.personhog_fake import seed_persons_from_mapping, set_active_fake
+from posthog.test.personhog_fake import seed_persons_from_mapping
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
@@ -676,9 +675,6 @@ class PostHogTestCase(SimpleTestCase):
     user: User = cast(User, None)
     organization_membership: OrganizationMembership = cast(OrganizationMembership, None)
 
-    # Holds the active personhog-fake context manager for the running test (see setUp).
-    _personhog_cm: Any = None
-
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
         if self.organization is None:
             raise ValueError("Test organization must be set before creating a user")
@@ -700,18 +696,7 @@ class PostHogTestCase(SimpleTestCase):
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
-        # Route person reads through the in-memory personhog fake — production has no
-        # ORM fallback. Persons created during the test are mirrored into the fake
-        # (via post_save signals and the flush funnel) so reads resolve.
-        self._personhog_cm = fake_personhog_client()
-        set_active_fake(self._personhog_cm.__enter__())
-
     def tearDown(self):
-        if getattr(self, "_personhog_cm", None) is not None:
-            self._personhog_cm.__exit__(None, None, None)
-            self._personhog_cm = None
-            set_active_fake(None)
-
         if len(persons_cache_tests) > 0:
             persons_cache_tests.clear()
             raise Exception(

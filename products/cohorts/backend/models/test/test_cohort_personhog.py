@@ -13,7 +13,7 @@ from posthog.personhog_client.test_helpers import PersonhogTestMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestGetPersonUuidsByDistinctIds(PersonhogTestMixin, BaseTest):
     def _get_uuids(self, distinct_ids: list[str]) -> list[str]:
         from posthog.models.person.util import get_person_uuids_by_distinct_ids
@@ -70,21 +70,6 @@ class TestGetPersonUuidsByDistinctIds(PersonhogTestMixin, BaseTest):
         assert set(result) == {str(p.uuid) for p in persons}
 
 
-class TestGetPersonUuidsByDistinctIdsFallback(BaseTest):
-    """Routing test: verifies ORM fallback when the personhog gate is disabled."""
-
-    def test_falls_back_to_orm_when_personhog_disabled(self):
-        from posthog.models.person.util import get_person_uuids_by_distinct_ids
-
-        p = Person.objects.create(team=self.team, distinct_ids=["d1"])
-
-        with fake_personhog_client(gate_enabled=False) as fake:
-            result = get_person_uuids_by_distinct_ids(self.team.pk, ["d1"])
-
-        assert result == [str(p.uuid)]
-        fake.assert_not_called("get_persons_by_distinct_ids_in_team")
-
-
 class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
     """Verify the personhog path sends a UUID-only field mask."""
 
@@ -110,7 +95,7 @@ class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
         assert "properties" not in mask
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -232,7 +217,7 @@ class TestRemoveUserByUuid(PersonhogTestMixin, BaseTest):
         self._assert_personhog_called("get_person_by_uuid")
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestCheckCohortMembership(PersonhogTestMixin, BaseTest):
     def test_returns_true_for_member(self):
         from products.cohorts.backend.models.util import check_cohort_membership, is_person_in_cohort
@@ -319,23 +304,7 @@ class TestCheckCohortMembership(PersonhogTestMixin, BaseTest):
         assert result == {in_team_cohort.id: True, other_team_cohort.id: False}
 
 
-class TestCheckCohortMembershipFallback(BaseTest):
-    """Routing test: verifies ORM fallback when the personhog gate is disabled."""
-
-    def test_falls_back_to_orm_when_personhog_disabled(self):
-        from products.cohorts.backend.models.util import is_person_in_cohort
-
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
-        CohortPeople.objects.create(cohort=cohort, person=person)
-
-        with fake_personhog_client(gate_enabled=False) as fake:
-            assert is_person_in_cohort(team_id=self.team.id, person_id=person.id, cohort_id=cohort.id) is True
-
-        fake.assert_not_called("check_cohort_membership")
-
-
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestListCohortMemberIds(PersonhogTestMixin, BaseTest):
     def test_returns_member_ids(self):
         from products.cohorts.backend.models.util import list_cohort_member_ids
@@ -393,22 +362,7 @@ class TestListCohortMemberIds(PersonhogTestMixin, BaseTest):
         self._assert_personhog_not_called("list_cohort_member_ids")
 
 
-class TestListCohortMemberIdsFallback(BaseTest):
-    def test_falls_back_to_orm_when_personhog_disabled(self):
-        from products.cohorts.backend.models.util import list_cohort_member_ids
-
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
-        CohortPeople.objects.create(cohort=cohort, person=person)
-
-        with fake_personhog_client(gate_enabled=False) as fake:
-            result = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.id)
-
-        assert result == [person.id]
-        fake.assert_not_called("list_cohort_member_ids")
-
-
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestInsertCohortMembers(PersonhogTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -483,21 +437,7 @@ class TestInsertCohortMembers(PersonhogTestMixin, BaseTest):
         self._assert_personhog_called("insert_cohort_members")
 
 
-class TestInsertCohortMembersFallback(BaseTest):
-    def test_falls_back_to_orm_when_personhog_disabled(self):
-        from products.cohorts.backend.models.util import insert_cohort_members
-
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
-
-        with fake_personhog_client(gate_enabled=False) as fake:
-            insert_cohort_members(self.team.id, cohort.id, [person.id], version=1)
-
-        assert CohortPeople.objects.filter(cohort=cohort, person=person).exists()
-        fake.assert_not_called("insert_cohort_members")
-
-
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestDeleteCohortMember(PersonhogTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -545,23 +485,7 @@ class TestDeleteCohortMember(PersonhogTestMixin, BaseTest):
         self._assert_personhog_not_called("delete_cohort_member")
 
 
-class TestDeleteCohortMemberFallback(BaseTest):
-    def test_falls_back_to_orm_when_personhog_disabled(self):
-        from products.cohorts.backend.models.util import delete_cohort_member
-
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
-        CohortPeople.objects.create(cohort=cohort, person=person)
-
-        with fake_personhog_client(gate_enabled=False) as fake:
-            result = delete_cohort_member(self.team.id, cohort.id, person.id)
-
-        assert result is True
-        assert not CohortPeople.objects.filter(cohort=cohort, person=person).exists()
-        fake.assert_not_called("delete_cohort_member")
-
-
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestDeleteCohortMembersBulk(PersonhogTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -591,22 +515,6 @@ class TestDeleteCohortMembersBulk(PersonhogTestMixin, BaseTest):
         self._assert_personhog_not_called("delete_cohort_members_bulk")
 
 
-class TestDeleteCohortMembersBulkFallback(BaseTest):
-    def test_falls_back_to_orm_when_personhog_disabled(self):
-        from products.cohorts.backend.models.util import delete_cohort_members_bulk
-
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
-        CohortPeople.objects.create(cohort=cohort, person=person)
-
-        with fake_personhog_client(gate_enabled=False) as fake:
-            deleted = delete_cohort_members_bulk(self.team.id, [cohort.id])
-
-        assert deleted == 1
-        assert not CohortPeople.objects.filter(cohort=cohort).exists()
-        fake.assert_not_called("delete_cohort_members_bulk")
-
-
 class TestDeleteCohortMembersBulkMaxIterations(BaseTest):
     def test_stops_after_max_iterations(self):
         from unittest.mock import MagicMock
@@ -629,7 +537,7 @@ class TestDeleteCohortMembersBulkMaxIterations(BaseTest):
         assert total == 100 * max_iters
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestCountCohortMembers(PersonhogTestMixin, BaseTest):
     def test_returns_count(self):
         from products.cohorts.backend.models.util import count_cohort_members
@@ -665,21 +573,7 @@ class TestCountCohortMembers(PersonhogTestMixin, BaseTest):
         self._assert_personhog_not_called("count_cohort_members")
 
 
-class TestCountCohortMembersFallback(BaseTest):
-    def test_falls_back_to_orm_when_personhog_disabled(self):
-        from products.cohorts.backend.models.util import count_cohort_members
-
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
-        CohortPeople.objects.create(cohort=cohort, person=person)
-
-        with fake_personhog_client(gate_enabled=False) as fake:
-            assert count_cohort_members(self.team.id, cohort.id) == 1
-
-        fake.assert_not_called("count_cohort_members")
-
-
-@parameterized_class(("personhog",), [(False,), (True,)])
+@parameterized_class(("personhog",), [(True,)])
 class TestInsertUsersListWithBatchingPersonhog(PersonhogTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
