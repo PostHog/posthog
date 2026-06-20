@@ -6,6 +6,7 @@ import { measureLabelWidth } from '../../utils/text-measure'
 import { autoFormatterFor, orderedAxisPositions, seriesValueRange } from '../scales'
 import { DEFAULT_Y_AXIS_ID } from '../types'
 import type { ChartMargins, Series } from '../types'
+import type { YAxisTitles } from '../y-axis-titles'
 
 export const DEFAULT_MARGINS: ChartMargins = { top: 16, right: 16, bottom: 32, left: 48 }
 
@@ -21,7 +22,8 @@ const Y_LABEL_LEFT_GUTTER = 6
 export const GUTTER_GAP = 12
 const X_LABEL_EDGE_PADDING = 4
 export const X_AXIS_TITLE_MARGIN = 22
-const Y_AXIS_TITLE_MARGIN = 24
+/** Outward space a rotated y-axis title occupies — one per titled axis, on its gutter's side. */
+export const Y_AXIS_TITLE_MARGIN = 24
 
 interface UseChartMarginsOptions {
     series: Series[]
@@ -29,7 +31,6 @@ interface UseChartMarginsOptions {
     hideXAxis: boolean
     hideYAxis: boolean
     xAxisLabel?: string
-    yAxisLabel?: string
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
     axisOrientation?: 'vertical' | 'horizontal'
@@ -49,8 +50,8 @@ interface UseChartMarginsOptions {
     /** Per-axis sides keyed by axis id, overriding the alternating-side default. Keeps the margin
      *  reservation in step with the scales' config-driven positions. Multi-axis charts only. */
     yAxisPositions?: Record<string, 'left' | 'right'>
-    /** Right-side y-axis title — reserves extra right margin so it doesn't clip. */
-    yAxisLabelRight?: string
+    /** Per-side y-axis titles — each side reserves extra title margin when its title is present. */
+    yAxisTitles?: YAxisTitles
 }
 
 function widestCategoryLabelWidth(
@@ -93,7 +94,6 @@ export function useChartMargins({
     hideXAxis,
     hideYAxis,
     xAxisLabel,
-    yAxisLabel,
     xTickFormatter,
     yTickFormatter,
     axisOrientation = 'vertical',
@@ -102,13 +102,11 @@ export function useChartMargins({
     maxCategoryLabelWidth = 0,
     yAxisFormatters,
     yAxisPositions,
-    yAxisLabelRight,
+    yAxisTitles,
 }: UseChartMarginsOptions): ChartMargins {
     const isHorizontal = axisOrientation === 'horizontal'
     const valueSeries = valueRangeSeries ?? series
     const normalizedXAxisLabel = normalizeAxisLabel(xAxisLabel)
-    const normalizedYAxisLabel = normalizeAxisLabel(yAxisLabel)
-    const normalizedYAxisLabelRight = normalizeAxisLabel(yAxisLabelRight)
 
     const hasMultipleAxes = useMemo(() => {
         const axisIds = new Set(
@@ -116,6 +114,30 @@ export function useChartMargins({
         )
         return axisIds.size > 1
     }, [series])
+
+    // One rotated-title band per titled axis, on that axis's side. Single-axis charts title only the
+    // default (left) axis; multi-axis charts reserve a band for each titled axis on each side.
+    const titleReserve = useMemo<{ left: number; right: number }>(() => {
+        if (hideYAxis || isHorizontal || !yAxisTitles) {
+            return { left: 0, right: 0 }
+        }
+        if (!hasMultipleAxes) {
+            return { left: yAxisTitles[DEFAULT_Y_AXIS_ID] ? Y_AXIS_TITLE_MARGIN : 0, right: 0 }
+        }
+        let left = 0
+        let right = 0
+        for (const { axisId, position } of orderedAxisPositions(valueSeries)) {
+            if (!yAxisTitles[axisId]) {
+                continue
+            }
+            if ((yAxisPositions?.[axisId] ?? position) === 'left') {
+                left += Y_AXIS_TITLE_MARGIN
+            } else {
+                right += Y_AXIS_TITLE_MARGIN
+            }
+        }
+        return { left, right }
+    }, [hideYAxis, isHorizontal, hasMultipleAxes, valueSeries, yAxisPositions, yAxisTitles])
 
     const yLabelWidth = useMemo<number>(() => {
         if (hideYAxis) {
@@ -186,9 +208,9 @@ export function useChartMargins({
                   MIN_LEFT_MARGIN,
                   leftLabelReserve + Y_LABEL_LEFT_GUTTER,
                   xLabelHalfWidth + X_LABEL_EDGE_PADDING
-              ) + (normalizedYAxisLabel ? Y_AXIS_TITLE_MARGIN : 0)
+              ) + titleReserve.left
         const rightFloor = hasMultipleAxes && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
-        const rightLabelReserve = (gutterReserves?.right ?? 0) + (normalizedYAxisLabelRight ? Y_AXIS_TITLE_MARGIN : 0)
+        const rightLabelReserve = (gutterReserves?.right ?? 0) + titleReserve.right
         const right = Math.max(rightFloor, rightLabelReserve, xLabelHalfWidth + X_LABEL_EDGE_PADDING)
         const computed: ChartMargins = { top: DEFAULT_MARGINS.top, right, bottom, left }
         return override ? { ...computed, ...override } : computed
@@ -200,8 +222,7 @@ export function useChartMargins({
         yLabelWidth,
         xLabelHalfWidth,
         normalizedXAxisLabel,
-        normalizedYAxisLabel,
-        normalizedYAxisLabelRight,
+        titleReserve,
         override,
     ])
 }

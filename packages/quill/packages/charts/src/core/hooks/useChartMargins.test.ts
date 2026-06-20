@@ -54,14 +54,30 @@ describe('useChartMargins', () => {
         expect(empty.left).toBeGreaterThanOrEqual(fourCharLabelReserve)
     })
 
-    it('adds left space for a y-axis title', () => {
+    it('adds left space for the single (left) axis title', () => {
         const withoutTitle = render()
-        const withTitle = render({ yAxisLabel: 'Unique users' })
+        const withTitle = render({ yAxisTitles: { left: 'Unique users' } })
         expect(withTitle.left).toBeGreaterThan(withoutTitle.left)
     })
 
-    it('does not add left space for a whitespace-only y-axis title', () => {
-        expect(render({ yAxisLabel: '   ' }).left).toBe(render().left)
+    it('does not reserve a title band when no axis is titled', () => {
+        expect(render({ yAxisTitles: {} }).left).toBe(render().left)
+    })
+
+    it('reserves a title band per titled axis stacked on the same side', () => {
+        const threeAxis: Series[] = [
+            { key: 'a', label: 'A', data: [1, 2, 3] },
+            { key: 'b', label: 'B', data: [4, 5, 6], yAxisId: 'right' },
+            { key: 'c', label: 'C', data: [7, 8, 9], yAxisId: 'right2' },
+        ]
+        const positions = { left: 'left', right: 'right', right2: 'right' } as const
+        const oneTitle = render({ series: threeAxis, yAxisPositions: positions, yAxisTitles: { right: 'One' } })
+        const twoTitles = render({
+            series: threeAxis,
+            yAxisPositions: positions,
+            yAxisTitles: { right: 'One', right2: 'Two' },
+        })
+        expect(twoTitles.right).toBeGreaterThan(oneTitle.right)
     })
 
     it('grows the right margin to at least 48 when multiple y-axes are present', () => {

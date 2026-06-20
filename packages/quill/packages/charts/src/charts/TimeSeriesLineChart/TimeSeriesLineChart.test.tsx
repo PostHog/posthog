@@ -216,6 +216,32 @@ describe('TimeSeriesLineChart', () => {
             expect(container.querySelector('[data-attr="hog-chart-axis-title-yr"]')?.textContent).toBe('Conversion')
         })
 
+        it('renders a title per axis when three axes are present', () => {
+            const threeAxisSeries: Series[] = [
+                { key: 'rev', label: 'Revenue', data: [1000, 1500, 1200] },
+                { key: 'signups', label: 'Signups', data: [50, 80, 65], yAxisId: 'right' },
+                { key: 'conv', label: 'Conversion', data: [0.01, 0.02, 0.015], yAxisId: 'right2' },
+            ]
+            const { container } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={threeAxisSeries}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{
+                        yAxis: [
+                            { id: 'left', label: 'Revenue' },
+                            { id: 'right', position: 'right', label: 'Signups' },
+                            { id: 'right2', position: 'right', label: 'Conversion' },
+                        ],
+                    }}
+                />
+            )
+            const titleText = (selector: string): string[] =>
+                Array.from(container.querySelectorAll<SVGTextElement>(selector)).map((el) => el.textContent ?? '')
+            expect(titleText('[data-attr="hog-chart-axis-title-y"]')).toEqual(['Revenue'])
+            expect(titleText('[data-attr="hog-chart-axis-title-yr"]')).toEqual(['Signups', 'Conversion'])
+        })
+
         it('reserves right margin so right-axis tick labels are not clipped', () => {
             const { container } = renderHogChart(
                 <TimeSeriesLineChart
