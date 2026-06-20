@@ -21,9 +21,13 @@ from posthog.queries.actor_base_query import (
 class TestActorsBaseQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_postgres_queries
     def test_serialize_people_basic(self):
+        # immediate=True so the returned person carries its distinct ids (via the manager's
+        # add_distinct_id); the deferred path returns a bare unsaved instance that serialize_people
+        # can't read distinct_ids off now that the ORM fallback is gone.
         person = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p1"],
+            immediate=True,
             properties={
                 "name": "p1",
                 "email": "test@posthog.com",
