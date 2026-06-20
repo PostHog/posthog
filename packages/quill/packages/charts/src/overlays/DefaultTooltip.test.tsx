@@ -155,5 +155,14 @@ describe('DefaultTooltip', () => {
             renderTooltip({})
             expect(createDefaultTooltipAccessor(document.body).total()).toBeUndefined()
         })
+
+        it('includes overlay series in rows (rows is every rendered row, not summable-only)', () => {
+            const seriesData: TooltipContext['seriesData'] = [
+                { series: { key: 'a', label: 'Visits', data: [] }, value: 100, color: 'rgb(1, 2, 3)' },
+                { series: { key: 'goal', label: 'Goal', data: [], overlay: true }, value: 30, color: 'rgb(4, 5, 6)' },
+            ]
+            renderTooltip({}, seriesData)
+            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(['Visits', 'Goal'])
+        })
     })
 })

@@ -14,7 +14,6 @@ import { initKeaTests } from '../init'
 
 export const DATA_VIZ_TEST_KEY = 'sql-test-harness'
 
-/** Shared monthly x-axis for SQL chart test fixtures, and the default index tests hover/assert at. */
 export const MONTHS = ['2025-10-01', '2025-11-01', '2025-12-01', '2026-01-01', '2026-02-01', '2026-03-01']
 export const HOVER = 2
 

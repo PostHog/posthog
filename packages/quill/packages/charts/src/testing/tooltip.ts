@@ -44,8 +44,7 @@ const seriesLabelOf = (row: HTMLElement): string =>
     (row.querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent ?? '').replace(/:\s*$/, '').trim()
 
 const swatchColorOf = (row: HTMLElement): string =>
-    Array.from(row.querySelectorAll<HTMLElement>('span')).find((s) => s.style.backgroundColor)?.style.backgroundColor ??
-    ''
+    row.querySelector<HTMLElement>('[data-attr="hog-chart-tooltip-swatch"]')?.style.backgroundColor ?? ''
 
 export function createDefaultTooltipAccessor(element: HTMLElement): DefaultTooltipAccessor {
     const rowEls = (): HTMLElement[] =>
