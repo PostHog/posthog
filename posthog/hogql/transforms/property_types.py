@@ -39,11 +39,6 @@ _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractUInt": ("UInt64", 0),
     "JSONExtractFloat": ("Float64", 0.0),
     "JSONExtractBool": ("Bool", 0),
-    "simpleJSONExtractString": ("String", ""),
-    "simpleJSONExtractInt": ("Int64", 0),
-    "simpleJSONExtractUInt": ("UInt64", 0),
-    "simpleJSONExtractFloat": ("Float64", 0.0),
-    "simpleJSONExtractBool": ("Bool", 0),
 }
 
 _JSON_EXTRACT_COMPLEX_TYPE_FAMILIES = {"array", "map", "tuple", "unknown"}
@@ -428,7 +423,7 @@ class PropertySwapper(CloningVisitor):
             type=ast.StringType(nullable=True),
         )
 
-        if node.name in ("JSONExtractString", "simpleJSONExtractString"):
+        if node.name == "JSONExtractString":
             if property_path[0] in restricted_property_keys_for_table_type(field_type.table_type, self.context):
                 return ast.Constant(value=None)
             if len(property_path) == 1:

@@ -19,7 +19,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
-from typing import TYPE_CHECKING, Protocol, Self, cast
+from typing import TYPE_CHECKING, Protocol, Self
 
 from django.conf import settings
 
@@ -350,7 +350,7 @@ SandboxClass = type[SandboxBase]
 
 
 def _get_docker_sandbox_class() -> SandboxClass:
-    if not settings.DEBUG and getattr(settings, "TEST", False) is not True:
+    if not settings.DEBUG:
         raise RuntimeError(
             "DockerSandbox cannot be used in production. "
             "Set DEBUG=True for local development or remove SANDBOX_PROVIDER=docker."
@@ -405,15 +405,7 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
 
 
-class _LazySandboxClass:
-    def __getattr__(self, name: str) -> object:
-        return getattr(get_sandbox_class(), name)
-
-    def __call__(self, *args: object, **kwargs: object) -> SandboxBase:
-        return get_sandbox_class()(*args, **kwargs)
-
-
-Sandbox = cast(SandboxClass, _LazySandboxClass())
+Sandbox: SandboxClass = get_sandbox_class()
 
 __all__ = [
     "AgentServerResult",

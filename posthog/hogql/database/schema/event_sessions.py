@@ -14,8 +14,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import get_long_table_name, lookup_field_by_name
 from posthog.hogql.visitor import CloningVisitor, GetFieldsTraverser, TraversingVisitor
 
-from posthog.models.event.sql import EVENTS_QUERY_TABLE
-
 
 class EventsSessionSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
@@ -171,7 +169,6 @@ def join_with_events_table_session_duration(
     )
 
     if isinstance(select_query, ast.SelectQuery):
-        select_query.select_from = ast.JoinExpr(table=ast.Field(chain=[EVENTS_QUERY_TABLE()]))
         compare_operators = (
             WhereClauseExtractor(node.where, join_to_add.from_table, node.type, context).compare_operators
             if node.where and node.type

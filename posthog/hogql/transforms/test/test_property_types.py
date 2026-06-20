@@ -664,7 +664,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         printed = self._print_select(
             "select JSONExtractInt(properties, 'metric'), "
             "JSONExtract(properties, 'score', 'Nullable(Float64)'), "
-            "simpleJSONExtractString(properties, 'email') "
+            "JSONExtractString(properties, 'email') "
             "from events"
         )
 
@@ -707,7 +707,7 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         printed = self._print_select(
             "select JSONExtractInt(properties, 'secret'), "
             "JSONExtract(properties, 'secret', 'Nullable(Float64)'), "
-            "simpleJSONExtractString(properties, 'email') "
+            "JSONExtractString(properties, 'email') "
             "from events",
             restricted_properties={
                 ("secret", PropertyDefinition.Type.EVENT),
@@ -719,23 +719,12 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         assert "events.properties.email" not in printed, printed
         assert "JSONExtract" not in printed, printed
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_case_insensitive_jsonextract_not_rewritten(self):
-        printed = self._print_select("select JSONExtractStringCaseInsensitive(properties, 'email') from events")
-
-        assert "JSONExtractStringCaseInsensitive(toString(events.properties)" in printed, printed
-        assert "events.properties.email" not in printed, printed
-
     @parameterized.expand(
         [
             ("int", "JSONExtractInt(properties, 'metric')", "Int64", "0"),
             ("uint", "JSONExtractUInt(properties, 'metric')", "UInt64", "0"),
             ("float", "JSONExtractFloat(properties, 'metric')", "Float64", "0.0"),
             ("bool", "JSONExtractBool(properties, 'flag')", "Bool", "0"),
-            ("simple_int", "simpleJSONExtractInt(properties, 'metric')", "Int64", "0"),
-            ("simple_uint", "simpleJSONExtractUInt(properties, 'metric')", "UInt64", "0"),
-            ("simple_float", "simpleJSONExtractFloat(properties, 'metric')", "Float64", "0.0"),
-            ("simple_bool", "simpleJSONExtractBool(properties, 'flag')", "Bool", "0"),
         ]
     )
     def test_scalar_jsonextract_rewritten_to_casted_json_subcolumn(

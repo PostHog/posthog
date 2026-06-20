@@ -412,66 +412,6 @@ async function queryClickHouseSessionMetadata(
     return Array.from(foundMetadata.values())
 }
 
-async function waitForSessionReplayEventsConsumer(clickhouse: Clickhouse): Promise<void> {
-    await ensureKafkaTopics(await clickhouse.getKafkaEngineTopics())
-
-    const producer = await KafkaProducerWrapper.create(undefined)
-    const probeSessionId = `session-replay-consumer-probe-${uuidv4()}`
-    const timestamp = new Date().toISOString().replace('T', ' ').replace('Z', '')
-
-    try {
-        await waitForExpect(async () => {
-            await producer.queueMessages({
-                topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-                messages: [
-                    {
-                        key: probeSessionId,
-                        value: Buffer.from(
-                            JSON.stringify({
-                                uuid: uuidv4(),
-                                session_id: probeSessionId,
-                                team_id: -1,
-                                distinct_id: 'session-replay-consumer-probe',
-                                batch_id: uuidv4(),
-                                first_timestamp: timestamp,
-                                last_timestamp: timestamp,
-                                block_url: '',
-                                first_url: null,
-                                urls: [],
-                                click_count: 0,
-                                keypress_count: 0,
-                                mouse_activity_count: 0,
-                                active_milliseconds: 0,
-                                console_log_count: 0,
-                                console_warn_count: 0,
-                                console_error_count: 0,
-                                size: 0,
-                                message_count: 1,
-                                snapshot_source: 'test-warmup',
-                                snapshot_library: 'test-warmup',
-                                event_count: 0,
-                                retention_period_days: 30,
-                                is_deleted: 0,
-                            })
-                        ),
-                    },
-                ],
-            })
-            await producer.flush()
-
-            const rows = await clickhouse.query<{ count: number }>(`
-                SELECT count() AS count
-                FROM session_replay_events
-                FINAL
-                WHERE team_id = -1 AND session_id = '${probeSessionId}'
-            `)
-            expect(Number(rows[0]?.count ?? 0)).toBeGreaterThan(0)
-        }, 30000)
-    } finally {
-        await producer.disconnect()
-    }
-}
-
 /**
  * Reads a session block from S3 using the byte range from the block URL.
  */
@@ -1011,7 +951,6 @@ describe('Session Recording Consumer Integration', () => {
 
         await ensureKafkaTopics(TEST_KAFKA_TOPICS)
         await resetTestDatabase()
-        await waitForSessionReplayEventsConsumer(clickhouse)
 
         hub = await createHub({
             SESSION_RECORDING_V2_S3_BUCKET: TEST_CONFIG.S3_BUCKET,
