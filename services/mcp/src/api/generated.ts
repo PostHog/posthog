@@ -546,14 +546,14 @@ export namespace Schemas {
     export interface AchievementStage {
       /** Stage number within the track, 1-5. */
       stage: number;
-      /** Hog-themed stage name, e.g. 'Spike Streak'. */
+      /** Stage name within the track, e.g. 'On a roll'. */
       name: string;
       /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
       threshold: number;
     }
 
     export interface AchievementDefinition {
-      /** Stable track identifier, e.g. 'hog_streak'. */
+      /** Stable track identifier, e.g. 'streak'. */
       key: string;
       /** Human-readable track name. */
       display_name: string;
@@ -15538,7 +15538,13 @@ export namespace Schemas {
      * * `Datorama` - Datorama
      * * `Ahrefs` - Ahrefs
      * * `Lightfield` - Lightfield
+     * * `Appstack` - Appstack
+     * * `Razorpay` - Razorpay
+     * * `Neon` - Neon
+     * * `NewRelic` - NewRelic
      * * `Custom` - Custom
+     * * `Tile38` - Tile38
+     * * `Chatwoot` - Chatwoot
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16170,7 +16176,13 @@ export namespace Schemas {
       Datorama: 'Datorama',
       Ahrefs: 'Ahrefs',
       Lightfield: 'Lightfield',
+      Appstack: 'Appstack',
+      Razorpay: 'Razorpay',
+      Neon: 'Neon',
+      NewRelic: 'NewRelic',
       Custom: 'Custom',
+      Tile38: 'Tile38',
+      Chatwoot: 'Chatwoot',
     } as const;
 
     /**
@@ -16809,7 +16821,13 @@ export namespace Schemas {
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
        * * `Lightfield` - Lightfield
-       * * `Custom` - Custom */
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -20982,6 +21000,64 @@ export namespace Schemas {
     }
 
     /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `complete` - Complete
+     * * `failed` - Failed
+     */
+    export type ExportedRecordingStatusEnum = typeof ExportedRecordingStatusEnum[keyof typeof ExportedRecordingStatusEnum];
+
+
+    export const ExportedRecordingStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Complete: 'complete',
+      Failed: 'failed',
+    } as const;
+
+    export interface ExportedRecording {
+      /** Unique identifier for this export job. */
+      readonly id: string;
+      /** The `$session_id` of the recording being exported. */
+      readonly session_id: string;
+      /** Human-provided justification for the export, kept for audit purposes. */
+      readonly reason: string;
+      /** Lifecycle status of the export: pending, running, complete, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `complete` - Complete
+       * * `failed` - Failed */
+      readonly status: ExportedRecordingStatusEnum;
+      /**
+         * Storage location of the exported data once the job completes; null until status is complete.
+         * @nullable
+         */
+      readonly export_location: string | null;
+      /**
+         * Failure detail when status is failed; null otherwise.
+         * @nullable
+         */
+      readonly error_message: string | null;
+      /** When the export was requested. */
+      readonly created_at: string;
+      /** The user who triggered the export. */
+      readonly created_by: UserBasic;
+      /** True when the export is older than 7 days and its downloadable data may have been purged. */
+      readonly is_expired: boolean;
+    }
+
+    export interface ExportedRecordingCreate {
+      /**
+         * The `$session_id` of the recording to export.
+         * @maxLength 200
+         */
+      session_id: string;
+      /** Why this recording is being exported. Recorded for audit purposes. */
+      reason: string;
+    }
+
+    /**
      * @nullable
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
@@ -21102,7 +21178,7 @@ export namespace Schemas {
       readonly incremental: boolean;
       /** @nullable */
       readonly status: string | null;
-      /** Sync strategy: incremental, full_refresh, append, or cdc.
+      /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental
@@ -21197,7 +21273,7 @@ export namespace Schemas {
       id: string;
       /** Whether the schema should be queryable/synced. */
       should_sync?: boolean;
-      /** Requested sync mode for the schema.
+      /** Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental
@@ -21890,7 +21966,13 @@ export namespace Schemas {
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
        * * `Lightfield` - Lightfield
-       * * `Custom` - Custom */
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -21917,6 +21999,8 @@ export namespace Schemas {
        * * `api` - api
        * * `mcp` - mcp */
       created_via?: CreatedViaEnum;
+      /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
     }
 
     /**
@@ -21974,6 +22058,8 @@ export namespace Schemas {
          */
       description?: string | null;
       readonly access_method: AccessMethodEnum;
+      /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -25965,6 +26051,59 @@ export namespace Schemas {
       Vercel: 'vercel',
     } as const;
 
+    export interface IntegrationAccessRequest {
+      /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
+       *
+       * * `anthropic` - Anthropic
+       * * `apns` - Apple Push
+       * * `azure-blob` - Azure Blob
+       * * `bing-ads` - Bing Ads
+       * * `clickup` - Clickup
+       * * `customerio-app` - Customerio App
+       * * `customerio-track` - Customerio Track
+       * * `customerio-webhook` - Customerio Webhook
+       * * `databricks` - Databricks
+       * * `email` - Email
+       * * `firebase` - Firebase
+       * * `github` - Github
+       * * `gitlab` - Gitlab
+       * * `google-ads` - Google Ads
+       * * `google-analytics` - Google Analytics
+       * * `google-cloud-service-account` - Google Cloud Service Account
+       * * `google-cloud-storage` - Google Cloud Storage
+       * * `google-pubsub` - Google Pubsub
+       * * `google-search-console` - Google Search Console
+       * * `google-sheets` - Google Sheets
+       * * `hubspot` - Hubspot
+       * * `intercom` - Intercom
+       * * `jira` - Jira
+       * * `linear` - Linear
+       * * `linkedin-ads` - Linkedin Ads
+       * * `meta-ads` - Meta Ads
+       * * `pinterest-ads` - Pinterest Ads
+       * * `postgresql` - Postgresql
+       * * `reddit-ads` - Reddit Ads
+       * * `salesforce` - Salesforce
+       * * `slack` - Slack
+       * * `slack-posthog-code` - Slack Posthog Code
+       * * `snapchat` - Snapchat
+       * * `stripe` - Stripe
+       * * `tiktok-ads` - Tiktok Ads
+       * * `twilio` - Twilio
+       * * `vercel` - Vercel */
+      kind: IntegrationKindEnum;
+      /**
+         * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
+         * @maxLength 2000
+         */
+      reason: string;
+    }
+
+    export interface IntegrationAccessRequestResponse {
+      /** Whether the access request was accepted and the project admins were notified. */
+      success: boolean;
+    }
+
     /**
      * Standard Integration serializer.
      */
@@ -26416,6 +26555,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillMetadata;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -26482,6 +26623,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillCreateMetadata;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Bundled files to include with the initial version (scripts, references, assets). */
       files?: LLMSkillFileInput[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
@@ -26607,6 +26750,8 @@ export namespace Schemas {
       allowed_tools?: string[];
       /** Arbitrary key-value metadata. */
       metadata?: LLMSkillListMetadata;
+      /** Server-owned classification — set by the producing system (the Signals harness stamps "scout"), not writable via the API. Empty for an ordinary skill. Groups skills into their own surface (e.g. the Scouts tab) independently of the skill name. */
+      readonly category: string;
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
       readonly version: number;
@@ -28725,6 +28870,11 @@ export namespace Schemas {
       readonly is_pending_deletion: boolean | null;
     }
 
+    export interface OrganizationAIAccessRequestResponse {
+      /** Whether the access request was accepted and the organization admins were notified. */
+      success: boolean;
+    }
+
     /**
      * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
      * Also used for nested serializers.
@@ -29655,6 +29805,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ExportedAsset[];
+    }
+
+    export interface PaginatedExportedRecordingList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ExportedRecording[];
     }
 
     export interface PaginatedExternalDataSchemaList {
@@ -35438,7 +35597,7 @@ export namespace Schemas {
       readonly incremental?: boolean;
       /** @nullable */
       readonly status?: string | null;
-      /** Sync strategy: incremental, full_refresh, append, or cdc.
+      /** Sync strategy: incremental, full_refresh, append, cdc, or xmin.
        *
        * * `full_refresh` - full_refresh
        * * `incremental` - incremental
@@ -35558,6 +35717,8 @@ export namespace Schemas {
          */
       description?: string | null;
       readonly access_method?: AccessMethodEnum;
+      /** Whether this synced source is also live-queryable via direct connection. Defaults to true for new sources; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
@@ -46449,7 +46610,13 @@ export namespace Schemas {
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
        * * `Lightfield` - Lightfield
-       * * `Custom` - Custom */
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -47114,7 +47281,13 @@ export namespace Schemas {
        * * `Datorama` - Datorama
        * * `Ahrefs` - Ahrefs
        * * `Lightfield` - Lightfield
-       * * `Custom` - Custom */
+       * * `Appstack` - Appstack
+       * * `Razorpay` - Razorpay
+       * * `Neon` - Neon
+       * * `NewRelic` - NewRelic
+       * * `Custom` - Custom
+       * * `Tile38` - Tile38
+       * * `Chatwoot` - Chatwoot */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -47130,6 +47303,8 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
+      /** Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources. */
+      direct_query_enabled?: boolean;
     }
 
     export interface SourceSetupWebhook {
@@ -48192,6 +48367,11 @@ export namespace Schemas {
        * * `read-only` - read-only
        * * `full-access` - full-access */
       initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+      /**
+         * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
+         * @maxLength 120
+         */
+      home_quick_action?: string;
     }
 
     /**
@@ -53457,6 +53637,10 @@ export namespace Schemas {
     };
 
     export type EnvironmentsLlmSkillsListParams = {
+    /**
+     * Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.
+     */
+    category?: string;
     /**
      * Filter skills by the ID of the user who created them.
      */
@@ -59738,6 +59922,10 @@ export namespace Schemas {
 
     export type LlmSkillsListParams = {
     /**
+     * Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.
+     */
+    category?: string;
+    /**
      * Filter skills by the ID of the user who created them.
      */
     created_by_id?: number;
@@ -60921,6 +61109,17 @@ export namespace Schemas {
     };
 
     export type SessionGroupSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SessionRecordingExportsListParams = {
     /**
      * Number of results to return per page.
      */

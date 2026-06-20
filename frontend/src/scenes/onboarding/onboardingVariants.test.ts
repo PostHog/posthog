@@ -5,32 +5,44 @@ import { onboardingVariantChrome, resolveOnboardingFlowVariant } from './onboard
 
 describe('onboardingVariants', () => {
     describe('resolveOnboardingFlowVariant', () => {
-        it('falls back to control when the flag is not set', () => {
-            expect(resolveOnboardingFlowVariant({} as FeatureFlagsSet)).toBe('control')
+        it('falls back to legacy when the flag is not set', () => {
+            expect(resolveOnboardingFlowVariant({} as FeatureFlagsSet)).toBe('legacy')
         })
 
-        it('falls back to control when the flag resolves to a boolean', () => {
+        it('falls back to legacy when the flag resolves to a boolean', () => {
             expect(
                 resolveOnboardingFlowVariant({ [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: true } as FeatureFlagsSet)
-            ).toBe('control')
+            ).toBe('legacy')
         })
 
-        it('returns the variant string when set to a named variant', () => {
+        it('maps the original control flag value to legacy', () => {
+            expect(
+                resolveOnboardingFlowVariant({ [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'control' } as FeatureFlagsSet)
+            ).toBe('legacy')
+        })
+
+        it('returns redesign when the flag selects it', () => {
+            expect(
+                resolveOnboardingFlowVariant({ [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'redesign' } as FeatureFlagsSet)
+            ).toBe('redesign')
+        })
+
+        it('falls back to legacy for an unregistered variant', () => {
             expect(
                 resolveOnboardingFlowVariant({
                     [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'some_future_variant',
                 } as FeatureFlagsSet)
-            ).toBe('some_future_variant')
+            ).toBe('legacy')
         })
     })
 
     describe('onboardingVariantChrome', () => {
-        it('control keeps the minimal top bar', () => {
-            expect(onboardingVariantChrome('control')).toBe('minimal')
+        it('legacy keeps the minimal top bar', () => {
+            expect(onboardingVariantChrome('legacy')).toBe('minimal')
         })
 
-        it('defaults to minimal for an unregistered variant', () => {
-            expect(onboardingVariantChrome('not_a_real_variant')).toBe('minimal')
+        it('redesign keeps the minimal top bar', () => {
+            expect(onboardingVariantChrome('redesign')).toBe('minimal')
         })
     })
 })

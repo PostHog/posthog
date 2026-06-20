@@ -21290,7 +21290,13 @@
                 "Datorama",
                 "Ahrefs",
                 "Lightfield",
-                "Custom"
+                "Appstack",
+                "Razorpay",
+                "Neon",
+                "NewRelic",
+                "Custom",
+                "Tile38",
+                "Chatwoot"
             ],
             "type": "string"
         },

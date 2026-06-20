@@ -393,6 +393,46 @@ describe('hog-charts scales', () => {
             // The right axis is unaffected — nice() can nudge 500 up a little, but nowhere near 1000.
             expect(result.yAxes!.y1.scale.domain()[1]).toBeLessThan(1000)
         })
+
+        it('applies a per-axis scaleType from options.axes to that axis only', () => {
+            const left = makeSeries({ key: 'left', data: [1, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
+            const right = makeSeries({ key: 'right', data: [1, 1000], yAxisId: 'y1' })
+            const result = createScales([left, right], ['a', 'b'], dimensions, {
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'left', scaleType: 'linear' },
+                    { id: 'y1', position: 'right', scaleType: 'log' },
+                ],
+            })
+            // The log axis compresses the low end far more than the linear one for identical data.
+            const linearMid = result.yAxes![DEFAULT_Y_AXIS_ID].scale(100)
+            const logMid = result.yAxes!.y1.scale(100)
+            expect(linearMid).not.toBeCloseTo(logMid, 0)
+        })
+
+        it('honors a config-driven position over the alternating default', () => {
+            const a = makeSeries({ key: 'a', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
+            const b = makeSeries({ key: 'b', data: [0, 1000], yAxisId: 'y1' })
+            // Both axes forced to the right side — the alternating default would put 'left' on the left.
+            const result = createScales([a, b], ['x', 'y'], dimensions, {
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'right' },
+                    { id: 'y1', position: 'right' },
+                ],
+            })
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].position).toBe('right')
+            expect(result.yAxes!.y1.position).toBe('right')
+        })
+
+        it('uses a single-axis options.axes scaleType for the sole axis', () => {
+            const only = makeSeries({ key: 'only', data: [1, 10, 100, 1000] })
+            const result = createScales([only], ['a', 'b', 'c', 'd'], dimensions, {
+                axes: [{ id: DEFAULT_Y_AXIS_ID, position: 'left', scaleType: 'log' }],
+            })
+            // Single axis → no yAxes map, but the sole scale picks up the log scaleType.
+            expect(result.yAxes).toBeUndefined()
+            const [min] = result.y.domain() as [number, number]
+            expect(min).toBeGreaterThan(0)
+        })
     })
 
     describe('computePercentStackData', () => {

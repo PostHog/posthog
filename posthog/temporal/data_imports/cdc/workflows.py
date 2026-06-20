@@ -74,6 +74,7 @@ class CDCSlotCleanupWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             cleanup_orphan_slots_activity,
             start_to_close_timeout=dt.timedelta(minutes=15),
+            heartbeat_timeout=dt.timedelta(minutes=2),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=30),
                 maximum_interval=dt.timedelta(seconds=300),

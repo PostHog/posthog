@@ -804,21 +804,30 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
         for i in range(3):
-            table = DataWarehouseTable.objects.create(
+            DataWarehouseTable.objects.create(
                 name=f"whatever{i}",
                 team=self.team,
                 columns={"id": "String"},
                 credential=credential,
                 url_pattern="",
             )
-            DataWarehouseSavedQuery.objects.create(
+            saved_query = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=f"whatever_view{i}",
                 query={"query": f"SELECT id FROM whatever{i}"},
                 columns={"id": "String"},
-                table=table,
                 status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
+            # Give the view a materialized backing table so the build exercises that path with no IO
+            backing_table = DataWarehouseTable.objects.create(
+                name=f"whatever_view{i}",
+                team=self.team,
+                columns={"id": "String"},
+                credential=credential,
+                url_pattern=saved_query.url_pattern,
+            )
+            saved_query.table = backing_table
+            saved_query.save(update_fields=["table"])
         # Endpoint-origin saved query so the endpoint build loop is exercised under assertNumQueries(0).
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -864,6 +873,52 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert db.has_table("whatever_endpoint")
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
+
+    def test_materialized_backing_filter_keeps_source_tables_but_hides_backing_tables(self):
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_secret"
+        )
+        source_table = DataWarehouseTable.objects.create(
+            name="stripe_charge",
+            team=self.team,
+            columns={"id": "String"},
+            credential=credential,
+            url_pattern="s3://source/stripe_charge/*",
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="charges_view",
+            query={"query": "SELECT id FROM stripe_charge"},
+            columns={"id": "String"},
+            table=source_table,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        renamed_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="renamed_view",
+            query={"query": "SELECT id FROM stripe_charge"},
+            columns={"id": "String"},
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+        backing_table = DataWarehouseTable.objects.create(
+            name="old_view_name",
+            team=self.team,
+            columns={"id": "String"},
+            credential=credential,
+            url_pattern=renamed_view.url_pattern,
+        )
+        renamed_view.table = backing_table
+        renamed_view.save(update_fields=["table"])
+
+        database = Database.create_for(team=self.team, bypass_warehouse_access_control=True)
+
+        assert database.has_table("stripe_charge")
+        assert database.has_table("charges_view")
+        assert database.has_table("renamed_view")
+        assert not database.has_table("old_view_name")
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_performs_no_io_for_direct_postgres(self, patch_execute):
