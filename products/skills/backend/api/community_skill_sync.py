@@ -7,6 +7,7 @@ import requests
 import structlog
 
 from ..models.community_skills import CommunitySkill, CommunitySkillFile
+from .skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
 
 logger = structlog.get_logger(__name__)
 
@@ -18,10 +19,30 @@ COMMUNITY_SKILLS_REGISTRY_URL = (
 COMMUNITY_SKILLS_SYNC_TIMEOUT_SECONDS = 30
 
 
+def _validate_entry_within_caps(entry: dict[str, Any]) -> None:
+    """Reject oversized registry entries before persisting, mirroring the skill import caps.
+
+    The registry is built in a review-gated repo, but the same body/file caps the normal
+    import path enforces are cheap insurance against one bad entry bloating Postgres.
+    """
+    body = entry.get("body", "") or ""
+    if len(body.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
+        raise ValueError(f"body exceeds the {MAX_SKILL_BODY_BYTES} byte limit")
+
+    files = entry.get("files", []) or []
+    if len(files) > MAX_SKILL_FILE_COUNT:
+        raise ValueError(f"has more than {MAX_SKILL_FILE_COUNT} files")
+    for f in files:
+        content = f.get("content", "") or ""
+        if len(content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
+            raise ValueError(f"file '{f.get('path')}' exceeds the {MAX_SKILL_FILE_BYTES} byte limit")
+
+
 def _upsert_community_skill(entry: dict[str, Any]) -> bool:
     """Upsert a single registry entry. Returns True if the row was created or updated."""
     slug = entry["slug"]
     source_sha = entry.get("source_sha", "")
+    _validate_entry_within_caps(entry)
 
     existing = CommunitySkill.objects.filter(slug=slug).first()
     if existing is not None and existing.source_sha and existing.source_sha == source_sha and not existing.deleted:
@@ -91,14 +112,32 @@ def sync_community_skills_from_github(registry_url: str = COMMUNITY_SKILLS_REGIS
     skipped = 0
     seen_slugs: set[str] = set()
     for entry in entries:
+        if not isinstance(entry, dict):
+            continue
         slug = entry.get("slug")
         if not slug:
             continue
+        # Mark the slug seen before upserting so a malformed entry can't soft-delete the
+        # existing row for a skill that's still present in the registry.
         seen_slugs.add(slug)
-        if _upsert_community_skill(entry):
+        try:
+            created_or_updated = _upsert_community_skill(entry)
+        except (KeyError, ValueError, TypeError):
+            # One bad entry (missing required field, oversized payload) must not abort the
+            # whole loop or skip the soft-delete reconciliation below.
+            logger.warning("community_skills_sync_skipped_invalid_entry", slug=slug, exc_info=True)
+            skipped += 1
+            continue
+        if created_or_updated:
             synced += 1
         else:
             skipped += 1
+
+    # Fail-safe: a non-empty registry that parsed into zero valid slugs (schema change, generator
+    # bug, every entry malformed) must not soft-delete the entire catalog — skip reconciliation.
+    if not seen_slugs:
+        logger.warning("community_skills_sync_skipped_no_valid_slugs", entry_count=len(entries))
+        return {"synced": synced, "skipped": skipped, "removed": 0}
 
     removed = CommunitySkill.objects.filter(deleted=False).exclude(slug__in=seen_slugs).update(deleted=True)
 
