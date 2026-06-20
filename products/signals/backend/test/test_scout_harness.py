@@ -517,7 +517,7 @@ async def test_activity_returns_completed_outcome(ateam):
         )
 
     with patch(
-        "products.signals.backend.temporal.agentic.scout_scheduler.arun_signals_scout",
+        "products.signals.backend.scout_harness.runner.arun_signals_scout",
         side_effect=fake_arun,
     ):
         env = ActivityEnvironment()
@@ -549,7 +549,7 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
         )
 
     with patch(
-        "products.signals.backend.temporal.agentic.scout_scheduler.arun_signals_scout",
+        "products.signals.backend.scout_harness.runner.arun_signals_scout",
         side_effect=fake_arun,
     ):
         env = ActivityEnvironment()
