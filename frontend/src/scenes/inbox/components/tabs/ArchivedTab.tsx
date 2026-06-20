@@ -19,7 +19,7 @@ export function ArchivedTab(): JSX.Element {
                 icon: <IconArchive className="text-2xl" />,
                 title: 'Nothing archived',
                 description:
-                    'Reports you archive land here, where you can restore them to the inbox. Resolved reports (their pull request merged) also appear here for reference.',
+                    'Reports you archive land here, where you can restore them to the inbox. Resolved reports also appear here for reference.',
             }}
         />
     )
