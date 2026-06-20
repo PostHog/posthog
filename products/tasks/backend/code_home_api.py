@@ -133,6 +133,7 @@ class CodeHomeViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "status": t.get("status"),
                     "isGenerating": False,
                     "needsPermission": False,
+                    "quickAction": t.get("quick_action"),
                 }
                 for t in (ws.tasks or [])
             ],
