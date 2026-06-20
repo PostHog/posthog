@@ -650,6 +650,7 @@ const config = {
                 // Quick horizontal shake
                 shake: 'shake 0.5s ease-in-out',
                 'slide-in-right': 'slide-in-right 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
+                'slide-in-up': 'slide-in-up 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
             },
             keyframes: {
                 'pulse-glow': {
@@ -674,6 +675,10 @@ const config = {
                 'slide-in-right': {
                     '0%': { opacity: '0', transform: 'translateX(calc(100% + 1.5rem))' },
                     '100%': { opacity: '1', transform: 'translateX(0)' },
+                },
+                'slide-in-up': {
+                    '0%': { opacity: '0', transform: 'translateY(calc(100% + 1.5rem))' },
+                    '100%': { opacity: '1', transform: 'translateY(0)' },
                 },
             },
             colors: {

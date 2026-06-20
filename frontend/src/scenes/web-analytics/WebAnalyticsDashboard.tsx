@@ -45,6 +45,7 @@ import { ShareNudgePrompt } from 'scenes/web-analytics/ShareNudgePrompt'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import { WebAnalyticsAskMaxNudge } from 'scenes/web-analytics/WebAnalyticsAskMaxNudge'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoadTimeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -786,6 +787,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
 
                         <WebAnalyticsShareColleagueBanner />
                         <ShareNudgePrompt />
+                        <WebAnalyticsAskMaxNudge />
                         <WebAnalyticsHealthCheck />
                         <MainContent />
                     </>
