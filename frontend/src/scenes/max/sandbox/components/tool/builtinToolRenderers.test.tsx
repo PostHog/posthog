@@ -132,7 +132,7 @@ describe('builtin tool renderers', () => {
         expect(screen.getByText('funnel')).toBeInTheDocument()
     })
 
-    it('renders an unmapped MCP tool with a server - tool (MCP) header', () => {
+    it('renders an unmapped MCP tool with a Call server – tool (MCP) header', () => {
         render(
             <GenericMcpToolRenderer
                 isLastInGroup
@@ -144,8 +144,26 @@ describe('builtin tool renderers', () => {
                 })}
             />
         )
-        expect(screen.getByText('user-mcp -')).toBeInTheDocument()
+        expect(screen.getByText('Call user-mcp –')).toBeInTheDocument()
         expect(screen.getByText('do_thing')).toBeInTheDocument()
         expect(screen.getByText('(MCP)')).toBeInTheDocument()
+    })
+
+    it('renders an unmapped PostHog exec inner tool as "Call <tool>" without the MCP suffix', () => {
+        render(
+            <GenericMcpToolRenderer
+                isLastInGroup
+                message={makeMessage({
+                    resolvedKey: 'read-data-schema',
+                    rawServerName: 'posthog',
+                    rawToolName: 'exec',
+                    innerToolName: 'read-data-schema',
+                    rawInput: { command: 'call read-data-schema' },
+                })}
+            />
+        )
+        expect(screen.getByText('Call')).toBeInTheDocument()
+        expect(screen.getByText('read-data-schema')).toBeInTheDocument()
+        expect(screen.queryByText('(MCP)')).not.toBeInTheDocument()
     })
 })

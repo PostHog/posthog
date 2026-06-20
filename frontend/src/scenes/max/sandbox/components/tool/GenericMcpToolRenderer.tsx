@@ -10,9 +10,10 @@ import { ToolOutput } from './ToolOutput'
 
 /**
  * The catch-all tool card — user-installed MCP tools, unmapped PostHog `exec` inner tools, and Claude
- * built-ins without a bespoke renderer. MCP tools show a `server - tool (MCP)` title with a compact
- * input preview on the second line; non-MCP built-ins show their friendly title. The body shows any
- * text output. Replaces the old `FallbackMcpToolRenderer`.
+ * built-ins without a bespoke renderer. PostHog `exec` inner tools read `Call <tool>`; other MCP tools
+ * read `Call <server> – <tool> (MCP)`; non-MCP built-ins show their friendly title. A compact input
+ * preview sits on the second line and the body shows any text output. Replaces the old
+ * `FallbackMcpToolRenderer`.
  */
 export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(
     props: SandboxToolRendererProps
@@ -30,11 +31,19 @@ export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(
     const preview = hasInput ? compactInput(inputForPreview) : ''
     const output = stripCodeFences(getContentText(message.content))
 
-    const title = isMcp ? (
-        <>
-            <span className="text-muted">{serverName} -</span> <span className="font-medium">{toolLabel}</span>{' '}
-            <span className="text-muted">(MCP)</span>
-        </>
+    // A single wrapping span keeps the title as one flex item — the header's `inline-flex` wrapper drops
+    // whitespace between sibling flex items, so spaces are baked into the spans here, not between them.
+    const title = isPostHogExec ? (
+        <span>
+            <span className="text-muted">Call </span>
+            <span className="font-medium">{toolLabel}</span>
+        </span>
+    ) : isMcp ? (
+        <span>
+            <span className="text-muted">Call {serverName} – </span>
+            <span className="font-medium">{toolLabel}</span>
+            <span className="text-muted"> (MCP)</span>
+        </span>
     ) : (
         message.title || displayName || toolLabel
     )
