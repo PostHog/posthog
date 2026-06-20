@@ -4,23 +4,19 @@ import { IconGitBranch } from '@posthog/icons'
 
 /**
  * Pre-turn header for a sandbox coding run: a one-line "Working on <repo> · <branch> → <base>"
- * summary fed from `runArtifacts`. Plain props, `React.memo`'d. Returns null with no branch, so a
- * pure-analytics conversation (and any run that never reports git context) renders nothing. This
- * complements — does not replace — the `_posthog/progress` provisioning steps.
+ * summary. Plain props, `React.memo`'d — `branch` is required, so the caller decides whether to mount
+ * it (only when a run reports git context). This complements — does not replace — the
+ * `_posthog/progress` provisioning steps.
  */
 export const SandboxRunContext = memo(function SandboxRunContext({
     branch,
     baseBranch,
     repo,
 }: {
-    branch?: string
+    branch: string
     baseBranch?: string
     repo?: string
-}): JSX.Element | null {
-    if (!branch) {
-        return null
-    }
-
+}): JSX.Element {
     return (
         <div className="flex items-center gap-1.5 px-3 py-1 text-xs text-muted" data-attr="max-sandbox-run-context">
             <IconGitBranch className="size-3.5 shrink-0" />

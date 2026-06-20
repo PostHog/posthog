@@ -170,11 +170,13 @@ function SandboxThread(): JSX.Element {
 
     return (
         <>
-            <SandboxRunContext
-                branch={runArtifacts.branch}
-                baseBranch={runArtifacts.baseBranch}
-                repo={runArtifacts.repo}
-            />
+            {runArtifacts.branch && (
+                <SandboxRunContext
+                    branch={runArtifacts.branch}
+                    baseBranch={runArtifacts.baseBranch}
+                    repo={runArtifacts.repo}
+                />
+            )}
             {threadItems.map((item, index) => {
                 if (item.type === 'human_message') {
                     return (
@@ -246,7 +248,10 @@ function SandboxThread(): JSX.Element {
                 <SandboxProvisioningIndicator progress={currentProgress} />
             )}
             {isThinking && !hasActiveProgressItem && <SandboxThinkingIndicator progress={currentProgress} />}
-            <SandboxPullRequestCard prUrl={runArtifacts.prUrl} branch={runArtifacts.branch} />
+            {/* Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking. */}
+            {!isThinking && runArtifacts.prUrl && (
+                <SandboxPullRequestCard prUrl={runArtifacts.prUrl} branch={runArtifacts.branch} />
+            )}
         </>
     )
 }

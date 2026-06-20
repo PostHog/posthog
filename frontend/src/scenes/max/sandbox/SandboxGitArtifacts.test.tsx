@@ -7,14 +7,11 @@ import { SandboxRunContext } from './SandboxRunContext'
 
 const PR_URL = 'https://github.com/PostHog/posthog/pull/123'
 
+// Visibility is the caller's concern (SandboxThread mounts these only when the run reports the
+// relevant artifact), so these cover only that each renders its data when mounted.
 describe('sandbox git artifacts', () => {
     afterEach(() => {
         cleanup()
-    })
-
-    it('SandboxRunContext self-hides with no branch', () => {
-        const { container } = render(<SandboxRunContext />)
-        expect(container).toBeEmptyDOMElement()
     })
 
     it('SandboxRunContext renders the working and base branch', () => {
@@ -24,9 +21,9 @@ describe('sandbox git artifacts', () => {
         expect(screen.getByText('PostHog/posthog')).toBeInTheDocument()
     })
 
-    it('SandboxPullRequestCard self-hides with no pr url', () => {
-        const { container } = render(<SandboxPullRequestCard branch="feat/x" />)
-        expect(container).toBeEmptyDOMElement()
+    it('SandboxRunContext renders just the branch when there is no base or repo', () => {
+        render(<SandboxRunContext branch="feat/x" />)
+        expect(screen.getByText('feat/x')).toBeInTheDocument()
     })
 
     it('SandboxPullRequestCard renders the success card and a link to the PR', () => {
