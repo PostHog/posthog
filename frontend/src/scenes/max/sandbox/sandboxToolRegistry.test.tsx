@@ -146,8 +146,9 @@ describe('sandboxToolRegistry', () => {
                     })}
                 />
             )
-            expect(await screen.findByText('(MCP)', {}, { timeout: 10000 })).toBeInTheDocument()
-            expect(screen.getByText('do_thing')).toBeInTheDocument()
+            expect(
+                await screen.findByText('Call user-mcp – do_thing (MCP)', {}, { timeout: 10000 })
+            ).toBeInTheDocument()
         })
     })
 })

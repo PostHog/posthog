@@ -144,9 +144,7 @@ describe('builtin tool renderers', () => {
                 })}
             />
         )
-        expect(screen.getByText('Call user-mcp –')).toBeInTheDocument()
-        expect(screen.getByText('do_thing')).toBeInTheDocument()
-        expect(screen.getByText('(MCP)')).toBeInTheDocument()
+        expect(screen.getByText('Call user-mcp – do_thing (MCP)')).toBeInTheDocument()
     })
 
     it('renders an unmapped PostHog exec inner tool as "Call <tool>" without the MCP suffix', () => {
@@ -162,8 +160,7 @@ describe('builtin tool renderers', () => {
                 })}
             />
         )
-        expect(screen.getByText('Call')).toBeInTheDocument()
-        expect(screen.getByText('read-data-schema')).toBeInTheDocument()
-        expect(screen.queryByText('(MCP)')).not.toBeInTheDocument()
+        expect(screen.getByText('Call read-data-schema')).toBeInTheDocument()
+        expect(screen.queryByText(/\(MCP\)/)).not.toBeInTheDocument()
     })
 })

@@ -31,22 +31,13 @@ export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(
     const preview = hasInput ? compactInput(inputForPreview) : ''
     const output = stripCodeFences(getContentText(message.content))
 
-    // A single wrapping span keeps the title as one flex item — the header's `inline-flex` wrapper drops
-    // whitespace between sibling flex items, so spaces are baked into the spans here, not between them.
-    const title = isPostHogExec ? (
-        <span>
-            <span className="text-muted">Call </span>
-            <span className="font-medium">{toolLabel}</span>
-        </span>
-    ) : isMcp ? (
-        <span>
-            <span className="text-muted">Call {serverName} – </span>
-            <span className="font-medium">{toolLabel}</span>
-            <span className="text-muted"> (MCP)</span>
-        </span>
-    ) : (
-        message.title || displayName || toolLabel
-    )
+    // Plain neutral title text, matching the built-in tool cards (e.g. "Read N lines"). A single text
+    // node is also one flex item, so the header's `inline-flex` wrapper keeps the spaces intact.
+    const title = isPostHogExec
+        ? `Call ${toolLabel}`
+        : isMcp
+          ? `Call ${serverName} – ${toolLabel} (MCP)`
+          : message.title || displayName || toolLabel
 
     // Subagent / MCP / unmapped tools show both the full input and the text output in the body.
     const formattedInput = hasInput ? formatInput(inputForPreview) : ''
