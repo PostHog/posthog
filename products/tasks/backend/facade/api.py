@@ -106,6 +106,7 @@ __all__ = [
     "get_sandbox_snapshot",
     "get_stale_queued_task_run_ids",
     "get_task_automation",
+    "get_task_id_for_run",
     "get_task_run",
     "is_task_visible_to_user",
     "is_valid_sandbox_env_var_key",
@@ -260,6 +261,15 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     if run is None:
         return None
     return _task_run_to_dto(run)
+
+
+def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
+    """The parent task id for a run, team-scoped. ``None`` if the run isn't found for the team.
+
+    A lightweight ``task_run_id -> task_id`` resolution (no DTO build) for callers that only
+    need to deep-link a run to its task.
+    """
+    return TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).first()
 
 
 def task_exists(task_id: str | UUID, team_id: int) -> bool:
