@@ -97,7 +97,7 @@ export function Chart<Meta = unknown>({
     createScales: createScalesFn,
     drawStatic,
     drawHover,
-    tooltip: renderTooltip = DefaultTooltip,
+    tooltip: renderTooltipProp,
     onPointClick,
     onDateRangeZoom,
     className,
@@ -160,7 +160,27 @@ export function Chart<Meta = unknown>({
         enabled: showTooltip = true,
         pinnable: pinnableTooltip = false,
         placement: tooltipPlacement = 'follow-data',
+        valueFormatter: tooltipValueFormatter,
+        showTotal: tooltipShowTotal,
+        totalLabel: tooltipTotalLabel,
+        totalFormatter: tooltipTotalFormatter,
     } = tooltipConfig ?? {}
+
+    // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
+    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
+        () =>
+            renderTooltipProp ??
+            ((ctx: TooltipContext<Meta>) => (
+                <DefaultTooltip
+                    {...ctx}
+                    valueFormatter={tooltipValueFormatter}
+                    showTotal={tooltipShowTotal}
+                    totalLabel={tooltipTotalLabel}
+                    totalFormatter={tooltipTotalFormatter}
+                />
+            )),
+        [renderTooltipProp, tooltipValueFormatter, tooltipShowTotal, tooltipTotalLabel, tooltipTotalFormatter]
+    )
 
     const margins = useChartMargins({
         series,

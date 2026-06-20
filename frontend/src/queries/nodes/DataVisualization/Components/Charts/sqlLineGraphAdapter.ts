@@ -2,8 +2,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 import {
     type ChartLegendConfig,
     type Series,
+    type SeriesType,
     type TimeSeriesBarChartConfig,
+    type TimeSeriesComboChartConfig,
     type TimeSeriesLineChartConfig,
+    type TooltipConfig,
+    type TooltipContext,
     type TrendLineConfig,
     type XAxisConfig,
     type YAxisConfig,
@@ -29,6 +33,51 @@ export type SqlLineYSeries = AxisSeries<number | null> | AxisBreakdownSeries<num
 export const isAreaSeries = (visualizationType: ChartDisplayType, settings: AxisSeriesSettings | undefined): boolean =>
     visualizationType === ChartDisplayType.ActionsAreaGraph || settings?.display?.displayType === 'area'
 
+/** Per-series quill `type` that drives mixed-type rendering on {@link ComboChart}. */
+export function seriesDisplayType(
+    visualizationType: ChartDisplayType,
+    settings: AxisSeriesSettings | undefined
+): SeriesType {
+    const displayType = settings?.display?.displayType
+    if (displayType === 'bar') {
+        return 'bar'
+    }
+    if (displayType === 'line') {
+        return 'line'
+    }
+    if (displayType === 'area') {
+        return 'area'
+    }
+    if (visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar) {
+        return 'bar'
+    }
+    if (visualizationType === ChartDisplayType.ActionsAreaGraph) {
+        return 'area'
+    }
+    return 'line'
+}
+
+/** True when the series resolve to a mix of bar and line/area — the case neither the line-only nor
+ *  the bar-only quill path can render, so it routes to {@link SqlComboGraph}. */
+export function hasMixedSeriesTypes(
+    yData: NonNullable<LineGraphProps['yData']>,
+    visualizationType: ChartDisplayType
+): boolean {
+    let hasBar = false
+    let hasLineLike = false
+    for (const series of yData) {
+        if (seriesDisplayType(visualizationType, series.settings) === 'bar') {
+            hasBar = true
+        } else {
+            hasLineLike = true
+        }
+        if (hasBar && hasLineLike) {
+            return true
+        }
+    }
+    return false
+}
+
 const getSeriesLabel = (series: SqlLineYSeries): string => ('name' in series ? series.name : series.column.name)
 
 const getSeriesKey = (series: SqlLineYSeries, index: number): string =>
@@ -48,8 +97,9 @@ export function buildTrendLineConfigs(ySeriesData: SqlLineYSeries[] | null | und
 }
 
 /**
- * Plain line/area charts — including goal lines and trend lines — render here. Mixed line/bar series
- * and right y-axis series aren't ported yet, so those fall back to the legacy chart.js path.
+ * Plain line/area charts — including goal lines and trend lines — render here. Series that mix a bar
+ * with a line/area route to {@link canRenderSqlComboGraph}; right y-axis series aren't ported yet, so
+ * those fall back to the legacy chart.js path.
  */
 export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
     const { visualizationType, yData } = props
@@ -95,6 +145,39 @@ export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
     return true
 }
 
+/**
+ * Mixed bar + line/area series render on quill's {@link TimeSeriesComboChart}. Trend lines and
+ * percent-stacked layouts (unsupported by ComboChart) and right y-axis series (a single tick
+ * formatter can't honor a second gutter's settings yet) still fall back to legacy chart.js.
+ */
+export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
+    const { visualizationType, yData, chartSettings } = props
+
+    if (
+        visualizationType !== ChartDisplayType.ActionsLineGraph &&
+        visualizationType !== ChartDisplayType.ActionsAreaGraph &&
+        visualizationType !== ChartDisplayType.ActionsBar &&
+        visualizationType !== ChartDisplayType.ActionsStackedBar
+    ) {
+        return false
+    }
+    if (!yData || !hasMixedSeriesTypes(yData, visualizationType)) {
+        return false
+    }
+    // ComboChart has no trend-line support yet (same limitation as the bar path).
+    if (yData.some((series) => series.settings?.display?.trendLine)) {
+        return false
+    }
+    // ComboChart supports only stacked/grouped bars, not percent (stackBars100).
+    if (barLayoutForDisplay(visualizationType, chartSettings) === 'percent') {
+        return false
+    }
+    if (yData.some((series) => series.settings?.display?.yAxisPosition === 'right')) {
+        return false
+    }
+    return true
+}
+
 export function barLayoutForDisplay(
     visualizationType: ChartDisplayType,
     chartSettings: ChartSettings
@@ -103,6 +186,14 @@ export function barLayoutForDisplay(
         return chartSettings.stackBars100 ? 'percent' : 'stacked'
     }
     return 'grouped'
+}
+
+/** Bar layout for the combo path — stacked for stacked-bar charts, grouped otherwise. ComboChart
+ *  doesn't support percent, so {@link canRenderSqlComboGraph} keeps stackBars100 on the legacy path. */
+export function comboBarLayoutForDisplay(
+    visualizationType: ChartDisplayType
+): NonNullable<TimeSeriesComboChartConfig['barLayout']> {
+    return visualizationType === ChartDisplayType.ActionsStackedBar ? 'stacked' : 'grouped'
 }
 
 /** Returns true when {@link MAX_SERIES} is exceeded and the user should be warned (not on dashboards). */
@@ -134,6 +225,7 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
     return yData.map((series, index) => {
         const settings = series.settings
         const color = settings?.display?.color
+        const type = seriesDisplayType(visualizationType, settings)
 
         return {
             key: getSeriesKey(series, index),
@@ -141,9 +233,15 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             // null -> NaN so quill draws a gap rather than a zero.
             data: series.data.map((value) => (value == null ? NaN : value)),
             meta: { settings },
+            // Per-series type; ignored by the single-type line/bar charts, read by ComboChart.
+            type,
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
-            ...(isAreaSeries(visualizationType, settings) ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
+            // Area fill, but never on a bar — a bar-override on an area-graph chart resolves to
+            // `type: 'bar'` yet `isAreaSeries` is still true for the whole area graph.
+            ...(type !== 'bar' && isAreaSeries(visualizationType, settings)
+                ? { fill: { opacity: AREA_FILL_OPACITY } }
+                : {}),
         }
     })
 }
@@ -151,6 +249,23 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
 /** Formats a tooltip value with a column's display settings. */
 export function formatSqlSeriesValue(value: number, settings?: AxisSeriesSettings): string {
     return String(formatDataWithSettings(value, settings) ?? value)
+}
+
+/** Built-in tooltip for the line + combo SQL charts: each row formatted by its column's settings
+ *  (from `series.meta`), plus an optional total row. */
+export function buildSqlTooltipConfig(
+    chartSettings: ChartSettings,
+    ySeriesData?: SqlLineYSeries[] | null
+): TooltipConfig {
+    const totalSettings = ySeriesData?.[0]?.settings
+    return {
+        enabled: true,
+        pinnable: true,
+        valueFormatter: (value: number, entry: TooltipContext['seriesData'][number]) =>
+            formatSqlSeriesValue(value, (entry.series.meta as SqlLineSeriesMeta | undefined)?.settings),
+        showTotal: chartSettings.showTotalRow !== false,
+        totalFormatter: (value: number) => formatSqlSeriesValue(value, totalSettings),
+    }
 }
 
 interface BuildConfigArgs {
@@ -206,7 +321,7 @@ export function buildLineChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
-        tooltip: { enabled: true, pinnable: true },
+        tooltip: buildSqlTooltipConfig(chartSettings, ySeriesData),
     }
 }
 
@@ -226,5 +341,23 @@ export function buildBarChartConfig({
         barLayout,
         legend: buildLegendConfig(chartSettings),
         tooltip: { enabled: true, pinnable: true },
+    }
+}
+
+export function buildComboChartConfig({
+    xData,
+    chartSettings,
+    timezone,
+    goalLines,
+    visualizationType,
+    ySeriesData,
+}: BuildBarConfigArgs): TimeSeriesComboChartConfig {
+    return {
+        xAxis: buildXAxisConfig(xData, chartSettings, timezone),
+        yAxis: buildYAxisConfig(chartSettings),
+        goalLines: schemaGoalLinesToConfigs(goalLines),
+        barLayout: comboBarLayoutForDisplay(visualizationType),
+        legend: buildLegendConfig(chartSettings),
+        tooltip: buildSqlTooltipConfig(chartSettings, ySeriesData),
     }
 }
