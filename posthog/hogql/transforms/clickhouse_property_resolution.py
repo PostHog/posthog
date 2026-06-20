@@ -1116,16 +1116,36 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         prop: _OptimizableProperty | None = None
         constant_expr: ast.Constant | None = None
+        property_expr: ast.Expr | None = None
         if (p := self._materialized_string_property(node.left, allow_dynamic_json=True)) and (
             c := _string_pattern_constant(node.right)
         ):
             prop, constant_expr = p, c
+            property_expr = node.left
         elif (p := self._materialized_string_property(node.right, allow_dynamic_json=True)) and (
             c := _string_pattern_constant(node.left)
         ):
             prop, constant_expr = p, c
+            property_expr = node.right
         if prop is None or constant_expr is None:
             return None
+
+        if (
+            prop.source.kind == "json_subcolumn"
+            and _is_dynamic_json_source(prop.source)
+            and property_expr is not None
+            and self._is_boolean_conversion(property_expr)
+        ):
+            column = _json_subcolumn_value_expr(
+                prop.field_type,
+                [prop.key],
+                source=prop.source,
+                materialization_mode=self.context.modifiers.materializationMode,
+            )
+            value = _const(constant_expr.value)
+            if node.op == ast.CompareOperationOp.Eq:
+                return _call("and", [_call("equals", [column, value]), prop.is_not_null()])
+            return _call("ifNull", [_call("notEquals", [column, value]), _const(True)])
 
         if constant_expr.value in MAT_COL_NULL_SENTINELS:
             return None  # comparing against '' / 'null' itself: let the normal scrubbed read handle it
@@ -1254,6 +1274,12 @@ class ClickHousePropertyResolver(CloningVisitor):
         if self.context.modifiers.convertToProjectTimezone is False:
             return "UTC"
         return self.context.database.get_timezone() if self.context.database else "UTC"
+
+    @staticmethod
+    def _is_boolean_conversion(expr: ast.Expr) -> bool:
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+        return isinstance(expr, ast.Call) and expr.name.lower() == "tobool"
 
     def _optimize_materialized_ilike(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.ILike, ast.CompareOperationOp.NotILike):
