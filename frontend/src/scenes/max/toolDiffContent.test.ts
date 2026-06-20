@@ -1,29 +1,12 @@
 import { Language } from 'lib/components/CodeSnippet/CodeSnippet'
 
-import { findAllDiffContent, findDiffContent, getDiffStats, languageFromPath } from './toolDiffContent'
+import { findAllDiffContent, getDiffStats, languageFromPath } from './toolDiffContent'
 
 const flatDiff = { type: 'diff', path: 'a.ts', oldText: 'old', newText: 'new' }
 const nestedDiff = { type: 'content', content: { type: 'diff', path: 'b.py', oldText: null, newText: 'print(1)' } }
 const textBlock = { type: 'text', text: 'hello' }
 
 describe('toolDiffContent', () => {
-    describe('findDiffContent', () => {
-        it.each([
-            ['flat diff block', [textBlock, flatDiff], { path: 'a.ts', oldText: 'old', newText: 'new' }],
-            ['ACP-nested diff block', [textBlock, nestedDiff], { path: 'b.py', oldText: null, newText: 'print(1)' }],
-        ])('extracts the first %s', (_label, content, expected) => {
-            expect(findDiffContent(content)).toEqual({ type: 'diff', ...expected })
-        })
-
-        it.each([
-            ['no diff blocks', [textBlock, { type: 'content', content: textBlock }]],
-            ['empty content', []],
-            ['non-object members', [null, undefined, 'string', 42]],
-        ])('returns null for %s', (_label, content) => {
-            expect(findDiffContent(content as unknown[])).toBeNull()
-        })
-    })
-
     describe('findAllDiffContent', () => {
         it('collects every diff block (flat + nested), in order — MultiEdit emits one per edit', () => {
             const second = { type: 'diff', path: 'a.ts', oldText: 'b', newText: 'c' }
@@ -34,8 +17,12 @@ describe('toolDiffContent', () => {
             ])
         })
 
-        it('returns an empty array when there are no diff blocks', () => {
-            expect(findAllDiffContent([textBlock])).toEqual([])
+        it.each([
+            ['non-diff blocks', [textBlock, { type: 'content', content: textBlock }]],
+            ['empty content', []],
+            ['non-object members', [null, undefined, 'string', 42]],
+        ])('returns an empty array for %s', (_label, content) => {
+            expect(findAllDiffContent(content as unknown[])).toEqual([])
         })
     })
 

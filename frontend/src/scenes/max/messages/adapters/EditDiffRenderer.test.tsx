@@ -105,6 +105,17 @@ describe('EditDiffRenderer', () => {
         expect(screen.getByText('+2')).toBeInTheDocument()
     })
 
+    it('resolves filename and language from rawInput.file_path when the diff block has no path', () => {
+        const message = makeMessage({
+            content: [{ type: 'diff', oldText: 'a', newText: 'b' }],
+            rawInput: { file_path: 'main.go' },
+        })
+        render(<EditDiffRenderer message={message} displayName="Edit" isLastInGroup />)
+
+        expect(screen.getByText('main.go')).toBeInTheDocument()
+        expect(screen.getByTestId('monaco-diff')).toHaveAttribute('data-language', 'go')
+    })
+
     it('falls back to the plain tool card (no editor) when there is no diff block', () => {
         const message = makeMessage({ title: 'Edit `foo.ts`', content: [{ type: 'text', text: 'no diff yet' }] })
         render(<EditDiffRenderer message={message} displayName="Edit" isLastInGroup />)

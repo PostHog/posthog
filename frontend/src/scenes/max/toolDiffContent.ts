@@ -39,18 +39,7 @@ function asDiffContent(block: unknown): ToolCallDiffContent | null {
     }
 }
 
-/** First `type: "diff"` block in the content array, or null. */
-export function findDiffContent(content: unknown[]): ToolCallDiffContent | null {
-    for (const block of content) {
-        const diff = asDiffContent(block)
-        if (diff) {
-            return diff
-        }
-    }
-    return null
-}
-
-/** Every `type: "diff"` block — MultiEdit emits one per edit. */
+/** Every `type: "diff"` block — MultiEdit emits one per edit; the single-edit case is `[0]`. */
 export function findAllDiffContent(content: unknown[]): ToolCallDiffContent[] {
     const diffs: ToolCallDiffContent[] = []
     for (const block of content) {
