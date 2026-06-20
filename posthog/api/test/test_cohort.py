@@ -399,10 +399,11 @@ User ID
         cohort.refresh_from_db()
         self.assertFalse(cohort.is_calculating)
         # Verify CSV update worked - 456 should now be included
-        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
-        distinct_ids = set()
-        for person in cohort_people:
-            distinct_ids.update(person.distinct_ids)
+        person_ids = list(
+            Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id).values_list("pk", flat=True)
+        )
+        distinct_ids_by_person = get_distinct_ids_for_persons(cohort.team_id, person_ids)
+        distinct_ids = {did for dids in distinct_ids_by_person.values() for did in dids}
         self.assertIn("456", distinct_ids)  # New ID should be included
 
         # Test name-only update without CSV
@@ -417,10 +418,11 @@ User ID
         self.assertFalse(cohort.is_calculating)
         self.assertEqual(cohort.name, "test2")
         # Verify distinct_ids remain the same after name-only update
-        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
-        distinct_ids = set()
-        for person in cohort_people:
-            distinct_ids.update(person.distinct_ids)
+        person_ids = list(
+            Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id).values_list("pk", flat=True)
+        )
+        distinct_ids_by_person = get_distinct_ids_for_persons(cohort.team_id, person_ids)
+        distinct_ids = {did for dids in distinct_ids_by_person.values() for did in dids}
         self.assertIn("456", distinct_ids)  # Should still contain 456
 
     def test_static_cohort_create_and_patch_with_query(self):
