@@ -62,15 +62,28 @@ class MirroringFakePersonHogClient(FakePersonHogClient):
     ) -> person_pb2.DeletePersonsResponse:
         response = super().delete_persons(request, timeout=timeout)
         if request.person_uuids:
-            CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                cohort__team_id=request.team_id, person__uuid__in=list(request.person_uuids)
-            ).delete()  # nosemgrep: no-direct-persons-db-orm
-            PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                team_id=request.team_id, person__uuid__in=list(request.person_uuids)
-            ).delete()  # nosemgrep: no-direct-persons-db-orm
-            Person.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                team_id=request.team_id, uuid__in=list(request.person_uuids)
-            ).delete()  # nosemgrep: no-direct-persons-db-orm
+            person_ids = list(
+                Person.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                    team_id=request.team_id, uuid__in=list(request.person_uuids)
+                ).values_list("pk", flat=True)
+            )
+            if person_ids:
+                # ``_raw_delete`` issues a plain ``DELETE ... WHERE`` and skips Django's cascade
+                # collector, which would otherwise walk CohortPeople -> Cohort and join the
+                # ``posthog_cohort`` table that lives in the main DB, not the persons DB. Delete
+                # children first, scoped by person_id (no cross-table/cross-DB joins).
+                cohort_people = CohortPeople.objects.filter(
+                    person_id__in=person_ids
+                )  # nosemgrep: no-direct-persons-db-orm
+                cohort_people._raw_delete(cohort_people.db)
+                distinct_ids = PersonDistinctId.objects.filter(
+                    person_id__in=person_ids
+                )  # nosemgrep: no-direct-persons-db-orm
+                distinct_ids._raw_delete(distinct_ids.db)
+                persons = Person.objects.filter(
+                    team_id=request.team_id, pk__in=person_ids
+                )  # nosemgrep: no-direct-persons-db-orm
+                persons._raw_delete(persons.db)
         return response
 
     def insert_cohort_members(
