@@ -3674,9 +3674,10 @@ export interface RevokeOtherSessionsResponseApi {
  * * `later` - Later
  * * `other` - Other
  */
-export type ReasonEnumApi = (typeof ReasonEnumApi)[keyof typeof ReasonEnumApi]
+export type OnboardingSkipRequestReasonEnumApi =
+    (typeof OnboardingSkipRequestReasonEnumApi)[keyof typeof OnboardingSkipRequestReasonEnumApi]
 
-export const ReasonEnumApi = {
+export const OnboardingSkipRequestReasonEnumApi = {
     Later: 'later',
     Other: 'other',
 } as const
@@ -3693,7 +3694,7 @@ export interface OnboardingSkipRequestApi {
      *
      * * `later` - Later
      * * `other` - Other */
-    reason: ReasonEnumApi
+    reason: OnboardingSkipRequestReasonEnumApi
     /**
      * Onboarding step key the user was on when skipping, for analytics only.
      * @maxLength 64

@@ -663,6 +663,15 @@ tools:
     users-list:
         operation: users_list
         enabled: false
+    users-login-sessions-destroy:
+        operation: users_login_sessions_destroy
+        enabled: false
+    users-login-sessions-list:
+        operation: users_login_sessions_list
+        enabled: false
+    users-login-sessions-revoke-others-create:
+        operation: users_login_sessions_revoke_others_create
+        enabled: false
     users-onboarding-skip-create:
         operation: users_onboarding_skip_create
         enabled: false
