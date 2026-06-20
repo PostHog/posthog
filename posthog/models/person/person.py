@@ -279,7 +279,8 @@ class Person(models.Model):
         # Keep the in-memory cache in sync with the row we just wrote. Without the ORM
         # fallback, `distinct_ids` only reads `_distinct_ids`, so a person created via
         # `objects.create(distinct_ids=[...])` would otherwise raise on `.distinct_ids`.
-        distinct_ids = self._distinct_ids
+        # `_distinct_ids` is annotation-only (no runtime default), so read it defensively.
+        distinct_ids: list[str] | None = getattr(self, "_distinct_ids", None)
         if distinct_ids is None:
             distinct_ids = []
             self._distinct_ids = distinct_ids
