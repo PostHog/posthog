@@ -608,6 +608,33 @@ export interface LLMSkillFileApi {
     content_type?: string
 }
 
+export interface LLMSkillPublishToCommunityApi {
+    /**
+     * Human-friendly display name for the community listing. Defaults to a title-cased skill slug.
+     * @maxLength 200
+     */
+    display_name?: string
+    /**
+     * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
+     * @items.maxLength 64
+     */
+    tags?: string[]
+    /**
+     * The publisher's GitHub username, used for public attribution on the listing and PR. Optional.
+     * @maxLength 100
+     */
+    author_handle?: string
+}
+
+export interface CommunitySkillPublishResultApi {
+    /** URL of the pull request opened in the community-skills repo for maintainer review. */
+    pr_url: string
+    /** Number of the opened pull request. */
+    pr_number: number
+    /** Name of the branch created in the community-skills repo. */
+    branch: string
+}
+
 export interface LLMSkillVersionSummaryApi {
     readonly id: string
     readonly version: number

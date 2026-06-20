@@ -256,3 +256,26 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
             'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
         ),
 })
+
+export const llmSkillsNamePublishCommunityCreateBodyDisplayNameMax = 200
+
+export const llmSkillsNamePublishCommunityCreateBodyTagsItemMax = 64
+
+export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax = 100
+
+export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.object({
+    display_name: zod
+        .string()
+        .max(llmSkillsNamePublishCommunityCreateBodyDisplayNameMax)
+        .optional()
+        .describe('Human-friendly display name for the community listing. Defaults to a title-cased skill slug.'),
+    tags: zod
+        .array(zod.string().max(llmSkillsNamePublishCommunityCreateBodyTagsItemMax))
+        .optional()
+        .describe("Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage']."),
+    author_handle: zod
+        .string()
+        .max(llmSkillsNamePublishCommunityCreateBodyAuthorHandleMax)
+        .optional()
+        .describe("The publisher's GitHub username, used for public attribution on the listing and PR. Optional."),
+})
