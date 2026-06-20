@@ -107,6 +107,8 @@ def _seed_group_type_mapping(fake: FakePersonHogClient, mapping: GroupTypeMappin
         id=mapping.pk or 0,
         name_singular=mapping.name_singular or "",
         name_plural=mapping.name_plural or "",
+        default_columns=mapping.default_columns or None,
+        detail_dashboard_id=mapping.detail_dashboard_id or 0,
     )
 
 

@@ -713,10 +713,10 @@ class TestTicketAPI(APIBaseTest):
 
         # Query count should be constant regardless of number of tickets
         # Includes: session, user, org, team, permissions, feature flag permission org lookup,
-        # count query, tickets query, persons query (batch), distinct_ids prefetch,
-        # tagged_items prefetch
-        # Note: message stats are denormalized, no subqueries needed
-        with self.assertNumQueries(14):
+        # count query, tickets query, tagged_items prefetch
+        # Note: message stats are denormalized, no subqueries needed; persons + distinct_ids
+        # are resolved through personhog, not local Postgres queries.
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total

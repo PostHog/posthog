@@ -22,7 +22,11 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.models import Filter, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
-from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
+from posthog.models.group_type_mapping import (
+    GROUP_TYPES_CACHE_KEY_PREFIX,
+    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    get_group_type_mapping_instance,
+)
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.quick_filter import QuickFilter
@@ -1006,8 +1010,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         cache.set(stale_cache_key, [{"stale": True}], 300)
 
         self.dashboard_api.soft_delete(dashboard.id, "dashboards", {"delete_insights": True})
-        group_type.refresh_from_db()
-        self.assertIsNone(group_type.detail_dashboard_id)
+        # GroupTypeMapping is personhog-managed (managed=False); the clear writes through
+        # personhog, not the local ORM row, so read it back via the personhog path.
+        refreshed = get_group_type_mapping_instance(
+            self.team.project_id, group_type.group_type_index, consistency="strong"
+        )
+        self.assertIsNone(refreshed.detail_dashboard_id)
         self.assertIsNone(cache.get(cache_key))
         self.assertIsNone(cache.get(stale_cache_key))
 
