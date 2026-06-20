@@ -29,7 +29,6 @@ import {
     LemonDivider,
     LemonInput,
     LemonSkeleton,
-    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -244,10 +243,9 @@ function SandboxThread(): JSX.Element {
                 }
                 return null
             })}
-            {streamPhase === 'provisioning' && !hasActiveProgressItem && (
-                <SandboxProvisioningIndicator progress={currentProgress} />
+            {streamPhase === 'thinking' && !hasActiveProgressItem && (
+                <SandboxThinkingIndicator progress={currentProgress} />
             )}
-            {isThinking && !hasActiveProgressItem && <SandboxThinkingIndicator progress={currentProgress} />}
             {/* Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking. */}
             {!isThinking && runArtifacts.prUrl && (
                 <SandboxPullRequestCard prUrl={runArtifacts.prUrl} branch={runArtifacts.branch} />
@@ -304,23 +302,6 @@ function SandboxProgressItem({ item }: { item: SandboxThreadItem }): JSX.Element
 }
 
 /**
- * Pre-first-message status line for sandbox conversations. While the workflow provisions the sandbox
- * and starts the agent (before `_posthog/run_started`), the thinking indicator is gated off — so this
- * surfaces the already-ingested `_posthog/progress` label with a setup-oriented fallback.
- */
-function SandboxProvisioningIndicator({ progress }: { progress: string | null }): JSX.Element {
-    const message = progress?.trim() ? progress : 'Setting up your workspace…'
-    return (
-        <MessageTemplate type="ai">
-            <div className="flex items-center gap-2 text-muted">
-                <Spinner className="size-4" />
-                <span>{message}</span>
-            </div>
-        </MessageTemplate>
-    )
-}
-
-/**
  * Bottom-of-thread "what's it doing right now" line for sandbox conversations. Reflects the latest
  * `_posthog/progress` message when present, otherwise the canned thinking rotation.
  */
@@ -328,14 +309,9 @@ function SandboxThinkingIndicator({ progress }: { progress: string | null }): JS
     // One roll per mount — re-rolling on every progress transition would visibly swap the verb.
     const fallbackMessage = useMemo(() => getRandomThinkingMessage(), [])
     const message = progress?.trim() ? progress : fallbackMessage
-    return (
-        <MessageTemplate type="ai">
-            <div className="flex items-center gap-2 text-muted">
-                <Spinner className="size-4" />
-                <span>{message}</span>
-            </div>
-        </MessageTemplate>
-    )
+    // Match the LangGraph loader: a bubble-free reasoning line (muted brain icon + muted text),
+    // static (no shimmer), via the shared Activity primitive — not a MessageTemplate bubble.
+    return <ReasoningAnswer content={message} id="sandbox-thinking" completed={false} showCompletionIcon={false} />
 }
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {

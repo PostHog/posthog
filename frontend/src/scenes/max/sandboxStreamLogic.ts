@@ -1263,11 +1263,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             },
         ],
         /**
-         * Stream lifecycle phase for the pre-first-message status line. `provisioning` = the stream
-         * is opening or open but the agent hasn't started yet (the workflow is still setting up the
-         * sandbox and emitting `_posthog/progress`), so the thinking indicator's `run_started` gate
-         * would otherwise hide that progress; `thinking` = the agent is working a turn (mirrors
-         * `isThinking`); `idle` otherwise (terminal, errored, or not yet connecting).
+         * Stream lifecycle phase gating the bottom-of-thread thinking indicator. `provisioning` = the
+         * cold-boot window — the stream is opening or open but the agent hasn't started yet (the
+         * workflow is still setting up the sandbox); it holds the gerund loader off until `run_started`
+         * so it can't show before a turn begins. Boot UX is surfaced by `_posthog/progress` items, not
+         * a dedicated indicator. `thinking` = the agent is working a turn (mirrors `isThinking`), and is
+         * what `SandboxThread` gates the gerund loader on; `idle` otherwise (terminal, errored, or not
+         * yet connecting).
          */
         streamPhase: [
             (s) => [s.runStarted, s.isThinking, s.currentRunStatus, s.sseStatus],
