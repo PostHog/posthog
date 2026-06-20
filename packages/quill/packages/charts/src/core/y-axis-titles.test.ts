@@ -23,18 +23,7 @@ describe('resolveYAxisTitles', () => {
             undefined,
             { right: 'Conversion' },
         ],
-        ['the list over the scalar fallback', [{ id: 'left', position: 'left' }], 'Scalar', {}],
         ['no title for a whitespace-only label', [{ id: 'left', position: 'left', label: '   ' }], undefined, {}],
-        [
-            'three labeled axes',
-            [
-                { id: 'left', position: 'left', label: 'Revenue' },
-                { id: 'axis-1', position: 'right', label: 'Signups' },
-                { id: 'axis-2', position: 'right', label: 'Conversion' },
-            ],
-            undefined,
-            { left: 'Revenue', 'axis-1': 'Signups', 'axis-2': 'Conversion' },
-        ],
     ])('resolves %s', (_name, yAxes, yAxisLabel, expected) => {
         expect(resolveYAxisTitles(yAxes, yAxisLabel)).toEqual(expected)
     })

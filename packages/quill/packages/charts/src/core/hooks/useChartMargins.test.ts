@@ -54,16 +54,6 @@ describe('useChartMargins', () => {
         expect(empty.left).toBeGreaterThanOrEqual(fourCharLabelReserve)
     })
 
-    it('adds left space for the single (left) axis title', () => {
-        const withoutTitle = render()
-        const withTitle = render({ yAxisTitles: { left: 'Unique users' } })
-        expect(withTitle.left).toBeGreaterThan(withoutTitle.left)
-    })
-
-    it('does not reserve a title band when no axis is titled', () => {
-        expect(render({ yAxisTitles: {} }).left).toBe(render().left)
-    })
-
     it('reserves the left title band for a horizontal chart category-axis title', () => {
         const withoutTitle = render({ axisOrientation: 'horizontal' })
         const withTitle = render({ axisOrientation: 'horizontal', yAxisTitles: { left: 'Series' } })

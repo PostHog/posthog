@@ -198,31 +198,13 @@ describe('TimeSeriesLineChart', () => {
             expect(Math.max(...chart.yRightTicks().map(num))).toBeLessThanOrEqual(1)
         })
 
-        it('renders the right-axis title from the right entry label', () => {
-            const { container, chart } = renderHogChart(
-                <TimeSeriesLineChart
-                    series={LEFT_RIGHT_SERIES}
-                    labels={LABELS}
-                    theme={THEME}
-                    config={{
-                        yAxis: [
-                            { id: 'left', label: 'Revenue' },
-                            { id: 'right', position: 'right', label: 'Conversion' },
-                        ],
-                    }}
-                />
-            )
-            expect(chart.yAxisLabel()).toBe('Revenue')
-            expect(container.querySelector('[data-attr="hog-chart-axis-title-yr"]')?.textContent).toBe('Conversion')
-        })
-
-        it('renders a title per axis when three axes are present', () => {
+        it('renders a title per axis, each from its own entry label', () => {
             const threeAxisSeries: Series[] = [
                 { key: 'rev', label: 'Revenue', data: [1000, 1500, 1200] },
                 { key: 'signups', label: 'Signups', data: [50, 80, 65], yAxisId: 'right' },
                 { key: 'conv', label: 'Conversion', data: [0.01, 0.02, 0.015], yAxisId: 'right2' },
             ]
-            const { container } = renderHogChart(
+            const { container, chart } = renderHogChart(
                 <TimeSeriesLineChart
                     series={threeAxisSeries}
                     labels={LABELS}
@@ -236,10 +218,13 @@ describe('TimeSeriesLineChart', () => {
                     }}
                 />
             )
-            const titleText = (selector: string): (string | null)[] =>
-                Array.from(container.querySelectorAll<SVGTextElement>(selector)).map((el) => el.textContent)
-            expect(titleText('[data-attr="hog-chart-axis-title-y"]')).toEqual(['Revenue'])
-            expect(titleText('[data-attr="hog-chart-axis-title-yr"]')).toEqual(['Signups', 'Conversion'])
+            // Left title via the accessor; the right side has two stacked titles (no accessor for a
+            // list), so read those by data-attr and assert their order.
+            const rightTitles = Array.from(
+                container.querySelectorAll<SVGTextElement>('[data-attr="hog-chart-axis-title-yr"]')
+            ).map((el) => el.textContent)
+            expect(chart.yAxisLabel()).toBe('Revenue')
+            expect(rightTitles).toEqual(['Signups', 'Conversion'])
         })
 
         it('reserves right margin so right-axis tick labels are not clipped', () => {
