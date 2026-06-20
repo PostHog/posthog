@@ -99,6 +99,15 @@ class TestOpenSandboxMessage(APIBaseTest):
         # The agent needs write scopes to create insights/dashboards/notebooks.
         assert wf_kwargs["posthog_mcp_scopes"] == "full"
 
+    def test_first_message_threads_routed_repository(self):
+        task, _ = self._stub_task()
+        car, workflow, sysprompt = self._patches(task)
+        with car as m_car, workflow, sysprompt:
+            self._service().open({"content": "fix the SDK", "trace_id": "t"}, repository="posthog/posthog-js")
+
+        _, kwargs = m_car.call_args
+        assert kwargs["repository"] == "posthog/posthog-js"
+
     def test_first_message_honors_initial_permission_mode(self):
         task, run = self._stub_task()
         car, workflow, sysprompt = self._patches(task)
