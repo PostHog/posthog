@@ -1613,7 +1613,8 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         delete_response = self.client.delete(delete_url)
 
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(GroupTypeMapping.objects.filter(**group_type_data).exists())
+        with self.assertRaises(GroupTypeMapping.DoesNotExist):
+            get_group_type_mapping_instance(self.team.project_id, group_type.group_type_index, consistency="strong")
 
         list_response = self.client.get(self.url)
 

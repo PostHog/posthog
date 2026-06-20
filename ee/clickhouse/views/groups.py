@@ -442,10 +442,18 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         request_data = CreateGroupSerializer(data=request.data)
         request_data.is_valid(raise_exception=True)
 
+        group_key = request_data.validated_data["group_key"]
+        group_type_index = request_data.validated_data["group_type_index"]
+
+        # create_group routes through personhog, which upserts rather than raising on a
+        # duplicate key, so reject existing keys up front to preserve the unique-key contract.
+        if get_group_by_key(self.team.pk, group_type_index, group_key) is not None:
+            raise ValidationError({"detail": "A group with this key already exists"})
+
         try:
             group = create_group(
-                group_key=request_data.validated_data["group_key"],
-                group_type_index=request_data.validated_data["group_type_index"],
+                group_key=group_key,
+                group_type_index=group_type_index,
                 properties=request_data.validated_data["group_properties"],
                 team_id=self.team.pk,
                 timestamp=timezone.now(),
