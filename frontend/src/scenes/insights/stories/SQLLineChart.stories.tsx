@@ -2,6 +2,7 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -55,6 +56,18 @@ export const SQLLineChartBreakdown: Story = createInsightStory(
 )
 SQLLineChartBreakdown.parameters = {
     ...meta.parameters,
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '.DataVisualization canvas',
+    },
+}
+
+export const SQLLineChartTrendLineQuill: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChartTrendLine.json')
+)
+SQLLineChartTrendLineQuill.parameters = {
+    ...meta.parameters,
+    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS],
     testOptions: {
         ...meta.parameters?.testOptions,
         waitForSelector: '.DataVisualization canvas',

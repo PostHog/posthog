@@ -71,8 +71,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // detail renders without a spinner while the authoritative fetch runs in the background.
         seedSelectedReport: (report: SignalReport | null) => ({ report }),
         setActiveTab: (tab: InboxTabKey) => ({ tab }),
-        // Scout detail surface: selecting a scout opens its full-width detail over the list.
-        setSelectedScoutSkillName: (skillName: string | null) => ({ skillName }),
+        // Scout detail surface: selecting a scout opens its full-width detail over the list. An
+        // optional finding id deep-links to one emitted finding within that scout (highlighted +
+        // scrolled into view if it's still in the recent window).
+        setSelectedScoutSkillName: (skillName: string | null, findingId: string | null = null) => ({
+            skillName,
+            findingId,
+        }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
@@ -128,6 +133,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as string | null,
             {
                 setSelectedScoutSkillName: (_, { skillName }) => skillName,
+            },
+        ],
+        // The finding deep-linked within the selected scout, if any. Cleared whenever a scout is
+        // (re)selected without a finding — navigating to a scout from the fleet drops any prior finding.
+        selectedScoutFindingId: [
+            null as string | null,
+            {
+                setSelectedScoutSkillName: (_, { findingId }) => findingId,
             },
         ],
         isRunningSessionAnalysis: [
@@ -240,7 +253,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             values.selectedReportId
                 ? urls.inboxReport(values.activeTab, values.selectedReportId)
                 : values.selectedScoutSkillName
-                  ? urls.inboxScout(values.selectedScoutSkillName)
+                  ? urls.inboxScout(values.selectedScoutSkillName, values.selectedScoutFindingId ?? undefined)
                   : urls.inbox(values.activeTab),
             router.values.searchParams,
             router.values.hashParams,
@@ -248,7 +261,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         ],
         setSelectedScoutSkillName: () => [
             values.selectedScoutSkillName
-                ? urls.inboxScout(values.selectedScoutSkillName)
+                ? urls.inboxScout(values.selectedScoutSkillName, values.selectedScoutFindingId ?? undefined)
                 : values.selectedReportId
                   ? urls.inboxReport(values.activeTab, values.selectedReportId)
                   : urls.inbox(values.activeTab),
@@ -268,6 +281,15 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
         },
         [urls.inbox(':tab')]: ({ tab }: { tab?: string }) => {
+            // A bare report deep-link `/inbox/<reportId>`  redirected to report form
+            if (tab && !isInboxTabKey(tab) && tab !== 'scouts') {
+                router.actions.replace(
+                    urls.inboxReport('reports', tab),
+                    router.values.searchParams,
+                    router.values.hashParams
+                )
+                return
+            }
             // Staff-only tabs (Runs, Not actionable): bounce non-staff to the default tab.
             if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
                 actions.setActiveTab('pulls')
@@ -285,8 +307,22 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
         [urls.inboxScout(':skillName')]: ({ skillName }: { skillName?: string }) => {
             const name = skillName ?? null
-            if (values.selectedScoutSkillName !== name) {
+            // Also reset the finding when landing on the bare scout URL after a finding deep-link.
+            if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== null) {
                 actions.setSelectedScoutSkillName(name)
+            }
+        },
+        [urls.inboxScout(':skillName', ':findingId')]: ({
+            skillName,
+            findingId,
+        }: {
+            skillName?: string
+            findingId?: string
+        }) => {
+            const name = skillName ?? null
+            const finding = findingId ?? null
+            if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== finding) {
+                actions.setSelectedScoutSkillName(name, finding)
             }
         },
         [urls.inboxReport(':tab', ':reportId')]: ({ tab, reportId }: { tab?: string; reportId?: string }) => {

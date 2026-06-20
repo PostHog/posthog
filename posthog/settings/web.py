@@ -501,12 +501,18 @@ SPECTACULAR_SETTINGS = {
         "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
+        "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # Experiment now has two serializers (full ExperimentSerializer + ExperimentBasicSerializer
+        # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
+        # generated names so the shared enums don't get component-prefixed auto-names on collision.
+        "ExperimentTypeEnum": ["web", "product", None],
+        "ExperimentStatusEnum": ["draft", "running", "paused", "stopped"],
         # Two serializers now expose an `op` ChoiceField (metrics filters and email-template design
         # patches). Pin both to stable names so neither gets a component-prefixed auto-name on collision.
         # "OpEnum" keeps the metrics filter enum at its pre-existing generated name.
