@@ -517,7 +517,7 @@
   FROM person_static_cohort
   WHERE team_id = 99999
     AND cohort_id = 99999
-    AND person_id IN ['017b6a4c-7200-0009-040c-83bd9f4865c0', '017b6a4c-7200-000b-96fa-8a4f7daed94d']
+    AND person_id IN ['017b6a4c-7200-0009-37a5-4b27c2627e49', '017b6a4c-7200-000b-2bff-e1c82a814c10']
   GROUP BY person_id
   '''
 # ---
