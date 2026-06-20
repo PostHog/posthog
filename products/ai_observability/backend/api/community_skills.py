@@ -33,6 +33,7 @@ from .skill_services import LLMSkillDuplicateNameConflictError, LLMSkillFileLimi
 from .skill_template_services import (
     MissingTemplateVariableError,
     TemplateRenderTooLargeError,
+    UnknownSuppliedVariableError,
     UnknownTemplatePlaceholderError,
 )
 
@@ -174,8 +175,9 @@ class CommunitySkillViewSet(
                 {"detail": f"Community skill '{slug}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        except (MissingTemplateVariableError, TemplateRenderTooLargeError) as err:
-            # Both are fixable by the caller (supply the value / shorter values), so they're 400s.
+        except (MissingTemplateVariableError, TemplateRenderTooLargeError, UnknownSuppliedVariableError) as err:
+            # All three are fixable by the caller (supply the value / shorter values / fix the key),
+            # so they're 400s.
             return Response(
                 {"attr": "variables", "detail": str(err)},
                 status=status.HTTP_400_BAD_REQUEST,

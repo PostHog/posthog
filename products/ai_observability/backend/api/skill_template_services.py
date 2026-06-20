@@ -54,6 +54,14 @@ class TemplateRenderTooLargeError(TemplateRenderError):
         super().__init__(f"Rendered {what} exceeds the {limit} byte size limit.")
 
 
+class UnknownSuppliedVariableError(TemplateRenderError):
+    """The caller supplied values for variables the template doesn't declare (likely a typo)."""
+
+    def __init__(self, names: list[str]) -> None:
+        self.names = names
+        super().__init__(f"Unknown template variable(s) supplied: {', '.join(names)}.")
+
+
 def parse_template_variables(metadata: dict[str, Any] | None) -> list[TemplateVariable]:
     """Read the `variables` schema out of a skill's frontmatter metadata.
 
@@ -94,18 +102,28 @@ def is_template(metadata: dict[str, Any] | None) -> bool:
 
 
 def resolve_bindings(variables: list[TemplateVariable], supplied: dict[str, str] | None) -> dict[str, str]:
-    """Build the final {name: value} map, applying defaults and enforcing required variables."""
+    """Build the final {name: value} map, applying defaults and enforcing required variables.
+
+    An explicitly supplied value (including "") is used verbatim — only an absent key falls back to
+    the default. Supplying a value for an undeclared variable is an error (likely a typo).
+    """
     supplied = supplied or {}
+    unknown = sorted(set(supplied) - {v.name for v in variables})
+    if unknown:
+        raise UnknownSuppliedVariableError(unknown)
+
     bindings: dict[str, str] = {}
     for variable in variables:
-        value = supplied.get(variable.name)
-        if value is None or value == "":
-            if variable.default:
-                value = variable.default
-            elif variable.required:
+        if variable.name in supplied:
+            value = supplied[variable.name]
+            if value == "" and variable.required:
                 raise MissingTemplateVariableError(variable)
-            else:
-                value = ""
+        elif variable.default:
+            value = variable.default
+        elif variable.required:
+            raise MissingTemplateVariableError(variable)
+        else:
+            value = ""
         bindings[variable.name] = value
     return bindings
 

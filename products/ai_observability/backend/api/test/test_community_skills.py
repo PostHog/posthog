@@ -10,6 +10,7 @@ from ..community_skill_services import sync_community_skills_from_github
 from ..skill_template_services import (
     MissingTemplateVariableError,
     TemplateRenderTooLargeError,
+    UnknownSuppliedVariableError,
     UnknownTemplatePlaceholderError,
     is_template,
     parse_template_variables,
@@ -317,6 +318,33 @@ class TestSkillTemplateRendering(APIBaseTest):
                 body="watch {{ repo-name }}",
                 files=[],
                 supplied={"repo-name": "x"},
+            )
+
+    def test_render_explicit_blank_overrides_default(self) -> None:
+        rendered = render_template_skill(
+            variables=parse_template_variables({"variables": [{"name": "suffix", "default": "!"}]}),
+            body="hi{{ suffix }}",
+            files=[],
+            supplied={"suffix": ""},
+        )
+        self.assertEqual(rendered.body, "hi")
+
+    def test_render_explicit_blank_required_raises(self) -> None:
+        with self.assertRaises(MissingTemplateVariableError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "repo", "required": True}]}),
+                body="{{ repo }}",
+                files=[],
+                supplied={"repo": ""},
+            )
+
+    def test_render_unknown_supplied_key_raises(self) -> None:
+        with self.assertRaises(UnknownSuppliedVariableError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "feed_table", "required": True}]}),
+                body="{{ feed_table }}",
+                files=[],
+                supplied={"feed_table": "x", "feedtable": "typo"},
             )
 
     def test_render_allows_braces_inside_supplied_value(self) -> None:
