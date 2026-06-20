@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import (
     BooleanField,
@@ -970,8 +971,15 @@ class SignalReportViewSet(
 
             # The full candidate list is returned unpaginated. If an org grows past the threshold,
             # report it (non-blocking) so we know to add pagination before the payload gets large.
-            # Gate on the unfiltered fetch so a search-as-you-type session reports at most once.
-            if not query and candidate_count > REVIEWER_PAGINATION_THRESHOLD:
+            # `capture_exception` logs an exception and is not deduplicated, so we throttle to at
+            # most one report per org per day via the cache — otherwise a >threshold org would log
+            # on every popover open. (The span's candidate_count attribute is recorded every request
+            # regardless, if a metric-based alert is preferred later.)
+            if (
+                not query
+                and candidate_count > REVIEWER_PAGINATION_THRESHOLD
+                and cache.add(f"signals:available_reviewers_over_threshold:{self.team.id}", True, 60 * 60 * 24)
+            ):
                 capture_exception(
                     Exception(
                         f"available_reviewers exceeded pagination threshold: {candidate_count} "

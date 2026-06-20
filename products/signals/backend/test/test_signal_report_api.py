@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -1216,6 +1217,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 class TestAvailableReviewersAPI(APIBaseTest):
     """GET signals/reports/available_reviewers/: returns every eligible org member (no cap), with server-side search."""
 
+    def setUp(self):
+        super().setUp()
+        # The over-threshold report is throttled via the cache; clear it so each test starts fresh.
+        cache.clear()
+
     def _url(self, **query) -> str:
         base = f"/api/projects/{self.team.id}/signals/reports/available_reviewers/"
         if not query:
@@ -1265,6 +1271,15 @@ class TestAvailableReviewersAPI(APIBaseTest):
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 1201
+        mock_capture.assert_called_once()
+
+    @patch("products.signals.backend.views.capture_exception")
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_threshold_capture_deduplicated_across_requests(self, mock_map, mock_capture):
+        # Repeated popover opens for the same over-threshold org must report at most once.
+        mock_map.return_value = self._login_map(1201)
+        for _ in range(3):
+            assert self.client.get(self._url()).status_code == status.HTTP_200_OK
         mock_capture.assert_called_once()
 
     @patch("products.signals.backend.views.capture_exception")
