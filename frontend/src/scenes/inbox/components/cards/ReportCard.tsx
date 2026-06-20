@@ -140,6 +140,9 @@ export function ReportCard({
     onRestore?: () => void
 }): JSX.Element {
     const isArchived = tabKey === 'archived'
+    // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
+    // Archive tab but with no row action: they can't be restored or re-archived.
+    const isResolved = report.status === SignalReportStatus.RESOLVED
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = prUrlParts != null
@@ -162,7 +165,12 @@ export function ReportCard({
     })
 
     // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
-    const dismissalLabel = isArchived ? dismissalReasonLabel(report.dismissal_reason) : null
+    // Key off the report still being suppressed, not the tab: a report that was dismissed, restored,
+    // then resolved keeps its old dismissal artefact, and showing that tag would mislabel finished work.
+    const dismissalLabel =
+        isArchived && report.status === SignalReportStatus.SUPPRESSED
+            ? dismissalReasonLabel(report.dismissal_reason)
+            : null
 
     // PR cards show repo · source; reports show source · status · actionability.
     const showMeta = hasPr
@@ -247,49 +255,52 @@ export function ReportCard({
                 </div>
             </Link>
 
-            <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
-                {isArchived ? (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconUndo />}
-                        tooltip="Restore this report to the inbox"
-                        aria-label="Restore this report to the inbox"
-                        onClick={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            onRestore?.()
-                        }}
-                    >
-                        Restore
-                    </LemonButton>
-                ) : (
-                    <>
+            {/* Terminal resolved reports carry no row action – skip the action column (and its divider). */}
+            {!isResolved && (
+                <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
+                    {isArchived ? (
                         <LemonButton
                             type="secondary"
                             size="small"
-                            icon={<IconArchive />}
-                            tooltip="Archive this report"
-                            aria-label="Archive this report"
-                            loading={isArchiving}
-                            onClick={onArchiveClick}
-                        >
-                            Archive
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            size="small"
+                            icon={<IconUndo />}
+                            tooltip="Restore this report to the inbox"
+                            aria-label="Restore this report to the inbox"
                             onClick={(event) => {
                                 event.preventDefault()
                                 event.stopPropagation()
-                                router.actions.push(detailUrl)
+                                onRestore?.()
                             }}
                         >
-                            Review
+                            Restore
                         </LemonButton>
-                    </>
-                )}
-            </div>
+                    ) : (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconArchive />}
+                                tooltip="Archive this report"
+                                aria-label="Archive this report"
+                                loading={isArchiving}
+                                onClick={onArchiveClick}
+                            >
+                                Archive
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    router.actions.push(detailUrl)
+                                }}
+                            >
+                                Review
+                            </LemonButton>
+                        </>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
