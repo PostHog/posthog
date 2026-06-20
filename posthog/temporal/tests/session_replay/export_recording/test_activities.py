@@ -196,6 +196,27 @@ async def test_mark_export_failed_sets_status_and_truncated_message():
 
 
 @pytest.mark.asyncio
+async def test_mark_export_failed_does_not_overwrite_completed_export():
+    mock_record = MagicMock()
+    mock_record.status = ExportedRecording.Status.COMPLETE
+    mock_record.save = MagicMock()
+
+    with (
+        patch("posthog.temporal.session_replay.export_recording.activities.ExportedRecording.objects") as mock_objects,
+        patch("posthog.temporal.session_replay.export_recording.activities.database_sync_to_async") as mock_db_sync,
+    ):
+        mock_objects.aget = AsyncMock(return_value=mock_record)
+        mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
+
+        await mark_export_failed(
+            MarkExportFailedInput(exported_recording_id=TEST_RECORDING_ID, error_message="cleanup blew up")
+        )
+
+    assert mock_record.status == ExportedRecording.Status.COMPLETE
+    mock_db_sync.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_export_recording_data_prefix_success():
     export_id = uuid4()
     export_context = ExportContext(

@@ -294,6 +294,13 @@ async def mark_export_failed(input: MarkExportFailedInput) -> None:
     logger.warning(f"Marking export {input.exported_recording_id} as failed: {input.error_message}")
 
     export_record = await ExportedRecording.objects.aget(id=input.exported_recording_id)
+
+    if export_record.status == ExportedRecording.Status.COMPLETE:
+        # a post-upload step (e.g. cleanup) can fail after the export already succeeded; never
+        # flip a completed export back to failed
+        logger.info(f"Export {input.exported_recording_id} already complete; not marking failed")
+        return
+
     export_record.status = ExportedRecording.Status.FAILED
     # error messages (e.g. ClickHouse exceptions) can be very long; keep the row sane
     export_record.error_message = input.error_message[:2000]

@@ -114,13 +114,18 @@ class ExportRecordingWorkflow(PostHogWorkflow):
             ),
         )
 
-        await workflow.execute_activity(
-            cleanup_export_data,
-            export_context,
-            start_to_close_timeout=timedelta(minutes=5),
-            schedule_to_close_timeout=timedelta(hours=3),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
-            ),
-        )
+        try:
+            await workflow.execute_activity(
+                cleanup_export_data,
+                export_context,
+                start_to_close_timeout=timedelta(minutes=5),
+                schedule_to_close_timeout=timedelta(hours=3),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(minutes=1),
+                ),
+            )
+        except Exception:
+            # cleanup only frees Redis keys that already carry a TTL, and it runs after the export
+            # is uploaded and marked COMPLETE. A failure here must not fail an otherwise-good export.
+            workflow.logger.warning("Export cleanup failed; Redis keys will expire via their TTL")
