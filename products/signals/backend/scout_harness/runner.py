@@ -454,9 +454,21 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     now = timezone.now()
     for run in stale_runs:
         try:
-            status_before = run.task_run.status
-            age_seconds = (now - run.task_run.created_at).total_seconds()
-            run.task_run.mark_failed(
+            task_run = run.task_run
+            # Compare-and-set claim on the status transition. Two triggers for the same
+            # `(team, skill)` can reach this self-heal concurrently and load the same stale
+            # row; the conditional UPDATE lets exactly one win — the other matches zero rows
+            # once the first commits `FAILED`. Only the winner falls through to emit, so a
+            # single stranded run can't double-count in the worker-death / mass-stall signal.
+            claimed = TaskRun.objects.filter(
+                id=task_run.id,
+                status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
+            ).update(status=TaskRun.Status.FAILED)
+            if not claimed:
+                continue
+            status_before = task_run.status
+            age_seconds = (now - task_run.created_at).total_seconds()
+            task_run.mark_failed(
                 "Scout run abandoned: no terminal status past the runtime ceiling "
                 "(worker/sandbox lost before finalize)."
             )
@@ -471,8 +483,8 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
             )
             # A reaped run never reaches the finalize path, so it emits no
             # `signals_scout_run_finished`. This event makes the strand observable with no
-            # warehouse lag — a spike is the worker-death / mass-stall shape (e.g. the
-            # 06-16 fleet freeze), caught within a tick of the cutoff rather than days late.
+            # warehouse lag — a spike is the worker-death / mass-stall shape, caught within a
+            # tick of the cutoff rather than days late.
             _capture_run_reaped(
                 team=team,
                 skill_name=skill_name,
