@@ -21,20 +21,7 @@ from llm_gateway.request_context import (
 
 logger = structlog.get_logger(__name__)
 
-# Keys automatically injected by LiteLLM into `metadata` that should not be captured
-# as event properties to avoid payload bloat or credential leakage.
-_LITELLM_INTERNAL_METADATA_KEYS = frozenset({
-    "usage_object",
-    "model_group",
-    "endpoint",
-    "user_api_key",
-    "user_api_key_hash",
-    "user_api_key_alias",
-    "user_api_key_team_id",
-    "user_api_key_org_id",
-    "user_api_key_user_id",
-    "user_api_key_end_user_id",
-})
+
 
 
 def _replace_binary_content(data: Any) -> Any:
@@ -130,6 +117,31 @@ def _normalize_trace_id(raw: Any) -> str:
         return str(UUID(raw))
     except ValueError:
         return str(uuid5(_TRACE_ID_NAMESPACE, raw))
+
+
+def _merge_user_metadata(properties: dict[str, Any], metadata: Any) -> None:
+    """Safely extract custom properties from LiteLLM metadata into event properties.
+
+    Supports sourcing properties from a nested `posthog_properties` dictionary,
+    or top-level keys starting with the `posthog_` prefix.
+    All other keys (especially internal parameters or PII like requester_ip_address)
+    are ignored.
+    """
+    if not isinstance(metadata, dict):
+        return
+
+    # 1. Source from a dedicated subkey
+    user_properties = metadata.get("posthog_properties")
+    if isinstance(user_properties, dict):
+        for key, value in user_properties.items():
+            if key not in properties:
+                properties[key] = value
+
+    # 2. Allowlist by prefix convention
+    for key, value in metadata.items():
+        if key.startswith("posthog_") and key != "posthog_properties":
+            if key not in properties:
+                properties[key] = value
 
 
 def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
@@ -248,10 +260,7 @@ class PostHogCallback(InstrumentedCallback):
             for key, value in posthog_properties.items():
                 properties[key] = value
 
-        if isinstance(metadata, dict):
-            for key, value in metadata.items():
-                if key not in properties and key != "user_id" and key not in _LITELLM_INTERNAL_METADATA_KEYS:
-                    properties[key] = value
+        _merge_user_metadata(properties, metadata)
 
         posthog_flags = get_posthog_flags() or {}
         if isinstance(posthog_flags, dict):
@@ -343,10 +352,7 @@ class PostHogCallback(InstrumentedCallback):
             for key, value in posthog_properties.items():
                 properties[key] = value
 
-        if isinstance(metadata, dict):
-            for key, value in metadata.items():
-                if key not in properties and key != "user_id" and key not in _LITELLM_INTERNAL_METADATA_KEYS:
-                    properties[key] = value
+        _merge_user_metadata(properties, metadata)
 
         posthog_flags = get_posthog_flags() or {}
         if isinstance(posthog_flags, dict):

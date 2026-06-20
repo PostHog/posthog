@@ -857,6 +857,103 @@ class TestPostHogCallback:
                 assert capture_call.kwargs["properties"]["$group_1"] == "https://eu.posthog.com"
                 assert capture_call.kwargs["properties"]["$ai_is_error"] is True
 
+    @pytest.mark.asyncio
+    async def test_on_success_extracts_nested_posthog_properties(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": standard_logging_object,
+            "litellm_params": {
+                "metadata": {
+                    "posthog_properties": {
+                        "custom_stage": "production",
+                        "custom_flag": True,
+                    }
+                }
+            },
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            call_kwargs = mock_client.capture.call_args.kwargs
+            props = call_kwargs["properties"]
+            assert props["custom_stage"] == "production"
+            assert props["custom_flag"] is True
+
+    @pytest.mark.asyncio
+    async def test_on_success_extracts_posthog_prefixed_keys(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": standard_logging_object,
+            "litellm_params": {
+                "metadata": {
+                    "posthog_custom_property": "hello",
+                    "posthog_another": 123,
+                }
+            },
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            call_kwargs = mock_client.capture.call_args.kwargs
+            props = call_kwargs["properties"]
+            assert props["posthog_custom_property"] == "hello"
+            assert props["posthog_another"] == 123
+
+    @pytest.mark.asyncio
+    async def test_on_success_ignores_other_metadata_keys(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": standard_logging_object,
+            "litellm_params": {
+                "metadata": {
+                    "user_id": "test-user-id",
+                    "requester_ip_address": "127.0.0.1",
+                    "user_api_key": "some-secret-key",
+                    "endpoint": "http://example.com",
+                    "unrelated_property": "should-not-exist",
+                }
+            },
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="wizard"),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            call_kwargs = mock_client.capture.call_args.kwargs
+            props = call_kwargs["properties"]
+            assert "unrelated_property" not in props
+            assert "requester_ip_address" not in props
+            assert "user_api_key" not in props
+            assert "endpoint" not in props
+
 
 class TestNormalizeTraceId:
     def test_returns_fresh_uuid_when_value_is_falsy(self) -> None:
