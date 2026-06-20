@@ -21,8 +21,8 @@ import type {
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsTimeseriesResultsRetrieveParams,
+    PaginatedExperimentBasicListApi,
     PaginatedExperimentHoldoutListApi,
-    PaginatedExperimentListApi,
     PaginatedExperimentSavedMetricListApi,
     PatchedExperimentApi,
     PatchedExperimentHoldoutApi,
@@ -293,8 +293,8 @@ export const experimentsList = async (
     projectId: string,
     params?: ExperimentsListParams,
     options?: RequestInit
-): Promise<PaginatedExperimentListApi> => {
-    return apiMutator<PaginatedExperimentListApi>(getExperimentsListUrl(projectId, params), {
+): Promise<PaginatedExperimentBasicListApi> => {
+    return apiMutator<PaginatedExperimentBasicListApi>(getExperimentsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

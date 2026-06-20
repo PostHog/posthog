@@ -1,6 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { ComponentType, JSX, useEffect, useRef } from 'react'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
+import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
 import { reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
 import { InboxFlatListTabKey, SignalReport } from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
@@ -12,6 +15,8 @@ export interface InboxReportCardProps {
     report: SignalReport
     tabKey: InboxFlatListTabKey
     onArchive: (reason: DismissalReasonValue, note: string) => void
+    /** Restore a suppressed report back to the inbox. Only wired on the Archived tab. */
+    onRestore?: () => void
     /** Rendered as an attached row inside a shared bordered container (vs. a freestanding card). */
     attached?: boolean
 }
@@ -36,9 +41,25 @@ export function InboxReportList(props: InboxReportListProps): JSX.Element {
     )
 }
 
+/** Sleek reminder that the list is filtered, with a one-click reset. Renders nothing when no filter is active. */
+function ActiveFiltersBanner(): JSX.Element | null {
+    const { hasActiveFilters } = useValues(inboxFiltersLogic)
+    const { clearFilters } = useActions(inboxFiltersLogic)
+
+    if (!hasActiveFilters) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="info" action={{ children: 'Clear', onClick: () => clearFilters() }}>
+            Filters are applied – some reports may be hidden.
+        </LemonBanner>
+    )
+}
+
 function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
     const { reports, count, hasMore, reportsResponseLoading, isLoaded } = useValues(reportListLogic)
-    const { ensureLoaded, loadMore, archiveReport, refresh } = useActions(reportListLogic)
+    const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
     const sentinelRef = useRef<HTMLDivElement>(null)
 
     // Read fresh state at intersection time via refs so the observer is created once and not
@@ -74,8 +95,9 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     const showSkeleton = !isLoaded && (reportsResponseLoading || (count ?? 0) > 0)
 
     return (
-        <div className="mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
+        <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
             <InboxSearchFilterBar onRefresh={() => refresh()} refreshing={reportsResponseLoading} />
+            <ActiveFiltersBanner />
             <InboxBulkSelectionBar />
 
             {showSkeleton ? (
@@ -98,6 +120,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                                 report={report}
                                 tabKey={tabKey}
                                 onArchive={(reason, note) => archiveReport(report.id, reason, note)}
+                                onRestore={() => restoreReport(report.id)}
                             />
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}

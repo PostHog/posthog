@@ -757,7 +757,7 @@
         "feature_flag": "agent-platform"
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nThe config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index, check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate (defaults to the single numeric column), evaluation is required and selects how rows are read: 'last_row' (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value condition only; label_column labels rows in breach messages). Label values appear in delivered notifications — avoid label columns containing PII. Anomaly detection (detector_config) is only supported for trends insights.\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -813,7 +813,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection (trends insights only), or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). For SQL-insight alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -2582,6 +2582,20 @@
             "readOnlyHint": false
         }
     },
+    "experiment-calculate-running-time": {
+        "description": "Estimate the recommended sample size and how many days an experiment needs to run to detect an effect. This is a stateless statistical calculation — it does not read or modify any experiment, so it works for planning before an experiment exists.\n\nRequired: metric_type ('funnel' for conversion rates, 'mean_count' for events per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' or 'retention' for ratio-style metrics) and minimum_detectable_effect (the smallest relative change to detect, as a percentage — e.g. 5 means a 5% lift). number_of_variants defaults to 2 (control + one test).\n\nProvide the baseline one of two ways: pass baseline_value directly (a conversion rate as a fraction 0-1 for funnels, or an average per user for mean metrics), or pass baseline_stats (raw control-group statistics) and let the server derive it. Ratio and retention metrics REQUIRE baseline_stats (with denominator_sum / denominator_sum_squares / numerator_denominator_sum_product for the delta-method variance) or an explicit variance — baseline_value alone is not enough.\n\nOptionally pass exposure_rate_per_day (expected exposures per day across all variants) to also get recommended_running_time_days. The response returns baseline_value, variance (null for funnels), recommended_sample_size (total across variants), and recommended_running_time_days.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Calculate experiment running time",
+        "title": "Calculate experiment running time",
+        "required_scopes": ["experiment:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "experiment-copy-to-project": {
         "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nREQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This writes a new experiment into a DIFFERENT project than the one the user is currently looking at. Resolve the target project from the user's wording to a concrete team id, then confirm the source experiment and the target project by name before invoking.\n\nCopies an experiment into another project in the SAME organization as a new draft. The target project must belong to the same organization — this CANNOT copy across organizations or regions. Use experiment-duplicate instead when the copy should land in the same project.\n\nWhat IS copied: name (defaults to \"Original Name (Copy)\", de-duplicated with a numeric suffix if that name already exists in the target), description, type, parameters (variant split, rollout), filters, primary and secondary metrics (each with freshly regenerated uuids and preserved ordering), stats config, scheduling config, exposure criteria, and the only_count_matured_users setting.\n\nWhat is NOT copied: saved-metric references (saved metrics are project-scoped, so they are dropped on a cross-project copy), holdout, exposure cohort, start/end dates, results, and conclusion. The copy always starts as a fresh draft.\n\nFeature flag: pass feature_flag_key to control the flag key created in the target project. If omitted, the source experiment's flag key is reused — and if a flag with that key already exists in the target project, the copy SHARES that existing flag (its variants are reused) rather than creating a new one. A shared flag means lifecycle operations on either experiment (shipping a variant, pausing) affect both. To avoid this, pass a feature_flag_key that does not already exist in the target project. If an existing target flag is reused, it must have at least 2 variants including one with key \"control\", otherwise the call returns 400 (\"Feature flag must have at least 2 variants (control and at least one test variant)\" or \"Feature flag must have a variant with key 'control'\").\n\nReturns 400 if the source experiment uses legacy metrics (\"Copying is not supported for experiments using legacy metrics.\"). Returns 404 if the target project is not found in the organization (\"Target team not found.\"). Returns 403 if you lack write access to the target project (\"You do not have write access to the target project.\").\n\nThe returned experiment (including its id) belongs to the TARGET project, not the source project.",
         "category": "Experiments",
@@ -3937,7 +3951,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
+        "description": "Create a new AI observability evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). For 'sentiment' type, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'. When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -3951,7 +3965,7 @@
         }
     },
     "llma-evaluation-delete": {
-        "description": "Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
+        "description": "Soft-delete an AI observability evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete evaluation",
@@ -3965,7 +3979,7 @@
         }
     },
     "llma-evaluation-get": {
-        "description": "Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
+        "description": "Get a specific AI observability evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get evaluation",
@@ -3993,7 +4007,7 @@
         }
     },
     "llma-evaluation-list": {
-        "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
+        "description": "List all AI observability evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, sentiment, and other criteria. Supported types are 'llm_judge' (LLM scores outputs against a prompt), 'hog' (deterministic Hog code), and 'sentiment' (user-message sentiment analysis). Results are stored as '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List evaluations",
@@ -4119,7 +4133,7 @@
         }
     },
     "llma-evaluation-summary-create": {
-        "description": "Generate an AI-powered summary of LLM evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
+        "description": "Generate an AI-powered summary of boolean AI observability evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Summarize evaluation results",
@@ -4148,7 +4162,7 @@
         }
     },
     "llma-evaluation-update": {
-        "description": "Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt or Hog source), or change the model configuration.",
+        "description": "Update an existing AI observability evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt, Hog source, or sentiment source), or change the model configuration for llm_judge evaluations.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation",
@@ -5862,6 +5876,51 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "session-recording-export-create": {
+        "description": "Trigger an export of a single session recording's data to a downloadable archive. Requires staff access. Provide the `session_id` and a `reason` (recorded for audit). Returns an export job whose `status` starts as `pending`; poll `session-recording-export-get` with the returned `id` until `status` is `complete`, then read `export_location` for the archive's storage path. The export gathers recording blocks plus related ClickHouse metadata, so completion is not instant.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Export session recording",
+        "title": "Export session recording",
+        "required_scopes": ["session_recording:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-admin-export"
+    },
+    "session-recording-export-get": {
+        "description": "Get a single session recording export job by `id`. Requires staff access. Returns its `status` (pending/running/complete/failed), `export_location` (the archive's storage path, populated once `status` is `complete`), any `error_message`, and `is_expired` (exports older than 7 days may have been purged). Use after `session-recording-export-create` to poll for completion.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Get session recording export",
+        "title": "Get session recording export",
+        "required_scopes": ["session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-admin-export"
+    },
+    "session-recording-exports-list": {
+        "description": "List past session recording export jobs for the project, newest first. Requires staff access. Use to find an export's `id` and `status` before reading its download location via `session-recording-export-get`.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "List session recording exports",
+        "title": "List session recording exports",
+        "required_scopes": ["session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-admin-export"
     },
     "session-recording-get": {
         "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",

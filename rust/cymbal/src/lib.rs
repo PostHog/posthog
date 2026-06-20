@@ -16,6 +16,7 @@ pub mod frames;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
+pub mod modes;
 pub mod posthog_utils;
 pub mod router;
 pub mod server;
@@ -23,7 +24,7 @@ pub mod signals;
 pub mod spike_config;
 pub mod stages;
 pub mod suppression_rules;
-pub mod symbol_store;
+pub mod symbolication;
 pub mod teams;
 #[cfg(test)]
 pub mod test_utils;

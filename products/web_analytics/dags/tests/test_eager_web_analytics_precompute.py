@@ -10,6 +10,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 import dagster
+from parameterized import parameterized
 from structlog.testing import capture_logs
 
 from posthog.schema import WebAnalyticsPreComputeStrategy, WebStatsBreakdown
@@ -74,11 +75,30 @@ class TestResolveEagerAudience:
         assert team_ids == []
         assert reason == "not_cloud"
 
-    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
+    @override_settings(
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[], WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[]
+    )
     def test_returns_empty_when_no_teams_configured(self, _is_cloud):
         team_ids, reason, _diag = _resolve_eager_audience()
         assert team_ids == []
         assert reason == "no_teams_configured"
+
+    @parameterized.expand(
+        [
+            ("unrestricted_only", [], [5], [5]),
+            ("union_with_overlap", [2, 7], [7, 9], [2, 7, 9]),
+            ("restricted_only", [2, 7], [], [2, 7]),
+        ]
+    )
+    def test_audience_unions_restricted_and_unrestricted(self, _is_cloud, _name, restricted, unrestricted, expected):
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=restricted,
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=unrestricted,
+        ):
+            team_ids, reason, diag = _resolve_eager_audience()
+        assert team_ids == expected
+        assert reason == "ok"
+        assert diag == {"teams_configured": len(expected)}
 
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)

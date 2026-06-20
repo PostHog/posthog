@@ -63,6 +63,7 @@ from posthog.temporal.data_imports.sources.common.sql.predicates_psycopg import 
     render_psycopg_row_filter_conditions,
 )
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from posthog.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
@@ -88,6 +89,12 @@ SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
 METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
+
+# Alias for the projected `xmin` system column on xmin syncs. `SELECT *` never returns system
+# columns, so it must be projected explicitly; the alias also names the ORDER BY / WHERE cursor.
+XMIN_PROJECTED_COLUMN = "_ph_xmin"
+# xmin replication relies on `pg_snapshot_xmin` / `xid8`, both PG13+.
+XMIN_MIN_SERVER_VERSION = 130000
 
 # In-process retries for a recovery conflict before the abort (non-retryable, see source.py). The
 # read path counts these only once the chunk has shrunk to the floor.
@@ -154,6 +161,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # raises this from inside a wait, e.g. the commit at the end of get_connection).
     # Same transient dead-socket class as the libpq drops above — recover by reconnecting.
     "the connection is lost",
+    # Supabase's Supavisor pooler reports a transient failure to reach the upstream backend (TCP
+    # timeout while the backend is briefly unreachable — failover, idle cull, restart) as a
+    # ConnectionFailure (SQLSTATE 08006, an OperationalError) carrying the Erlang-tuple reason
+    # "{:error, :etimedout}". Same transient class as the libpq drops above — recover by
+    # reconnecting. The Erlang-tuple wording is the stable, low-false-positive signal.
+    "{:error, :etimedout}",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -185,15 +198,16 @@ _CONNECTION_DROPPED_ERROR_TYPES = (
 )
 
 
-def _safe_close_connection(connection: psycopg.Connection) -> None:
+def _safe_close_connection(connection: psycopg.Connection | None) -> None:
     """Close a connection without raising.
 
     Prefer this over Connection.__exit__ for teardown in exception handlers:
     __exit__ attempts a commit/rollback first, which can itself raise on a
     broken connection and mask the original error. close() just releases the
-    socket.
+    socket. Accepts None so callers can close a connection that was never opened
+    (a connect that raised before assigning) without a None-check at each site.
     """
-    if connection.closed:
+    if connection is None or connection.closed:
         return
     try:
         connection.close()
@@ -383,6 +397,18 @@ def _is_options_startup_param_unsupported(error: BaseException) -> bool:
     return any(substring in message for substring in _OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS)
 
 
+# libpq reports a non-'S'/'N' byte to its SSLRequest packet as "received invalid response to SSL
+# negotiation: <byte>". The handshake mentions SSL, but the cause is that the host/port doesn't
+# reach a PostgreSQL server speaking the SSL protocol — a wrong port, an HTTP/proxy/edge endpoint,
+# or a TCP proxy fronting a paused/deleted database. Don't mislabel it "SSL not supported": let the
+# raw message reach `get_non_retryable_errors` for an accurate, non-retryable diagnosis.
+_INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING = "received invalid response to ssl negotiation"
+
+
+def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
+    return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
+
+
 def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
     """`psycopg.connect` that retries without the libpq `options` startup parameter when the
     server rejects it.
@@ -440,7 +466,7 @@ def _connect_to_postgres(
             **kwargs,
         )
     except psycopg.OperationalError as e:
-        if require_ssl and "SSL" in str(e):
+        if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
             raise SSLRequiredError(
                 "SSL/TLS connection is required but your database does not support it. "
                 "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -839,6 +865,62 @@ def _rls_active_from_conn(
         ):
             capture_exception(e)
         return {}
+
+
+def _xmin_capable_tables_from_conn(
+    connection: psycopg.Connection,
+    schema: str | None,
+    names: list[str] | None,
+) -> set[str]:
+    """Display names of relations that can support an xmin sync.
+
+    xmin needs a physical heap tuple (`relkind` `r`/`m` — ordinary tables and materialized views)
+    and PG13+ (for `pg_snapshot_xmin`/`xid8`). Partitioned parents (`p`), plain views (`v`) and
+    foreign tables (`f`) are excluded: the parent has no tuples of its own and a single global
+    ceiling can't span its children's independent xid spaces.
+    """
+    try:
+        if connection.info.server_version < XMIN_MIN_SERVER_VERSION:
+            return set()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(timeout=sql.Literal(1000 * 30))  # 30 secs
+            )
+            discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+            if not discovered_tables:
+                return set()
+
+            display_by_source = {
+                (schema_name, table_name): display_name
+                for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
+            }
+            wanted = sql.SQL(", ").join(
+                sql.SQL("({}, {})").format(sql.Literal(schema_name), sql.Literal(table_name))
+                for schema_name, table_name in display_by_source
+            )
+            query = sql.SQL("""
+                SELECT n.nspname, c.relname
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN (VALUES {wanted}) AS want(schema_name, table_name)
+                    ON n.nspname::text = want.schema_name AND c.relname::text = want.table_name
+                WHERE c.relkind IN ('r', 'm')
+            """).format(wanted=wanted)
+
+            cursor.execute(query)
+            capable: set[str] = set()
+            for nspname, relname in cursor.fetchall():
+                display_name = display_by_source.get((nspname, relname))
+                if display_name is not None:
+                    capable.add(display_name)
+            return capable
+    except Exception as e:
+        # Best-effort like the PK/RLS/index lookups it runs alongside: losing the `supports_xmin`
+        # hint just hides the option for this listing. A non-Postgres engine may lack `relkind`
+        # semantics entirely, so degrade quietly.
+        if not connection.closed and not connection.broken and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
+            structlog.get_logger().warning("Failed to detect xmin-capable tables for Postgres schemas", exc_info=e)
+        return set()
 
 
 def get_postgres_row_count(
@@ -1316,6 +1398,91 @@ class SafeTimetzLoader(TimetzLoader):
         return _load_time_clamping_hour_24(super().load, data)
 
 
+@dataclasses.dataclass
+class XminBounds:
+    """Bounded xmin window captured once at sync start (see §2.2/§2.3 of the design).
+
+    `lower`/`upper` are bare 32-bit xids compared against tuple `xmin`. `ceiling_xid8` is the
+    full 64-bit `pg_snapshot_xmin` we persist as the durable, wraparound-safe cursor; `num_wraparound`
+    is its epoch (high 32 bits). `wraparound_or_range` selects the single-wrap `>= lower OR < upper`
+    predicate instead of the steady-state `>= lower AND < upper`.
+    """
+
+    lower: int
+    upper: int
+    ceiling_xid8: int
+    num_wraparound: int
+    wraparound_or_range: bool
+
+
+def _capture_xmin_ceiling(
+    cursor: psycopg.Cursor,
+    stored_last_value: Optional[int],
+    stored_num_wraparound: Optional[int],
+    logger: FilteringBoundLogger,
+) -> XminBounds:
+    """Capture this run's xmin ceiling on the row-serving connection and derive the read window.
+
+    The ceiling is `pg_snapshot_xmin(pg_current_snapshot())` — the lowest still-running xid — so
+    every row with `xmin < ceiling` is committed as of the snapshot and in-flight transactions are
+    excluded. Must run on the connection that serves rows (a replica's snapshot xmin lags the
+    primary's), which is the autocommit setup cursor here.
+    """
+    server_version = cursor.connection.info.server_version
+    if server_version < XMIN_MIN_SERVER_VERSION:
+        raise XminUnsupportedError(
+            f"xmin replication requires PostgreSQL 13 or newer (server reports {server_version}). "
+            "Choose a different sync type for this table."
+        )
+
+    cursor.execute(sql.SQL("SELECT pg_snapshot_xmin(pg_current_snapshot())::text::bigint"))
+    row = cursor.fetchone()
+    if row is None or row[0] is None:
+        raise XminUnsupportedError("Could not read the xmin snapshot ceiling from the source database.")
+    ceiling_xid8 = int(row[0])
+    ceiling_xid = ceiling_xid8 & 0xFFFFFFFF
+    num_wraparound = ceiling_xid8 >> 32
+
+    # First run (no stored cursor): read everything `< ceiling` once. `lower = 0` is below
+    # FrozenTransactionId (2) so even frozen tuples are captured by the initial snapshot.
+    if stored_last_value is None:
+        return XminBounds(
+            lower=0,
+            upper=ceiling_xid,
+            ceiling_xid8=ceiling_xid8,
+            num_wraparound=num_wraparound,
+            wraparound_or_range=False,
+        )
+
+    delta = num_wraparound - (stored_num_wraparound or 0)
+    if delta == 0:
+        return XminBounds(
+            lower=int(stored_last_value),
+            upper=ceiling_xid,
+            ceiling_xid8=ceiling_xid8,
+            num_wraparound=num_wraparound,
+            wraparound_or_range=False,
+        )
+    if delta == 1:
+        # Single wrap: changed rows split into `>= old_lower OR < new_upper`.
+        return XminBounds(
+            lower=int(stored_last_value),
+            upper=ceiling_xid,
+            ceiling_xid8=ceiling_xid8,
+            num_wraparound=num_wraparound,
+            wraparound_or_range=True,
+        )
+    # delta >= 2 (or a negative epoch drift): too much churn to reconstruct safely — force a full
+    # re-read of everything `< ceiling`.
+    logger.warning(
+        f"xmin epoch advanced by {delta} since the last sync (stored={stored_num_wraparound}, "
+        f"current={num_wraparound}); forcing a full re-read."
+    )
+    return XminBounds(
+        lower=0, upper=ceiling_xid, ceiling_xid8=ceiling_xid8, num_wraparound=num_wraparound, wraparound_or_range=False
+    )
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -1330,6 +1497,7 @@ def _build_query(
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
+    xmin_bounds: Optional[XminBounds] = None,
 ) -> sql.Composed:
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     select_clause: sql.Composable = (
@@ -1338,6 +1506,11 @@ def _build_query(
     # Row filters apply only to the real data path; sampling/row-count queries stay unfiltered
     # (an over-estimate is harmless).
     row_filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
+
+    if xmin_bounds is not None:
+        return _build_xmin_query(
+            schema, table_name, select_clause, xmin_bounds, row_filter_conditions, add_sampling=bool(add_sampling)
+        )
 
     if not should_use_incremental_field:
         if add_sampling:
@@ -1349,8 +1522,7 @@ def _build_query(
                 query = sql.SQL("SELECT {cols} FROM {table} TABLESAMPLE SYSTEM (1)").format(
                     cols=select_clause, table=sql.Identifier(schema, table_name)
                 )
-            query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
-            return sql.SQL(query_with_limit).format()
+            return query + sql.SQL(" LIMIT 1000")
 
         query = sql.SQL("SELECT {cols} FROM {table}").format(
             cols=select_clause, table=sql.Identifier(schema, table_name)
@@ -1407,8 +1579,7 @@ def _build_query(
         )
 
     if add_sampling:
-        query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
-        return sql.SQL(query_with_limit).format()
+        return query + sql.SQL(" LIMIT 1000")
 
     if upper_bound_inclusive is not None:
         query = sql.SQL("{inner} AND {field} <= {upper}").format(
@@ -1420,8 +1591,46 @@ def _build_query(
     if row_filter_conditions:
         query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
 
-    query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
-    return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
+    return query + sql.SQL(" ORDER BY {field} ASC").format(field=sql.Identifier(incremental_field))
+
+
+def _xmin_predicate(bounds: XminBounds) -> sql.Composed:
+    """Bounded predicate over the cast `xmin` (no ordering operators exist on raw `xid`)."""
+    xmin_expr = sql.SQL("xmin::text::bigint")
+    if bounds.wraparound_or_range:
+        return sql.SQL("({xmin} >= {lo} OR {xmin} < {hi})").format(
+            xmin=xmin_expr, lo=sql.Literal(bounds.lower), hi=sql.Literal(bounds.upper)
+        )
+    return sql.SQL("({xmin} >= {lo} AND {xmin} < {hi})").format(
+        xmin=xmin_expr, lo=sql.Literal(bounds.lower), hi=sql.Literal(bounds.upper)
+    )
+
+
+def _build_xmin_query(
+    schema: str,
+    table_name: str,
+    select_clause: sql.Composable,
+    bounds: XminBounds,
+    row_filter_conditions: list[sql.Composable],
+    *,
+    add_sampling: bool,
+) -> sql.Composed:
+    # `_ph_xmin` is force-projected (system columns never come back from `SELECT *`) and kept out of
+    # `compute_projected_columns` so it can't collide with the user's incremental-field machinery.
+    select = sql.SQL("xmin::text::bigint AS {alias}, {cols}").format(
+        alias=sql.Identifier(XMIN_PROJECTED_COLUMN), cols=select_clause
+    )
+    query = sql.SQL("SELECT {cols} FROM {table} WHERE {predicate}").format(
+        cols=select, table=sql.Identifier(schema, table_name), predicate=_xmin_predicate(bounds)
+    )
+    if row_filter_conditions:
+        query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
+
+    # ORDER BY the cast cursor so the offset-resume path stays correct on a connection drop.
+    ordered = query + sql.SQL(" ORDER BY xmin::text::bigint ASC")
+    if add_sampling:
+        return ordered + sql.SQL(" LIMIT 1000")
+    return ordered
 
 
 def _build_count_query(
@@ -1431,7 +1640,15 @@ def _build_count_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
+    xmin_bounds: Optional[XminBounds] = None,
 ) -> sql.Composed:
+    if xmin_bounds is not None:
+        return sql.SQL("SELECT COUNT(*) FROM {schema}.{table} WHERE {predicate}").format(
+            schema=sql.Identifier(schema),
+            table=sql.Identifier(table_name),
+            predicate=_xmin_predicate(xmin_bounds),
+        )
+
     if not should_use_incremental_field:
         return sql.SQL("SELECT COUNT(*) FROM {schema}.{table}").format(
             schema=sql.Identifier(schema),
@@ -2163,6 +2380,9 @@ def postgres_source(
     is_initial_sync: bool = False,
     enabled_columns: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
+    is_xmin: bool = False,
+    xmin_last_value: Optional[int] = None,
+    xmin_num_wraparound: Optional[int] = None,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -2192,7 +2412,7 @@ def postgres_source(
                     options=FORCE_UTF8_CLIENT_ENCODING,
                 )
             except psycopg.OperationalError as e:
-                if require_ssl and "SSL" in str(e):
+                if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
                     raise SSLRequiredError(
                         "SSL/TLS connection is required but your database does not support it. "
                         "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2214,6 +2434,10 @@ def postgres_source(
         # letting Temporal re-run setup straight back into the same wall.
         setup_recovery_conflicts = 0
         setup_connection_dropped_errors = 0
+        # Captured once at sync start on the row-serving connection (see `_capture_xmin_ceiling`).
+        # Re-derived on each setup retry, which is harmless — a later ceiling just reads a slightly
+        # wider window. Persisted only at job completion (see the pipeline's xmin advance).
+        xmin_bounds: XminBounds | None = None
         while True:
             # Opening the setup connection can itself hit a transient drop ("server closed the
             # connection unexpectedly", idle cull, failover) — the same class of error the read
@@ -2247,6 +2471,10 @@ def postgres_source(
                             )
                         )
 
+                        # Capture the xmin ceiling on this row-serving connection before streaming.
+                        if is_xmin:
+                            xmin_bounds = _capture_xmin_ceiling(cursor, xmin_last_value, xmin_num_wraparound, logger)
+
                         try:
                             logger.debug("Checking if source is a read replica...")
                             using_read_replica = _is_read_replica(cursor)
@@ -2264,6 +2492,14 @@ def postgres_source(
                                 logger.debug("Falling back to ['id'] for primary keys...")
                                 primary_keys = ["id"]
                                 used_id_pk_fallback = True
+
+                            # xmin reads deltas and relies on an idempotent upsert to dedupe a
+                            # re-read window after a crash, so it requires a primary key.
+                            if is_xmin and not primary_keys:
+                                raise XminUnsupportedError(
+                                    f"Table {schema}.{table_name} has no primary key, which xmin replication "
+                                    "requires. Add a primary key or choose a different sync type."
+                                )
 
                             # Project both the Arrow schema and the SELECT clause so the cursor's row shape
                             # matches what downstream consumers expect.
@@ -2295,6 +2531,7 @@ def postgres_source(
                                 add_sampling=True,
                                 enabled_columns=enabled_columns,
                                 primary_keys=primary_keys,
+                                xmin_bounds=xmin_bounds,
                             )
 
                             count_query = _build_count_query(
@@ -2304,6 +2541,7 @@ def postgres_source(
                                 incremental_field,
                                 incremental_field_type,
                                 db_incremental_field_last_value,
+                                xmin_bounds=xmin_bounds,
                             )
 
                             logger.debug("Checking if table is partitioned...")
@@ -2315,6 +2553,17 @@ def postgres_source(
                                     child_partitions = list_child_partitions(cursor, schema, table_name)
                             except Exception as e:
                                 logger.debug(f"Partition detection failed: {e}")
+
+                            # A single global ceiling can't span a partitioned parent's independent
+                            # per-partition xid spaces, so xmin is refused on parents (and hidden in
+                            # discovery for them). Partition/window chunking below is gated on
+                            # `should_use_incremental_field`, which is False for xmin, so xmin always
+                            # takes the non-partitioned single-cursor path.
+                            if is_xmin and is_partitioned:
+                                raise XminUnsupportedError(
+                                    f"Table {schema}.{table_name} is a partitioned parent, which xmin replication "
+                                    "does not support. Choose a different sync type."
+                                )
                             logger.debug("Getting table chunk size...")
                             if chunk_size_override is not None:
                                 chunk_size = chunk_size_override
@@ -2454,6 +2703,10 @@ def postgres_source(
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
+        if xmin_bounds is not None:
+            # The forced `_ph_xmin` projection isn't part of the discovered columns, so add it to
+            # the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
+            arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
         with tunnel() as (host, port):
             cursor_factory = psycopg.ServerCursor if not using_read_replica else None
 
@@ -2478,7 +2731,7 @@ def postgres_source(
                         options=FORCE_UTF8_CLIENT_ENCODING,
                     )
                 except psycopg.OperationalError as e:
-                    if require_ssl and "SSL" in str(e):
+                    if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
                         raise SSLRequiredError(
                             "SSL/TLS connection is required but your database does not support it. "
                             "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2540,23 +2793,28 @@ def postgres_source(
                     enabled_columns=enabled_columns,
                     primary_keys=primary_keys,
                     row_filters=row_filters,
+                    xmin_bounds=xmin_bounds,
                 )
 
                 successive_errors = 0
                 successive_conn_errors = 0
                 floor_retries = 0
-                connection = _connect_with_dropped_retry(get_connection, logger)
-                # Autocommit so each LIMIT/OFFSET query runs as its own statement
-                # and no transaction stays open across the slow delta-merge that
-                # happens between yields. A held transaction is what gets the
-                # backend culled by idle_in_transaction_session_timeout, producing
-                # the "server conn crashed?" ProtocolViolation on the next fetch.
-                connection.autocommit = True
+                # Open lazily inside the loop so a recovery conflict (or connection drop) raised by
+                # the connect itself is caught by the handlers below. A hot standby can cancel the
+                # connection's own startup with "conflict with recovery" (SerializationFailure) when
+                # we reconnect mid-recovery — opening outside the loop let that escape the whole
+                # fallback even though it's the same transient condition the loop already retries.
+                connection: psycopg.Connection | None = None
                 while True:
                     try:
-                        if connection.closed:
-                            logger.debug("Postgres connection was closed, reopening...")
+                        if connection is None or connection.closed:
+                            logger.debug("Opening Postgres connection for offset chunking...")
                             connection = get_connection()
+                            # Autocommit so each LIMIT/OFFSET query runs as its own statement and no
+                            # transaction stays open across the slow delta-merge that happens between
+                            # yields. A held transaction is what gets the backend culled by
+                            # idle_in_transaction_session_timeout, producing the "server conn
+                            # crashed?" ProtocolViolation on the next fetch.
                             connection.autocommit = True
 
                         # Use psycopg.Cursor directly to bypass cursor_factory: on a
@@ -2566,12 +2824,11 @@ def postgres_source(
                         # argument: 'name'". This LIMIT/OFFSET fetchall path wants an
                         # unnamed client cursor.
                         with psycopg.Cursor(connection) as cursor:
-                            query_with_limit = cast(
-                                LiteralString, f"{query.as_string()} LIMIT {chunk_size} OFFSET {offset}"
+                            query_with_limit_sql = query + sql.SQL(" LIMIT {limit} OFFSET {offset}").format(
+                                limit=sql.Literal(chunk_size),
+                                offset=sql.Literal(offset),
                             )
-                            query_with_limit_sql = sql.SQL(query_with_limit).format()
-
-                            logger.debug(f"Postgres query: {query_with_limit}")
+                            logger.debug(f"Postgres query: {query_with_limit_sql}")
                             cursor.execute(query_with_limit_sql)
 
                             column_names = [column.name for column in cursor.description or []]
@@ -2735,6 +2992,7 @@ def postgres_source(
                             enabled_columns=enabled_columns,
                             primary_keys=primary_keys,
                             row_filters=row_filters,
+                            xmin_bounds=xmin_bounds,
                         )
                         logger.debug(f"Postgres query: {query.as_string()}")
 
@@ -2786,11 +3044,12 @@ def postgres_source(
                 if not _is_connection_dropped_error(e):
                     raise
                 # Offset-based resume is only safe when the query has a stable
-                # ORDER BY (added by _build_query for incremental syncs). A
-                # full-table scan has no ORDER BY, so Postgres may return rows in
-                # a different order on the resumed query and OFFSET would skip or
-                # duplicate rows. In that case re-raise and let the sync restart.
-                if not should_use_incremental_field:
+                # ORDER BY (added by _build_query for incremental syncs, and by the
+                # xmin branch). A full-table scan has no ORDER BY, so Postgres may
+                # return rows in a different order on the resumed query and OFFSET
+                # would skip or duplicate rows. In that case re-raise and let the
+                # sync restart.
+                if not should_use_incremental_field and xmin_bounds is None:
                     raise
                 logger.debug(f"Connection dropped ({e}). Falling back to offset chunking at offset {offset}.")
                 yield from offset_chunking(offset, chunk_size)
@@ -2806,6 +3065,9 @@ def postgres_source(
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
         has_duplicate_primary_keys=has_duplicate_primary_keys,
+        xmin_ceiling_xid=xmin_bounds.upper if xmin_bounds is not None else None,
+        xmin_ceiling_xid8=xmin_bounds.ceiling_xid8 if xmin_bounds is not None else None,
+        xmin_num_wraparound=xmin_bounds.num_wraparound if xmin_bounds is not None else None,
     )
 
 

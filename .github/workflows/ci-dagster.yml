@@ -395,11 +395,19 @@ jobs:
 
             - name: Run Dagster tests
               run: |
+                  # Pick the split algorithm at runtime: optimal_chunks only when the
+                  # installed pytest-split offers it, else duration_based_chunks. A workflow
+                  # edit runs merged with master, so an unrebased PR on older pytest-split
+                  # must not hit an unknown --splitting-algorithm. See AGENTS.md (CI).
+                  SPLITTING_ALGORITHM=duration_based_chunks
+                  if python -c "from pytest_split.algorithms import Algorithms; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                      SPLITTING_ALGORITHM=optimal_chunks
+                  fi
                   pytest posthog/dags products/**/dags \
                       --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
-                      --splitting-algorithm=duration_based_chunks \
+                      --splitting-algorithm="$SPLITTING_ALGORITHM" \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
                       --junitxml=junit-dagster-${{ matrix.group }}.xml
