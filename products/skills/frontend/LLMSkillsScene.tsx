@@ -8,6 +8,7 @@ import { LemonDivider, LemonModal, LemonSwitch, LemonTabs, LemonTag, Link } from
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -15,11 +16,10 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 import { LemonField } from '~/lib/lemon-ui/LemonField'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
@@ -41,6 +41,7 @@ import {
 } from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 import { openArchiveSkillDialog } from './skillSceneComponents'
+import { SkillsSceneShell } from './SkillsSceneShell'
 
 export const scene: SceneExport = {
     component: LLMSkillsScene,
@@ -442,11 +443,15 @@ export function LLMSkillsScene(): JSX.Element {
         activeTabDescription,
         visibleCategoryTabs,
     } = useValues(llmSkillsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
     const fileInputRef = useRef<HTMLInputElement | null>(null)
 
     const showScoutOrigin = activeCategory === 'scout'
+    const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
+    // Discovery CTA: when a project has no skills of its own yet, point first-timers at the community catalog.
+    const showCommunityDiscovery = communitySkillsEnabled && !skillsLoading && skills.count === 0 && !filters.search
 
     // Memoize columns so the array reference doesn't change every render — otherwise every
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.
@@ -460,8 +465,8 @@ export function LLMSkillsScene(): JSX.Element {
     const showGroupedLoadingSkeleton = filters.group_by_prefix && skillsLoading
     const truncated = filters.group_by_prefix && skills.count > skills.results.length
 
-    return (
-        <SceneContent>
+    const content = (
+        <>
             <input
                 ref={fileInputRef}
                 type="file"
@@ -478,53 +483,16 @@ export function LLMSkillsScene(): JSX.Element {
                 }}
             />
             <ConnectToClaudeCodeModal />
-            <SceneTitleSection
-                name="Skills"
-                description={activeTabDescription}
-                resourceType={{ type: 'llm_analytics' }}
-                actions={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => setConnectModalOpen(true)}
-                            data-attr="connect-coding-agent-button"
-                        >
-                            Load skills in your agent
-                        </LemonButton>
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconUpload />}
-                                onClick={() => fileInputRef.current?.click()}
-                                loading={importing}
-                                data-attr="import-skill-button"
-                                tooltip="Import a skill from a spec-compliant .zip"
-                            >
-                                Import
-                            </LemonButton>
-                        </AccessControlAction>
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                to={skillUrl('new')}
-                                icon={<IconPlusSmall />}
-                                data-attr="new-skill-button"
-                            >
-                                New skill
-                            </LemonButton>
-                        </AccessControlAction>
-                    </>
-                }
-            />
+
+            {showCommunityDiscovery && (
+                <LemonBanner
+                    type="info"
+                    action={{ children: 'Browse community', to: urls.communitySkills() }}
+                    data-attr="skills-community-discovery-banner"
+                >
+                    No skills yet — explore agent skills shared by the PostHog community and install them in one click.
+                </LemonBanner>
+            )}
 
             {visibleCategoryTabs.length > 0 && (
                 <LemonTabs
@@ -613,6 +581,56 @@ export function LLMSkillsScene(): JSX.Element {
                     />
                 )}
             </div>
-        </SceneContent>
+        </>
+    )
+
+    return (
+        <SkillsSceneShell
+            activeTab="your"
+            description={activeTabDescription}
+            actions={
+                <>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => setConnectModalOpen(true)}
+                        data-attr="connect-coding-agent-button"
+                    >
+                        Load skills in your agent
+                    </LemonButton>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconUpload />}
+                            onClick={() => fileInputRef.current?.click()}
+                            loading={importing}
+                            data-attr="import-skill-button"
+                            tooltip="Import a skill from a spec-compliant .zip"
+                        >
+                            Import
+                        </LemonButton>
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={skillUrl('new')}
+                            icon={<IconPlusSmall />}
+                            data-attr="new-skill-button"
+                        >
+                            New skill
+                        </LemonButton>
+                    </AccessControlAction>
+                </>
+            }
+            content={content}
+        />
     )
 }

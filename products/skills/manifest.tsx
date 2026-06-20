@@ -24,6 +24,14 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'llm_prompts',
         },
+        CommunitySkills: {
+            import: () => import('./frontend/CommunitySkillsScene'),
+            projectBased: true,
+            name: 'Community skills',
+            description: 'Discover and install agent skills shared by the PostHog community.',
+            layout: 'app-container',
+            iconType: 'llm_prompts',
+        },
     },
     routes: {
         '/skills': ['Skills', 'skills'],
@@ -31,6 +39,7 @@ export const manifest: ProductManifest = {
         // aren't captured as a skill named after the tab. Route order = match precedence.
         '/skills/scouts': ['Skills', 'skillsScouts'],
         '/skills/review-hog': ['Skills', 'skillsReviewHog'],
+        '/community-skills': ['CommunitySkills', 'communitySkills'],
         '/skills/:name': ['Skill', 'skill'],
     },
     redirects: {
@@ -49,6 +58,7 @@ export const manifest: ProductManifest = {
         skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
         skill: (name: string, params?: { file?: string; version?: number }): string =>
             combineUrl(`/skills/${name}`, params).url,
+        communitySkills: (): string => '/community-skills',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
