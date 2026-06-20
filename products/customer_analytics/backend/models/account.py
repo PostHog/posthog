@@ -1,4 +1,5 @@
-from typing import Any
+from enum import Enum
+from typing import TYPE_CHECKING, cast
 
 from django.apps import apps
 from django.core.exceptions import ValidationError
@@ -12,6 +13,9 @@ from pydantic import BaseModel, ConfigDict
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+
+if TYPE_CHECKING:
+    from posthog.models import Team, User
 
 
 class AccountAssignment(BaseModel):
@@ -36,22 +40,66 @@ class AccountProperties(BaseModel):
     slack_channel_id: str | None = None
     usage_dashboard_link: str | None = None
 
+    @classmethod
+    def from_input(cls, data: "dict | AccountProperties") -> "AccountProperties":
+        if isinstance(data, AccountProperties):
+            data = data.model_dump(mode="json", exclude_unset=True)
+        return cls.model_validate(data)
+
+
+class _Unset(Enum):
+    UNSET = "unset"
+
+
+_UNSET = _Unset.UNSET
+
 
 class AccountManager(TeamScopedManager["Account"]):
-    def create(
+    def create_account(
         self,
         *,
+        team: "Team",
+        name: str,
+        created_by: "User | None" = None,
+        external_id: str | None = None,
         properties: "dict | AccountProperties | None" = None,
-        **kwargs: Any,
     ) -> "Account":
-        if properties is not None:
-            validated = (
-                properties
-                if isinstance(properties, AccountProperties)
-                else AccountProperties.model_validate(properties)
+        validated = AccountProperties.from_input(properties or {})
+        return self.unscoped().create(
+            team=team,
+            created_by=created_by,
+            name=self._cap_to_field_length("name", name),
+            external_id=self._cap_to_field_length("external_id", external_id) if external_id is not None else None,
+            _properties=validated.model_dump(mode="json", exclude_unset=True),
+        )
+
+    def update_account(
+        self,
+        account: "Account",
+        *,
+        name: str | _Unset = _UNSET,
+        external_id: str | None | _Unset = _UNSET,
+        properties: "dict | AccountProperties | _Unset" = _UNSET,
+    ) -> "Account":
+        update_fields: list[str] = []
+        if name is not _UNSET:
+            account.name = self._cap_to_field_length("name", name)
+            update_fields.append("name")
+        if external_id is not _UNSET:
+            account.external_id = (
+                self._cap_to_field_length("external_id", external_id) if external_id is not None else None
             )
-            kwargs["_properties"] = validated.model_dump(mode="json")
-        return super().create(**kwargs)
+            update_fields.append("external_id")
+        if properties is not _UNSET:
+            account._properties = AccountProperties.from_input(properties).model_dump(mode="json", exclude_unset=True)
+            update_fields.append("_properties")
+        if update_fields:
+            account.save(update_fields=update_fields)
+        return account
+
+    def _cap_to_field_length(self, field_name: str, value: str) -> str:
+        max_length = cast(models.CharField, self.model._meta.get_field(field_name)).max_length
+        return value[:max_length]
 
 
 class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):

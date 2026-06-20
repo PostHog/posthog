@@ -14,7 +14,7 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -31,7 +31,7 @@ from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
-from posthog.models import User
+from posthog.models import OrganizationMembership, User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -75,6 +75,7 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.tasks.email import send_integration_access_request
 
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
@@ -298,6 +299,25 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(
         required=False,
         help_text="Whether more channels match the current search beyond this page.",
+    )
+
+
+class IntegrationAccessRequestSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=Integration.IntegrationKind.choices,
+        help_text="The kind of integration the member is requesting be connected (e.g. 'slack', 'github').",
+    )
+    reason = serializers.CharField(
+        max_length=2000,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Explanation from the requester of why this integration is needed. Shown to admins in the notification email.",
+    )
+
+
+class IntegrationAccessRequestResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text="Whether the access request was accepted and the project admins were notified."
     )
 
 
@@ -659,6 +679,8 @@ class IntegrationViewSet(
         "refresh_github_repos",
         "github_link_existing",
         "github_oauth_authorize",
+        # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
+        "request_access",
     ]
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
@@ -674,6 +696,14 @@ class IntegrationViewSet(
                 AccessControlPermission(),
                 TeamMemberAccessPermission(),
                 TeamMemberLightManagementPermission(),
+            ]
+        # Any project member may ask an admin to connect an integration — connecting still requires admin.
+        if self.action == "request_access":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
             ]
         raise NotImplementedError()
 
@@ -1197,6 +1227,28 @@ class IntegrationViewSet(
             else None,
         )
         return Response({"oauth_url": oauth_url})
+
+    @extend_schema(
+        request=IntegrationAccessRequestSerializer,
+        responses={200: IntegrationAccessRequestResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="request_access")
+    def request_access(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Notify project admins that a member is requesting an integration be connected."""
+        # Members only — admins can connect integrations themselves, so there's nobody to ask.
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        if requesting_level is None or requesting_level >= OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Only members can request access; admins can connect integrations directly.")
+
+        serializer = IntegrationAccessRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        send_integration_access_request.delay(
+            team_id=self.team_id,
+            requesting_user_id=cast(User, request.user).id,
+            kind=serializer.validated_data["kind"],
+            reason=serializer.validated_data["reason"],
+        )
+        return Response({"success": True})
 
     @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})
     @action(methods=["POST"], detail=True, url_path="github_repos/refresh")

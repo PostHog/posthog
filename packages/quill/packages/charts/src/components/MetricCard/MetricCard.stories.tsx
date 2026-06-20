@@ -76,6 +76,30 @@ export const NoChange: Story = {
     },
 }
 
+export const RestingSummary: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const avg = Math.round(REVENUE.reduce((a, b) => a + b, 0) / REVENUE.length)
+        return (
+            <Stage width={360} height={320}>
+                <div className="rounded-xl border border-primary bg-surface-primary p-5 shadow-sm w-full h-full flex flex-col">
+                    <MetricCard
+                        title="Total Revenue"
+                        value={avg}
+                        restingSubtitle="Avg"
+                        data={REVENUE}
+                        labels={MONTHS}
+                        theme={theme}
+                        color="#22d3ee"
+                        sparklineClassName="mt-4 -mx-5 -mb-5"
+                        formatValue={(v) => `US$${Math.round(v).toLocaleString()}`}
+                    />
+                </div>
+            </Stage>
+        )
+    },
+}
+
 export const NumberOnly: Story = {
     render: () => (
         <Stage width={360} height={200}>

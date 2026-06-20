@@ -110,6 +110,29 @@ class TestErrorTracking(APIBaseTest):
             "external_issues": [],
         }
 
+    @parameterized.expand(["user", "role"])
+    def test_issue_fetch_assignee_id_preserves_type(self, assignee_type):
+        # The frontend resolves the assignee by strict-comparing the numeric member id with
+        # `assignee.id`; if retrieve serializes the user id as a string the issue renders as
+        # "Unassigned" despite being assigned. User ids must stay integers, role ids strings.
+        issue = self.create_issue(["fingerprint"])
+        expected_id: int | str
+        expected_python_type: type
+        if assignee_type == "user":
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
+            expected_id, expected_python_type = self.user.id, int
+        else:
+            role = Role.objects.create(name="Eng role", organization=self.organization)
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, role=role)
+            expected_id, expected_python_type = str(role.id), str
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
+
+        assert response.status_code == 200
+        assignee = response.json()["assignee"]
+        assert assignee == {"id": expected_id, "type": assignee_type}
+        assert isinstance(assignee["id"], expected_python_type)
+
     @freeze_time("2025-01-01")
     def test_issue_update(self):
         issue = self.create_issue(["fingerprint"])

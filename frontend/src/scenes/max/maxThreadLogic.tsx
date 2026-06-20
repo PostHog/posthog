@@ -2025,12 +2025,12 @@ function enhanceThreadToolCalls(
 
     // Enhance assistant messages with tool call status
     return group.map((message, messageIndex) => {
-        message = { ...message }
         // A message is in the final group if it comes after or is the last human message
         const isFinalGroup = messageIndex >= lastHumanMessageIndex
         if (isAssistantMessage(message) && message.tool_calls && message.tool_calls.length > 0) {
             const isLastPlanningMessage = message.id === lastPlanningMessageId
-            message.tool_calls = message.tool_calls.map<EnhancedToolCall>((toolCall) => {
+            const enhancedMessage = { ...message }
+            enhancedMessage.tool_calls = message.tool_calls.map<EnhancedToolCall>((toolCall) => {
                 const resultMessage = toolCallCompletions.get(toolCall.id)
                 const isCompleted = !!resultMessage
                 // create_form is an interactive tool - it's "completed" once rendered (waiting for user input)
@@ -2054,7 +2054,10 @@ function enhanceThreadToolCalls(
                     result: isAssistantToolCallMessage(resultMessage) ? resultMessage : undefined,
                 }
             })
+            return enhancedMessage
         }
+        // Messages we don't enhance are returned by reference so their identity stays stable
+        // across recomputes — this is what lets React.memo(Message) skip them on each token.
         return message
     })
 }

@@ -67,6 +67,11 @@ no bulk bundle-replace verb, which is deliberate: edit the one thing
 that changed (`agent-md-update` / `skills-update` / `tools-update`)
 rather than rewriting the whole bundle.
 
+When the edit changes `spec` (a trigger, tool, limit, model,
+`reasoning`), call `@posthog/agent-applications-spec-schema` for the
+exact shape of the field you're touching rather than hand-editing
+structure from memory — it's the same schema validate checks against.
+
 For each edit, surface to the user:
 
 - What file changed
@@ -93,7 +98,8 @@ Common errors:
 - `missing_secret` — `spec.secrets[]` lists a name without a
   corresponding env value. Load `skills/secrets-and-integrations`.
 - `invalid_spec` — Zod parse failed. The error message names the
-  field; fix it.
+  field; if its shape is unclear, call
+  `@posthog/agent-applications-spec-schema` rather than guessing.
 
 ## Step 5 — freeze
 

@@ -55,20 +55,22 @@ _underlying detail_ — pair them when the user wants to dig in.
 
 ## Available tools
 
-| Tool                                  | Purpose                                                                 |
-| ------------------------------------- | ----------------------------------------------------------------------- |
-| `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)           |
-| `inbox-reports-retrieve`              | Full detail for a single report                                         |
-| `inbox-reports-set-state`             | Dismiss (`suppressed`) or snooze (`potential`) a report — the one write |
-| `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)               |
-| `inbox-source-configs-retrieve`       | Full record for a single source config                                  |
-| `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first)     |
+| Tool                                  | Purpose                                                             |
+| ------------------------------------- | ------------------------------------------------------------------- |
+| `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)       |
+| `inbox-reports-retrieve`              | Full detail for a single report                                     |
+| `inbox-reports-set-state`             | Dismiss (`suppressed`) or snooze (`potential`) a single report      |
+| `inbox-reports-bulk-set-state`        | Same transition for 1–100 reports in one call (per-id result)       |
+| `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)           |
+| `inbox-source-configs-retrieve`       | Full record for a single source config                              |
+| `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first) |
 
 The `inbox-reports-*-list` / `-retrieve` and `inbox-source-configs-*` tools are read-only. The
-only exposed write is `inbox-reports-set-state` (dismiss / snooze — see _Workflow: dismiss or
-snooze a report_). Other writes (pause processing, change source configs, mark a report resolved,
-set `implementation_pr_url`) are not exposed via MCP today — those happen on the product surface
-when a PR is opened against a report.
+exposed writes are `inbox-reports-set-state` (dismiss / snooze a single report) and
+`inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call) — see
+_Workflow: dismiss or snooze a report_. Other writes (pause processing, change source configs,
+mark a report resolved, set `implementation_pr_url`) are not exposed via MCP today — those happen
+on the product surface when a PR is opened against a report.
 
 ## Terminology
 
@@ -302,29 +304,40 @@ tell the user which report the PR addresses, so the loop is traceable. Don't cla
 
 ## Workflow: dismiss or snooze a report
 
-When the user has reviewed a report and wants it gone, or wants to defer it. This is the one
-inbox write exposed via MCP:
+When the user has reviewed a report and wants it gone, or wants to defer it. These are the inbox
+writes exposed via MCP:
 
 ```json
 inbox-reports-set-state
 {
   "id": "<report_uuid>",
   "state": "suppressed",
-  "dismissal_reason": "not_a_bug",
+  "dismissal_reason": "analysis_wrong",
   "dismissal_note": "Verified against products/foo/bar.py — the cited code path can't reach this state."
 }
 ```
 
 - `state: "suppressed"` dismisses the report from the inbox; `state: "potential"` snoozes it back
   into the pipeline. When snoozing, `snooze_for: <N>` holds it until it accumulates N more signals.
-- `dismissal_reason` is a short caller-owned code (`not_a_bug`, `wont_fix`, `duplicate`, …);
-  `dismissal_note` is free-form (≤ 4000 chars). Both persist as a DISMISSAL artefact, so the
-  rationale survives even if the report transitions again later — **always include them** so a
-  future reader knows _why_.
+- `dismissal_reason` must be one of six server-validated canonical codes — `already_fixed`,
+  `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other` — an
+  unlisted value returns `400`. `already_fixed` is a _snooze_, so pair it with `state: "potential"`
+  rather than `"suppressed"`; reach for `other` plus a `dismissal_note` for anything that doesn't
+  fit a specific code. `dismissal_note` is free-form (≤ 4000 chars). Both persist as a DISMISSAL
+  artefact, so the rationale survives even if the report transitions again later — **always include
+  them** so a future reader knows _why_.
 - It's a destructive, non-idempotent transition and returns `409` if it isn't allowed from the
-  report's current status. Confirm with the user before suppressing, and capture _why_ in the note
-  — a dismissal with no rationale is worse than none. A report you dismissed because the diagnosis
-  was wrong (Step 2 above) is the textbook case: suppress it with the evidence in the note.
+  report's current status (and `400` if `dismissal_reason` isn't a canonical code). Confirm with
+  the user before suppressing, and capture _why_ in the note — a dismissal with no rationale is
+  worse than none. A report you dismissed because the diagnosis was wrong (Step 2 above) is the
+  textbook case: suppress it with `analysis_wrong` and the evidence in the note.
+- To dismiss or snooze several reports at once, use `inbox-reports-bulk-set-state` with an `ids`
+  array (1–100). It applies the same `state` / `dismissal_reason` / `dismissal_note` / `snooze_for`
+  to every id and returns a per-id `results` list (in request order) plus a
+  `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. Each id is
+  processed independently, so the call returns `200` even on partial failure — an id whose
+  transition isn't allowed comes back as `skipped` (the single-report `409`) while the rest go
+  through. Inspect the per-id outcomes rather than assuming the whole batch succeeded.
 
 ## Workflow: filter by topic or source
 
@@ -392,8 +405,9 @@ The `status` field reflects the underlying data import or workflow:
   status; this is expected, not a bug — judgment hasn't run yet
 - `suppressed` reports are excluded by default; pass `status: "suppressed"` explicitly if the
   user wants to see hidden items
-- The only inbox write exposed via MCP is `inbox-reports-set-state` (dismiss / snooze). To
-  _act_ on a report (implement a fix), verify the diagnosis against the code first, then open a
+- The inbox writes exposed via MCP are `inbox-reports-set-state` (dismiss / snooze one report) and
+  `inbox-reports-bulk-set-state` (the same for 1–100 reports). To _act_ on a report (implement a
+  fix), verify the diagnosis against the code first, then open a
   PR — see _Workflow: act on an actionable report_. Marking a report resolved / setting
   `implementation_pr_url` happens on the product surface, not via MCP; always also surface the
   `_posthogUrl` deep-link

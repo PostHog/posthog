@@ -282,8 +282,11 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
     return code in (_LOST_CONNECTION_DURING_QUERY_CODE, _OUT_OF_SORT_MEMORY_CODE)
 
 
-# Number of times `connect` will open a fresh pymysql connection before giving up.
-_MAX_CONNECT_ATTEMPTS = 3
+# Number of times `connect` will open a fresh pymysql connection before giving up. Matches the
+# Postgres source's `_retry_on_connection_dropped` budget so the in-process window spans the few
+# seconds a real failover / idle cull / tunnel hiccup takes to recover, rather than exhausting in
+# ~3s and surfacing the drop as error-tracking noise.
+_MAX_CONNECT_ATTEMPTS = 5
 
 
 def _is_transient_connect_drop(e: BaseException) -> bool:
@@ -310,7 +313,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
 
     Mirrors the in-process connect retry the Postgres source uses: a momentary
     drop while establishing the connection recovers on a fresh attempt, so retry
-    it here with a short backoff instead of failing schema discovery / sync setup
+    it here with a bounded backoff instead of failing schema discovery / sync setup
     on the first blip and surfacing it as captured error-tracking noise.
     """
     attempt = 0
@@ -327,7 +330,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 max_attempts=_MAX_CONNECT_ATTEMPTS,
                 exc_info=e,
             )
-            time.sleep(attempt)
+            time.sleep(min(2 * attempt, 30))
 
 
 def _release_streaming_cursor(cursor: SSCursor) -> None:
