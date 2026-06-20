@@ -1425,6 +1425,13 @@ def count_cohort_members(team_id: int, cohort_id: int, *, consistency: ReadConsi
     """
     from posthog.models.person.util import _personhog_routed
 
+    # Scope the cohort to the team before querying personhog — the RPC filters only by
+    # cohort_id, so the tenant boundary has to be enforced here (matching its siblings
+    # check_cohort_membership / list_cohort_member_ids). A cohort owned by another team
+    # counts as zero and never reaches personhog.
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return 0
+
     return _personhog_routed(
         "count_cohort_members",
         lambda: _count_cohort_members_via_personhog([cohort_id], consistency),
