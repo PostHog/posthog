@@ -292,7 +292,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
-            database=database or Database.create_for(self.team.pk),
+            # Internal saved-query resolution (no user); bypass warehouse HogQL access control.
+            database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
         )
 
         query = self.query or {}
@@ -309,7 +310,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def folder_path(self):
-        return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
+        return f"team_{self.team_id}_model_{self.id.hex}/modeling"
 
     @property
     def normalized_name(self):

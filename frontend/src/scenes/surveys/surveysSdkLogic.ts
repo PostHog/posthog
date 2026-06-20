@@ -1,6 +1,6 @@
 import { connect, kea, path, selectors } from 'kea'
 
-import { sdkHealthLogic } from '~/scenes/onboarding/sdks/sdkHealthLogic'
+import { sdkHealthLogic } from '~/scenes/onboarding/shared/sdkHealth/sdkHealthLogic'
 
 import type { surveysSdkLogicType } from './surveysSdkLogicType'
 import { TeamSdkVersions } from './surveyVersionRequirements'

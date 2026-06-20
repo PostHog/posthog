@@ -358,7 +358,7 @@ function SyncMethodSection({
         cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
         incrementalFieldLookbackSeconds?: number | null
     ): Promise<void> => {
-        const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc'
+        const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
         setSaving(true)
         try {
             await api.externalDataSchemas.update(schema.id, {
@@ -413,6 +413,7 @@ function SyncMethodSection({
                                 incremental_available: schemaIncrementalFields.incremental_available,
                                 append_available: schemaIncrementalFields.append_available,
                                 cdc_available: schemaIncrementalFields.cdc_available,
+                                xmin_available: schemaIncrementalFields.xmin_available,
                                 cdc_table_mode: schema.cdc_table_mode,
                                 incremental_fields: schemaIncrementalFields.incremental_fields,
                                 supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
@@ -860,7 +861,7 @@ function DangerZoneSection({
     deleteTable: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const hasFullCdcResync = schema.sync_type === 'cdc'
-    const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook'
+    const hasDeleteAndResync = schema.incremental || schema.sync_type === 'webhook' || schema.sync_type === 'xmin'
     const canDeleteTable = !!schema.table
 
     if (!hasFullCdcResync && !hasDeleteAndResync && !canDeleteTable) {

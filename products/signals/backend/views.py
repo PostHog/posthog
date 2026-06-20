@@ -187,9 +187,41 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "task"
     queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
 
+    def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
+        return (
+            source_product == SignalSourceConfig.SourceProduct.SIGNALS_SCOUT
+            and source_type == SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE
+        )
+
+    def _config_team_id(self, source_product: str | None, source_type: str | None) -> int:
+        # The scout source config is a project-level singleton: the scout fleet canonicalizes
+        # child environments to the parent team, and the emit preflight gates on the parent
+        # team's row (see scout_harness/views.py `_canonical_team_id` and tools/emit.py). Writing
+        # it to the canonical team keeps the inbox toggle and the emit gate on the same row from
+        # any environment. All other sources stay environment-scoped.
+        if self._is_scout_source(source_product, source_type):
+            return self.team.parent_team_id or self.team_id
+        return self.team_id
+
+    def _filter_queryset_by_parents_lookups(self, queryset):
+        # Mirror of `_config_team_id` on the read side: surface the scout row from the canonical
+        # (parent) team while every other source stays scoped to the URL environment, so the
+        # toggle reads and updates the same project-level row the emit gate checks.
+        canonical_team_id = self.team.parent_team_id or self.team_id
+        scout_source = Q(
+            source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+            source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+        )
+        return queryset.filter(
+            (Q(team_id=self.team_id) & ~scout_source) | (Q(team_id=canonical_team_id) & scout_source)
+        )
+
     def perform_create(self, serializer):
+        team_id = self._config_team_id(
+            serializer.validated_data.get("source_product"), serializer.validated_data.get("source_type")
+        )
         try:
-            instance = serializer.save(team_id=self.team_id, created_by=self.request.user)
+            instance = serializer.save(team_id=team_id, created_by=self.request.user)
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
@@ -236,6 +268,17 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_update(self, serializer):
         instance = cast(SignalSourceConfig, serializer.instance)
         was_enabled = instance.enabled
+
+        # The source keys are the row's identity and decide its canonical team_id on create
+        # (`_config_team_id`); retagging them in place would strand the row on the wrong team —
+        # e.g. a child-environment row retagged to the scout source would stay on the child team,
+        # hidden by the read filter while the emit gate checks the parent. There is no legitimate
+        # reason to change a config's source identity, so reject it rather than re-deriving team_id.
+        for field in ("source_product", "source_type"):
+            new_value = serializer.validated_data.get(field)
+            if new_value is not None and new_value != getattr(instance, field):
+                raise serializers.ValidationError({field: f"{field} cannot be changed after creation."})
+
         try:
             instance = serializer.save()
         except IntegrityError:
@@ -1016,8 +1059,15 @@ class SignalReportViewSet(
         # passed explicitly rather than splatting caller-supplied kwargs.
         snooze_for = data.get("snooze_for") if target == "potential" else None
 
+        # "potential" on a suppressed report means "restore" (un-archive): return it to the state it
+        # held before suppression when that was a researched, user-visible report, instead of always
+        # dropping back to potential. snooze_for is irrelevant here and ignored by transition_to.
+        target_status = SignalReport.Status(target)
+        if report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL:
+            target_status = report.restore_target_status()
+
         try:
-            updated_fields = report.transition_to(SignalReport.Status(target), snooze_for=snooze_for)
+            updated_fields = report.transition_to(target_status, snooze_for=snooze_for)
         except InvalidStatusTransition as e:
             logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
             return Response(
