@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KE
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
+    _to_list_array,
     append_partition_key_to_table,
     evolve_pyarrow_schema,
     normalize_table_column_names,
@@ -228,6 +229,38 @@ def test_table_from_py_list_with_null_filled_binary_column():
             ]
         )
     )
+
+
+def test_to_list_array_binary_offset_overflow_falls_back_to_large_binary():
+    # A `bytea` column whose chunk exceeds 2GB makes `combine_chunks()` overflow the int32
+    # binary offset; the helper must recover by casting to large_binary instead of raising.
+    overflowing = MagicMock(spec=pa.ChunkedArray)
+    overflowing.combine_chunks.side_effect = pa.ArrowInvalid(
+        "offset overflow while concatenating arrays, consider casting input from `binary` to `large_binary` first."
+    )
+    overflowing.cast.return_value = pa.chunked_array([pa.array([b"a", b"b", b"c"], type=pa.large_binary())])
+
+    assert _to_list_array(overflowing) == [b"a", b"b", b"c"]
+    overflowing.cast.assert_called_once_with(pa.large_binary())
+
+
+def test_to_list_array_string_offset_overflow_falls_back_to_large_string():
+    overflowing = MagicMock(spec=pa.ChunkedArray)
+    overflowing.combine_chunks.side_effect = pa.ArrowInvalid(
+        "offset overflow while concatenating arrays, consider casting input from `string` to `large_string` first."
+    )
+    overflowing.cast.return_value = pa.chunked_array([pa.array(["a", "b"], type=pa.large_string())])
+
+    assert _to_list_array(overflowing) == ["a", "b"]
+    overflowing.cast.assert_called_once_with(pa.large_string())
+
+
+def test_to_list_array_reraises_unrelated_arrow_invalid():
+    failing = MagicMock(spec=pa.ChunkedArray)
+    failing.combine_chunks.side_effect = pa.ArrowInvalid("some other arrow problem")
+
+    with pytest.raises(pa.ArrowInvalid, match="some other arrow problem"):
+        _to_list_array(failing)
 
 
 def test_table_from_py_list_with_mixed_decimal_float_sizes():
