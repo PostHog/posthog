@@ -1,11 +1,19 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from ...models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillVote
 from ...models.skills import LLMSkill
 from ..community_skill_services import sync_community_skills_from_github
+from ..skill_template_services import (
+    MissingTemplateVariableError,
+    UnknownTemplatePlaceholderError,
+    is_template,
+    parse_template_variables,
+    render_template_skill,
+)
 
 
 def _create_community_skill(
@@ -25,6 +33,23 @@ def _create_community_skill(
         tags=["web-analytics"],
         install_count=install_count,
         deleted=deleted,
+    )
+
+
+def _create_template_skill(*, slug: str = "feed-scout") -> CommunitySkill:
+    return CommunitySkill.objects.create(
+        slug=slug,
+        name="Feed scout",
+        description="Watch a feed for problems.",
+        body="# Scout\nWatch table {{ feed_table }} on {{ default_branch }}.",
+        trust_tier="official",
+        source_sha="sha123",
+        metadata={
+            "variables": [
+                {"name": "feed_table", "prompt": "Warehouse table", "required": True},
+                {"name": "default_branch", "prompt": "Branch", "default": "main"},
+            ]
+        },
     )
 
 
@@ -98,6 +123,58 @@ class TestCommunitySkillAPI(APIBaseTest):
         response = self.client.post(self._url("does-not-exist/install/"), {})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_retrieve_surfaces_template_variables(self, _mock_flag) -> None:
+        _create_template_skill(slug="feed-scout")
+        response = self.client.get(self._url("feed-scout/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        variables = response.json()["template_variables"]
+        self.assertEqual([v["name"] for v in variables], ["feed_table", "default_branch"])
+        self.assertEqual(
+            variables[0], {"name": "feed_table", "prompt": "Warehouse table", "required": True, "default": ""}
+        )
+        self.assertFalse(variables[1]["required"])  # has a default
+
+    def test_install_template_renders_variables(self, _mock_flag) -> None:
+        skill = _create_template_skill(slug="feed-scout")
+        CommunitySkillFile.objects.create(
+            skill=skill, path="references/notes.md", content="Query {{ feed_table }} carefully."
+        )
+
+        response = self.client.post(
+            self._url("feed-scout/install/"),
+            {"variables": {"feed_table": "slack_abc", "default_branch": "develop"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+        installed = LLMSkill.objects.get(team=self.team, name="feed-scout")
+        self.assertEqual(installed.body, "# Scout\nWatch table slack_abc on develop.")
+        self.assertEqual(installed.files.get(path="references/notes.md").content, "Query slack_abc carefully.")
+        # The instantiated skill is concrete, not a template.
+        self.assertNotIn("variables", installed.metadata)
+        self.assertEqual(installed.metadata["instantiated_from"], "feed-scout@sha123")
+        self.assertEqual(
+            installed.metadata["variable_bindings"], {"feed_table": "slack_abc", "default_branch": "develop"}
+        )
+
+    def test_install_template_uses_default_when_omitted(self, _mock_flag) -> None:
+        _create_template_skill(slug="feed-scout")
+        response = self.client.post(
+            self._url("feed-scout/install/"),
+            {"variables": {"feed_table": "slack_abc"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        installed = LLMSkill.objects.get(team=self.team, name="feed-scout")
+        self.assertEqual(installed.body, "# Scout\nWatch table slack_abc on main.")
+
+    def test_install_template_missing_required_returns_400(self, _mock_flag) -> None:
+        _create_template_skill(slug="feed-scout")
+        response = self.client.post(self._url("feed-scout/install/"), {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "variables")
+        self.assertFalse(LLMSkill.objects.filter(team=self.team, name="feed-scout").exists())
+
     def test_vote_toggles_on_and_off(self, _mock_flag) -> None:
         _create_community_skill(slug="web-analytics-triage")
 
@@ -170,3 +247,63 @@ class TestCommunitySkillSync(APIBaseTest):
         result = sync_community_skills_from_github()
         self.assertEqual(result, {"synced": 0, "skipped": 0, "removed": 0})
         self.assertFalse(CommunitySkill.objects.get(slug="keep-me").deleted)
+
+
+class TestSkillTemplateRendering(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("no metadata", None, False),
+            ("empty", {}, False),
+            ("non-list variables", {"variables": "nope"}, False),
+            ("empty list", {"variables": []}, False),
+            ("declared", {"variables": [{"name": "repo"}]}, True),
+        ]
+    )
+    def test_is_template(self, _name, metadata, expected) -> None:
+        self.assertEqual(is_template(metadata), expected)
+
+    def test_parse_skips_malformed_and_dedupes(self) -> None:
+        variables = parse_template_variables(
+            {
+                "variables": [
+                    {"name": "repo"},
+                    {"no_name": 1},
+                    "bad",
+                    {"name": "repo"},
+                    {"name": "branch", "default": "main"},
+                ]
+            }
+        )
+        self.assertEqual([v.name for v in variables], ["repo", "branch"])
+        # Bare declaration defaults to required; a default makes it optional.
+        self.assertTrue(variables[0].required)
+        self.assertFalse(variables[1].required)
+
+    def test_render_substitutes_and_records_bindings(self) -> None:
+        rendered = render_template_skill(
+            metadata={"variables": [{"name": "repo", "required": True}]},
+            body="watch {{ repo }}",
+            files=[{"path": "a.md", "content": "ref {{ repo }}", "content_type": "text/plain"}],
+            supplied={"repo": "posthog/posthog"},
+        )
+        self.assertEqual(rendered.body, "watch posthog/posthog")
+        self.assertEqual(rendered.files[0]["content"], "ref posthog/posthog")
+        self.assertEqual(rendered.bindings, {"repo": "posthog/posthog"})
+
+    def test_render_missing_required_raises(self) -> None:
+        with self.assertRaises(MissingTemplateVariableError):
+            render_template_skill(
+                metadata={"variables": [{"name": "repo", "required": True}]},
+                body="watch {{ repo }}",
+                files=[],
+                supplied={},
+            )
+
+    def test_render_unknown_placeholder_raises(self) -> None:
+        with self.assertRaises(UnknownTemplatePlaceholderError):
+            render_template_skill(
+                metadata={"variables": [{"name": "repo", "required": True}]},
+                body="watch {{ repo }} and {{ undeclared }}",
+                files=[],
+                supplied={"repo": "x"},
+            )

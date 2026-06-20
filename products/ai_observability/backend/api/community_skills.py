@@ -30,6 +30,7 @@ from .community_skill_serializers import (
 from .community_skill_services import CommunitySkillNotFoundError, install_community_skill, toggle_community_skill_vote
 from .skill_serializers import LLMSkillSerializer
 from .skill_services import LLMSkillDuplicateNameConflictError, LLMSkillFileLimitError, LLMSkillFilePathConflictError
+from .skill_template_services import MissingTemplateVariableError, UnknownTemplatePlaceholderError
 
 logger = structlog.get_logger(__name__)
 
@@ -162,11 +163,23 @@ class CommunitySkillViewSet(
                 user=cast(User, request.user),
                 slug=slug,
                 new_name=payload.validated_data.get("new_name"),
+                variables=payload.validated_data.get("variables"),
             )
         except CommunitySkillNotFoundError:
             return Response(
                 {"detail": f"Community skill '{slug}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        except MissingTemplateVariableError as err:
+            return Response(
+                {"attr": "variables", "detail": str(err)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except UnknownTemplatePlaceholderError as err:
+            # The synced template body references a variable it never declared — a content-repo bug.
+            return Response(
+                {"detail": str(err)},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         except LLMSkillDuplicateNameConflictError:
             return Response(
@@ -186,6 +199,7 @@ class CommunitySkillViewSet(
             {
                 "community_skill_slug": slug,
                 "installed_skill_name": installed.name,
+                "installed_as_template": "instantiated_from" in (installed.metadata or {}),
             },
             team=self.team,
             request=request,

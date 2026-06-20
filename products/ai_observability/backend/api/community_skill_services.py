@@ -13,6 +13,7 @@ from ..models.community_skills import CommunitySkill, CommunitySkillFile, Commun
 from ..models.skills import LLMSkill
 from .skill_serializers import validate_skill_name_value
 from .skill_services import create_skill
+from .skill_template_services import is_template, render_template_skill
 
 logger = structlog.get_logger(__name__)
 
@@ -38,11 +39,16 @@ def install_community_skill(
     user: User,
     slug: str,
     new_name: str | None = None,
+    variables: dict[str, str] | None = None,
 ) -> LLMSkill:
     """Copy a community skill into a team as a regular LLMSkill and bump its install counter.
 
-    Raises CommunitySkillNotFoundError if the slug is unknown, and
-    LLMSkillDuplicateNameConflictError if the target name already exists in the team.
+    When the community skill is a template (its metadata declares `variables`), the user-supplied
+    `variables` are bound into the body and bundled files before the LLMSkill is created.
+
+    Raises CommunitySkillNotFoundError if the slug is unknown,
+    LLMSkillDuplicateNameConflictError if the target name already exists in the team, and
+    MissingTemplateVariableError / UnknownTemplatePlaceholderError on template render failures.
     """
     community_skill = get_community_skill_by_slug(slug)
     if community_skill is None:
@@ -54,21 +60,39 @@ def install_community_skill(
         {"path": f.path, "content": f.content, "content_type": f.content_type} for f in community_skill.files.all()
     ]
 
+    # Stamp provenance so an installed skill can be traced back to its community source.
+    metadata: dict[str, Any] = {
+        **(community_skill.metadata or {}),
+        "community_skill_slug": community_skill.slug,
+        "community_skill_id": str(community_skill.id),
+    }
+    body = community_skill.body
+
+    if is_template(community_skill.metadata):
+        rendered = render_template_skill(
+            metadata=community_skill.metadata,
+            body=community_skill.body,
+            files=files,
+            supplied=variables,
+        )
+        body = rendered.body
+        files = rendered.files
+        # The instantiated skill is a concrete skill, not a template — drop the variable schema and
+        # record what it was rendered from so a re-render stays deterministic.
+        metadata.pop("variables", None)
+        metadata["instantiated_from"] = f"{community_skill.slug}@{community_skill.source_sha}"
+        metadata["variable_bindings"] = rendered.bindings
+
     installed = create_skill(
         team,
         user=user,
         name=target_name,
         description=community_skill.description,
-        body=community_skill.body,
+        body=body,
         license=community_skill.license,
         compatibility=community_skill.compatibility,
         allowed_tools=community_skill.allowed_tools,
-        # Stamp provenance so an installed skill can be traced back to its community source.
-        metadata={
-            **(community_skill.metadata or {}),
-            "community_skill_slug": community_skill.slug,
-            "community_skill_id": str(community_skill.id),
-        },
+        metadata=metadata,
         files=files or None,
     )
 

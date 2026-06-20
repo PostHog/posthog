@@ -4,6 +4,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier
+from .skill_template_services import parse_template_variables
 
 ALLOWED_LIST_ORDERINGS = frozenset(
     {
@@ -19,6 +20,23 @@ ALLOWED_LIST_ORDERINGS = frozenset(
         "-vote_count",
     }
 )
+
+
+class CommunitySkillTemplateVariableSerializer(serializers.Serializer):
+    """One declared variable of a templated skill — the schema a client renders a form from."""
+
+    name = serializers.CharField(help_text="Variable identifier, substituted for `{{ name }}` in the skill body.")
+    prompt = serializers.CharField(
+        allow_blank=True,
+        help_text="Human-readable question shown when collecting a value for this variable.",
+    )
+    required = serializers.BooleanField(
+        help_text="Whether a value must be supplied at install time (false variables fall back to their default).",
+    )
+    default = serializers.CharField(
+        allow_blank=True,
+        help_text="Value used when none is supplied. Empty when the variable has no default.",
+    )
 
 
 class CommunitySkillFileSerializer(serializers.ModelSerializer):
@@ -60,6 +78,12 @@ class CommunitySkillSerializer(serializers.ModelSerializer):
             "Bundled files manifest (path + content_type only). Fetch full content via the skill detail endpoint."
         ),
     )
+    template_variables = serializers.SerializerMethodField(
+        help_text=(
+            "Declared template variables, parsed from metadata. Non-empty marks this skill as a template: "
+            "collect a value for each and pass them as `variables` when installing."
+        ),
+    )
     vote_count = serializers.SerializerMethodField(
         help_text="Total number of upvotes this skill has received.",
     )
@@ -84,6 +108,7 @@ class CommunitySkillSerializer(serializers.ModelSerializer):
             "author_handle",
             "github_url",
             "files",
+            "template_variables",
             "install_count",
             "vote_count",
             "has_voted",
@@ -108,6 +133,13 @@ class CommunitySkillSerializer(serializers.ModelSerializer):
     @extend_schema_field(CommunitySkillFileManifestSerializer(many=True))
     def get_files(self, instance: CommunitySkill) -> list[dict[str, Any]]:
         return [dict(row) for row in instance.files.values("path", "content_type")]
+
+    @extend_schema_field(CommunitySkillTemplateVariableSerializer(many=True))
+    def get_template_variables(self, instance: CommunitySkill) -> list[dict[str, Any]]:
+        return [
+            {"name": v.name, "prompt": v.prompt, "required": v.required, "default": v.default}
+            for v in parse_template_variables(instance.metadata)
+        ]
 
     def get_vote_count(self, instance: CommunitySkill) -> int:
         # Provided by the viewset's annotated queryset; fall back to a count for unannotated instances.
@@ -155,6 +187,14 @@ class CommunitySkillInstallSerializer(serializers.Serializer):
         max_length=64,
         required=False,
         help_text="Name for the installed skill in your team. Defaults to the community skill's slug.",
+    )
+    variables = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        help_text=(
+            "Values for a template skill's declared variables, as a {name: value} map. Required only when "
+            "installing a template (see the skill's `template_variables`); ignored for non-template skills."
+        ),
     )
 
 
