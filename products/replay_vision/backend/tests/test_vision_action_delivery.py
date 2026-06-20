@@ -92,6 +92,16 @@ class TestVisionActionDelivery(APIBaseTest):
             ).order_by("created_at")
         )
 
+    @staticmethod
+    def _inputs(fn: HogFunction) -> dict[str, Any]:
+        assert fn.inputs is not None
+        return fn.inputs
+
+    @staticmethod
+    def _filters(fn: HogFunction) -> dict[str, Any]:
+        assert fn.filters is not None
+        return fn.filters
+
     def test_create_provisions_destination(self) -> None:
         action = self._create_action()
 
@@ -103,15 +113,15 @@ class TestVisionActionDelivery(APIBaseTest):
         self.assertTrue(fn.enabled)
         self.assertEqual(fn.name, "Replay Vision · daily-summary")
 
-        event_filter = fn.filters["events"][0]
+        event_filter = self._filters(fn)["events"][0]
         self.assertEqual(event_filter["id"], EVENT_NAME)
-        prop = fn.filters["properties"][0]
+        prop = self._filters(fn)["properties"][0]
         self.assertEqual(prop["key"], "vision_action_id")
         self.assertEqual(prop["value"], str(action.id))
 
-        self.assertEqual(fn.inputs["slack_workspace"]["value"], self.integration.id)
-        self.assertEqual(fn.inputs["channel"]["value"], "#general")
-        self.assertEqual(fn.inputs["text"]["value"], "{event.properties.slack_text}")
+        self.assertEqual(self._inputs(fn)["slack_workspace"]["value"], self.integration.id)
+        self.assertEqual(self._inputs(fn)["channel"]["value"], "#general")
+        self.assertEqual(self._inputs(fn)["text"]["value"], "{event.properties.slack_text}")
 
     def test_create_two_targets_makes_two_destinations(self) -> None:
         action = self._create_action(
@@ -122,7 +132,7 @@ class TestVisionActionDelivery(APIBaseTest):
         )
         destinations = self._destinations(action)
         self.assertEqual(len(destinations), 2)
-        self.assertEqual({d.inputs["channel"]["value"] for d in destinations}, {"#one", "#two"})
+        self.assertEqual({self._inputs(d)["channel"]["value"] for d in destinations}, {"#one", "#two"})
 
     def test_create_empty_delivery_no_destination(self) -> None:
         action = self._create_action(delivery_config=[])
@@ -139,7 +149,7 @@ class TestVisionActionDelivery(APIBaseTest):
 
         destinations = self._destinations(action)
         self.assertEqual(len(destinations), 1)
-        self.assertEqual(destinations[0].inputs["channel"]["value"], "#changed")
+        self.assertEqual(self._inputs(destinations[0])["channel"]["value"], "#changed")
 
     @parameterized.expand(
         [
