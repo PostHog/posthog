@@ -19,7 +19,6 @@ procs:
             DEBUG: '1'
             E2E_TESTING: '1'
             PERSON_ON_EVENTS_OVERRIDE: '1'
-            PERSONHOG_ENABLED: '0'
             PERSONHOG_ADDR: ''
 
     celery-worker:
@@ -34,7 +33,6 @@ procs:
             SKIP_SERVICE_VERSION_REQUIREMENTS: '1'
             DEBUG: '1'
             E2E_TESTING: '1'
-            PERSONHOG_ENABLED: '0'
             PERSONHOG_ADDR: ''
 
     frontend:

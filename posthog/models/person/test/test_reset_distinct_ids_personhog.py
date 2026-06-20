@@ -17,23 +17,18 @@ from posthog.personhog_client.fake_client import fake_personhog_client
 
 class TestUpdateDistinctIdInPostgresRouting(SimpleTestCase):
     def test_personhog_success(self):
-        with fake_personhog_client(gate_enabled=True):
+        with fake_personhog_client():
             _update_distinct_id_in_postgres("did-1", 100, team_id=1)
 
     def test_personhog_error_raises(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.set_person_distinct_id_version_floor = MagicMock(side_effect=RuntimeError("grpc timeout"))
-            with self.assertRaises(RuntimeError):
-                _update_distinct_id_in_postgres("did-1", 100, team_id=1)
-
-    def test_gate_off_raises(self):
-        with fake_personhog_client(gate_enabled=False):
             with self.assertRaises(RuntimeError):
                 _update_distinct_id_in_postgres("did-1", 100, team_id=1)
 
     def test_personhog_path_returns_converted_person(self):
         person_uuid = str(uuid4())
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.add_person(
                 team_id=1,
                 person_id=42,
@@ -54,7 +49,7 @@ class TestUpdateDistinctIdInPostgresRouting(SimpleTestCase):
         assert result.properties == {"email": "test@example.com"}
 
     def test_personhog_returns_none_when_distinct_id_absent(self):
-        with fake_personhog_client(gate_enabled=True):
+        with fake_personhog_client():
             result = _update_distinct_id_in_postgres("never-used", 100, team_id=1)
 
         assert result is None
@@ -62,22 +57,17 @@ class TestUpdateDistinctIdInPostgresRouting(SimpleTestCase):
 
 class TestSetPersonVersionFloorRouting(SimpleTestCase):
     def test_personhog_success(self):
-        with fake_personhog_client(gate_enabled=True):
+        with fake_personhog_client():
             _set_person_version_floor(1, 42, 500)
 
     def test_personhog_error_raises(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.set_person_version_floor = MagicMock(side_effect=RuntimeError("grpc timeout"))
             with self.assertRaises(RuntimeError):
                 _set_person_version_floor(1, 42, 500)
 
-    def test_gate_off_raises(self):
-        with fake_personhog_client(gate_enabled=False):
-            with self.assertRaises(RuntimeError):
-                _set_person_version_floor(1, 42, 500)
-
     def test_personhog_path_calls_rpc_with_floor(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             _set_person_version_floor(1, 42, 500)
 
             calls = fake.assert_called("set_person_version_floor")

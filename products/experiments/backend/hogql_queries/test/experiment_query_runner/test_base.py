@@ -1098,7 +1098,6 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             ],
         ]
     )
-    @override_settings(PERSONHOG_ENABLED=False)
     @snapshot_clickhouse_queries
     def test_query_runner_with_internal_filters(self, filter_name: str, filter: dict, expected_results: dict):
         feature_flag = self.create_feature_flag()

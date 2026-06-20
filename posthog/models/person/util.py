@@ -339,18 +339,7 @@ def _personhog_routed(
     *,
     team_id: int,
 ) -> _T:
-    """Route person data access through personhog gRPC.
-
-    Raises on failure — there is no ORM fallback.
-    """
-    from posthog.personhog_client.gate import use_personhog
-
-    if not use_personhog():
-        raise RuntimeError(
-            f"personhog is not enabled but ORM fallback has been removed for '{operation}'. "
-            f"Ensure personhog is configured and enabled."
-        )
-
+    """Call personhog and record routing metrics. Raises on failure — there is no ORM fallback."""
     try:
         result = personhog_fn()
         PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
@@ -631,8 +620,7 @@ def get_person_uuids_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> l
 def delete_persons_from_postgres(team_id: int, persons: list[Person]) -> None:
     """Delete Person rows (and associated PersonDistinctId rows) from Postgres.
 
-    Uses the personhog RPC when available, falling back to ORM-based deletion.
-    Processes in batches of 1000 (the RPC maximum).
+    Routes through the personhog RPC. Processes in batches of 1000 (the RPC maximum).
     """
 
     def personhog_fn() -> None:

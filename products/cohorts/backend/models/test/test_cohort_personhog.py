@@ -78,7 +78,7 @@ class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
 
         p = Person.objects.create(team=self.team, distinct_ids=["d1"])
 
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.add_person(
                 team_id=self.team.pk,
                 person_id=p.pk,

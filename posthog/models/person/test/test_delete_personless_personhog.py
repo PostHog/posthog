@@ -16,22 +16,17 @@ from posthog.personhog_client.proto import DeletePersonlessDistinctIdsBatchForTe
 
 class TestDeletePersonlessDistinctIdsForTeamsRouting(SimpleTestCase):
     def test_personhog_success(self):
-        with fake_personhog_client(gate_enabled=True):
+        with fake_personhog_client():
             _delete_personless_distinct_ids_for_teams([1])
 
     def test_personhog_failure_raises(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.delete_personless_distinct_ids_batch_for_team = MagicMock(side_effect=RuntimeError("grpc timeout"))
             with self.assertRaises(RuntimeError):
                 _delete_personless_distinct_ids_for_teams([1])
 
-    def test_gate_off_raises(self):
-        with fake_personhog_client(gate_enabled=False):
-            with self.assertRaises(RuntimeError):
-                _delete_personless_distinct_ids_for_teams([1])
-
     def test_personhog_loops_until_zero_deleted(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.delete_personless_distinct_ids_batch_for_team = MagicMock(
                 side_effect=[
                     DeletePersonlessDistinctIdsBatchForTeamResponse(deleted_count=10000),
@@ -49,7 +44,7 @@ class TestDeletePersonlessDistinctIdsForTeamsIntegration(BaseTest):
     def test_personhog_path_calls_batch_rpc_per_team(self):
         other_team = self.organization.teams.create(name="Other Team")
 
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             _delete_personless_distinct_ids_for_teams([self.team.pk, other_team.pk])
 
             calls = fake.assert_called("delete_personless_distinct_ids_batch_for_team")

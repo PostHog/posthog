@@ -33,133 +33,98 @@ TEST_UUID = "550e8400-e29b-41d4-a716-446655440000"
 
 class TestGetPersonByUuidRouting(SimpleTestCase):
     def test_personhog_success(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["d1"])
             result = get_person_by_uuid(1, TEST_UUID)
             assert result is not None
 
     def test_personhog_failure_raises(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.get_person_by_uuid = MagicMock(side_effect=RuntimeError("grpc timeout"))
-            with self.assertRaises(RuntimeError):
-                get_person_by_uuid(1, TEST_UUID)
-
-    def test_gate_off_raises(self):
-        with fake_personhog_client(gate_enabled=False):
             with self.assertRaises(RuntimeError):
                 get_person_by_uuid(1, TEST_UUID)
 
 
 class TestGetPersonByDistinctIdRouting(SimpleTestCase):
     def test_personhog_success(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["did-1"])
             result = get_person_by_distinct_id(1, "did-1")
             assert result is not None
 
     def test_personhog_failure_raises(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.get_person_by_distinct_id = MagicMock(side_effect=RuntimeError("grpc timeout"))
-            with self.assertRaises(RuntimeError):
-                get_person_by_distinct_id(1, "did-1")
-
-    def test_gate_off_raises(self):
-        with fake_personhog_client(gate_enabled=False):
             with self.assertRaises(RuntimeError):
                 get_person_by_distinct_id(1, "did-1")
 
 
 class TestGetPersonByIdRouting(SimpleTestCase):
     def test_personhog_success(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["d1"])
             result = get_person_by_id(1, 42)
             assert result is not None
 
     def test_personhog_failure_raises(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.get_person = MagicMock(side_effect=RuntimeError("grpc timeout"))
-            with self.assertRaises(RuntimeError):
-                get_person_by_id(1, 42)
-
-    def test_gate_off_raises(self):
-        with fake_personhog_client(gate_enabled=False):
             with self.assertRaises(RuntimeError):
                 get_person_by_id(1, 42)
 
 
 class TestGetPersonsByUuidsRouting(SimpleTestCase):
     def test_personhog_success(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["d1"])
             result = get_persons_by_uuids(1, [TEST_UUID])
             assert len(result) == 1
 
     def test_personhog_failure_raises(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.get_persons_by_uuids = MagicMock(side_effect=RuntimeError("grpc timeout"))
-            with self.assertRaises(RuntimeError):
-                get_persons_by_uuids(1, [TEST_UUID])
-
-    def test_gate_off_raises(self):
-        with fake_personhog_client(gate_enabled=False):
             with self.assertRaises(RuntimeError):
                 get_persons_by_uuids(1, [TEST_UUID])
 
 
 class TestGetPersonsByDistinctIdsRouting(SimpleTestCase):
     def test_personhog_success(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["did-1"])
             result = get_persons_by_distinct_ids(1, ["did-1"])
             assert len(result) == 1
 
     def test_personhog_failure_raises(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.get_persons_by_distinct_ids_in_team = MagicMock(side_effect=RuntimeError("grpc timeout"))
-            with self.assertRaises(RuntimeError):
-                get_persons_by_distinct_ids(1, ["did-1"])
-
-    def test_gate_off_raises(self):
-        with fake_personhog_client(gate_enabled=False):
             with self.assertRaises(RuntimeError):
                 get_persons_by_distinct_ids(1, ["did-1"])
 
 
 class TestGetPersonsMappedByDistinctIdRouting(SimpleTestCase):
     def test_personhog_success(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["did-1"])
             result = get_persons_mapped_by_distinct_id(1, ["did-1"])
             assert "did-1" in result
 
     def test_personhog_failure_raises(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.get_persons_by_distinct_ids_in_team = MagicMock(side_effect=RuntimeError("grpc timeout"))
-            with self.assertRaises(RuntimeError):
-                get_persons_mapped_by_distinct_id(1, ["did-1"])
-
-    def test_gate_off_raises(self):
-        with fake_personhog_client(gate_enabled=False):
             with self.assertRaises(RuntimeError):
                 get_persons_mapped_by_distinct_id(1, ["did-1"])
 
 
 class TestValidatePersonUuidsExistRouting(SimpleTestCase):
     def test_personhog_success(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=42, uuid=TEST_UUID, distinct_ids=["d1"])
             result = validate_person_uuids_exist(1, [TEST_UUID])
             assert result == [TEST_UUID]
 
     def test_personhog_failure_raises(self):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.get_persons_by_uuids = MagicMock(side_effect=RuntimeError("grpc timeout"))
-            with self.assertRaises(RuntimeError):
-                validate_person_uuids_exist(1, [TEST_UUID])
-
-    def test_gate_off_raises(self):
-        with fake_personhog_client(gate_enabled=False):
             with self.assertRaises(RuntimeError):
                 validate_person_uuids_exist(1, [TEST_UUID])
 
@@ -567,10 +532,9 @@ class TestGetPersonByPkOrUuid(SimpleTestCase):
 
 class TestPersonhogRouted(SimpleTestCase):
     @patch("posthog.models.person.util.get_client_name", return_value="test")
-    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_calls_personhog_fn_and_increments_counter(self, mock_errors, mock_routing, _mock_gate, _mock_name):
+    def test_calls_personhog_fn_and_increments_counter(self, mock_errors, mock_routing, _mock_name):
         result = _personhog_routed("test_op", lambda: "personhog_result", team_id=1)
 
         assert result == "personhog_result"
@@ -578,18 +542,10 @@ class TestPersonhogRouted(SimpleTestCase):
         mock_routing.labels.return_value.inc.assert_called_once()
         mock_errors.labels.assert_not_called()
 
-    @patch("posthog.personhog_client.gate.use_personhog", return_value=False)
-    def test_gate_off_raises(self, _mock_gate):
-        with self.assertRaises(RuntimeError):
-            _personhog_routed("test_op", lambda: "personhog_result", team_id=1)
-
     @patch("posthog.models.person.util.get_client_name", return_value="test")
-    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_personhog_exception_raises_and_increments_error_counter(
-        self, mock_errors, mock_routing, _mock_gate, _mock_name
-    ):
+    def test_personhog_exception_raises_and_increments_error_counter(self, mock_errors, mock_routing, _mock_name):
         def failing_fn():
             raise RuntimeError("grpc timeout")
 
@@ -602,12 +558,9 @@ class TestPersonhogRouted(SimpleTestCase):
         mock_errors.labels.return_value.inc.assert_called_once()
 
     @patch("posthog.models.person.util.get_client_name", return_value="test")
-    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
     @patch("posthog.models.person.util.PERSONHOG_ROUTING_ERRORS_TOTAL")
-    def test_personhog_returning_none_is_not_treated_as_failure(
-        self, mock_errors, mock_routing, _mock_gate, _mock_name
-    ):
+    def test_personhog_returning_none_is_not_treated_as_failure(self, mock_errors, mock_routing, _mock_name):
         result = _personhog_routed("test_op", lambda: None, team_id=1)
 
         assert result is None

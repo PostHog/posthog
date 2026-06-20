@@ -1,7 +1,7 @@
 """Tests for session recording person loading via the personhog path.
 
-TestLoadPersonRouting — Pattern A routing test (gate/fallback logic).
-TestLoadPersonIntegration — parameterized integration test (ORM + personhog).
+TestLoadPersonRouting — routing test for the personhog success and failure paths.
+TestLoadPersonIntegration — integration test against the personhog path.
 """
 
 from posthog.test.base import BaseTest
@@ -18,101 +18,59 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 class TestLoadPersonRouting(SimpleTestCase):
     @parameterized.expand(
         [
-            (
-                "personhog_success_person_found",
-                True,
-                None,
-                "personhog",
-                True,
-            ),
-            (
-                "personhog_success_person_not_found",
-                True,
-                None,
-                "personhog",
-                False,
-            ),
-            (
-                "personhog_failure_falls_back_to_orm",
-                True,
-                RuntimeError("grpc timeout"),
-                "django_orm",
-                True,
-            ),
-            (
-                "gate_off_uses_orm_directly",
-                False,
-                None,
-                "django_orm",
-                True,
-            ),
+            ("person_found", True),
+            ("person_not_found", False),
         ]
     )
     @patch("posthog.session_recordings.models.session_recording._fetch_person_by_distinct_id_via_personhog")
-    @patch("posthog.personhog_client.gate.use_personhog")
     @patch("posthog.session_recordings.models.session_recording.PERSONHOG_ROUTING_TOTAL")
-    @patch("posthog.session_recordings.models.session_recording.PERSONHOG_ROUTING_ERRORS_TOTAL")
     @patch("posthog.session_recordings.models.session_recording.Person.objects")
-    def test_routing(
+    def test_personhog_success(
         self,
         _name,
-        gate_on,
-        grpc_exception,
-        expected_source,
         person_found,
         mock_person_objects,
-        mock_errors_counter,
         mock_routing_counter,
-        mock_use_personhog,
         mock_fetch_personhog,
     ):
-        mock_use_personhog.return_value = gate_on
-
         mock_person = MagicMock()
-        if grpc_exception is not None:
-            mock_fetch_personhog.side_effect = grpc_exception
-        elif person_found:
-            mock_fetch_personhog.return_value = mock_person
-        else:
-            mock_fetch_personhog.return_value = None
+        mock_fetch_personhog.return_value = mock_person if person_found else None
 
-        from posthog.models.person import Person
+        recording = self._build_recording()
+        recording.load_person()
 
-        mock_orm_person = MagicMock()
+        mock_routing_counter.labels.assert_called_with(
+            operation="load_person", source="personhog", client_name="posthog-django"
+        )
+        mock_person_objects.db_manager.assert_not_called()
         if person_found:
-            mock_person_objects.db_manager.return_value.get.return_value = mock_orm_person
+            assert recording._person == mock_person
         else:
-            mock_person_objects.db_manager.return_value.get.side_effect = Person.DoesNotExist
+            assert recording._person is None
 
+    @patch("posthog.session_recordings.models.session_recording._fetch_person_by_distinct_id_via_personhog")
+    @patch("posthog.session_recordings.models.session_recording.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_personhog_failure_raises(self, mock_errors_counter, mock_fetch_personhog):
+        mock_fetch_personhog.side_effect = RuntimeError("grpc timeout")
+
+        recording = self._build_recording()
+        with self.assertRaises(RuntimeError):
+            recording.load_person()
+
+        mock_errors_counter.labels.assert_called_once()
+
+    @staticmethod
+    def _build_recording() -> SessionRecording:
         recording = SessionRecording()
         recording.distinct_id = "test-distinct-id"
         recording.team_id = 1
         # Use a real-looking mock for the team FK — bypass Django's descriptor
         mock_team = MagicMock()
         mock_team.pk = 1
-        recording.__dict__["_team_cache"] = mock_team
         object.__setattr__(recording, "_team_cache", mock_team)
         # Patch the property access used in load_person
         type(recording).team = property(lambda self: mock_team)  # type: ignore[assignment]
-
-        recording.load_person()
-
-        mock_routing_counter.labels.assert_called_with(
-            operation="load_person", source=expected_source, client_name="posthog-django"
-        )
-
-        if gate_on and grpc_exception is None:
-            mock_person_objects.db_manager.assert_not_called()
-            if person_found:
-                assert recording._person == mock_person
-            else:
-                assert recording._person is None
-        else:
-            if person_found:
-                assert recording._person == mock_orm_person
-
-        if grpc_exception is not None and gate_on:
-            mock_errors_counter.labels.assert_called_once()
+        return recording
 
 
 @parameterized_class(("personhog",), [(True,)])

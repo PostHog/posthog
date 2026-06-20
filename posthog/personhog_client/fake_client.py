@@ -12,8 +12,7 @@ Usage in tests::
             assert len(result) == 1
 
 The fake uses real proto message classes so that converters / serialization
-boundaries are exercised end-to-end.  The gate is forced ON by default
-(override with ``gate_enabled=False``).
+boundaries are exercised end-to-end.
 """
 
 from __future__ import annotations
@@ -713,12 +712,10 @@ class FakePersonHogClient:
 
 
 @contextmanager
-def fake_personhog_client(*, gate_enabled: bool = True):
-    """Context manager that patches the personhog client singleton and gate.
+def fake_personhog_client():
+    """Context manager that patches the personhog client singleton.
 
     Yields a ``FakePersonHogClient`` that is pre-seeded as empty.
-    The gate (``use_personhog()``) returns ``gate_enabled`` for
-    every call — no randomness.
 
     Example::
 
@@ -727,8 +724,5 @@ def fake_personhog_client(*, gate_enabled: bool = True):
             result = some_function_that_uses_personhog(1)
     """
     fake = FakePersonHogClient()
-    with (
-        patch("posthog.personhog_client.client.get_personhog_client", return_value=fake),
-        patch("posthog.personhog_client.gate.use_personhog", return_value=gate_enabled),
-    ):
+    with patch("posthog.personhog_client.client.get_personhog_client", return_value=fake):
         yield fake

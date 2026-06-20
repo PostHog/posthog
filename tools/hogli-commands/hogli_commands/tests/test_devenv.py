@@ -845,7 +845,7 @@ class TestPersonhogEnvInjection:
             if proc_name not in config.procs:
                 continue
             shell = config.procs[proc_name]["shell"]
-            for var in ["PERSONHOG_ADDR", "PERSONHOG_ENABLED", "PERSONHOG_ROLLOUT_PERCENTAGE"]:
+            for var in ["PERSONHOG_ADDR"]:
                 if should_inject:
                     assert var in shell, f"{var} should be in {proc_name} shell"
                 else:

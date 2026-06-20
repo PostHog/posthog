@@ -8060,7 +8060,6 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         with (
             self.settings(DEBUG=False),
-            patch("posthog.personhog_client.gate.use_personhog", return_value=False),
             patch(
                 "products.cohorts.backend.models.util.insert_static_cohort",
                 side_effect=Exception("clickhouse insert failed"),
