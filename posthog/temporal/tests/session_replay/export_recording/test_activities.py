@@ -16,9 +16,15 @@ from posthog.temporal.session_replay.export_recording.activities import (
     export_recording_data,
     export_recording_data_prefix,
     export_replay_clickhouse_rows,
+    mark_export_failed,
     store_export_data,
 )
-from posthog.temporal.session_replay.export_recording.types import ExportContext, ExportRecordingInput, RedisConfig
+from posthog.temporal.session_replay.export_recording.types import (
+    ExportContext,
+    ExportRecordingInput,
+    MarkExportFailedInput,
+    RedisConfig,
+)
 
 from products.replay.backend.models.exported_recording import ExportedRecording
 
@@ -166,6 +172,27 @@ async def test_export_event_clickhouse_rows_success():
         call_args = mock_redis.setex.call_args
         assert call_args[0][0] == _redis_key(export_id, "events")
         assert call_args[0][1] == TEST_REDIS_CONFIG.redis_ttl
+
+
+@pytest.mark.asyncio
+async def test_mark_export_failed_sets_status_and_truncated_message():
+    mock_record = MagicMock()
+    mock_record.save = MagicMock()
+
+    with (
+        patch("posthog.temporal.session_replay.export_recording.activities.ExportedRecording.objects") as mock_objects,
+        patch("posthog.temporal.session_replay.export_recording.activities.database_sync_to_async") as mock_db_sync,
+    ):
+        mock_objects.aget = AsyncMock(return_value=mock_record)
+        mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
+
+        await mark_export_failed(
+            MarkExportFailedInput(exported_recording_id=TEST_RECORDING_ID, error_message="x" * 5000)
+        )
+
+    mock_objects.aget.assert_called_once_with(id=TEST_RECORDING_ID)
+    assert mock_record.status == ExportedRecording.Status.FAILED
+    assert mock_record.error_message == "x" * 2000
 
 
 @pytest.mark.asyncio

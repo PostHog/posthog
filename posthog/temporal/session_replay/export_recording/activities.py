@@ -21,7 +21,12 @@ from posthog.session_recordings.session_recording_v2_service import fetch_blocks
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.session_replay.export_recording.types import ExportContext, ExportRecordingInput, RedisConfig
+from posthog.temporal.session_replay.export_recording.types import (
+    ExportContext,
+    ExportRecordingInput,
+    MarkExportFailedInput,
+    RedisConfig,
+)
 
 from products.replay.backend.models.exported_recording import ExportedRecording
 
@@ -281,6 +286,20 @@ async def store_export_data(input: ExportContext) -> None:
     await database_sync_to_async(export_record.save)(update_fields=["export_location", "status"])
 
     logger.info(f"Updated ExportedRecording {input.exported_recording_id} with export_location {s3_key}")
+
+
+@activity.defn
+async def mark_export_failed(input: MarkExportFailedInput) -> None:
+    logger = LOGGER.bind()
+    logger.warning(f"Marking export {input.exported_recording_id} as failed: {input.error_message}")
+
+    export_record = await ExportedRecording.objects.aget(id=input.exported_recording_id)
+    export_record.status = ExportedRecording.Status.FAILED
+    # error messages (e.g. ClickHouse exceptions) can be very long; keep the row sane
+    export_record.error_message = input.error_message[:2000]
+    await database_sync_to_async(export_record.save)(update_fields=["status", "error_message"])
+
+    logger.info(f"Marked ExportedRecording {input.exported_recording_id} as failed")
 
 
 @activity.defn
