@@ -1,22 +1,23 @@
 import uuid
 from datetime import timedelta
 from importlib import import_module
-from io import StringIO
 
 from posthog.test.base import BaseTest
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
-from django.core.management import call_command
 from django.utils import timezone
 
+from dagster import build_op_context
 from loginas import settings as la_settings
 
+from posthog.dags.backfill_user_auth_sessions import backfill_user_auth_sessions_op
 from posthog.models import User
+from posthog.session.backfill import backfill_session_user_ids
 from posthog.session.models import Session
 
 
-class TestBackfillUserAuthSessions(BaseTest):
+class _BackfillTestBase(BaseTest):
     def setUp(self):
         super().setUp()
         self.engine = import_module(settings.SESSION_ENGINE)
@@ -37,49 +38,52 @@ class TestBackfillUserAuthSessions(BaseTest):
         Session.objects.filter(session_key=store.session_key).update(user_id=None, login_method=None)
         return store.session_key
 
+
+class TestBackfillSessionUserIds(_BackfillTestBase):
     def test_backfills_user_id_and_metadata(self):
         user = self._make_user()
         key = self._legacy_session(user)
 
-        call_command("backfill_user_auth_sessions")
+        stats = backfill_session_user_ids(dry_run=False)
 
         row = Session.objects.get(session_key=key)
         self.assertEqual(row.user_id, user.pk)
         self.assertEqual(row.login_method, "password")
+        self.assertEqual(stats.updated, 1)
 
     def test_skips_anonymous_sessions(self):
         key = self._legacy_session(anonymous=True)
 
-        call_command("backfill_user_auth_sessions")
+        stats = backfill_session_user_ids(dry_run=False)
 
         self.assertIsNone(Session.objects.get(session_key=key).user_id)
+        self.assertEqual(stats.updated, 0)
 
     def test_skips_impersonation_sessions(self):
         user = self._make_user()
         key = self._legacy_session(user, impersonated=True)
 
-        call_command("backfill_user_auth_sessions")
+        backfill_session_user_ids(dry_run=False)
 
         self.assertIsNone(Session.objects.get(session_key=key).user_id)
 
-    def test_dry_run_writes_nothing(self):
+    def test_dry_run_writes_nothing_but_reports_count(self):
         user = self._make_user()
         key = self._legacy_session(user)
 
-        call_command("backfill_user_auth_sessions", "--dry-run")
+        stats = backfill_session_user_ids(dry_run=True)
 
         self.assertIsNone(Session.objects.get(session_key=key).user_id)
+        self.assertEqual(stats.updated, 1)
 
     def test_second_run_is_a_noop(self):
         user = self._make_user()
         key = self._legacy_session(user)
 
-        call_command("backfill_user_auth_sessions")  # first run attributes the session
+        backfill_session_user_ids(dry_run=False)  # first run attributes the session
+        stats = backfill_session_user_ids(dry_run=False)  # already attributed → nothing to do
 
-        out = StringIO()
-        call_command("backfill_user_auth_sessions", stdout=out)  # already attributed → nothing to do
-
-        self.assertIn("updated 0", out.getvalue())
+        self.assertEqual(stats.updated, 0)
         self.assertEqual(Session.objects.get(session_key=key).user_id, user.pk)
 
     def test_skips_deleted_user(self):
@@ -87,7 +91,7 @@ class TestBackfillUserAuthSessions(BaseTest):
         key = self._legacy_session(user)
         user.delete()
 
-        call_command("backfill_user_auth_sessions")
+        backfill_session_user_ids(dry_run=False)
 
         self.assertIsNone(Session.objects.get(session_key=key).user_id)
 
@@ -96,6 +100,24 @@ class TestBackfillUserAuthSessions(BaseTest):
         key = self._legacy_session(user)
         Session.objects.filter(session_key=key).update(expire_date=timezone.now() - timedelta(days=1))
 
-        call_command("backfill_user_auth_sessions")
+        backfill_session_user_ids(dry_run=False)
+
+        self.assertIsNone(Session.objects.get(session_key=key).user_id)
+
+
+class TestBackfillUserAuthSessionsOp(_BackfillTestBase):
+    def test_op_backfills_when_not_dry_run(self):
+        user = self._make_user()
+        key = self._legacy_session(user)
+
+        backfill_user_auth_sessions_op(build_op_context(op_config={"dry_run": False}))
+
+        self.assertEqual(Session.objects.get(session_key=key).user_id, user.pk)
+
+    def test_op_defaults_to_dry_run(self):
+        user = self._make_user()
+        key = self._legacy_session(user)
+
+        backfill_user_auth_sessions_op(build_op_context())
 
         self.assertIsNone(Session.objects.get(session_key=key).user_id)
