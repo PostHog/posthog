@@ -130,9 +130,9 @@ class TestCommunitySkillAPI(APIBaseTest):
         variables = response.json()["template_variables"]
         self.assertEqual([v["name"] for v in variables], ["feed_table", "default_branch"])
         self.assertEqual(
-            variables[0], {"name": "feed_table", "prompt": "Warehouse table", "required": True, "default": ""}
+            variables[0], {"name": "feed_table", "prompt": "Warehouse table", "is_required": True, "default": ""}
         )
-        self.assertFalse(variables[1]["required"])  # has a default
+        self.assertFalse(variables[1]["is_required"])  # has a default
 
     def test_install_template_renders_variables(self, _mock_flag) -> None:
         skill = _create_template_skill(slug="feed-scout")

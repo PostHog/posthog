@@ -30,8 +30,8 @@ class CommunitySkillTemplateVariableSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Human-readable question shown when collecting a value for this variable.",
     )
-    required = serializers.BooleanField(
-        help_text="Whether a value must be supplied at install time (false variables fall back to their default).",
+    is_required = serializers.BooleanField(
+        help_text="Whether a value must be supplied at install time (otherwise it falls back to the default).",
     )
     default = serializers.CharField(
         allow_blank=True,
@@ -137,7 +137,7 @@ class CommunitySkillSerializer(serializers.ModelSerializer):
     @extend_schema_field(CommunitySkillTemplateVariableSerializer(many=True))
     def get_template_variables(self, instance: CommunitySkill) -> list[dict[str, Any]]:
         return [
-            {"name": v.name, "prompt": v.prompt, "required": v.required, "default": v.default}
+            {"name": v.name, "prompt": v.prompt, "is_required": v.required, "default": v.default}
             for v in parse_template_variables(instance.metadata)
         ]
 
