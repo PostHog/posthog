@@ -4845,13 +4845,13 @@ snapshots:
     scenes-app-customer-analytics-journeys-nodes-profileflownode--optional-not-completed--light:
         hash: v1.k794b7964.165b884e9e737c00707811f9efa7d348927a432402c544b41495eac9722a1fca.wqLWQTzb1O7RBTeeyTR5l_hUeX0IpJXkgexpAQbuNWs
     scenes-app-dashboards--access-control-dashboard--dark:
-        hash: v1.k794b7964.5a2070ced40d9a7283b60d208aef3315f684f2586db52f79337f82ca4f80ae49.eOeTlC4JZNhfDx_aXctKeV6HL1TQKugnpDyf1l-NFX0
+        hash: v1.k794b7964.72e46fa2edde8a213313ed3683e99beab5dbce9f6ba0068bfd147800fc33a01b.d5e1MmICfNadPNGril9i7LXuLz3UeJ3MQcShG9j9ysk
     scenes-app-dashboards--access-control-dashboard--light:
-        hash: v1.k794b7964.8750e411634aabaec37428088a6c2ff338b30103628b3358ec1aa9303e7bc6a4.QHf7vvPUacMgAWbJiWSEEWZ5xEhNe-apEwxD59eg29o
+        hash: v1.k794b7964.2cb1dc53e388e2ba2f1ba027db19970b5c836420c212719646cc6e01df3eb532.3JJd9GmozBQFNT4B9WyN_CM7iuWaWKL1u3Fq6SXTnhI
     scenes-app-dashboards--edit--dark:
-        hash: v1.k794b7964.77a03f7c6aef36f12b2eff445c072046a811be333172a731bb86ae353e047544.YlLoJRLu6tNMUvkmYZH8wVJzRVUqWFZtV-BhpSz5aTo
+        hash: v1.k794b7964.083587fcf5cb279b32adeda05783970f3e222dc33a17ad5686f5196be865a8ab.A-1zzLAHX5TOyD8dvQYlCNH2xD4FZiiDW7CXMovArYM
     scenes-app-dashboards--edit--light:
-        hash: v1.k794b7964.3b2874181e936c6709d7c67db69bba087f600c2bd33835bce8e0e3a73964e948.pJ537ZFActzJzjSYe4aRQKCKH1DFgA32qSl7v9VUWIQ
+        hash: v1.k794b7964.a2f42d94fac861654f447f332cd513eaa9bd81f3c108967e6745f695f12c2546.mV7i91ApKabQ_d_YjjU0K5OMYpM7el5LmffL9XWr8M8
     scenes-app-dashboards--erroring--dark:
         hash: v1.k794b7964.a356bf2ce40e53018919ebc890579c0ad6e493385f546d26b1f70471bf99f726.UER3Vv5UUZ1POzJv4_TuxrLBcLfLa8WTZ_hyUX9t72s
     scenes-app-dashboards--erroring--light:
@@ -4873,9 +4873,9 @@ snapshots:
     scenes-app-dashboards--not-found--light:
         hash: v1.k794b7964.1ce58559d0a7f0fdec75dc0cd2230c29bf6dcc25cb275a8eccd9a5c2a0a928b6.j9xKwNlmX3cJs2iIEJw1NuA6vMsMRIvFsNdfSYwmYN4
     scenes-app-dashboards--view-only-dashboard--dark:
-        hash: v1.k794b7964.21152e91717a6fc5140d8f3aa7a814ba91e1cc23fb0bbfdbeb84a23cb175a562.Nm0X90U2YpPaxYuelhuNFzaQ3mixWrNcL8mcKbwHPXk
+        hash: v1.k794b7964.316dfbc4e36a5fc42de0437536475f5f96fe42bba8d90ac0bae231ac537a350e.vXEOGysbaIc9cFvql1OJbrMfDUuMJX0OgQtvFpFiR2M
     scenes-app-dashboards--view-only-dashboard--light:
-        hash: v1.k794b7964.1375536ea1ec87463a36ff8387073e3502d5127e68837fee3474b11d52684155.BobnrxAcdpL_nNICNKf2aqg_CXhq38fCWTgceozBTcY
+        hash: v1.k794b7964.8d8565dfb737034f8415ede3db773dc555f73a43c618218c1a12cd0d83a0a217.BpLcmQ8sF7wQ1KIfd09rJf_Elm5nWz51vY8uKfG--_Q
     scenes-app-dashboards-add-insight-to-dashboard-modal--default--dark:
         hash: v1.k794b7964.9e274692c8e4c207d502de8e74ecb4ad848c351a69dc19185ddc3d52616e9c6f.JXi4RnJ4pej3Q4xhfMDQUlzqxMhz31nwrjmt1U-Fwbo
     scenes-app-dashboards-add-insight-to-dashboard-modal--default--light:
