@@ -11,8 +11,9 @@ from posthog.test.base import _create_event, flush_persons_and_events
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Group, Person, PersonDistinctId, Team
+from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.group.util import get_group_by_key
 
 
 def journeys_for(
@@ -65,16 +66,11 @@ def journeys_for(
             for property_key, value in (event.get("properties") or {}).items():
                 if property_key.startswith("$group_"):
                     group_type_index = property_key[-1]
-                    try:
-                        group = Group.objects.get(
-                            team_id=team.pk,
-                            group_type_index=group_type_index,
-                            group_key=value,
-                        )
+                    # create_group no longer writes a Postgres Group row, so read group
+                    # properties through the personhog-routed helper instead of the ORM.
+                    group = get_group_by_key(team.pk, int(group_type_index), value)
+                    if group is not None:
                         group_mapping[f"group{group_type_index}"] = group
-
-                    except Group.DoesNotExist:
-                        continue
 
             if "timestamp" not in event:
                 event["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
