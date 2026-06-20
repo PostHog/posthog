@@ -106,7 +106,7 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 # `available_reviewers` returns every eligible org member in a single unpaginated payload.
-# Org membership is tiny in practice (p99 ~11 members, largest org ~470), so even the biggest
+# Org membership is tiny in practice, so even the biggest
 # org today serialises to well under 100 KB. If an org ever exceeds this threshold we want a
 # signal that it's time to add real pagination, rather than silently truncating the list (the
 # old behaviour, which capped at 100 and dropped everyone alphabetically after ~"M").
