@@ -30,11 +30,12 @@ export type InboxReportActionSurface = 'detail_pane' | 'list_row' | 'bulk_bar'
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
 
 /** How a report detail was closed. */
-export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'navigated_away' | 'unmount'
+export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'unmount'
 
 /**
- * Report actions. A superset of the desktop enum — `restore` is cloud-only (the Archive tab),
- * the rest line up one-for-one so the `action_type` breakdown reads the same across clients.
+ * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
+ * `action_type` breakdown reads the same across clients), plus a cloud-only `restore` for the
+ * Archive tab. Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
     | 'dismiss'
@@ -42,7 +43,6 @@ export type InboxReportActionType =
     | 'create_pr'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
-    | 'click_suggested_reviewer'
 
 function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>): void {
     posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties })

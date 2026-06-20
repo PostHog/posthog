@@ -216,10 +216,11 @@ export const reportListLogic = kea<reportListLogicType>([
         // drops it from the Archived list; the report re-enters the pipeline and resurfaces elsewhere.
         restoreReport: async ({ reportId }) => {
             const report = values.reports.find((r) => r.id === reportId)
-            captureInboxReportAction({ report, actionType: 'restore', surface: 'list_row' })
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, { state: 'potential' })
+                // Fire only after the restore persists, matching ReportDetailActions' fallback path.
+                captureInboxReportAction({ report, actionType: 'restore', surface: 'list_row' })
                 lemonToast.success('Report restored to inbox')
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
