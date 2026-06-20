@@ -1,6 +1,12 @@
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
+from rest_framework import status
+
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
@@ -115,6 +121,34 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
 
         assert new_insight_tile["filters_overrides"] == filters_overrides
         assert new_insight_tile["show_description"] is True
+
+    def test_duplicating_dashboard_without_access_is_forbidden(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            resource="dashboard",
+            resource_id=self.starting_dashboard["id"],
+            team=self.team,
+            access_level="none",
+        )
+
+        user2 = self._create_user("test2@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(user2)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {
+                "duplicate_tiles": True,
+                "use_dashboard": self.starting_dashboard["id"],
+                "name": "new",
+            },
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @staticmethod
     def _tile_child_ids_from(dashboard_json: dict) -> list[int]:
