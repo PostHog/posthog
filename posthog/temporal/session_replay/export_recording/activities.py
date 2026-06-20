@@ -33,9 +33,11 @@ from products.replay.backend.models.exported_recording import ExportedRecording
 
 LOGGER = get_write_only_logger()
 
-# A real export never runs this long; anything still unfinished is wedged (e.g. a worker died
-# before its failure handler ran). We reap these opportunistically when a new export starts.
-STALE_EXPORT_AFTER = timedelta(hours=12)
+# Set safely beyond the export workflow's maximum legitimate lifetime (build 3h + parallel export
+# 6h + store 6h + cleanup 3h, which a workflow-level retry can roughly double) so an actively
+# running export is never reaped. Anything older is wedged (e.g. a worker died before its failure
+# handler ran). We reap these opportunistically when a new export starts.
+STALE_EXPORT_AFTER = timedelta(hours=48)
 
 
 def _redis_url(config: RedisConfig) -> str:

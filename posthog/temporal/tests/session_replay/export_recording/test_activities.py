@@ -623,12 +623,13 @@ async def test_cleanup_export_data_no_manifest():
 @pytest.mark.parametrize(
     "status,age_hours,expect_swept",
     [
-        (ExportedRecording.Status.RUNNING, 13, True),
-        (ExportedRecording.Status.PENDING, 13, True),
-        (ExportedRecording.Status.RUNNING, 1, False),
+        (ExportedRecording.Status.RUNNING, 49, True),
+        (ExportedRecording.Status.PENDING, 49, True),
+        # still within the export workflow's max legitimate lifetime - must not be reaped
+        (ExportedRecording.Status.RUNNING, 13, False),
         (ExportedRecording.Status.PENDING, 1, False),
-        (ExportedRecording.Status.COMPLETE, 13, False),
-        (ExportedRecording.Status.FAILED, 13, False),
+        (ExportedRecording.Status.COMPLETE, 49, False),
+        (ExportedRecording.Status.FAILED, 49, False),
     ],
 )
 def test_mark_stale_exports_failed_only_sweeps_old_unfinished(team, status, age_hours, expect_swept):
