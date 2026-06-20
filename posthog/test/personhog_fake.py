@@ -237,6 +237,9 @@ def _seed_group_type_mapping(fake: FakePersonHogClient, mapping: GroupTypeMappin
         name_plural=mapping.name_plural or "",
         default_columns=mapping.default_columns or None,
         detail_dashboard_id=mapping.detail_dashboard_id or 0,
+        # HogQL emits a created_at-gated group-key override, so the mapping's created_at
+        # must survive the round-trip through the fake.
+        created_at=_created_at_ms(mapping.created_at),
     )
 
 
