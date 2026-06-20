@@ -153,7 +153,13 @@ export function ReportCard({
     const headline = deriveHeadline(report.summary)
     const detailUrl = urls.inboxReport(tabKey, report.id)
 
-    const { isArchiving, onArchiveClick } = useReportArchive({ reportId: report.id, cardTitle, onArchive })
+    const { isArchiving, onArchiveClick } = useReportArchive({
+        reportId: report.id,
+        cardTitle,
+        report,
+        surface: 'list_row',
+        onArchive,
+    })
 
     // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
     const dismissalLabel = isArchived ? dismissalReasonLabel(report.dismissal_reason) : null
