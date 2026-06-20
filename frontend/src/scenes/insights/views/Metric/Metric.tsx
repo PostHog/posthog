@@ -51,8 +51,6 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
     const headlineValue = computeMetricSummary(summary, resultSeries.count, resultSeries.data)
     const showChange = trendsFilter?.metricShowChange ?? METRIC_SHOW_CHANGE_DEFAULT
 
-    // Metric always fetches the previous period: total/average compare against it, while latest (and any
-    // case where it's missing) falls back to the within-window first→last movement.
     const previousSeries = selectPreviousSeriesSummary(results)
     const change = computeMetricSummaryChange(
         summary,

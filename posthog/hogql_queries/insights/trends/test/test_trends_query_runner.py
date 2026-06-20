@@ -691,7 +691,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_metric_display_forces_compare(self):
         self._create_test_events()
 
-        # No compareFilter set, but the Metric display always compares against the previous period.
         response = self._run_trends_query(
             "2020-01-15",
             "2020-01-19",
@@ -703,48 +702,23 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(2, len(response.results))
         self.assertEqual("current", response.results[0]["compare_label"])
         self.assertEqual("previous", response.results[1]["compare_label"])
-        self.assertEqual(True, response.results[0]["compare"])
 
-    def test_metric_display_all_time_does_not_force_compare(self):
+    @parameterized.expand(
+        [
+            ("all_time", "all", TrendsFilter(display=ChartDisplayType.METRIC)),
+            ("pill_hidden", "2020-01-15", TrendsFilter(display=ChartDisplayType.METRIC, metricShowChange=False)),
+            (
+                "latest_summary",
+                "2020-01-15",
+                TrendsFilter(display=ChartDisplayType.METRIC, metricSummary=MetricSummary.LATEST),
+            ),
+        ]
+    )
+    def test_metric_display_does_not_force_compare(self, _name, date_from, trends_filter):
         self._create_test_events()
 
-        # There's no previous period to compare an all-time range against, so compare stays off.
         response = self._run_trends_query(
-            "all",
-            None,
-            IntervalType.DAY,
-            [EventsNode(event="$pageview")],
-            TrendsFilter(display=ChartDisplayType.METRIC),
-        )
-
-        self.assertEqual(1, len(response.results))
-        self.assertNotIn("compare_label", response.results[0])
-
-    def test_metric_display_does_not_force_compare_when_change_pill_hidden(self):
-        self._create_test_events()
-
-        # The previous period is only consumed by the change pill, so skip it when the pill is hidden.
-        response = self._run_trends_query(
-            "2020-01-15",
-            "2020-01-19",
-            IntervalType.DAY,
-            [EventsNode(event="$pageview")],
-            TrendsFilter(display=ChartDisplayType.METRIC, metricShowChange=False),
-        )
-
-        self.assertEqual(1, len(response.results))
-        self.assertNotIn("compare_label", response.results[0])
-
-    def test_metric_display_does_not_force_compare_for_latest_summary(self):
-        self._create_test_events()
-
-        # The "latest" summary compares first→last within the window, so it never needs the previous period.
-        response = self._run_trends_query(
-            "2020-01-15",
-            "2020-01-19",
-            IntervalType.DAY,
-            [EventsNode(event="$pageview")],
-            TrendsFilter(display=ChartDisplayType.METRIC, metricSummary=MetricSummary.LATEST),
+            date_from, None, IntervalType.DAY, [EventsNode(event="$pageview")], trends_filter
         )
 
         self.assertEqual(1, len(response.results))

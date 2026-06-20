@@ -69,10 +69,7 @@ interface ComparableSeries {
     compare_label?: string | null
 }
 
-// The previous comparison period from the results, if present. Matched by `compare_label` rather than
-// position so it stays correct regardless of how the series are ordered. Absent when the comparison
-// period couldn't be computed (e.g. an "all time" date range), in which case the pill falls back to
-// the within-window first→last change.
+// Matched by `compare_label`, not array position (the backend doesn't guarantee order).
 export function selectPreviousSeriesSummary(
     results: readonly ComparableSeries[] | undefined
 ): MetricSeriesSummary | undefined {
@@ -80,18 +77,12 @@ export function selectPreviousSeriesSummary(
     return previous ? { total: previous.count, data: previous.data } : undefined
 }
 
-// The current period from the results. Metric always fetches the previous period too, so the results hold
-// both series — pick the current one by `compare_label` rather than position (which the backend doesn't
-// guarantee), falling back to the first series when there's no comparison.
 export function selectCurrentSeries<T extends { compare_label?: string | null }>(
     results: readonly T[] | undefined
 ): T | undefined {
     return results?.find((series) => series.compare_label !== 'previous') ?? results?.[0]
 }
 
-// The change pill, matched to the chosen summary:
-//  - `total`/`average` with a comparison period → this period's total/average vs the previous period's.
-//  - `latest`, or `total`/`average` without a comparison period → first → last of the current series.
 export function computeMetricSummaryChange(
     summary: MetricSummary,
     current: MetricSeriesSummary,
@@ -105,10 +96,7 @@ export function computeMetricSummaryChange(
     return computeMetricChange(current.data)
 }
 
-// What the change pill compares, matched to the chosen summary and whether a comparison period is present.
-// Mirrors computeMetricSummaryChange: total/average compare against the previous period when one is present,
-// otherwise (and always for latest) it's the within-period first→last change. The fallback noun is the
-// interval itself (each IntervalType value is already its own noun), defaulting to "day".
+// Keep in sync with computeMetricSummaryChange — same total/average-vs-previous vs first→last split.
 export function getMetricChangeTooltip(
     summary: MetricSummary,
     hasComparison: boolean,

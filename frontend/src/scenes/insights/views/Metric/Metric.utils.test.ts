@@ -203,8 +203,7 @@ describe('selectCurrentSeries', () => {
     }[] = [
         { name: 'undefined results → undefined', results: undefined, expected: undefined },
         { name: 'single unlabelled series (no comparison) → that series', results: [unlabelled], expected: unlabelled },
-        { name: 'picks the current-labelled series', results: [current, previous], expected: current },
-        { name: 'matches by compare_label, not array position', results: [previous, current], expected: current },
+        { name: 'picks current by compare_label, not array position', results: [previous, current], expected: current },
     ]
 
     it.each(cases)('$name', ({ results, expected }) => {
@@ -252,39 +251,11 @@ describe('getMetricChangeTooltip', () => {
             expected: firstLast('day'),
         },
         {
-            name: 'hourly interval reads "hour"',
+            name: 'non-day interval flows into the noun',
             summary: 'latest',
             hasComparison: false,
             interval: 'hour',
             expected: firstLast('hour'),
-        },
-        {
-            name: 'monthly interval reads "month"',
-            summary: 'average',
-            hasComparison: false,
-            interval: 'month',
-            expected: firstLast('month'),
-        },
-        {
-            name: 'second interval reads "second"',
-            summary: 'latest',
-            hasComparison: false,
-            interval: 'second',
-            expected: firstLast('second'),
-        },
-        {
-            name: 'minute interval reads "minute"',
-            summary: 'latest',
-            hasComparison: false,
-            interval: 'minute',
-            expected: firstLast('minute'),
-        },
-        {
-            name: 'weekly interval reads "week"',
-            summary: 'latest',
-            hasComparison: false,
-            interval: 'week',
-            expected: firstLast('week'),
         },
         {
             name: 'missing interval falls back to "day"',

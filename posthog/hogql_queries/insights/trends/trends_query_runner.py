@@ -126,10 +126,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
 
-        # The Metric display's change pill compares the current period to the previous one, but the
-        # display has no compare toggle — so compute the previous period whenever the pill needs it.
-        # Skip it when the pill is hidden, when the summary is "latest" (which compares first→last within
-        # the window, not period-over-period), or for an all-time range (no previous period exists).
+        # The Metric change pill compares to the previous period, but the display has no compare toggle —
+        # force it when the pill needs it (shown, not "latest", and a previous period exists).
         if (
             query.trendsFilter
             and query.trendsFilter.display == ChartDisplayType.METRIC

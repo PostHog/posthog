@@ -163,8 +163,7 @@ function MetricCardInner({
         fallbackChangePercent,
         formatChange,
     })
-    // `changeTooltip` describes the resting comparison; while the pill shows the hovered point-vs-previous
-    // delta it no longer applies, so hide it rather than show contradicting text.
+    // The tooltip describes the resting comparison, so hide it once the pill shows the per-point delta.
     const activeChangeTooltip = usePrevPointHover ? undefined : changeTooltip
     const headlineDisplay = sparklineData ? formatValue(animatedValue) : formatValue(restingValue)
     const resolvedSubtitle =
