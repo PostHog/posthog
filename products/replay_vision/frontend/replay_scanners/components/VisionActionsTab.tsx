@@ -1,9 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconTrash } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { XRayHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -47,6 +49,28 @@ export function VisionActionsTab({ scannerId }: { scannerId: string }): JSX.Elem
 function VisionActionsTable(): JSX.Element {
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
     const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
+
+    if (!visionActionsLoading && visionActions.length === 0) {
+        return (
+            <ProductIntroduction
+                productName="Scheduled summaries"
+                thingName="action"
+                isEmpty
+                customHog={XRayHog}
+                description="Set up scheduled summaries of this scanner's observations — synthesized by AI and delivered to Slack on the cadence you choose. Great for a daily digest of what the scanner has been finding."
+                actionElementOverride={
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        disabledReason="Action creation is coming soon"
+                        data-attr="vision-action-new-empty"
+                    >
+                        New action
+                    </LemonButton>
+                }
+            />
+        )
+    }
 
     const columns: LemonTableColumns<VisionActionApi> = [
         {
