@@ -30,6 +30,7 @@ from posthog.models import Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.person.util import get_distinct_ids_for_persons
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
 from posthog.tasks.calculate_cohort import (
@@ -366,11 +367,13 @@ email@example.org
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(pk=response.json()["id"])
         self.assertFalse(cohort.is_calculating)
-        # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
-        cohort_people = Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id)
-        distinct_ids = set()
-        for person in cohort_people:
-            distinct_ids.update(person.distinct_ids)
+        # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids).
+        # Distinct ids are read via personhog (the ORM fallback on `Person.distinct_ids` was removed).
+        person_ids = list(
+            Person.objects.filter(cohort__id=cohort.id, team_id=cohort.team_id).values_list("pk", flat=True)
+        )
+        distinct_ids_by_person = get_distinct_ids_for_persons(cohort.team_id, person_ids)
+        distinct_ids = {did for dids in distinct_ids_by_person.values() for did in dids}
         self.assertEqual(distinct_ids, {"123", "0"})
 
         # Test CSV update
