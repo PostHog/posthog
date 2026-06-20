@@ -214,8 +214,9 @@ async def validate_schema_and_update_table(
                     table_created.save()
 
                 if not table_created:
-                    # Check if we already have an orphaned table that we can repurpose
-                    existing_tables = DataWarehouseTable.objects.filter(
+                    # Check if we already have an orphaned table that we can repurpose.
+                    # Lock candidate rows to prevent concurrent sync operations from claiming the same table.
+                    existing_tables = DataWarehouseTable.raw_objects.select_for_update().filter(
                         team_id=team_id, name=table_name, external_data_source_id=job.pipeline.id, deleted=False
                     )
                     existing_tables_count = existing_tables.count()

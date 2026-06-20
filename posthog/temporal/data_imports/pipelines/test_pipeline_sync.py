@@ -1,4 +1,6 @@
 import uuid
+import pytest
+from asgiref.sync import sync_to_async
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -202,3 +204,101 @@ class TestRegisterCDCCompanionTable(BaseTest):
             deleted=False,
         )
         assert companions.count() == 0
+
+
+class TestValidateSchemaAndUpdateTable(BaseTest):
+    def _create_source_and_job(self) -> tuple[ExternalDataSource, ExternalDataJob, ExternalDataSchema]:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source=source,
+        )
+        job = ExternalDataJob.objects.create(
+            team_id=self.team.pk,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=0,
+        )
+        return source, job, schema
+
+    @pytest.mark.asyncio
+    @patch.object(DataWarehouseTable, "get_columns", return_value={})
+    @patch.object(DataWarehouseTable, "get_count", return_value=100)
+    async def test_reuses_orphaned_table(self, _mock_count, _mock_cols):
+        source, job, schema = await sync_to_async(self._create_source_and_job)()
+        
+        # Create an orphaned table with the correct name and source
+        from posthog.temporal.data_imports.pipelines.helpers import build_table_name
+        table_name = build_table_name(source, schema.name)
+        orphaned_table = await sync_to_async(DataWarehouseTable.objects.create)(
+            team_id=self.team.pk,
+            name=table_name,
+            external_data_source_id=source.id,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://bucket/old_pattern",
+            deleted=False,
+        )
+
+        from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table
+        await validate_schema_and_update_table(
+            run_id=str(job.id),
+            team_id=self.team.pk,
+            schema_id=schema.id,
+            row_count=100,
+            table_format=DataWarehouseTable.TableFormat.Parquet,
+            queryable_folder="s3://bucket/new_folder",
+        )
+
+        await sync_to_async(schema.refresh_from_db)()
+        assert schema.table_id == orphaned_table.id
+
+    @pytest.mark.asyncio
+    @patch.object(DataWarehouseTable, "get_columns", return_value={})
+    @patch.object(DataWarehouseTable, "get_count", return_value=100)
+    async def test_does_not_reuse_table_active_in_other_schema(self, _mock_count, _mock_cols):
+        source, job, schema = await sync_to_async(self._create_source_and_job)()
+        
+        # Create another active schema using the table
+        other_schema = await sync_to_async(ExternalDataSchema.objects.create)(
+            name="other_orders",
+            team_id=self.team.pk,
+            source=source,
+        )
+        
+        from posthog.temporal.data_imports.pipelines.helpers import build_table_name
+        table_name = build_table_name(source, schema.name)
+        active_table = await sync_to_async(DataWarehouseTable.objects.create)(
+            team_id=self.team.pk,
+            name=table_name,
+            external_data_source_id=source.id,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://bucket/old_pattern",
+            deleted=False,
+        )
+        
+        other_schema.table = active_table
+        await sync_to_async(other_schema.save)()
+
+        from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table
+        await validate_schema_and_update_table(
+            run_id=str(job.id),
+            team_id=self.team.pk,
+            schema_id=schema.id,
+            row_count=100,
+            table_format=DataWarehouseTable.TableFormat.Parquet,
+            queryable_folder="s3://bucket/new_folder",
+        )
+
+        await sync_to_async(schema.refresh_from_db)()
+        assert schema.table_id is not None
+        assert schema.table_id != active_table.id
