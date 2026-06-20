@@ -157,18 +157,6 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEvents.test_event_property_values[new_events_schema]
-  '''
-  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
-  SELECT team_id,
-         date_diff('second', max(timestamp), now()) AS age
-  FROM events_json
-  WHERE timestamp > date_sub(DAY, 3, now())
-    AND timestamp < now()
-  GROUP BY team_id
-  ORDER BY age;
-  '''
-# ---
 # name: TestEvents.test_event_property_values[new_events_schema.1]
   '''
   /* user_id:0 request:_snapshot_ */
@@ -313,6 +301,18 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestEvents.test_event_property_values[new_events_schema]
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events_json
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
   '''
 # ---
 # name: TestEvents.test_event_property_values_materialized
@@ -470,7 +470,7 @@
 # name: TestEvents.test_event_property_values_with_hidden_properties[new_events_schema]
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT if(isNull(events.properties.visible_prop), NULL, toJSONString(events.properties.visible_prop)) AS `if(isNull(properties.visible_prop), NULL, toJSONString(properties.visible_prop))`
+  SELECT DISTINCT if(isNull(events.properties.visible_prop), NULL, toString(events.properties.visible_prop)) AS visible_prop
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(isNull(events.properties.visible_prop), NULL, toString(events.properties.visible_prop))))
   LIMIT 10 SETTINGS readonly=2,
@@ -528,7 +528,7 @@
 # name: TestEvents.test_event_property_values_without_hidden_properties[new_events_schema]
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT if(isNull(events.properties.test_prop), NULL, toJSONString(events.properties.test_prop)) AS `if(isNull(properties.test_prop), NULL, toJSONString(properties.test_prop))`
+  SELECT DISTINCT if(isNull(events.properties.test_prop), NULL, toString(events.properties.test_prop)) AS test_prop
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, toDateTime64('2020-01-13 00:00:00', 6, 'UTC')), lessOrEquals(events.timestamp, toDateTime64('2020-01-20 23:59:59', 6, 'UTC')), isNotNull(if(isNull(events.properties.test_prop), NULL, toString(events.properties.test_prop))))
   LIMIT 10 SETTINGS readonly=2,
