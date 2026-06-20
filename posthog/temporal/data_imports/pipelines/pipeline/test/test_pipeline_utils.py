@@ -231,28 +231,30 @@ def test_table_from_py_list_with_null_filled_binary_column():
     )
 
 
-def test_to_list_array_binary_offset_overflow_falls_back_to_large_binary():
-    # A `bytea` column whose chunk exceeds 2GB makes `combine_chunks()` overflow the int32
-    # binary offset; the helper must recover by casting to large_binary instead of raising.
+@pytest.mark.parametrize(
+    "error_msg, large_type, values",
+    [
+        (
+            "offset overflow while concatenating arrays, consider casting input from `binary` to `large_binary` first.",
+            pa.large_binary(),
+            [b"a", b"b", b"c"],
+        ),
+        (
+            "offset overflow while concatenating arrays, consider casting input from `string` to `large_string` first.",
+            pa.large_string(),
+            ["a", "b"],
+        ),
+    ],
+)
+def test_to_list_array_offset_overflow_falls_back_to_large_type(error_msg, large_type, values):
+    # A column whose chunk exceeds 2GB makes `combine_chunks()` overflow the int32 offset;
+    # the helper must recover by casting to the large-offset variant instead of raising.
     overflowing = MagicMock(spec=pa.ChunkedArray)
-    overflowing.combine_chunks.side_effect = pa.ArrowInvalid(
-        "offset overflow while concatenating arrays, consider casting input from `binary` to `large_binary` first."
-    )
-    overflowing.cast.return_value = pa.chunked_array([pa.array([b"a", b"b", b"c"], type=pa.large_binary())])
+    overflowing.combine_chunks.side_effect = pa.ArrowInvalid(error_msg)
+    overflowing.cast.return_value = pa.chunked_array([pa.array(values, type=large_type)])
 
-    assert _to_list_array(overflowing) == [b"a", b"b", b"c"]
-    overflowing.cast.assert_called_once_with(pa.large_binary())
-
-
-def test_to_list_array_string_offset_overflow_falls_back_to_large_string():
-    overflowing = MagicMock(spec=pa.ChunkedArray)
-    overflowing.combine_chunks.side_effect = pa.ArrowInvalid(
-        "offset overflow while concatenating arrays, consider casting input from `string` to `large_string` first."
-    )
-    overflowing.cast.return_value = pa.chunked_array([pa.array(["a", "b"], type=pa.large_string())])
-
-    assert _to_list_array(overflowing) == ["a", "b"]
-    overflowing.cast.assert_called_once_with(pa.large_string())
+    assert _to_list_array(overflowing) == values
+    overflowing.cast.assert_called_once_with(large_type)
 
 
 def test_to_list_array_reraises_unrelated_arrow_invalid():
