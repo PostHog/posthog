@@ -148,6 +148,23 @@ export interface SdkSession {
 }
 
 /**
+ * Git artifacts a coding run exposes — surfaced pre-turn (working/base branch) and post-turn
+ * (the opened PR). Accumulated latest-wins from the bootstrap run fetch (`state.pr_base_branch`,
+ * top-level `branch`, `output.pr_url`) and live `task_run_state` frames. Stays empty for a pure
+ * analytics conversation, so the coding UI it feeds self-hides.
+ */
+export interface RunArtifacts {
+    /** `output.pr_url` — the opened pull request, when the run created one. */
+    prUrl?: string
+    /** The run's working branch (top-level `branch`). */
+    branch?: string
+    /** `state.pr_base_branch` — the branch the PR targets. */
+    baseBranch?: string
+    /** `owner/name` when present; generally unset on the run wire shape. */
+    repo?: string
+}
+
+/**
  * A pending ACP `permission_request` surfaced by the products/tasks stream, rendered by
  * `SandboxPermissionInput` in the input area.
  */
