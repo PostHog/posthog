@@ -1,4 +1,4 @@
-import { type TrendLineConfig } from '@posthog/quill-charts'
+import { type TooltipContext, type TrendLineConfig } from '@posthog/quill-charts'
 
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -15,6 +15,7 @@ import {
     buildComboChartConfig,
     buildLineChartConfig,
     buildSeries,
+    buildSqlTooltipConfig,
     buildTrendLineConfigs,
     canRenderSqlBarGraph,
     canRenderSqlComboGraph,
@@ -432,6 +433,40 @@ describe('sqlLineGraphAdapter', () => {
         })
     })
 
+    describe('buildSqlTooltipConfig', () => {
+        const entry = (settings: AxisSeries<number | null>['settings']): TooltipContext['seriesData'][number] => ({
+            series: { key: 'r', label: 'Revenue', data: [1200], meta: { settings } },
+            value: 1200,
+            color: '#000000',
+        })
+
+        it('enables a pinnable tooltip', () => {
+            const config = buildSqlTooltipConfig({}, [ySeries('a', [1])])
+            expect(config.enabled).toBe(true)
+            expect(config.pinnable).toBe(true)
+        })
+
+        it('formats each row with its own column settings from series.meta', () => {
+            const config = buildSqlTooltipConfig({}, [ySeries('a', [1])])
+            const format = config.valueFormatter!
+            expect(format(1200, entry({ formatting: { prefix: '$' } }))).toBe('$1200')
+        })
+
+        it.each([
+            ['shows the total row by default', {}, true],
+            ['shows the total row when showTotalRow is true', { showTotalRow: true }, true],
+            ['hides the total row when showTotalRow is false', { showTotalRow: false }, false],
+        ])('%s', (_name, chartSettings, expected) => {
+            expect(buildSqlTooltipConfig(chartSettings as ChartSettings, []).showTotal).toBe(expected)
+        })
+
+        it('formats the total with the first series settings', () => {
+            const config = buildSqlTooltipConfig({}, [ySeries('revenue', [1], { formatting: { prefix: '$' } })])
+            const formatTotal = config.totalFormatter!
+            expect(formatTotal(5000)).toBe('$5000')
+        })
+    })
+
     describe('buildLineChartConfig', () => {
         const dateXData: AxisSeries<string> = {
             column: { name: 'day', type: { name: 'DATE', isNumerical: false }, label: 'day', dataIndex: 0 },
@@ -558,7 +593,7 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.xAxis?.tickFormatter).toBeInstanceOf(Function)
             expect(config.goalLines).toHaveLength(1)
             expect(config.legend).toEqual({ show: true, position: 'top', interactive: true })
-            expect(config.tooltip).toEqual({ enabled: true, pinnable: true })
+            expect(config.tooltip).toMatchObject({ enabled: true, pinnable: true })
         })
 
         it('never emits trend lines (combo charts have no trend-line support)', () => {

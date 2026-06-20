@@ -6,6 +6,8 @@ import {
     type TimeSeriesBarChartConfig,
     type TimeSeriesComboChartConfig,
     type TimeSeriesLineChartConfig,
+    type TooltipConfig,
+    type TooltipContext,
     type TrendLineConfig,
     type XAxisConfig,
     type YAxisConfig,
@@ -249,6 +251,24 @@ export function formatSqlSeriesValue(value: number, settings?: AxisSeriesSetting
     return String(formatDataWithSettings(value, settings) ?? value)
 }
 
+/** Tooltip config for the line + combo SQL charts: quill's built-in DefaultTooltip, formatting each
+ *  row with its own column's settings (carried in `series.meta`) and an optional total row. Passed as
+ *  config so the chart owns the render — no per-component render prop. */
+export function buildSqlTooltipConfig(
+    chartSettings: ChartSettings,
+    ySeriesData?: SqlLineYSeries[] | null
+): TooltipConfig {
+    const totalSettings = ySeriesData?.[0]?.settings
+    return {
+        enabled: true,
+        pinnable: true,
+        valueFormatter: (value: number, entry: TooltipContext['seriesData'][number]) =>
+            formatSqlSeriesValue(value, (entry.series.meta as SqlLineSeriesMeta | undefined)?.settings),
+        showTotal: chartSettings.showTotalRow !== false,
+        totalFormatter: (value: number) => formatSqlSeriesValue(value, totalSettings),
+    }
+}
+
 interface BuildConfigArgs {
     xData: AxisSeries<string>
     chartSettings: ChartSettings
@@ -302,7 +322,7 @@ export function buildLineChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
-        tooltip: { enabled: true, pinnable: true },
+        tooltip: buildSqlTooltipConfig(chartSettings, ySeriesData),
     }
 }
 
@@ -331,6 +351,7 @@ export function buildComboChartConfig({
     timezone,
     goalLines,
     visualizationType,
+    ySeriesData,
 }: BuildBarConfigArgs): TimeSeriesComboChartConfig {
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
@@ -338,6 +359,6 @@ export function buildComboChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout: comboBarLayoutForDisplay(visualizationType),
         legend: buildLegendConfig(chartSettings),
-        tooltip: { enabled: true, pinnable: true },
+        tooltip: buildSqlTooltipConfig(chartSettings, ySeriesData),
     }
 }

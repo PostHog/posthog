@@ -97,7 +97,7 @@ export function Chart<Meta = unknown>({
     createScales: createScalesFn,
     drawStatic,
     drawHover,
-    tooltip: renderTooltip = DefaultTooltip,
+    tooltip: renderTooltipProp = DefaultTooltip,
     onPointClick,
     onDateRangeZoom,
     className,
@@ -160,7 +160,37 @@ export function Chart<Meta = unknown>({
         enabled: showTooltip = true,
         pinnable: pinnableTooltip = false,
         placement: tooltipPlacement = 'follow-data',
+        valueFormatter: tooltipValueFormatter,
+        showTotal: tooltipShowTotal,
+        totalLabel: tooltipTotalLabel,
+        totalFormatter: tooltipTotalFormatter,
     } = tooltipConfig ?? {}
+
+    // A genuine custom render prop owns tooltip content. Otherwise (the `DefaultTooltip` default)
+    // render the built-in tooltip, applying any content formatters carried on `config.tooltip` so
+    // consumers can tune it without writing a render prop.
+    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(() => {
+        if (renderTooltipProp !== DefaultTooltip) {
+            return renderTooltipProp
+        }
+        if (
+            tooltipValueFormatter === undefined &&
+            tooltipShowTotal === undefined &&
+            tooltipTotalLabel === undefined &&
+            tooltipTotalFormatter === undefined
+        ) {
+            return DefaultTooltip
+        }
+        return (ctx: TooltipContext<Meta>) => (
+            <DefaultTooltip
+                {...ctx}
+                valueFormatter={tooltipValueFormatter}
+                showTotal={tooltipShowTotal}
+                totalLabel={tooltipTotalLabel}
+                totalFormatter={tooltipTotalFormatter}
+            />
+        )
+    }, [renderTooltipProp, tooltipValueFormatter, tooltipShowTotal, tooltipTotalLabel, tooltipTotalFormatter])
 
     const margins = useChartMargins({
         series,

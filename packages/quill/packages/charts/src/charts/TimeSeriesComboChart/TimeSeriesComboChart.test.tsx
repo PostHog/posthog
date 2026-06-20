@@ -2,7 +2,7 @@ import { fireEvent } from '@testing-library/react'
 
 import { useChartLayout } from '../../core/chart-context'
 import type { ChartTheme, Series } from '../../core/types'
-import { getHogChart, renderHogChart } from '../../testing'
+import { getHogChart, renderHogChart, waitForHogChartTooltip } from '../../testing'
 import { TimeSeriesComboChart } from './TimeSeriesComboChart'
 
 const THEME: ChartTheme = {
@@ -260,6 +260,38 @@ describe('TimeSeriesComboChart', () => {
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.seriesData.map((s) => s.series.key).sort()).toEqual(['bar', 'line'])
+        })
+
+        // `nativeTooltip` lets the chart render its own DefaultTooltip from config (the harness's
+        // default tooltip-prop interception would otherwise bypass the config formatters).
+        it('formats the built-in tooltip rows with config.tooltip.valueFormatter', async () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesComboChart
+                    series={BAR_AND_LINE}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ tooltip: { valueFormatter: (v) => `$${v}` } }}
+                />,
+                { nativeTooltip: true }
+            )
+            chart.hoverAtIndex(1)
+            const tooltip = await waitForHogChartTooltip()
+            expect(tooltip.textContent).toContain('$60')
+        })
+
+        it('appends a total row when config.tooltip.showTotal is set', async () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesComboChart
+                    series={BAR_AND_LINE}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ tooltip: { showTotal: true, totalLabel: 'Sum' } }}
+                />,
+                { nativeTooltip: true }
+            )
+            chart.hoverAtIndex(1)
+            const tooltip = await waitForHogChartTooltip()
+            expect(tooltip.textContent).toContain('Sum')
         })
     })
 
