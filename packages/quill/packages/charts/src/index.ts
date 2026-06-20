@@ -3,6 +3,8 @@ export { BarChart } from './charts/BarChart/BarChart'
 export type { BarChartProps } from './charts/BarChart/BarChart'
 export { LineChart } from './charts/LineChart/LineChart'
 export type { LineChartProps } from './charts/LineChart/LineChart'
+export { ComboChart } from './charts/ComboChart/ComboChart'
+export type { ComboChartProps } from './charts/ComboChart/ComboChart'
 export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type {
     ConfidenceIntervalConfig,
@@ -83,6 +85,7 @@ export type {
     ChartMargins,
     ChartScales,
     ChartTheme,
+    ComboChartConfig,
     CreateScalesFn,
     DateRangeZoomData,
     DragRect,
@@ -91,9 +94,11 @@ export type {
     ResolvedSeries,
     ResolveValueFn,
     Series,
+    SeriesType,
     TooltipConfig,
     TooltipContext,
     ValueDomain,
+    YAxisRenderConfig,
     YAxisScale,
 } from './core/types'
 export { DEFAULT_Y_AXIS_ID } from './core/types'
@@ -103,7 +108,7 @@ export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/th
 export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
-export { DefaultTooltip } from './overlays/DefaultTooltip'
+export { DefaultTooltip, type DefaultTooltipProps } from './overlays/DefaultTooltip'
 // Shared tooltip surface — reuse to build custom tooltips with the quill look
 export { TooltipSurface, TooltipSwatch } from './overlays/TooltipSurface'
 

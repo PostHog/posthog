@@ -5,7 +5,7 @@ Follow this instruction to create a query:
 * Build series according to the plan. The plan includes series (event or action), math types, property filters, and breakdowns. Properties can be of multiple types: String, Numeric, Bool, and DateTime. A property can be an array of those types and only has a single type.
 * When evaluating property filter operators, replace the `equals` or `doesn't equal` operators with `contains` or `doesn't contain` if the query value is likely a personal name, company name, or any other name-sensitive term where letter casing matters. For instance, if the value is 'John Doe' or 'Acme Corp', replace `equals` with `contains` and change the value to lowercase from `John Doe` to `john doe` or `Acme Corp` to `acme corp`. Do not apply this to event names, as they are strictly case-sensitive!
 * Determine a visualization type that best represents the data described in the plan.
-* Determine if the plan specifies custom series names or use the default names.
+* Determine if the plan specifies custom series names or use the default names. Leave `custom_name` unset by default — the UI already renders a friendly label from the event's taxonomy, and a `custom_name` overrides it. Only set `custom_name` sporadically, when the underlying event name is not useful on its own (e.g. it's cryptic, or two series share the same event and a math/property distinction needs spelling out), and only with a genuinely human-readable string — never copy the raw event name into `custom_name`. For `$`-prefixed events (e.g. `$pageview`, `$autocapture`), heavily favor leaving `custom_name` unset, as their taxonomy labels are already clear; set one only if strictly necessary.
 * Use the date range and the interval from the plan.
 * Determine if the plan specifies comparing the results to a previous period or use smoothing.
 * Determine if the plan specifies filtering out internal and test users. If not specified in the plan, filter out internal and test users by default.
@@ -47,25 +47,25 @@ Actions are user-defined event filters. If the plan includes an action series, y
 ### insight created unique users & first-time users for the last 12m)
 
 ```
-{"query":{"dateRange":{"date_from":"-12m","date_to":""},"filterTestAccounts":true,"interval":"month","kind":"TrendsQuery","series":[{"event":"insight created","kind":"EventsNode","math":"dau","custom_name":"insight created"},{"event":"insight created","kind":"EventsNode","math":"first_time_for_user","custom_name":"insight created"}],"trendsFilter":{"display":"ActionsLineGraph"}}}
+{"query":{"dateRange":{"date_from":"-12m","date_to":""},"filterTestAccounts":true,"interval":"month","kind":"TrendsQuery","series":[{"event":"insight created","kind":"EventsNode","math":"dau"},{"event":"insight created","kind":"EventsNode","math":"first_time_for_user"}],"trendsFilter":{"display":"ActionsLineGraph"}}}
 ```
 
 ### What are the top 10 referring domains for the last month?
 
 ```
-{"query":{"breakdownFilter":{"breakdown_type":"event","breakdowns":[{"group_type_index":null,"histogram_bin_count":null,"normalize_url":null,"property":"$referring_domain","type":"event"}]},"dateRange":{"date_from":"-30d"},"interval":"day","kind":"TrendsQuery","series":[{"event":"$pageview","kind":"EventsNode","math":"total","custom_name":"$pageview"}]}}
+{"query":{"breakdownFilter":{"breakdown_type":"event","breakdowns":[{"group_type_index":null,"histogram_bin_count":null,"normalize_url":null,"property":"$referring_domain","type":"event"}]},"dateRange":{"date_from":"-30d"},"interval":"day","kind":"TrendsQuery","series":[{"event":"$pageview","kind":"EventsNode","math":"total"}]}}
 ```
 
 ### What is the DAU to MAU ratio of users from the US and Australia that viewed a page in the last 7 days? Compare it to the previous period.
 
 ```
-{"query":{"compareFilter":{"compare":true,"compare_to":null},"dateRange":{"date_from":"-7d"},"interval":"day","kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"AND","values":[{"key":"$geoip_country_name","operator":"exact","type":"event","value":["United States","Australia"]}]}]},"series":[{"event":"$pageview","kind":"EventsNode","math":"dau","custom_name":"$pageview"},{"event":"$pageview","kind":"EventsNode","math":"monthly_active","custom_name":"$pageview"}],"trendsFilter":{"aggregationAxisFormat":"percentage_scaled","display":"ActionsLineGraph","formulaNodes":[{"formula":"A/B"}]}}}
+{"query":{"compareFilter":{"compare":true,"compare_to":null},"dateRange":{"date_from":"-7d"},"interval":"day","kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"AND","values":[{"key":"$geoip_country_name","operator":"exact","type":"event","value":["United States","Australia"]}]}]},"series":[{"event":"$pageview","kind":"EventsNode","math":"dau"},{"event":"$pageview","kind":"EventsNode","math":"monthly_active"}],"trendsFilter":{"aggregationAxisFormat":"percentage_scaled","display":"ActionsLineGraph","formulaNodes":[{"formula":"A/B"}]}}}
 ```
 
 ### I want to understand how old are dashboard results when viewed from the beginning of this year grouped by a month. Display the results for percentiles of 99, 95, 90, average, and median by the property "refreshAge".
 
 ```
-{"query":{"dateRange":{"date_from":"yStart","date_to":null,"explicitDate":false},"filterTestAccounts":true,"interval":"month","kind":"TrendsQuery","series":[{"event":"viewed dashboard","kind":"EventsNode","math":"p99","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"p95","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"p90","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"avg","math_property":"refreshAge","custom_name":"viewed dashboard"},{"event":"viewed dashboard","kind":"EventsNode","math":"median","math_property":"refreshAge","custom_name":"viewed dashboard"}],"trendsFilter":{"aggregationAxisFormat":"duration","display":"ActionsLineGraph"}}}
+{"query":{"dateRange":{"date_from":"yStart","date_to":null,"explicitDate":false},"filterTestAccounts":true,"interval":"month","kind":"TrendsQuery","series":[{"event":"viewed dashboard","kind":"EventsNode","math":"p99","math_property":"refreshAge"},{"event":"viewed dashboard","kind":"EventsNode","math":"p95","math_property":"refreshAge"},{"event":"viewed dashboard","kind":"EventsNode","math":"p90","math_property":"refreshAge"},{"event":"viewed dashboard","kind":"EventsNode","math":"avg","math_property":"refreshAge"},{"event":"viewed dashboard","kind":"EventsNode","math":"median","math_property":"refreshAge"}],"trendsFilter":{"aggregationAxisFormat":"duration","display":"ActionsLineGraph"}}}
 ```
 
 ### organizations joined in the last 30 days by day from the google search

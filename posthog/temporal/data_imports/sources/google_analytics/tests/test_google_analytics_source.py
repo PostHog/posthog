@@ -60,7 +60,19 @@ def test_get_schemas_returns_all_schemas_with_date_incremental():
 def test_get_schemas_default_sync_set():
     schemas = GoogleAnalyticsSource().get_schemas(_config(), team_id=1)
     by_default_on = {s.name for s in schemas if s.should_sync_default}
-    assert by_default_on == {"website_overview", "devices", "locations", "pages", "traffic_sources"}
+    # Everything except `events` syncs by default; `events` is keyed on date+eventName,
+    # so its volume scales with distinct event names and stays opt-in.
+    assert by_default_on == {
+        "website_overview",
+        "daily_active_users",
+        "weekly_active_users",
+        "four_weekly_active_users",
+        "devices",
+        "locations",
+        "pages",
+        "traffic_sources",
+        "user_acquisition",
+    }
 
 
 def test_get_schemas_filters_by_names():

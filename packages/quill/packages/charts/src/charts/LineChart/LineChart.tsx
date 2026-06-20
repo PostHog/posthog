@@ -2,9 +2,8 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
-import { drawArea, drawAxes, drawGrid, drawLine, drawLineHoverPoints, drawPoints } from '../../core/canvas-renderer'
+import { drawAxes, drawGrid, drawLineHoverPoints, drawLineSeriesLayer } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
-import { withVerticalClip } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
@@ -80,6 +79,7 @@ function LineChartInner<Meta = unknown>({
         showGrid = false,
         showAxisLines = false,
         valueDomain,
+        yAxes: yAxisRenderConfigs,
     } = config ?? {}
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
@@ -128,6 +128,7 @@ function LineChartInner<Meta = unknown>({
                 scaleType: yScaleType,
                 percentStack: percentStackView,
                 valueDomain,
+                axes: yAxisRenderConfigs,
             })
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
@@ -150,7 +151,7 @@ function LineChartInner<Meta = unknown>({
                 _private: lineChartPrivate,
             }
         },
-        [yScaleType, percentStackView, stackedData, valueDomain]
+        [yScaleType, percentStackView, stackedData, valueDomain, yAxisRenderConfigs]
     )
 
     const drawStatic = useCallback(
@@ -179,29 +180,19 @@ function LineChartInner<Meta = unknown>({
                 drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
             }
 
-            // Clip vertically only: keep out-of-domain values (e.g. a trendline below 0) out of the
-            // axis-label gutters, but span the full width so edge point markers/line caps render whole.
-            withVerticalClip(ctx, dimensions, () => {
-                for (const s of coloredSeries) {
-                    if (s.visibility?.excluded) {
-                        continue
-                    }
-
-                    const drawCtx: DrawContext = {
-                        ...baseDrawCtx,
-                        yScale: resolveYScale(s),
-                    }
-                    const band = stackedData?.get(s.key)
-                    const yValues = band?.top
-
-                    if (s.fill) {
-                        drawArea(drawCtx, s, yValues, s.fill.lowerData ?? band?.bottom)
-                    }
-                    if (!s.fill?.lowerData) {
-                        drawLine(drawCtx, s, yValues)
-                        drawPoints(drawCtx, s, yValues)
-                    }
-                }
+            // Area then line+points per series, clipped vertically (shared with ComboChart). Areas use
+            // the stacked top as the line value and the stacked bottom (or `fill.lowerData`) as the floor.
+            drawLineSeriesLayer({
+                ctx,
+                dimensions,
+                labels: drawLabels,
+                series: coloredSeries,
+                xScale: d3Scales.x,
+                resolveYScale,
+                yValuesFor: (s) => stackedData?.get(s.key)?.top,
+                bottomFor: (s) => s.fill?.lowerData ?? stackedData?.get(s.key)?.bottom,
+                shouldFill: (s) => !!s.fill,
+                zOrder: 'per-series',
             })
         },
         [showGrid, showAxisLines, stackedData]

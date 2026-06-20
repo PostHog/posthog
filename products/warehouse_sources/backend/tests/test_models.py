@@ -1,13 +1,20 @@
 import uuid
+from datetime import date, datetime
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db.models import Model
 
+from products.data_warehouse.backend.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    apply_incremental_lookback,
+    process_incremental_value,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
@@ -106,3 +113,76 @@ def test_clean_type_unwraps_low_cardinality(clickhouse_type: str, expected: str)
     cleaned = clean_type(clickhouse_type)
     assert cleaned == expected
     assert cleaned in CLICKHOUSE_HOGQL_MAPPING
+
+
+@pytest.mark.parametrize(
+    "sync_type,expected",
+    [
+        (ExternalDataSchema.SyncType.XMIN, True),
+        (ExternalDataSchema.SyncType.INCREMENTAL, False),
+        (ExternalDataSchema.SyncType.CDC, False),
+        (None, False),
+    ],
+)
+def test_is_xmin(sync_type: str | None, expected: bool) -> None:
+    assert ExternalDataSchema(sync_type=sync_type).is_xmin is expected
+
+
+@pytest.mark.parametrize(
+    "sync_type_config,expected",
+    [
+        ({"xmin_last_value": 42, "xmin_ceiling": (1 << 32) + 42, "xmin_num_wraparound": 1}, (42, (1 << 32) + 42, 1)),
+        ({}, (None, None, None)),
+        (None, (None, None, None)),
+    ],
+)
+def test_xmin_accessors(sync_type_config: dict | None, expected: tuple) -> None:
+    schema = ExternalDataSchema(sync_type_config=sync_type_config)
+    assert (schema.xmin_last_value, schema.xmin_ceiling, schema.xmin_num_wraparound) == expected
+
+
+def test_update_xmin_state_writes_all_keys() -> None:
+    schema = ExternalDataSchema(sync_type_config={})
+    schema.update_xmin_state(ceiling_xid=100, ceiling_xid8=4294967396, num_wraparound=1, save=False)
+    assert (schema.xmin_last_value, schema.xmin_ceiling, schema.xmin_num_wraparound) == (100, 4294967396, 1)
+
+
+def test_reset_pipeline_clears_xmin_state() -> None:
+    schema = ExternalDataSchema(
+        sync_type=ExternalDataSchema.SyncType.XMIN,
+        sync_type_config={"xmin_last_value": 100, "xmin_ceiling": 4294967396, "xmin_num_wraparound": 1},
+        initial_sync_complete=True,
+    )
+    with patch.object(schema, "save"):
+        schema.update_sync_type_config_for_reset_pipeline()
+    assert "xmin_last_value" not in schema.sync_type_config
+    assert "xmin_ceiling" not in schema.sync_type_config
+    assert "xmin_num_wraparound" not in schema.sync_type_config
+    assert schema.initial_sync_complete is False
+
+
+def test_process_incremental_value_xid_returns_value_as_is() -> None:
+    assert process_incremental_value(4294967396, IncrementalFieldType.XID) == 4294967396
+    assert process_incremental_value(None, IncrementalFieldType.XID) is None
+
+
+@pytest.mark.parametrize(
+    "value,field_type,lookback_seconds,expected",
+    [
+        (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, 3600, datetime(2026, 6, 14, 14, 33, 31)),
+        (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.DateTime, 86400, datetime(2026, 6, 13, 15, 33, 31)),
+        (date(2026, 6, 14), IncrementalFieldType.Date, 86400, date(2026, 6, 13)),
+        # Date arithmetic ignores the sub-day part of the delta, so a <1-day lookback is a no-op for date fields.
+        (date(2026, 6, 14), IncrementalFieldType.Date, 3600, date(2026, 6, 14)),
+        (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, None, datetime(2026, 6, 14, 15, 33, 31)),
+        (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, 0, datetime(2026, 6, 14, 15, 33, 31)),
+        (datetime(2026, 6, 14, 15, 33, 31), IncrementalFieldType.Timestamp, -5, datetime(2026, 6, 14, 15, 33, 31)),
+        (100, IncrementalFieldType.Integer, 3600, 100),
+        (100, IncrementalFieldType.Numeric, 3600, 100),
+        ("abc123", IncrementalFieldType.ObjectID, 3600, "abc123"),
+        (None, IncrementalFieldType.Timestamp, 3600, None),
+        (datetime(2026, 6, 14, 15, 33, 31), None, 3600, datetime(2026, 6, 14, 15, 33, 31)),
+    ],
+)
+def test_apply_incremental_lookback(value, field_type, lookback_seconds, expected) -> None:
+    assert apply_incremental_lookback(value, field_type, lookback_seconds) == expected

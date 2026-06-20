@@ -116,6 +116,24 @@ def _janitor() -> JanitorClient:
     return default_client()
 
 
+def _decode_env_map(raw: str | None) -> dict[str, str]:
+    """Decode a decrypted `encrypted_env` JSON blob into a `{KEY: value}` map.
+
+    Tolerates empty / null / corrupt blocks by returning `{}` — the worker
+    treats those as "no env set" too. Secrets live on the revision, so callers
+    pass `revision.encrypted_env` (decrypted by `EncryptedTextField` on read).
+    """
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(k): str(v) for k, v in parsed.items()}
+
+
 class JanitorUpstreamError(APIException):
     """DRF-friendly wrapper for non-2xx janitor responses. We forward the
     status code where it makes sense (404 stays 404, 409 stays 409) and
@@ -507,11 +525,6 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "update",
         "partial_update",
         "destroy",
-        "set_env",
-        # env_keys_key handles GET/PUT/DELETE on /env_keys/<KEY>/ — bundled
-        # under :write because PUT/DELETE are the load-bearing ops and we
-        # don't want the scope to drift between methods.
-        "env_keys_key",
         "approvals_decide",
         # POST `preview_proxy` forwards `run`/`send`/`cancel` — each starts,
         # feeds, or kills a draft session, driving the agent's configured
@@ -527,7 +540,6 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "sessions_retrieve",
         "session_logs",
         "stats",
-        "env_keys_list",
         # GET (SSE `listen`) → `preview_proxy_get`. DRF uses the bound function
         # name as `view.action`, so the GET variant is its own scope-map entry;
         # the mutating POST sibling (`preview_proxy`) is a write action above.
@@ -559,166 +571,6 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.archived = True
         instance.archived_at = timezone.now()
         instance.save(update_fields=["archived", "archived_at", "updated_at"])
-
-    @extend_schema(request=SetEnvRequestSerializer)
-    @action(detail=True, methods=["post"], url_path="set_env")
-    def set_env(self, request: Request, **kwargs) -> Response:
-        """Replace the agent's encrypted env block.
-
-        The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
-        text gets stored on AgentApplication.encrypted_env; the worker
-        decrypts it at session start via the same Fernet schedule (see
-        agent-shared/src/runtime/encryption.ts).
-        """
-        application = self.get_object()
-        if application is None:
-            raise NotFound("Application not found")
-
-        body = SetEnvRequestSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        env_map = body.validated_data["env"]
-
-        # EncryptedTextField encrypts on assignment when saved.
-        # We serialize the env dict as JSON before encryption so the worker
-        # gets a JSON object back out.
-        application.encrypted_env = json.dumps(env_map)
-        application.save(update_fields=["encrypted_env", "updated_at"])
-        return Response({"ok": True})
-
-    # ── Per-key env management ───────────────────────────────────────
-    # Set-replace via `set_env` is fine for bulk sync (CI pushes the
-    # whole env file) but useless for a "set one secret" UI: the caller
-    # can't read existing values out, so they'd wipe the rest on every
-    # save. The four routes below let the UI (and the concierge agent's
-    # client tool) inspect + mutate one key at a time without ever
-    # exposing decrypted values across the wire.
-
-    @staticmethod
-    def _load_env_map(application: AgentApplication) -> dict[str, str]:
-        """Decode the encrypted env JSON into a `{KEY: value}` map.
-
-        Tolerates empty / null / corrupt blocks by returning `{}` — the
-        worker treats those as "no env set" too.
-        """
-        raw = application.encrypted_env or ""
-        if not raw:
-            return {}
-        try:
-            parsed = json.loads(raw)
-        except (TypeError, ValueError):
-            return {}
-        if not isinstance(parsed, dict):
-            return {}
-        return {str(k): str(v) for k, v in parsed.items()}
-
-    _ENV_KEY_NAME = OpenApiParameter(
-        "key",
-        OpenApiTypes.STR,
-        OpenApiParameter.PATH,
-        required=True,
-        description="The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.",
-    )
-
-    @extend_schema(
-        operation_id="agent_applications_env_keys_list",
-        request=None,
-        responses=OpenApiResponse(
-            response=inline_serializer(
-                name="AgentApplicationEnvKeysResponse",
-                fields={
-                    "keys": drf_serializers.ListField(
-                        child=drf_serializers.CharField(),
-                        help_text="Names of env variables currently set on the application. Values are never returned.",
-                    ),
-                },
-            ),
-        ),
-    )
-    @action(detail=True, methods=["get"], url_path="env_keys")
-    def env_keys_list(self, request: Request, **kwargs) -> Response:
-        """List the names of secrets currently set on the application.
-
-        Returns names only — values stay server-side under
-        `EncryptedTextField`. Use this to drive the "set / unset" badge
-        next to a declared secret in the editor UI.
-        """
-        application = self.get_object()
-        if application is None:
-            raise NotFound("Application not found")
-        env_map = self._load_env_map(application)
-        # Sort for stable UI ordering; the encrypted JSON has no
-        # meaningful order of its own.
-        return Response({"keys": sorted(env_map.keys())})
-
-    # One inline status serializer reused by all three method schemas so
-    # drf-spectacular emits a single named component instead of three
-    # near-identical ones.
-    _ENV_KEY_STATUS_RESPONSE = OpenApiResponse(
-        response=inline_serializer(
-            name="AgentApplicationEnvKeyStatus",
-            fields={
-                "key": drf_serializers.CharField(),
-                "is_set": drf_serializers.BooleanField(
-                    help_text="True if the key is present in the env block. The value itself is never returned.",
-                ),
-            },
-        ),
-    )
-
-    @extend_schema(
-        methods=["GET"],
-        operation_id="agent_applications_env_keys_get",
-        parameters=[_ENV_KEY_NAME],
-        request=None,
-        responses=_ENV_KEY_STATUS_RESPONSE,
-    )
-    @extend_schema(
-        methods=["PUT"],
-        operation_id="agent_applications_env_keys_set",
-        parameters=[_ENV_KEY_NAME],
-        request=SetEnvKeyRequestSerializer,
-        responses=_ENV_KEY_STATUS_RESPONSE,
-    )
-    @extend_schema(
-        methods=["DELETE"],
-        operation_id="agent_applications_env_keys_clear",
-        parameters=[_ENV_KEY_NAME],
-        request=None,
-        responses=_ENV_KEY_STATUS_RESPONSE,
-    )
-    @action(detail=True, methods=["get", "put", "delete"], url_path="env_keys/(?P<key>[^/.]+)")
-    def env_keys_key(self, request: Request, key: str, **kwargs) -> Response:
-        """GET / PUT / DELETE one secret by name.
-
-        - `GET`    → `{ key, is_set }` (never returns the value).
-        - `PUT`    → upserts `{ value }` into the env block.
-        - `DELETE` → removes the key. No-op when it wasn't set.
-
-        Per-method scope: GET is treated as a write action so the
-        single action name maps to one consistent scope; reading whether
-        a secret is set is restricted to writers in any case.
-        """
-        application = self.get_object()
-        if application is None:
-            raise NotFound("Application not found")
-        env_map = self._load_env_map(application)
-
-        if request.method == "GET":
-            return Response({"key": key, "is_set": key in env_map})
-
-        if request.method == "DELETE":
-            env_map.pop(key, None)
-            application.encrypted_env = json.dumps(env_map)
-            application.save(update_fields=["encrypted_env", "updated_at"])
-            return Response({"key": key, "is_set": False})
-
-        # PUT
-        body = SetEnvKeyRequestSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        env_map[key] = body.validated_data["value"]
-        application.encrypted_env = json.dumps(env_map)
-        application.save(update_fields=["encrypted_env", "updated_at"])
-        return Response({"key": key, "is_set": True})
 
     # Ingress trigger paths the preview-proxy is allowed to forward to. Keeping
     # this an allowlist (vs an arbitrary passthrough) gives us a single place
@@ -1496,21 +1348,20 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         # When the spec sets `allow_agent_approver: False`, only a human acting
-        # interactively may decide. Accept either SessionAuthentication, or an
-        # OAuth bearer carrying the dedicated `agent_approvals:write` scope —
-        # the scope is intentionally separate from `agents:write` so a generic
-        # agent token cannot decide its own approval, and is hidden from the
-        # personal-API-key flow so only OAuth clients (e.g. PostHog Code) that
-        # put a human in the loop at decide time can request it via consent.
+        # interactively may decide. Accept either SessionAuthentication, or a
+        # bearer from a first-party PostHog OAuth app (e.g. PostHog Code, where a
+        # human approves in-app) — `is_first_party` is staff-set on the app, so a
+        # third-party OAuth app or a personal API key can't decide a human-only
+        # approval regardless of scope.
         authenticator = request.successful_authenticator
         is_session = isinstance(authenticator, SessionAuthentication)
-        is_oauth_with_decide_scope = isinstance(authenticator, OAuthAccessTokenAuthentication) and (
-            "agent_approvals:write" in (getattr(authenticator.access_token, "scope", "") or "").split()
+        is_first_party_oauth = isinstance(authenticator, OAuthAccessTokenAuthentication) and bool(
+            getattr(getattr(authenticator.access_token, "application", None), "is_first_party", False)
         )
         if (
             existing.get("approver_scope", {}).get("allow_agent_approver") is False
             and not is_session
-            and not is_oauth_with_decide_scope
+            and not is_first_party_oauth
         ):
             raise NotFound("Approval not found")
         try:
@@ -1581,6 +1432,11 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "put_tool",
         "delete_tool",
         "cron_fire",
+        "set_env",
+        # env_keys_key handles GET/PUT/DELETE on /env_keys/<KEY>/ — bundled
+        # under :write because PUT/DELETE are the load-bearing ops and we
+        # don't want the scope to drift between methods.
+        "env_keys_key",
     ]
     scope_object_read_actions = [
         "list",
@@ -1590,6 +1446,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "get_bundle",
         "validate",
         "system_prompt",
+        "env_keys_list",
     ]
     serializer_class = AgentRevisionSerializer
     queryset = AgentRevision.all_teams.all()
@@ -1673,10 +1530,12 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Trigger types declare the secrets they need via
         # `TRIGGER_REQUIRED_SECRETS` (see spec_schema.py). Each required key
-        # must be set in `application.encrypted_env` before promote, otherwise
-        # the ingress would 500 on the first inbound webhook for the trigger.
-        # Per-key gate, not per-trigger — multiple triggers can share a key.
-        env_map = AgentApplicationViewSet._load_env_map(application)
+        # must be set in this revision's `encrypted_env` before promote,
+        # otherwise the ingress would 500 on the first inbound webhook for the
+        # trigger. Per-key gate, not per-trigger — multiple triggers can share
+        # a key. Secrets are per-revision, so the gate reads the revision being
+        # promoted (not the application).
+        env_map = _decode_env_map(revision.encrypted_env)
         missing = missing_required_secrets(revision.spec or {}, env_map)
         if missing:
             details = ", ".join(f"{m['key']} (for {m['trigger']} trigger)" for m in missing)
@@ -1726,6 +1585,140 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 application.live_revision = None
                 application.save(update_fields=["live_revision", "updated_at"])
         return Response({"ok": True, "state": "archived"})
+
+    # ── Per-revision env / secrets ──────────────────────────────────────────
+    # Secrets live on the revision (each revision runs against its own
+    # `encrypted_env`). Set-replace via `set_env` is fine for bulk sync; the
+    # per-key routes below let the UI inspect + mutate one secret at a time
+    # without ever exposing decrypted values across the wire. Editing is
+    # allowed in ANY state (not just draft) — rotating a leaked/expired key on
+    # a live revision must not require cutting a new one. Spec edits stay
+    # draft-only; secrets are operational, not structural.
+
+    @extend_schema(request=SetEnvRequestSerializer)
+    @action(detail=True, methods=["post"], url_path="set_env")
+    def set_env(self, request: Request, **kwargs) -> Response:
+        """Replace this revision's encrypted env block.
+
+        The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
+        text is stored on `AgentRevision.encrypted_env`; the worker decrypts it
+        at session start via the same Fernet schedule (see
+        agent-shared/src/runtime/encryption.ts).
+        """
+        revision: AgentRevision = self.get_object()
+        body = SetEnvRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        # EncryptedTextField encrypts on assignment when saved. Serialize the
+        # env dict as JSON before encryption so the worker gets a JSON object
+        # back out.
+        revision.encrypted_env = json.dumps(body.validated_data["env"])
+        revision.save(update_fields=["encrypted_env", "updated_at"])
+        return Response({"ok": True})
+
+    _ENV_KEY_NAME = OpenApiParameter(
+        "key",
+        OpenApiTypes.STR,
+        OpenApiParameter.PATH,
+        required=True,
+        description="The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.",
+    )
+
+    @extend_schema(
+        operation_id="agent_revisions_env_keys_list",
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentRevisionEnvKeysResponse",
+                fields={
+                    "keys": drf_serializers.ListField(
+                        child=drf_serializers.CharField(),
+                        help_text="Names of env variables currently set on the revision. Values are never returned.",
+                    ),
+                },
+            ),
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="env_keys")
+    def env_keys_list(self, request: Request, **kwargs) -> Response:
+        """List the names of secrets currently set on this revision.
+
+        Returns names only — values stay server-side under
+        `EncryptedTextField`. Use this to drive the "set / unset" badge next to
+        a declared secret in the editor UI.
+        """
+        revision: AgentRevision = self.get_object()
+        env_map = _decode_env_map(revision.encrypted_env)
+        # Sort for stable UI ordering; the encrypted JSON has no meaningful
+        # order of its own.
+        return Response({"keys": sorted(env_map.keys())})
+
+    # One inline status serializer reused by all three method schemas so
+    # drf-spectacular emits a single named component instead of three
+    # near-identical ones.
+    _ENV_KEY_STATUS_RESPONSE = OpenApiResponse(
+        response=inline_serializer(
+            name="AgentRevisionEnvKeyStatus",
+            fields={
+                "key": drf_serializers.CharField(),
+                "is_set": drf_serializers.BooleanField(
+                    help_text="True if the key is present in the env block. The value itself is never returned.",
+                ),
+            },
+        ),
+    )
+
+    @extend_schema(
+        methods=["GET"],
+        operation_id="agent_revisions_env_keys_get",
+        parameters=[_ENV_KEY_NAME],
+        request=None,
+        responses=_ENV_KEY_STATUS_RESPONSE,
+    )
+    @extend_schema(
+        methods=["PUT"],
+        operation_id="agent_revisions_env_keys_set",
+        parameters=[_ENV_KEY_NAME],
+        request=SetEnvKeyRequestSerializer,
+        responses=_ENV_KEY_STATUS_RESPONSE,
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        operation_id="agent_revisions_env_keys_clear",
+        parameters=[_ENV_KEY_NAME],
+        request=None,
+        responses=_ENV_KEY_STATUS_RESPONSE,
+    )
+    @action(detail=True, methods=["get", "put", "delete"], url_path="env_keys/(?P<key>[^/.]+)")
+    def env_keys_key(self, request: Request, key: str, **kwargs) -> Response:
+        """GET / PUT / DELETE one secret by name on this revision.
+
+        - `GET`    → `{ key, is_set }` (never returns the value).
+        - `PUT`    → upserts `{ value }` into the env block.
+        - `DELETE` → removes the key. No-op when it wasn't set.
+
+        Per-method scope: GET is treated as a write action so the single action
+        name maps to one consistent scope; reading whether a secret is set is
+        restricted to writers in any case.
+        """
+        revision: AgentRevision = self.get_object()
+        env_map = _decode_env_map(revision.encrypted_env)
+
+        if request.method == "GET":
+            return Response({"key": key, "is_set": key in env_map})
+
+        if request.method == "DELETE":
+            env_map.pop(key, None)
+            revision.encrypted_env = json.dumps(env_map)
+            revision.save(update_fields=["encrypted_env", "updated_at"])
+            return Response({"key": key, "is_set": False})
+
+        # PUT
+        body = SetEnvKeyRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        env_map[key] = body.validated_data["value"]
+        revision.encrypted_env = json.dumps(env_map)
+        revision.save(update_fields=["encrypted_env", "updated_at"])
+        return Response({"key": key, "is_set": True})
 
     # ── Bundle proxy actions ───────────────────────────────────────────────
 
@@ -1897,22 +1890,14 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Pre-flight checks before freeze + promote: entrypoint file exists,
         every native tool id is registered, every custom tool has its
         compiled.js + schema.json, every skill path exists, every declared
-        secret has a value set in the application's env block. Returns
+        secret has a value set in this revision's env block. Returns
         `{ ok, errors: [...] }`. Works on any revision state."""
         revision: AgentRevision = self.get_object()
         report = self._call(_janitor().validate, str(revision.id))
         errors = list(report.get("errors", []))
 
-        application = revision.application
-        decrypted = application.encrypted_env or ""
-        available_keys: set[str] = set()
-        if decrypted:
-            try:
-                env_map = json.loads(decrypted)
-                if isinstance(env_map, dict):
-                    available_keys = {str(k) for k in env_map}
-            except (ValueError, TypeError):
-                pass
+        # Secrets are per-revision now, so check this revision's own env block.
+        available_keys = set(_decode_env_map(revision.encrypted_env).keys())
         for i, secret_entry in enumerate(revision.spec.get("secrets") or []):
             # spec.secrets[] entries are either bare strings (back-compat,
             # resolvable but no host binding) or {name, allowed_hosts}.
@@ -1929,7 +1914,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 errors.append(
                     {
                         "code": "missing_secret",
-                        "message": f'secret "{secret_name}" is not set in the application env',
+                        "message": f'secret "{secret_name}" is not set in this revision\'s env',
                         "pointer": f"spec.secrets[{i}]",
                     }
                 )
@@ -2135,6 +2120,11 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             state="draft",
             bundle_uri=source.bundle_uri,  # same bundle root; janitor scopes by revision_id
             spec=source.spec,
+            # Secrets are per-revision: carry the parent's encrypted env forward
+            # so the author isn't forced to re-enter every secret on each new
+            # draft. The ciphertext copies verbatim (same EncryptedFields key
+            # schedule); editing one revision's env never touches another's.
+            encrypted_env=source.encrypted_env,
         )
         # The janitor clone is the side effect that gives the row meaning —
         # without it, the draft is an empty pointer. If it fails, drop the

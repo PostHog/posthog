@@ -85,6 +85,40 @@ function buildBreakdownSegments(
     return [...segments, buildFunnelBarHorizontalFiller(segments, options.fillerColor)]
 }
 
+/** One step in compare mode: two stacked bars (current, then previous), each a full 0–100 track
+ *  rather than two segments sharing one track. `bars[0]` is current, `bars[1]` previous; previous is
+ *  omitted only when the backend sent no previous-period series for the step. */
+export interface FunnelBarHorizontalCompareStep {
+    bars: FunnelBarHorizontalStepData[]
+}
+
+/** Builds the top-to-bottom compare layout: one bar per period, per step. Each bar is scaled to the
+ *  shared baseline already baked into `conversionRates.fromBasisStep` (so the larger period's first
+ *  step fills the track and the other is proportional), and takes its color from the *current step's*
+ *  variant — both periods share step i's color, with `getColor` dimming the `previous` series. This is
+ *  the key difference from `buildBreakdownSegments`, whose representative comes from step 0. */
+export function buildFunnelBarHorizontalCompareData(
+    steps: FunnelStepWithConversionMetrics[],
+    options: BuildOptions
+): FunnelBarHorizontalCompareStep[] {
+    return steps.map((step, stepIndex) => {
+        const bars = (step.nested_breakdown ?? []).map((variant, breakdownIndex) => {
+            const segment: Series<FunnelBarHorizontalSegmentMeta> = {
+                key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex}`,
+                label: options.getLabel(variant),
+                data: [variant.conversionRates.fromBasisStep * RATE_TO_PERCENT],
+                color: options.getColor(variant),
+                meta: { isDropOff: false, breakdownIndex },
+            }
+            return {
+                label: String(stepIndex),
+                series: [segment, buildFunnelBarHorizontalFiller([segment], options.fillerColor, breakdownIndex)],
+            }
+        })
+        return { bars }
+    })
+}
+
 function buildSingleSegment(
     step: FunnelStepWithConversionMetrics,
     options: BuildOptions

@@ -6,7 +6,7 @@ use common_types::ClickHouseEvent;
 use cymbal::{
     config::Config,
     frames::{Frame, RawFrame},
-    symbol_store::{
+    symbolication::symbol_store::{
         apple::AppleProvider,
         caching::{Caching, SymbolSetCache},
         chunk_id::OrChunkId,

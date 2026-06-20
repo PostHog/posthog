@@ -1,15 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
-import { IconArchive, IconPullRequest } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
+import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
-import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport } from '../../types'
+import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
+import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
 
 /** Mirror desktop's `Inbox report action` analytics for detail-pane actions. */
@@ -54,8 +57,10 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
     const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { activeTab } = useValues(inboxSceneLogic)
+    const [isRestoring, setIsRestoring] = useState(false)
 
     const showCreatePr = canCreateImplementationPr(report)
+    const isArchived = report.status === SignalReportStatus.SUPPRESSED
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,
@@ -63,6 +68,47 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         // Back to the list once archived – the suppressed report drops out on the list's refetch.
         onArchived: () => router.actions.push(urls.inbox(activeTab)),
     })
+
+    const onRestoreClick = async (): Promise<void> => {
+        // Prefer the mounted Archived list logic so it optimistically drops the row and fixes its
+        // count + tab badge synchronously (it also fires the API call + toast). Navigate straight back.
+        const archivedList = reportListLogic.findMounted({
+            tabKey: 'archived',
+            listParams: INBOX_FLAT_TAB_LIST_PARAMS.archived,
+        })
+        if (archivedList) {
+            archivedList.actions.restoreReport(report.id)
+            router.actions.push(urls.inbox(activeTab))
+            return
+        }
+        // Fallback for a deep-linked detail with no mounted Archived list (e.g. cold load).
+        setIsRestoring(true)
+        try {
+            await api.signalReports.setState(report.id, { state: 'potential' })
+            lemonToast.success('Report restored to inbox')
+            router.actions.push(urls.inbox(activeTab))
+        } catch (error: any) {
+            lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
+        } finally {
+            setIsRestoring(false)
+        }
+    }
+
+    // An already-archived report offers Restore instead of Archive (and no Create PR).
+    if (isArchived) {
+        return (
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconUndo />}
+                loading={isRestoring}
+                tooltip="Restore this report to your inbox"
+                onClick={() => void onRestoreClick()}
+            >
+                Restore
+            </LemonButton>
+        )
+    }
 
     return (
         <>
