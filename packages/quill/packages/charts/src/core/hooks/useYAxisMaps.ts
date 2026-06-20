@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 
-import type { YAxisRenderConfig } from '../types'
+import type { YAxis } from '../types'
 
-export interface YAxesRenderMaps {
+export interface YAxisMaps {
     /** Per-axis tick formatters keyed by axis id — only axes that define one. Absent when no axis does. */
     formatters?: Record<string, (value: number) => string>
     /** Per-axis side keyed by axis id. */
@@ -12,8 +12,8 @@ export interface YAxesRenderMaps {
 }
 
 /** Derive the per-axis lookup maps the base chart's margins, labels, and titles need from the
- *  multi-axis render configs. All fields are absent for single-axis charts (`yAxes` omitted). */
-export function useYAxesRenderMaps(yAxes: YAxisRenderConfig[] | undefined): YAxesRenderMaps {
+ *  resolved axes. All fields are absent for single-axis charts (`yAxes` omitted). */
+export function useYAxisMaps(yAxes: YAxis[] | undefined): YAxisMaps {
     return useMemo(() => {
         if (!yAxes) {
             return {}

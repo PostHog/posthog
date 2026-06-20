@@ -238,13 +238,13 @@ export interface ChartConfig {
      *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
      *  the scalar `yScaleType`/`yTickFormatter`/`yAxisLabel` then describe the primary (left) axis.
      *  Omit for single-axis charts. */
-    yAxes?: YAxisRenderConfig[]
+    yAxes?: YAxis[]
 }
 
-/** Per-axis render config for a multi-axis (dual y-axis) chart. One entry per distinct
+/** A resolved y-axis for a multi-axis (dual y-axis) chart. One entry per distinct
  *  {@link Series.yAxisId}; series resolve to their axis by id. Drives each axis's scale type,
  *  tick formatting, side, and label independently. */
-export interface YAxisRenderConfig {
+export interface YAxis {
     /** Axis id — matches {@link Series.yAxisId}. The default-axis id is {@link DEFAULT_Y_AXIS_ID}. */
     id: string
     /** Which side this axis renders on. */

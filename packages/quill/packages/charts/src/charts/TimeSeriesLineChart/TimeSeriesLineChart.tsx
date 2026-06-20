@@ -11,13 +11,13 @@ import type {
     Series,
     TooltipConfig,
     TooltipContext,
-    YAxisRenderConfig,
+    YAxis,
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
 import {
-    buildYAxesRenderConfig,
+    buildYAxes,
     normalizeYAxisList,
     primaryYAxisConfig,
     useXTickFormatter,
@@ -112,10 +112,10 @@ export function TimeSeriesLineChart<Meta = unknown>({
     // Scalar y-config describes the primary (left) axis — drives single-axis rendering, the default
     // value-label formatter, and the left gutter when a right-axis series is present.
     const primaryYAxis = useMemo<YAxisConfig | undefined>(() => primaryYAxisConfig(axisList), [axisList])
-    // Per-axis render configs only when the caller passed an array — a single object keeps the
-    // existing single-axis path untouched (no `yAxes` on the LineChart config).
-    const yAxesRenderConfig = useMemo<YAxisRenderConfig[] | undefined>(
-        () => (Array.isArray(yAxis) ? buildYAxesRenderConfig(axisList) : undefined),
+    // Per-axis configs only when the caller passed an array — a single object keeps the existing
+    // single-axis path untouched (no `yAxes` on the LineChart config).
+    const yAxes = useMemo<YAxis[] | undefined>(
+        () => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined),
         [yAxis, axisList]
     )
 
@@ -159,7 +159,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showCrosshair,
         tooltip: tooltipConfig,
         valueDomain,
-        yAxes: yAxesRenderConfig,
+        yAxes,
     }
 
     return (

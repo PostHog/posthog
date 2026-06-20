@@ -16,7 +16,7 @@ import { useChartMargins } from './hooks/useChartMargins'
 import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
-import { useYAxesRenderMaps } from './hooks/useYAxesRenderMaps'
+import { useYAxisMaps } from './hooks/useYAxisMaps'
 import type {
     ChartConfig,
     ChartDrawArgs,
@@ -133,7 +133,7 @@ export function Chart<Meta = unknown>({
         formatters: yAxisFormatters,
         positions: yAxisPositions,
         labelRight: yAxisLabelRight,
-    } = useYAxesRenderMaps(yAxes)
+    } = useYAxisMaps(yAxes)
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {

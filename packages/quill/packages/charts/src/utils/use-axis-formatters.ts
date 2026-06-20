@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { DEFAULT_Y_AXIS_ID, type YAxisRenderConfig } from '../core/types'
+import { DEFAULT_Y_AXIS_ID, type YAxis } from '../core/types'
 import { createXAxisTickCallback, type TimeInterval } from './dates'
 import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
@@ -103,9 +103,9 @@ export function normalizeYAxisList(yAxis: YAxisConfig | YAxisConfig[] | undefine
     }))
 }
 
-/** Resolve a normalized axis list into the per-axis render configs the base chart consumes —
+/** Resolve a normalized axis list into the {@link YAxis}es the base chart consumes —
  *  each axis's id, side, scale, label, and resolved tick formatter. */
-export function buildYAxesRenderConfig(axisList: NormalizedYAxis[]): YAxisRenderConfig[] {
+export function buildYAxes(axisList: NormalizedYAxis[]): YAxis[] {
     return axisList.map(({ id, position, config }) => ({
         id,
         position,
