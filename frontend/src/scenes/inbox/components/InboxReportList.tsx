@@ -4,6 +4,7 @@ import { ComponentType, JSX, useEffect, useRef } from 'react'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { captureInboxViewed } from '../inboxAnalytics'
+import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
 import { reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
 import { InboxFlatListTabKey, SignalReport } from '../types'
@@ -62,12 +63,17 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     const { reports, count, hasMore, reportsResponseLoading, isLoaded } = useValues(reportListLogic)
     const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
+    // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
+    // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
+    // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
+    const { selectedReportId, selectedScoutSkillName } = useValues(inboxSceneLogic)
+    const listVisible = !selectedReportId && !selectedScoutSkillName
     const sentinelRef = useRef<HTMLDivElement>(null)
 
-    // Fire `Inbox viewed` once per tab mount, the first time its list settles (loaded with a known count).
+    // Fire `Inbox viewed` once per tab mount, the first time its list settles while visible.
     const viewedFiredRef = useRef(false)
     useEffect(() => {
-        if (isLoaded && count !== null && !viewedFiredRef.current) {
+        if (listVisible && isLoaded && count !== null && !viewedFiredRef.current) {
             viewedFiredRef.current = true
             captureInboxViewed({
                 tab: tabKey,
@@ -79,7 +85,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                 scope,
             })
         }
-    }, [isLoaded, count, reports, tabKey, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
+    }, [listVisible, isLoaded, count, reports, tabKey, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
 
     // Read fresh state at intersection time via refs so the observer is created once and not
     // rebuilt twice per page fetch (`hasMore`/`reportsResponseLoading` both flip during a load).

@@ -41,11 +41,12 @@ export function useReportArchive({
         openDismissReportDialog({
             reportTitle: cardTitle,
             onConfirm: async ({ reason, note }) => {
+                // Only the structured reason — the free-form note can carry proprietary text.
                 captureInboxReportAction({
                     report: report ?? null,
                     actionType: 'dismiss',
                     surface: surface ?? 'list_row',
-                    extra: { dismissal_reason: reason, ...(note ? { dismissal_note: note } : {}) },
+                    extra: { dismissal_reason: reason },
                 })
                 if (onArchive) {
                     onArchive(reason, note)

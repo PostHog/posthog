@@ -264,7 +264,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // of the already-open report). Rank/list_size come from whichever loaded list holds it.
         loadSelectedReportSuccess: ({ selectedReportResponse }) => {
             const report = selectedReportResponse
-            if (!report || cache.openTracking?.report.id === report.id) {
+            // Skip already-open refreshes, and stale loads for a report the user already navigated away
+            // from before the fetch returned (else we'd log a phantom open + a later bogus dwell close).
+            if (!report || values.selectedReportId !== report.id || cache.openTracking?.report.id === report.id) {
                 return
             }
             const { rank, listSize } = findReportRank(report.id, values.activeTab, values.runsTabReports)
@@ -369,8 +371,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
         },
         [urls.inbox(':tab')]: ({ tab }: { tab?: string }) => {
-            cache.inboxListVisited = true
-            // A bare report deep-link `/inbox/<reportId>`  redirected to report form
+            // A bare report deep-link `/inbox/<reportId>`  redirected to report form. Mark the list as
+            // visited only when we're actually staying on a list view — otherwise the redirected report
+            // would be misclassified as an in-app click instead of a deep-link.
             if (tab && !isInboxTabKey(tab) && tab !== 'scouts') {
                 router.actions.replace(
                     urls.inboxReport('reports', tab),
@@ -379,6 +382,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 )
                 return
             }
+            cache.inboxListVisited = true
             // Staff-only tabs (Runs, Not actionable): bounce non-staff to the default tab.
             if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
                 actions.setActiveTab('pulls')

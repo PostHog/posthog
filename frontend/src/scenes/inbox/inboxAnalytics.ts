@@ -59,16 +59,20 @@ function reportAgeHours(report: Pick<SignalReport, 'created_at'>): number {
 
 interface BaseReportProperties {
     report_id: string
-    report_title: string | null
     report_age_hours: number
     priority: SignalReportPriority | null
     actionability: SignalReportActionability | null
 }
 
+/**
+ * Identity + classification for a report. Deliberately excludes free-form content (the report
+ * title, dismissal notes): reports are generated from a customer's own data, so their titles can
+ * carry proprietary detail, and these events flow to first-party app analytics. We keep events to
+ * opaque ids, enums, ages, and counts.
+ */
 function baseReportProperties(report: SignalReport): BaseReportProperties {
     return {
         report_id: report.id,
-        report_title: report.title ?? null,
         report_age_hours: reportAgeHours(report),
         priority: report.priority ?? null,
         actionability: report.actionability ?? null,
@@ -171,7 +175,7 @@ export function captureInboxReportAction(params: {
 }): void {
     const base = params.report
         ? baseReportProperties(params.report)
-        : { report_id: null, report_title: null, report_age_hours: 0, priority: null, actionability: null }
+        : { report_id: null, report_age_hours: 0, priority: null, actionability: null }
     captureInboxEvent(INBOX_EVENTS.REPORT_ACTION, {
         ...base,
         action_type: params.actionType,

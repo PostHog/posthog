@@ -84,12 +84,13 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
                 return
             }
             const trimmedNote = note.trim().slice(0, 4000)
+            // Only the structured reason — the free-form note can carry proprietary text.
             captureInboxReportAction({
                 actionType: 'dismiss',
                 surface: 'bulk_bar',
                 isBulk: true,
                 bulkSize: reportIds.length,
-                extra: { dismissal_reason: reason, ...(trimmedNote ? { dismissal_note: trimmedNote } : {}) },
+                extra: { dismissal_reason: reason },
             })
             const results = await Promise.allSettled(
                 reportIds.map((id) =>
