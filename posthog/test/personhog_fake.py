@@ -15,7 +15,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from posthog.models import Group, GroupTypeMapping, Person, PersonDistinctId
@@ -110,6 +110,25 @@ def _seed_group_type_mapping(fake: FakePersonHogClient, mapping: GroupTypeMappin
     )
 
 
+def _unseed_group_type_mapping(fake: FakePersonHogClient, mapping: GroupTypeMapping) -> None:
+    for store, store_key in (
+        (fake._group_type_mappings_by_project, mapping.project_id),
+        (fake._group_type_mappings_by_team, mapping.team_id),
+    ):
+        existing = store.get(store_key)
+        if existing:
+            store[store_key] = [m for m in existing if m.group_type_index != mapping.group_type_index]
+
+
+def _unseed_person(fake: FakePersonHogClient, person: Person) -> None:
+    key = (person.team_id, person.pk)
+    dids = fake._distinct_ids.pop(key, [])
+    fake._persons_by_id.pop(key, None)
+    fake._persons_by_uuid.pop((person.team_id, str(person.uuid)), None)
+    for did in dids:
+        fake._persons_by_distinct_id.pop((person.team_id, did.distinct_id), None)
+
+
 @receiver(post_save, sender=Person)
 def _mirror_person(sender: type[Person], instance: Person, **kwargs: object) -> None:
     fake = _active_fake
@@ -148,3 +167,39 @@ def _mirror_group_type_mapping(sender: type[GroupTypeMapping], instance: GroupTy
     if fake is None:
         return
     _seed_group_type_mapping(fake, instance)
+
+
+@receiver(post_delete, sender=Person)
+def _unmirror_person(sender: type[Person], instance: Person, **kwargs: object) -> None:
+    fake = _active_fake
+    if fake is None:
+        return
+    _unseed_person(fake, instance)
+
+
+@receiver(post_delete, sender=PersonDistinctId)
+def _unmirror_distinct_id(sender: type[PersonDistinctId], instance: PersonDistinctId, **kwargs: object) -> None:
+    fake = _active_fake
+    if fake is None:
+        return
+    key = (instance.person.team_id, instance.person.pk)
+    dids = fake._distinct_ids.get(key)
+    if dids is not None:
+        fake._distinct_ids[key] = [d for d in dids if d.distinct_id != instance.distinct_id]
+    fake._persons_by_distinct_id.pop((instance.person.team_id, instance.distinct_id), None)
+
+
+@receiver(post_delete, sender=Group)
+def _unmirror_group(sender: type[Group], instance: Group, **kwargs: object) -> None:
+    fake = _active_fake
+    if fake is None:
+        return
+    fake._groups.pop((instance.team_id, instance.group_type_index, instance.group_key), None)
+
+
+@receiver(post_delete, sender=GroupTypeMapping)
+def _unmirror_group_type_mapping(sender: type[GroupTypeMapping], instance: GroupTypeMapping, **kwargs: object) -> None:
+    fake = _active_fake
+    if fake is None:
+        return
+    _unseed_group_type_mapping(fake, instance)

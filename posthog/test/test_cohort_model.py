@@ -11,9 +11,11 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.batch_iterators import FunctionBatchIterator
 from posthog.models import Person, Team
+from posthog.models.person.util import get_person_by_id
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
@@ -31,17 +33,17 @@ class TestCohort(BaseTest):
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["a header or something", "123", "000", "email@example.org"])
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.pk, consistency="strong"), 2)
         self.assertEqual(cohort.is_calculating, False)
 
         #  If we accidentally call calculate_people it shouldn't erase people
         cohort.calculate_people_ch(pending_version=0)
-        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.pk, consistency="strong"), 2)
 
         # if we add people again, don't increase the number of people in cohort
         cohort.insert_users_by_list(["123"])
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 2)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.pk, consistency="strong"), 2)
         self.assertEqual(cohort.is_calculating, False)
 
     def test_insert_by_distinct_id_in_batches(self):
@@ -63,7 +65,7 @@ class TestCohort(BaseTest):
         )
         self.assertEqual(batch_count, 5)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 11)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.pk, consistency="strong"), 11)
         self.assertEqual(cohort.is_calculating, False)
 
     @pytest.mark.ee
@@ -344,8 +346,11 @@ class TestCohort(BaseTest):
         # Fetch all persons in the cohort
         cohort.refresh_from_db()
         assert cohort.count == 11
-        assert cohort.people.count() == 11
-        cohort_person_uuids = {str(p.uuid) for p in cohort.people.all()}
+        member_ids = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)
+        assert len(member_ids) == 11
+        cohort_person_uuids = {
+            str(person.uuid) for pid in member_ids if (person := get_person_by_id(self.team.id, pid)) is not None
+        }
         assert cohort_person_uuids == set(uuids)
         assert cohort.is_calculating is False
 
@@ -360,7 +365,7 @@ class TestCohort(BaseTest):
         # First insertion - add users 0-4 (batch size 3 will create batches: [0,1,2], [3,4])
         cohort.insert_users_by_list(["user0", "user1", "user2", "user3", "user4"], batch_size=3)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.people.count(), 5)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.pk, consistency="strong"), 5)
 
         # Second insertion - try to add users 2-7 (users 2,3,4 are already in cohort)
         # This tests that our LEFT JOIN optimization works across batch boundaries
@@ -368,12 +373,15 @@ class TestCohort(BaseTest):
         cohort.refresh_from_db()
 
         # Should have 8 people total (user0-user7) - no duplicates
-        self.assertEqual(cohort.people.count(), 8)
+        member_ids = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)
+        self.assertEqual(len(member_ids), 8)
 
         # Verify all expected people are in the cohort
         cohort_person_distinct_ids = set()
-        for person in cohort.people.all():
-            cohort_person_distinct_ids.update(person.distinct_ids)
+        for pid in member_ids:
+            person = get_person_by_id(self.team.id, pid)
+            if person is not None:
+                cohort_person_distinct_ids.update(person.distinct_ids)
 
         expected_distinct_ids = {f"user{i}" for i in range(8)}
         self.assertEqual(cohort_person_distinct_ids, expected_distinct_ids)
@@ -398,8 +406,11 @@ class TestCohort(BaseTest):
             )
 
         cohort.refresh_from_db()
-        assert cohort.people.count() == 1
-        assert str(cohort.people.first().uuid) == str(person.uuid)
+        member_ids = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.pk)
+        assert len(member_ids) == 1
+        member = get_person_by_id(self.team.id, member_ids[0])
+        assert member is not None
+        assert str(member.uuid) == str(person.uuid)
 
     @override_settings(DEBUG=False)
     def test_insert_re_raises_soft_time_limit_exceeded(self):
