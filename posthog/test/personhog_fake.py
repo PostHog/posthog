@@ -55,7 +55,12 @@ def _created_at_ms(value: object) -> int:
     return int(value.timestamp() * 1000) if value else 0  # type: ignore[attr-defined]
 
 
-def _seed_person(fake: FakePersonHogClient, person: Person, distinct_ids: list[str]) -> None:
+def _seed_person(
+    fake: FakePersonHogClient,
+    person: Person,
+    distinct_ids: list[str],
+    distinct_id_versions: dict[str, int] | None = None,
+) -> None:
     # Idempotent: ``add_person`` overwrites the person record but appends distinct ids,
     # so only hand it the ids the fake hasn't already mirrored for this person.
     # Coerce to str: the ORM stores distinct ids in a CharField (so tests may pass ints),
@@ -71,6 +76,7 @@ def _seed_person(fake: FakePersonHogClient, person: Person, distinct_ids: list[s
         is_identified=person.is_identified,
         created_at=_created_at_ms(person.created_at),
         distinct_ids=new_distinct_ids,
+        distinct_id_versions=distinct_id_versions,
     )
 
 
@@ -146,7 +152,11 @@ def _mirror_distinct_id(sender: type[PersonDistinctId], instance: PersonDistinct
     fake = _active_fake
     if fake is None:
         return
-    _seed_person(fake, instance.person, [instance.distinct_id])
+    # Preserve the PersonDistinctId version: delete_person reads it back via personhog to
+    # compute the ClickHouse tombstone version (version + 100), so a dropped version breaks
+    # version-sensitive delete assertions.
+    distinct_id = str(instance.distinct_id)
+    _seed_person(fake, instance.person, [distinct_id], {distinct_id: int(instance.version or 0)})
 
 
 @receiver(post_save, sender=Group)
