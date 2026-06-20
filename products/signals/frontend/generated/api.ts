@@ -25,6 +25,8 @@ import type {
     ScoutEmissionReportLinkApi,
     ScratchpadEntryApi,
     SignalReportApi,
+    SignalReportBulkStateRequestApi,
+    SignalReportBulkStateResponseApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
@@ -182,7 +184,7 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
  * Body: {
  *     "state": "suppressed" | "potential",
  *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
- *     "dismissal_reason": "<any string code, owned by the caller>",
+ *     "dismissal_reason": "<canonical reason code>",
  *     "dismissal_note": "free-form text",
  *     # Optional, only honored for state == "potential":
  *     "snooze_for": <number of additional signals before re-promotion>,
@@ -199,6 +201,32 @@ export const signalsReportsStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportStateRequestApi),
+    })
+}
+
+export const getSignalsReportsBulkStateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/bulk-state/`
+}
+
+/**
+ * Transition many reports to the same state in one call.
+ *
+ * Each report is transitioned independently in its own transaction, so a report in a
+ * conflicting status (would be a 409 on the single-report endpoint) or an unexpected
+ * failure does not roll back the others. The response carries one ``outcome`` per
+ * requested ID — 'transitioned', 'skipped_conflict', 'not_found', or 'failed' — instead
+ * of a single HTTP status, so a partial success is fully described.
+ */
+export const signalsReportsBulkStateCreate = async (
+    projectId: string,
+    signalReportBulkStateRequestApi: SignalReportBulkStateRequestApi,
+    options?: RequestInit
+): Promise<SignalReportBulkStateResponseApi> => {
+    return apiMutator<SignalReportBulkStateResponseApi>(getSignalsReportsBulkStateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportBulkStateRequestApi),
     })
 }
 

@@ -119,25 +119,61 @@ export interface PaginatedSignalReportListApi {
 }
 
 /**
+ * * `already_fixed` - already_fixed
+ * * `report_unclear` - report_unclear
+ * * `analysis_wrong` - analysis_wrong
+ * * `wontfix_intentional` - wontfix_intentional
+ * * `wontfix_irrelevant` - wontfix_irrelevant
+ * * `other` - other
+ */
+export type DismissalReasonEnumApi = (typeof DismissalReasonEnumApi)[keyof typeof DismissalReasonEnumApi]
+
+export const DismissalReasonEnumApi = {
+    AlreadyFixed: 'already_fixed',
+    ReportUnclear: 'report_unclear',
+    AnalysisWrong: 'analysis_wrong',
+    WontfixIntentional: 'wontfix_intentional',
+    WontfixIrrelevant: 'wontfix_irrelevant',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export const SignalReportStateRequestApiDismissalReason = { ...DismissalReasonEnumApi, ...BlankEnumApi } as const
+/**
  * * `suppressed` - suppressed
  * * `potential` - potential
  */
-export type SignalReportStateRequestStateEnumApi =
-    (typeof SignalReportStateRequestStateEnumApi)[keyof typeof SignalReportStateRequestStateEnumApi]
+export type SignalReportTargetStateEnumApi =
+    (typeof SignalReportTargetStateEnumApi)[keyof typeof SignalReportTargetStateEnumApi]
 
-export const SignalReportStateRequestStateEnumApi = {
+export const SignalReportTargetStateEnumApi = {
     Suppressed: 'suppressed',
     Potential: 'potential',
 } as const
 
+/**
+ * Shared transition fields for the single- and bulk-report state actions.
+ */
 export interface SignalReportStateRequestApi {
     /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
      *
      * * `suppressed` - suppressed
      * * `potential` - potential */
-    state: SignalReportStateRequestStateEnumApi
-    /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
-    dismissal_reason?: string
+    state: SignalReportTargetStateEnumApi
+    /** Optional canonical reason code for the dismissal, matching the chips shown in the inbox: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other. Note that 'already_fixed' snoozes the report (restores it to the pipeline) rather than dismissing it. Use 'other' when none of the specific codes fit. Values outside this set are rejected so invented codes can't leak into the inbox as raw chips.
+     *
+     * * `already_fixed` - already_fixed
+     * * `report_unclear` - report_unclear
+     * * `analysis_wrong` - analysis_wrong
+     * * `wontfix_intentional` - wontfix_intentional
+     * * `wontfix_irrelevant` - wontfix_irrelevant
+     * * `other` - other */
+    dismissal_reason?: (typeof SignalReportStateRequestApiDismissalReason)[keyof typeof SignalReportStateRequestApiDismissalReason]
     /**
      * Optional free-form note explaining the dismissal. Capped at 4000 characters.
      * @maxLength 4000
@@ -149,6 +185,82 @@ export interface SignalReportStateRequestApi {
      * @maximum 100000
      */
     snooze_for?: number
+}
+
+export const SignalReportBulkStateRequestApiDismissalReason = { ...DismissalReasonEnumApi, ...BlankEnumApi } as const
+/**
+ * Transition many reports to the same state in one call, with shared dismissal feedback.
+ */
+export interface SignalReportBulkStateRequestApi {
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+     *
+     * * `suppressed` - suppressed
+     * * `potential` - potential */
+    state: SignalReportTargetStateEnumApi
+    /** Optional canonical reason code for the dismissal, matching the chips shown in the inbox: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other. Note that 'already_fixed' snoozes the report (restores it to the pipeline) rather than dismissing it. Use 'other' when none of the specific codes fit. Values outside this set are rejected so invented codes can't leak into the inbox as raw chips.
+     *
+     * * `already_fixed` - already_fixed
+     * * `report_unclear` - report_unclear
+     * * `analysis_wrong` - analysis_wrong
+     * * `wontfix_intentional` - wontfix_intentional
+     * * `wontfix_irrelevant` - wontfix_irrelevant
+     * * `other` - other */
+    dismissal_reason?: (typeof SignalReportBulkStateRequestApiDismissalReason)[keyof typeof SignalReportBulkStateRequestApiDismissalReason]
+    /**
+     * Optional free-form note explaining the dismissal. Capped at 4000 characters.
+     * @maxLength 4000
+     */
+    dismissal_note?: string
+    /**
+     * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
+     * @minimum 1
+     * @maximum 100000
+     */
+    snooze_for?: number
+    /**
+     * Report IDs to transition to the same target state in one call. Each report is transitioned independently — one failing or being in a conflicting status does not roll back the others. At most 200 IDs per call. The response reports a per-ID outcome.
+     * @minItems 1
+     * @maxItems 200
+     */
+    ids: string[]
+}
+
+/**
+ * * `transitioned` - transitioned
+ * * `skipped_conflict` - skipped_conflict
+ * * `not_found` - not_found
+ * * `failed` - failed
+ */
+export type SignalReportBulkStateResultOutcomeEnumApi =
+    (typeof SignalReportBulkStateResultOutcomeEnumApi)[keyof typeof SignalReportBulkStateResultOutcomeEnumApi]
+
+export const SignalReportBulkStateResultOutcomeEnumApi = {
+    Transitioned: 'transitioned',
+    SkippedConflict: 'skipped_conflict',
+    NotFound: 'not_found',
+    Failed: 'failed',
+} as const
+
+export interface SignalReportBulkStateResultApi {
+    /** The report ID this result refers to. */
+    id: string
+    /** Per-report outcome. 'transitioned': the state changed. 'skipped_conflict': the transition was not allowed from the report's current status (the single-report endpoint would return 409). 'not_found': no such report in this project. 'failed': an unexpected error during the transition.
+     *
+     * * `transitioned` - transitioned
+     * * `skipped_conflict` - skipped_conflict
+     * * `not_found` - not_found
+     * * `failed` - failed */
+    outcome: SignalReportBulkStateResultOutcomeEnumApi
+    /**
+     * Human-readable detail for non-transitioned outcomes; omitted when the report transitioned.
+     * @nullable
+     */
+    detail?: string | null
+}
+
+export interface SignalReportBulkStateResponseApi {
+    /** One entry per requested ID, in request order (deduplicated). */
+    results: SignalReportBulkStateResultApi[]
 }
 
 export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
@@ -1257,12 +1369,6 @@ export interface _UserApi {
     readonly last_name: string
     readonly email: string
 }
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
 
 export interface SignalUserAutonomyConfigApi {
     readonly id: string

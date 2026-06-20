@@ -172,9 +172,10 @@ export interface MCPIntentClusterToolEntryApi {
  * * `completed` - Completed
  * * `error` - Error
  */
-export type OutcomeEnumApi = (typeof OutcomeEnumApi)[keyof typeof OutcomeEnumApi]
+export type MCPIntentClusterJourneyPathOutcomeEnumApi =
+    (typeof MCPIntentClusterJourneyPathOutcomeEnumApi)[keyof typeof MCPIntentClusterJourneyPathOutcomeEnumApi]
 
-export const OutcomeEnumApi = {
+export const MCPIntentClusterJourneyPathOutcomeEnumApi = {
     Completed: 'completed',
     Error: 'error',
 } as const
@@ -186,7 +187,7 @@ export interface MCPIntentClusterJourneyPathApi {
      *
      * * `completed` - Completed
      * * `error` - Error */
-    readonly outcome: OutcomeEnumApi
+    readonly outcome: MCPIntentClusterJourneyPathOutcomeEnumApi
     /** Number of sessions in this cluster that followed this exact path. */
     readonly count: number
 }

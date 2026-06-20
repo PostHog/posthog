@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 20 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -78,7 +78,7 @@ export const SignalsReportsRetrieveParams = /* @__PURE__ */ zod.object({
  * Body: {
  *     "state": "suppressed" | "potential",
  *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
- *     "dismissal_reason": "<any string code, owned by the caller>",
+ *     "dismissal_reason": "<canonical reason code>",
  *     "dismissal_note": "free-form text",
  *     # Optional, only honored for state == "potential":
  *     "snooze_for": <number of additional signals before re-promotion>,
@@ -97,33 +97,123 @@ export const signalsReportsStateCreateBodyDismissalNoteMax = 4000
 
 export const signalsReportsStateCreateBodySnoozeForMax = 100000
 
-export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
-    state: zod
-        .enum(['suppressed', 'potential'])
-        .describe('* `suppressed` - suppressed\n* `potential` - potential')
-        .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential"
-        ),
-    dismissal_reason: zod
+export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod
+    .object({
+        state: zod
+            .enum(['suppressed', 'potential'])
+            .describe('* `suppressed` - suppressed\n* `potential` - potential')
+            .describe(
+                "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential"
+            ),
+        dismissal_reason: zod
+            .union([
+                zod
+                    .enum([
+                        'already_fixed',
+                        'report_unclear',
+                        'analysis_wrong',
+                        'wontfix_intentional',
+                        'wontfix_irrelevant',
+                        'other',
+                    ])
+                    .describe(
+                        '* `already_fixed` - already_fixed\n* `report_unclear` - report_unclear\n* `analysis_wrong` - analysis_wrong\n* `wontfix_intentional` - wontfix_intentional\n* `wontfix_irrelevant` - wontfix_irrelevant\n* `other` - other'
+                    ),
+                zod.enum(['']),
+            ])
+            .optional()
+            .describe(
+                "Optional canonical reason code for the dismissal, matching the chips shown in the inbox: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other. Note that 'already_fixed' snoozes the report (restores it to the pipeline) rather than dismissing it. Use 'other' when none of the specific codes fit. Values outside this set are rejected so invented codes can't leak into the inbox as raw chips.\n\n* `already_fixed` - already_fixed\n* `report_unclear` - report_unclear\n* `analysis_wrong` - analysis_wrong\n* `wontfix_intentional` - wontfix_intentional\n* `wontfix_irrelevant` - wontfix_irrelevant\n* `other` - other"
+            ),
+        dismissal_note: zod
+            .string()
+            .max(signalsReportsStateCreateBodyDismissalNoteMax)
+            .optional()
+            .describe('Optional free-form note explaining the dismissal. Capped at 4000 characters.'),
+        snooze_for: zod
+            .number()
+            .min(1)
+            .max(signalsReportsStateCreateBodySnoozeForMax)
+            .optional()
+            .describe(
+                "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal."
+            ),
+    })
+    .describe('Shared transition fields for the single- and bulk-report state actions.')
+
+/**
+ * Transition many reports to the same state in one call.
+ *
+ * Each report is transitioned independently in its own transaction, so a report in a
+ * conflicting status (would be a 409 on the single-report endpoint) or an unexpected
+ * failure does not roll back the others. The response carries one ``outcome`` per
+ * requested ID — 'transitioned', 'skipped_conflict', 'not_found', or 'failed' — instead
+ * of a single HTTP status, so a partial success is fully described.
+ */
+export const SignalsReportsBulkStateCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
         .string()
-        .optional()
         .describe(
-            "Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side."
-        ),
-    dismissal_note: zod
-        .string()
-        .max(signalsReportsStateCreateBodyDismissalNoteMax)
-        .optional()
-        .describe('Optional free-form note explaining the dismissal. Capped at 4000 characters.'),
-    snooze_for: zod
-        .number()
-        .min(1)
-        .max(signalsReportsStateCreateBodySnoozeForMax)
-        .optional()
-        .describe(
-            "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const signalsReportsBulkStateCreateBodyDismissalNoteMax = 4000
+
+export const signalsReportsBulkStateCreateBodySnoozeForMax = 100000
+
+export const signalsReportsBulkStateCreateBodyIdsMax = 200
+
+export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod
+    .object({
+        state: zod
+            .enum(['suppressed', 'potential'])
+            .describe('* `suppressed` - suppressed\n* `potential` - potential')
+            .describe(
+                "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential"
+            ),
+        dismissal_reason: zod
+            .union([
+                zod
+                    .enum([
+                        'already_fixed',
+                        'report_unclear',
+                        'analysis_wrong',
+                        'wontfix_intentional',
+                        'wontfix_irrelevant',
+                        'other',
+                    ])
+                    .describe(
+                        '* `already_fixed` - already_fixed\n* `report_unclear` - report_unclear\n* `analysis_wrong` - analysis_wrong\n* `wontfix_intentional` - wontfix_intentional\n* `wontfix_irrelevant` - wontfix_irrelevant\n* `other` - other'
+                    ),
+                zod.enum(['']),
+            ])
+            .optional()
+            .describe(
+                "Optional canonical reason code for the dismissal, matching the chips shown in the inbox: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other. Note that 'already_fixed' snoozes the report (restores it to the pipeline) rather than dismissing it. Use 'other' when none of the specific codes fit. Values outside this set are rejected so invented codes can't leak into the inbox as raw chips.\n\n* `already_fixed` - already_fixed\n* `report_unclear` - report_unclear\n* `analysis_wrong` - analysis_wrong\n* `wontfix_intentional` - wontfix_intentional\n* `wontfix_irrelevant` - wontfix_irrelevant\n* `other` - other"
+            ),
+        dismissal_note: zod
+            .string()
+            .max(signalsReportsBulkStateCreateBodyDismissalNoteMax)
+            .optional()
+            .describe('Optional free-form note explaining the dismissal. Capped at 4000 characters.'),
+        snooze_for: zod
+            .number()
+            .min(1)
+            .max(signalsReportsBulkStateCreateBodySnoozeForMax)
+            .optional()
+            .describe(
+                "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal."
+            ),
+        ids: zod
+            .array(zod.string())
+            .min(1)
+            .max(signalsReportsBulkStateCreateBodyIdsMax)
+            .describe(
+                'Report IDs to transition to the same target state in one call. Each report is transitioned independently — one failing or being in a conflicting status does not roll back the others. At most 200 IDs per call. The response reports a per-ID outcome.'
+            ),
+    })
+    .describe('Transition many reports to the same state in one call, with shared dismissal feedback.')
 
 /**
  * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.

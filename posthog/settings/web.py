@@ -508,6 +508,10 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # Both the single (`SignalReportStateRequest`) and bulk (`SignalReportBulkStateRequest`) inbox
+        # state actions expose the same `state` ChoiceField — pin it to a stable shared name so it
+        # doesn't get a component-prefixed auto-name on collision.
+        "SignalReportTargetStateEnum": ["suppressed", "potential"],
         # Experiment now has two serializers (full ExperimentSerializer + ExperimentBasicSerializer
         # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
         # generated names so the shared enums don't get component-prefixed auto-names on collision.

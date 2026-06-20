@@ -17225,6 +17225,26 @@ export namespace Schemas {
       checks: DiagnosticCheckResult[];
     }
 
+    /**
+     * * `already_fixed` - already_fixed
+     * * `report_unclear` - report_unclear
+     * * `analysis_wrong` - analysis_wrong
+     * * `wontfix_intentional` - wontfix_intentional
+     * * `wontfix_irrelevant` - wontfix_irrelevant
+     * * `other` - other
+     */
+    export type DismissalReasonEnum = typeof DismissalReasonEnum[keyof typeof DismissalReasonEnum];
+
+
+    export const DismissalReasonEnum = {
+      AlreadyFixed: 'already_fixed',
+      ReportUnclear: 'report_unclear',
+      AnalysisWrong: 'analysis_wrong',
+      WontfixIntentional: 'wontfix_intentional',
+      WontfixIrrelevant: 'wontfix_irrelevant',
+      Other: 'other',
+    } as const;
+
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
 
 
@@ -27561,10 +27581,10 @@ export namespace Schemas {
      * * `completed` - Completed
      * * `error` - Error
      */
-    export type OutcomeEnum = typeof OutcomeEnum[keyof typeof OutcomeEnum];
+    export type MCPIntentClusterJourneyPathOutcomeEnum = typeof MCPIntentClusterJourneyPathOutcomeEnum[keyof typeof MCPIntentClusterJourneyPathOutcomeEnum];
 
 
-    export const OutcomeEnum = {
+    export const MCPIntentClusterJourneyPathOutcomeEnum = {
       Completed: 'completed',
       Error: 'error',
     } as const;
@@ -27576,7 +27596,7 @@ export namespace Schemas {
        *
        * * `completed` - Completed
        * * `error` - Error */
-      readonly outcome: OutcomeEnum;
+      readonly outcome: MCPIntentClusterJourneyPathOutcomeEnum;
       /** Number of sessions in this cluster that followed this exact path. */
       readonly count: number;
     }
@@ -45434,26 +45454,113 @@ export namespace Schemas {
       release_to_everyone?: boolean;
     }
 
+    export const SignalReportBulkStateRequestDismissalReason = {...DismissalReasonEnum,...BlankEnum,} as const
     /**
      * * `suppressed` - suppressed
      * * `potential` - potential
      */
-    export type SignalReportStateRequestStateEnum = typeof SignalReportStateRequestStateEnum[keyof typeof SignalReportStateRequestStateEnum];
+    export type SignalReportTargetStateEnum = typeof SignalReportTargetStateEnum[keyof typeof SignalReportTargetStateEnum];
 
 
-    export const SignalReportStateRequestStateEnum = {
+    export const SignalReportTargetStateEnum = {
       Suppressed: 'suppressed',
       Potential: 'potential',
     } as const;
 
+    /**
+     * Transition many reports to the same state in one call, with shared dismissal feedback.
+     */
+    export interface SignalReportBulkStateRequest {
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+       *
+       * * `suppressed` - suppressed
+       * * `potential` - potential */
+      state: SignalReportTargetStateEnum;
+      /** Optional canonical reason code for the dismissal, matching the chips shown in the inbox: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other. Note that 'already_fixed' snoozes the report (restores it to the pipeline) rather than dismissing it. Use 'other' when none of the specific codes fit. Values outside this set are rejected so invented codes can't leak into the inbox as raw chips.
+       *
+       * * `already_fixed` - already_fixed
+       * * `report_unclear` - report_unclear
+       * * `analysis_wrong` - analysis_wrong
+       * * `wontfix_intentional` - wontfix_intentional
+       * * `wontfix_irrelevant` - wontfix_irrelevant
+       * * `other` - other */
+      dismissal_reason?: typeof SignalReportBulkStateRequestDismissalReason[keyof typeof SignalReportBulkStateRequestDismissalReason];
+      /**
+         * Optional free-form note explaining the dismissal. Capped at 4000 characters.
+         * @maxLength 4000
+         */
+      dismissal_note?: string;
+      /**
+         * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
+         * @minimum 1
+         * @maximum 100000
+         */
+      snooze_for?: number;
+      /**
+         * Report IDs to transition to the same target state in one call. Each report is transitioned independently — one failing or being in a conflicting status does not roll back the others. At most 200 IDs per call. The response reports a per-ID outcome.
+         * @minItems 1
+         * @maxItems 200
+         */
+      ids: string[];
+    }
+
+    /**
+     * * `transitioned` - transitioned
+     * * `skipped_conflict` - skipped_conflict
+     * * `not_found` - not_found
+     * * `failed` - failed
+     */
+    export type SignalReportBulkStateResultOutcomeEnum = typeof SignalReportBulkStateResultOutcomeEnum[keyof typeof SignalReportBulkStateResultOutcomeEnum];
+
+
+    export const SignalReportBulkStateResultOutcomeEnum = {
+      Transitioned: 'transitioned',
+      SkippedConflict: 'skipped_conflict',
+      NotFound: 'not_found',
+      Failed: 'failed',
+    } as const;
+
+    export interface SignalReportBulkStateResult {
+      /** The report ID this result refers to. */
+      id: string;
+      /** Per-report outcome. 'transitioned': the state changed. 'skipped_conflict': the transition was not allowed from the report's current status (the single-report endpoint would return 409). 'not_found': no such report in this project. 'failed': an unexpected error during the transition.
+       *
+       * * `transitioned` - transitioned
+       * * `skipped_conflict` - skipped_conflict
+       * * `not_found` - not_found
+       * * `failed` - failed */
+      outcome: SignalReportBulkStateResultOutcomeEnum;
+      /**
+         * Human-readable detail for non-transitioned outcomes; omitted when the report transitioned.
+         * @nullable
+         */
+      detail?: string | null;
+    }
+
+    export interface SignalReportBulkStateResponse {
+      /** One entry per requested ID, in request order (deduplicated). */
+      results: SignalReportBulkStateResult[];
+    }
+
+    export const SignalReportStateRequestDismissalReason = {...DismissalReasonEnum,...BlankEnum,} as const
+    /**
+     * Shared transition fields for the single- and bulk-report state actions.
+     */
     export interface SignalReportStateRequest {
       /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential */
-      state: SignalReportStateRequestStateEnum;
-      /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
-      dismissal_reason?: string;
+      state: SignalReportTargetStateEnum;
+      /** Optional canonical reason code for the dismissal, matching the chips shown in the inbox: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other. Note that 'already_fixed' snoozes the report (restores it to the pipeline) rather than dismissing it. Use 'other' when none of the specific codes fit. Values outside this set are rejected so invented codes can't leak into the inbox as raw chips.
+       *
+       * * `already_fixed` - already_fixed
+       * * `report_unclear` - report_unclear
+       * * `analysis_wrong` - analysis_wrong
+       * * `wontfix_intentional` - wontfix_intentional
+       * * `wontfix_irrelevant` - wontfix_irrelevant
+       * * `other` - other */
+      dismissal_reason?: typeof SignalReportStateRequestDismissalReason[keyof typeof SignalReportStateRequestDismissalReason];
       /**
          * Optional free-form note explaining the dismissal. Capped at 4000 characters.
          * @maxLength 4000

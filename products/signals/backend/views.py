@@ -51,6 +51,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.signals.backend.dismissal_reasons import DISMISSAL_REASON_VALUES
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
@@ -368,7 +369,14 @@ SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = 4000
 SIGNAL_REPORT_MAX_SNOOZE_FOR = 100_000
 
 
-class SignalReportStateRequestSerializer(serializers.Serializer):
+# Upper bound on how many reports a single bulk state call may transition. Keeps the
+# per-call work bounded so an agent can't archive thousands of reports in one request.
+SIGNAL_REPORT_BULK_STATE_MAX_IDS = 200
+
+
+class SignalReportStateFieldsSerializer(serializers.Serializer):
+    """Shared transition fields for the single- and bulk-report state actions."""
+
     state = serializers.ChoiceField(
         choices=[("suppressed", "suppressed"), ("potential", "potential")],
         help_text=(
@@ -376,12 +384,15 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "or 'potential' to snooze/reopen it for later review."
         ),
     )
-    dismissal_reason = serializers.CharField(
+    dismissal_reason = serializers.ChoiceField(
+        choices=[(value, value) for value in DISMISSAL_REASON_VALUES],
         required=False,
         allow_blank=True,
         help_text=(
-            "Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). "
-            "The set of reason codes is owned by the caller and is not validated server-side."
+            "Optional canonical reason code for the dismissal, matching the chips shown in the inbox: "
+            f"{', '.join(DISMISSAL_REASON_VALUES)}. Note that 'already_fixed' snoozes the report (restores it "
+            "to the pipeline) rather than dismissing it. Use 'other' when none of the specific codes fit. "
+            "Values outside this set are rejected so invented codes can't leak into the inbox as raw chips."
         ),
     )
     dismissal_note = serializers.CharField(
@@ -399,6 +410,54 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. "
             "Omit to let the report re-enter the pipeline on the next matching signal."
         ),
+    )
+
+
+class SignalReportStateRequestSerializer(SignalReportStateFieldsSerializer):
+    pass
+
+
+class SignalReportBulkStateRequestSerializer(SignalReportStateFieldsSerializer):
+    """Transition many reports to the same state in one call, with shared dismissal feedback."""
+
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=SIGNAL_REPORT_BULK_STATE_MAX_IDS,
+        help_text=(
+            "Report IDs to transition to the same target state in one call. Each report is transitioned "
+            "independently — one failing or being in a conflicting status does not roll back the others. "
+            f"At most {SIGNAL_REPORT_BULK_STATE_MAX_IDS} IDs per call. The response reports a per-ID outcome."
+        ),
+    )
+
+
+class SignalReportBulkStateResultSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The report ID this result refers to.")
+    outcome = serializers.ChoiceField(
+        choices=[
+            ("transitioned", "transitioned"),
+            ("skipped_conflict", "skipped_conflict"),
+            ("not_found", "not_found"),
+            ("failed", "failed"),
+        ],
+        help_text=(
+            "Per-report outcome. 'transitioned': the state changed. 'skipped_conflict': the transition was "
+            "not allowed from the report's current status (the single-report endpoint would return 409). "
+            "'not_found': no such report in this project. 'failed': an unexpected error during the transition."
+        ),
+    )
+    detail = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Human-readable detail for non-transitioned outcomes; omitted when the report transitioned.",
+    )
+
+
+class SignalReportBulkStateResponseSerializer(serializers.Serializer):
+    results = SignalReportBulkStateResultSerializer(
+        many=True,
+        help_text="One entry per requested ID, in request order (deduplicated).",
     )
 
 
@@ -476,11 +535,11 @@ class SignalReportViewSet(
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
-    # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
-    # loads its evidence. Mutating-by-ID actions (delete, reingest) are deliberately
+    # `state`/`bulk_state` reopen dismissed reports, `retrieve` loads detail, and `signals`
+    # loads evidence. Mutating-by-ID actions (delete, reingest) are deliberately
     # NOT here, so a suppressed report stays unreachable for those and keeps returning
     # 404 — matching the existing contract.
-    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "retrieve", "signals"})
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals"})
 
     def _apply_signal_report_status_filter(self, queryset):
         status_filter = self.request.query_params.get("status")
@@ -1020,45 +1079,24 @@ class SignalReportViewSet(
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
         return Response({"report": report_data, "signals": signals_list})
 
-    @extend_schema(
-        request=SignalReportStateRequestSerializer,
-        responses={200: SignalReportSerializer},
-    )
-    @action(detail=True, methods=["post"], url_path="state", required_scopes=["task:write"])
-    def state(self, request, pk=None, **kwargs):
+    def _transition_report_state(
+        self,
+        report: SignalReport,
+        *,
+        target: str,
+        dismissal_reason: str | None,
+        dismissal_note: str | None,
+        snooze_for: int | None,
+        user: object,
+    ) -> None:
         """
-        Transition a report to a new state. The model validates allowed transitions.
+        Transition one report to ``target`` and persist optional dismissal feedback.
 
-        The request body is validated by SignalReportStateRequestSerializer — only the
-        fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
-        and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
-        so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
-
-        Body: {
-            "state": "suppressed" | "potential",
-            # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
-            "dismissal_reason": "<any string code, owned by the caller>",
-            "dismissal_note": "free-form text",
-            # Optional, only honored for state == "potential":
-            "snooze_for": <number of additional signals before re-promotion>,
-        }
+        Shared by the single-report ``state`` action and the bulk ``bulk_state`` action.
+        Raises ``InvalidStatusTransition`` when the transition isn't allowed from the
+        report's current status, or ``ValueError``/``TypeError`` on bad transition data —
+        callers map those onto per-report responses.
         """
-        report = cast(SignalReport, self.get_object())
-
-        serializer = SignalReportStateRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
-        target = data["state"]
-        dismissal_reason = data.get("dismissal_reason")
-        dismissal_note = data.get("dismissal_note")
-
-        # Only `snooze_for` (on a snooze back to "potential") is caller-controllable. Every other
-        # `transition_to` kwarg (signals_at_run_increment, reset_weight, title, summary, error) is an
-        # internal pipeline concern and must never be reachable from this public API surface, so it is
-        # passed explicitly rather than splatting caller-supplied kwargs.
-        snooze_for = data.get("snooze_for") if target == "potential" else None
-
         # "potential" on a suppressed report means "restore" (un-archive): return it to the state it
         # held before suppression when that was a researched, user-visible report, instead of always
         # dropping back to potential. snooze_for is irrelevant here and ignored by transition_to.
@@ -1066,20 +1104,13 @@ class SignalReportViewSet(
         if report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL:
             target_status = report.restore_target_status()
 
-        try:
-            updated_fields = report.transition_to(target_status, snooze_for=snooze_for)
-        except InvalidStatusTransition as e:
-            logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
-            return Response(
-                {"error": "Invalid state transition for this report."},
-                status=status.HTTP_409_CONFLICT,
-            )
-        except (ValueError, TypeError) as e:
-            logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
-            return Response(
-                {"error": "Invalid data for state transition."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Only `snooze_for` (on a snooze back to "potential") is caller-controllable. Every other
+        # `transition_to` kwarg (signals_at_run_increment, reset_weight, title, summary, error) is an
+        # internal pipeline concern and must never be reachable from this public API surface, so it is
+        # passed explicitly rather than splatting caller-supplied kwargs.
+        effective_snooze_for = snooze_for if target == "potential" else None
+
+        updated_fields = report.transition_to(target_status, snooze_for=effective_snooze_for)
 
         with transaction.atomic():
             report.save(update_fields=updated_fields)
@@ -1088,7 +1119,6 @@ class SignalReportViewSet(
             # and so multiple dismissals (with different rationales) can stack over time.
             # Captured for both suppress and snooze (transition to potential) flows.
             if target in ("suppressed", "potential") and (dismissal_reason or dismissal_note):
-                user = request.user
                 artefact_content = {
                     "reason": dismissal_reason,
                     "note": dismissal_note,
@@ -1109,7 +1139,113 @@ class SignalReportViewSet(
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
 
+    @extend_schema(
+        request=SignalReportStateRequestSerializer,
+        responses={200: SignalReportSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="state", required_scopes=["task:write"])
+    def state(self, request, pk=None, **kwargs):
+        """
+        Transition a report to a new state. The model validates allowed transitions.
+
+        The request body is validated by SignalReportStateRequestSerializer — only the
+        fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
+        and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
+        so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
+
+        Body: {
+            "state": "suppressed" | "potential",
+            # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+            "dismissal_reason": "<canonical reason code>",
+            "dismissal_note": "free-form text",
+            # Optional, only honored for state == "potential":
+            "snooze_for": <number of additional signals before re-promotion>,
+        }
+        """
+        report = cast(SignalReport, self.get_object())
+
+        serializer = SignalReportStateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            self._transition_report_state(
+                report,
+                target=data["state"],
+                dismissal_reason=data.get("dismissal_reason"),
+                dismissal_note=data.get("dismissal_note"),
+                snooze_for=data.get("snooze_for"),
+                user=request.user,
+            )
+        except InvalidStatusTransition as e:
+            logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
+            return Response(
+                {"error": "Invalid state transition for this report."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except (ValueError, TypeError) as e:
+            logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
+            return Response(
+                {"error": "Invalid data for state transition."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @extend_schema(
+        request=SignalReportBulkStateRequestSerializer,
+        responses={200: SignalReportBulkStateResponseSerializer},
+    )
+    @action(detail=False, methods=["post"], url_path="bulk-state", required_scopes=["task:write"])
+    def bulk_state(self, request, **kwargs):
+        """
+        Transition many reports to the same state in one call.
+
+        Each report is transitioned independently in its own transaction, so a report in a
+        conflicting status (would be a 409 on the single-report endpoint) or an unexpected
+        failure does not roll back the others. The response carries one ``outcome`` per
+        requested ID — 'transitioned', 'skipped_conflict', 'not_found', or 'failed' — instead
+        of a single HTTP status, so a partial success is fully described.
+        """
+        serializer = SignalReportBulkStateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        target = data["state"]
+        dismissal_reason = data.get("dismissal_reason")
+        dismissal_note = data.get("dismissal_note")
+        snooze_for = data.get("snooze_for")
+
+        # Deduplicate while preserving request order — re-processing the same report would
+        # otherwise suppress it once and then report a spurious conflict on the second pass.
+        ordered_ids = list(dict.fromkeys(str(report_id) for report_id in data["ids"]))
+        reports_by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ordered_ids)}
+
+        results: list[dict[str, str]] = []
+        for report_id in ordered_ids:
+            report = reports_by_id.get(report_id)
+            if report is None:
+                results.append({"id": report_id, "outcome": "not_found", "detail": "No such report in this project."})
+                continue
+            try:
+                self._transition_report_state(
+                    report,
+                    target=target,
+                    dismissal_reason=dismissal_reason,
+                    dismissal_note=dismissal_note,
+                    snooze_for=snooze_for,
+                    user=request.user,
+                )
+            except InvalidStatusTransition as e:
+                results.append({"id": report_id, "outcome": "skipped_conflict", "detail": str(e)})
+            except (ValueError, TypeError) as e:
+                logger.warning("Invalid data when transitioning SignalReport %s: %s", report_id, e, exc_info=True)
+                results.append({"id": report_id, "outcome": "failed", "detail": "Invalid data for state transition."})
+            else:
+                results.append({"id": report_id, "outcome": "transitioned"})
+
+        response = SignalReportBulkStateResponseSerializer({"results": results})
+        return Response(response.data)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])
