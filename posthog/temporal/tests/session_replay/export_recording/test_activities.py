@@ -221,6 +221,19 @@ async def test_mark_export_failed_does_not_overwrite_completed_export():
 
 
 @pytest.mark.asyncio
+async def test_mark_export_failed_handles_deleted_export():
+    with (
+        patch("posthog.temporal.session_replay.export_recording.activities.ExportedRecording.objects") as mock_objects,
+        patch("posthog.temporal.session_replay.export_recording.activities.database_sync_to_async") as mock_db_sync,
+    ):
+        mock_objects.aget = AsyncMock(side_effect=ExportedRecording.DoesNotExist)
+
+        await mark_export_failed(MarkExportFailedInput(exported_recording_id=TEST_RECORDING_ID, error_message="boom"))
+
+    mock_db_sync.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_export_recording_data_prefix_success():
     export_id = uuid4()
     export_context = ExportContext(

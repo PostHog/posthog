@@ -293,7 +293,12 @@ async def mark_export_failed(input: MarkExportFailedInput) -> None:
     logger = LOGGER.bind()
     logger.warning(f"Marking export {input.exported_recording_id} as failed: {input.error_message}")
 
-    export_record = await ExportedRecording.objects.aget(id=input.exported_recording_id)
+    try:
+        export_record = await ExportedRecording.objects.aget(id=input.exported_recording_id)
+    except ExportedRecording.DoesNotExist:
+        # the row was deleted while the export ran; there is nothing left to mark failed
+        logger.warning(f"Export {input.exported_recording_id} no longer exists; nothing to mark failed")
+        return
 
     if export_record.status == ExportedRecording.Status.COMPLETE:
         # a post-upload step (e.g. cleanup) can fail after the export already succeeded; never
