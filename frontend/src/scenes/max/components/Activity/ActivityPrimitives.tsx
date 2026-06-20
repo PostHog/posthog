@@ -77,7 +77,7 @@ export function ActivityStatusIcon({
 
 export function ActivityHeader({
     title,
-    subtitle,
+    children,
     status,
     icon,
     animate = true,
@@ -89,7 +89,7 @@ export function ActivityHeader({
     failedIcon,
 }: {
     title: React.ReactNode
-    subtitle?: React.ReactNode
+    children?: React.ReactNode
     status: ActivityStatus
     icon?: React.ReactNode
     animate?: boolean
@@ -128,7 +128,7 @@ export function ActivityHeader({
             )}
             <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
                 <div className="min-w-0">
-                    {subtitle ? (
+                    {children ? (
                         <div className="flex flex-col min-w-0">
                             <div className="min-w-0">
                                 {isInProgress && animate ? (
@@ -137,7 +137,7 @@ export function ActivityHeader({
                                     <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
                                 )}
                             </div>
-                            <div className="text-muted truncate min-w-0">{subtitle}</div>
+                            <div className="text-muted truncate min-w-0">{children}</div>
                         </div>
                     ) : isInProgress && animate ? (
                         <ShimmeringContent>{title}</ShimmeringContent>
@@ -288,7 +288,6 @@ export function Activity({
         <div className="flex flex-col rounded transition-all duration-500 w-full min-w-0 gap-1 text-xs">
             <ActivityHeader
                 title={title}
-                subtitle={subtitle}
                 status={status}
                 icon={icon}
                 animate={animate}
@@ -298,7 +297,9 @@ export function Activity({
                 showCompletionIcon={showCompletionIcon}
                 showProgressIcon={showProgressIcon}
                 failedIcon={failedIcon}
-            />
+            >
+                {subtitle}
+            </ActivityHeader>
             {isDetailsExpanded && hasDetails && (
                 <ActivityDetails hasIcon={!!icon}>
                     {substeps.length > 0 && <ActivitySubsteps id={id} substeps={substeps} status={status} />}
