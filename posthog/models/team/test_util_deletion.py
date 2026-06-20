@@ -54,25 +54,21 @@ class TestDeleteGroupsForTeams(SimpleTestCase):
         assert req.batch_size == 10000
         assert req.team_id == 42
 
-    @patch("posthog.models.team.util._raw_delete")
     @patch(_CLIENT_PATCH)
-    def test_falls_back_to_orm_when_client_none(self, mock_get_client, mock_raw_delete):
+    def test_client_none_raises(self, mock_get_client):
         mock_get_client.return_value = None
 
-        _delete_groups_for_teams([42])
+        with self.assertRaises(RuntimeError):
+            _delete_groups_for_teams([42])
 
-        mock_raw_delete.assert_called_once()
-
-    @patch("posthog.models.team.util._raw_delete")
     @patch(_CLIENT_PATCH)
-    def test_falls_back_to_orm_on_error(self, mock_get_client, mock_raw_delete):
+    def test_personhog_error_propagates(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.delete_groups_batch_for_team.side_effect = Exception("rpc failed")
         mock_get_client.return_value = mock_client
 
-        _delete_groups_for_teams([42])
-
-        mock_raw_delete.assert_called_once()
+        with self.assertRaises(Exception):
+            _delete_groups_for_teams([42])
 
     @patch(_CLIENT_PATCH)
     def test_empty_list_does_nothing(self, mock_get_client):
@@ -122,27 +118,21 @@ class TestDeleteGroupTypeMappingsForTeams(SimpleTestCase):
         assert req.batch_size == 10000
         assert req.team_id == 42
 
-    @patch("posthog.models.team.util._raw_delete")
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch(_CLIENT_PATCH)
-    def test_falls_back_to_orm_when_client_none(self, mock_get_client, mock_objects, mock_raw_delete):
+    def test_client_none_raises(self, mock_get_client):
         mock_get_client.return_value = None
 
-        _delete_group_type_mappings_for_teams([42])
+        with self.assertRaises(RuntimeError):
+            _delete_group_type_mappings_for_teams([42])
 
-        mock_raw_delete.assert_called_once()
-
-    @patch("posthog.models.team.util._raw_delete")
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     @patch(_CLIENT_PATCH)
-    def test_falls_back_to_orm_on_error(self, mock_get_client, mock_objects, mock_raw_delete):
+    def test_personhog_error_propagates(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.delete_group_type_mappings_batch_for_team.side_effect = Exception("rpc failed")
         mock_get_client.return_value = mock_client
 
-        _delete_group_type_mappings_for_teams([42])
-
-        mock_raw_delete.assert_called_once()
+        with self.assertRaises(Exception):
+            _delete_group_type_mappings_for_teams([42])
 
     @patch(_CLIENT_PATCH)
     def test_empty_list_does_nothing(self, mock_get_client):
@@ -183,25 +173,21 @@ class TestDeleteHashKeyOverridesForTeams(SimpleTestCase):
 
         assert mock_client.delete_hash_key_overrides_by_teams.call_count == 3
 
-    @patch("posthog.models.team.util._raw_delete_batch")
     @patch(_CLIENT_PATCH)
-    def test_falls_back_to_orm_when_client_none(self, mock_get_client, mock_raw_delete_batch):
+    def test_client_none_raises(self, mock_get_client):
         mock_get_client.return_value = None
 
-        _delete_hash_key_overrides_for_teams([42])
+        with self.assertRaises(RuntimeError):
+            _delete_hash_key_overrides_for_teams([42])
 
-        mock_raw_delete_batch.assert_called_once()
-
-    @patch("posthog.models.team.util._raw_delete_batch")
     @patch(_CLIENT_PATCH)
-    def test_falls_back_to_orm_on_error(self, mock_get_client, mock_raw_delete_batch):
+    def test_personhog_error_propagates(self, mock_get_client):
         mock_client = MagicMock()
         mock_client.delete_hash_key_overrides_by_teams.side_effect = Exception("rpc failed")
         mock_get_client.return_value = mock_client
 
-        _delete_hash_key_overrides_for_teams([42])
-
-        mock_raw_delete_batch.assert_called_once()
+        with self.assertRaises(Exception):
+            _delete_hash_key_overrides_for_teams([42])
 
     @patch(_CLIENT_PATCH)
     def test_empty_list_does_nothing(self, mock_get_client):

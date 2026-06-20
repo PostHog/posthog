@@ -2,10 +2,7 @@ from types import SimpleNamespace
 
 from unittest.mock import MagicMock, patch
 
-from django.db import DatabaseError
 from django.test import SimpleTestCase, override_settings
-
-from parameterized import parameterized
 
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import (
@@ -21,7 +18,6 @@ from posthog.models.group.util import (
 _CLIENT_PATCH = "posthog.personhog_client.client.get_personhog_client"
 _CONVERTER_PATCH = "posthog.personhog_client.converters.proto_group_to_model"
 _ROUTING_TOTAL_PATCH = "posthog.models.group.util.PERSONHOG_ROUTING_TOTAL"
-_ROUTING_ERRORS_PATCH = "posthog.models.group.util.PERSONHOG_ROUTING_ERRORS_TOTAL"
 
 
 def _make_proto_group(**kwargs) -> SimpleNamespace:
@@ -46,30 +42,18 @@ class TestGetGroupByKey(SimpleTestCase):
         self.group_type_index = 0
         self.group_key = "org:123"
 
-    @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_client_none_falls_back_to_orm_silently(self, mock_get_client, mock_routing_counter):
+    def test_client_none_raises(self, mock_get_client):
         mock_get_client.return_value = None
 
-        from posthog.models.group.group import Group
+        with self.assertRaises(RuntimeError):
+            get_group_by_key(self.team_id, self.group_type_index, self.group_key)
 
-        with patch.object(Group, "objects") as mock_objects:
-            mock_group = MagicMock(spec=Group)
-            mock_objects.get.return_value = mock_group
-
-            result = get_group_by_key(self.team_id, self.group_type_index, self.group_key)
-
-            assert result is mock_group
-            mock_routing_counter.labels.assert_called_once_with(
-                operation="get_group_by_key", source="django_orm", client_name="posthog-django"
-            )
-
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CONVERTER_PATCH)
     @patch(_CLIENT_PATCH)
     def test_personhog_returns_group_converts_and_returns_model(
-        self, mock_get_client, mock_convert, mock_routing_counter, mock_errors_counter
+        self, mock_get_client, mock_convert, mock_routing_counter
     ):
         proto_group = _make_proto_group(id=7, team_id=self.team_id, group_key=self.group_key)
         mock_response = MagicMock()
@@ -88,14 +72,10 @@ class TestGetGroupByKey(SimpleTestCase):
         mock_routing_counter.labels.assert_called_with(
             operation="get_group_by_key", source="personhog", client_name="posthog-django"
         )
-        mock_errors_counter.labels.assert_not_called()
 
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_returns_group_with_zero_id_returns_none(
-        self, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
+    def test_personhog_returns_group_with_zero_id_returns_none(self, mock_get_client, mock_routing_counter):
         proto_group = _make_proto_group(id=0, team_id=self.team_id, group_key=self.group_key)
         mock_response = MagicMock()
         mock_response.group = proto_group
@@ -110,57 +90,15 @@ class TestGetGroupByKey(SimpleTestCase):
             operation="get_group_by_key", source="personhog", client_name="posthog-django"
         )
 
-    @parameterized.expand(
-        [
-            ("grpc_timeout", RuntimeError("grpc timeout")),
-            ("connection_error", ConnectionError("connection refused")),
-            ("generic_exception", Exception("unexpected error")),
-        ]
-    )
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_exception_falls_back_to_orm(
-        self, _name, exception, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
-        mock_client = MagicMock()
-        mock_client.get_group.side_effect = exception
-        mock_get_client.return_value = mock_client
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_group = MagicMock(spec=Group)
-            mock_objects.get.return_value = mock_group
-
-            result = get_group_by_key(self.team_id, self.group_type_index, self.group_key)
-
-            assert result is mock_group
-            mock_errors_counter.labels.assert_called_once_with(
-                operation="get_group_by_key",
-                source="personhog",
-                error_type="grpc_error",
-                client_name="posthog-django",
-            )
-            calls = [str(c) for c in mock_routing_counter.labels.call_args_list]
-            assert any("django_orm" in c for c in calls)
-
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_orm_fallback_does_not_exist_returns_none(self, mock_get_client, mock_routing_counter, mock_errors_counter):
+    def test_personhog_exception_propagates(self, mock_get_client, mock_routing_counter):
         mock_client = MagicMock()
         mock_client.get_group.side_effect = RuntimeError("grpc timeout")
         mock_get_client.return_value = mock_client
 
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_objects.get.side_effect = Group.DoesNotExist
-
-            result = get_group_by_key(self.team_id, self.group_type_index, self.group_key)
-
-            assert result is None
+        with self.assertRaises(RuntimeError):
+            get_group_by_key(self.team_id, self.group_type_index, self.group_key)
 
 
 class TestGetGroupsByIdentifiers(SimpleTestCase):
@@ -169,11 +107,10 @@ class TestGetGroupsByIdentifiers(SimpleTestCase):
         self.group_type_index = 0
 
     @override_settings(PERSONHOG_BATCH_SIZE=2)
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CONVERTER_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_chunks_requests(self, mock_get_client, mock_convert, mock_routing_counter, mock_errors_counter):
+    def test_personhog_chunks_requests(self, mock_get_client, mock_convert, mock_routing_counter):
         # 5 keys with batch size 2 → 3 chunks (2 + 2 + 1)
         protos = [_make_proto_group(id=i + 1, team_id=self.team_id, group_key=f"k{i}") for i in range(5)]
         mock_client = MagicMock()
@@ -200,13 +137,10 @@ class TestGetGroupsByIdentifiers(SimpleTestCase):
             assert result == []
             mock_get_client.assert_not_called()
 
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CONVERTER_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_success_returns_converted_models(
-        self, mock_get_client, mock_convert, mock_routing_counter, mock_errors_counter
-    ):
+    def test_personhog_success_returns_converted_models(self, mock_get_client, mock_convert, mock_routing_counter):
         proto_g1 = _make_proto_group(id=1, team_id=self.team_id, group_key="k1")
         proto_g2 = _make_proto_group(id=2, team_id=self.team_id, group_key="k2")
 
@@ -226,15 +160,11 @@ class TestGetGroupsByIdentifiers(SimpleTestCase):
         mock_routing_counter.labels.assert_called_with(
             operation="get_groups_by_identifiers", source="personhog", client_name="posthog-django"
         )
-        mock_errors_counter.labels.assert_not_called()
 
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CONVERTER_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_filters_out_groups_with_zero_id(
-        self, mock_get_client, mock_convert, mock_routing_counter, mock_errors_counter
-    ):
+    def test_personhog_filters_out_groups_with_zero_id(self, mock_get_client, mock_convert, mock_routing_counter):
         proto_with_id = _make_proto_group(id=5, team_id=self.team_id, group_key="k1")
         proto_no_id = _make_proto_group(id=0, team_id=self.team_id, group_key="k2")
 
@@ -253,179 +183,29 @@ class TestGetGroupsByIdentifiers(SimpleTestCase):
         assert result[0] is model1
         mock_convert.assert_called_once_with(proto_with_id)
 
-    @patch(_ROUTING_ERRORS_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_client_none_raises(self, mock_get_client):
+        mock_get_client.return_value = None
+
+        with self.assertRaises(RuntimeError):
+            get_groups_by_identifiers(self.team_id, self.group_type_index, ["k1"])
+
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_failure_falls_back_to_orm(self, mock_get_client, mock_routing_counter, mock_errors_counter):
+    def test_personhog_exception_propagates(self, mock_get_client, mock_routing_counter):
         mock_client = MagicMock()
         mock_client.get_groups.side_effect = RuntimeError("grpc timeout")
         mock_get_client.return_value = mock_client
 
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            orm_groups = [MagicMock(spec=Group), MagicMock(spec=Group)]
-            mock_qs = MagicMock()
-            mock_qs.__iter__ = MagicMock(return_value=iter(orm_groups))
-            mock_objects.filter.return_value = mock_qs
-
-            result = get_groups_by_identifiers(self.team_id, self.group_type_index, ["k1", "k2"])
-
-            assert result == orm_groups
-            mock_errors_counter.labels.assert_called_once_with(
-                operation="get_groups_by_identifiers",
-                source="personhog",
-                error_type="grpc_error",
-                client_name="posthog-django",
-            )
-            calls = [str(c) for c in mock_routing_counter.labels.call_args_list]
-            assert any("django_orm" in c for c in calls)
-
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_personhog_client_none_falls_back_to_orm_silently(self, mock_get_client, mock_routing_counter):
-        mock_get_client.return_value = None
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            orm_groups = [MagicMock(spec=Group)]
-            mock_qs = MagicMock()
-            mock_qs.__iter__ = MagicMock(return_value=iter(orm_groups))
-            mock_objects.filter.return_value = mock_qs
-
-            result = get_groups_by_identifiers(self.team_id, self.group_type_index, ["k1"])
-
-            assert result == orm_groups
-            mock_routing_counter.labels.assert_called_once_with(
-                operation="get_groups_by_identifiers", source="django_orm", client_name="posthog-django"
-            )
-
-    @parameterized.expand(
-        [
-            ("grpc_timeout", RuntimeError("grpc timeout")),
-            ("connection_refused", ConnectionError("connection refused")),
-            ("generic_exception", Exception("unexpected")),
-        ]
-    )
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_error_types_always_increment_error_metric(
-        self, _name, exception, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
-        mock_client = MagicMock()
-        mock_client.get_groups.side_effect = exception
-        mock_get_client.return_value = mock_client
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_qs = MagicMock()
-            mock_qs.__iter__ = MagicMock(return_value=iter([]))
-            mock_objects.filter.return_value = mock_qs
-
-            get_groups_by_identifiers(self.team_id, self.group_type_index, ["k1"])
-
-            mock_errors_counter.labels.assert_called_once()
-
-
-class TestGetGroupByKeyEdgeCases(SimpleTestCase):
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_personhog_returns_none_group_returns_none(
-        self, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
-        mock_response = MagicMock()
-        mock_response.group = None
-        mock_client = MagicMock()
-        mock_client.get_group.return_value = mock_response
-        mock_get_client.return_value = mock_client
-
-        result = get_group_by_key(10, 0, "org:123")
-
-        assert result is None
-        mock_routing_counter.labels.assert_called_with(
-            operation="get_group_by_key", source="personhog", client_name="posthog-django"
-        )
-
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_orm_fallback_passes_correct_filter_kwargs(
-        self, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
-        mock_client = MagicMock()
-        mock_client.get_group.side_effect = RuntimeError("grpc timeout")
-        mock_get_client.return_value = mock_client
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_objects.get.side_effect = Group.DoesNotExist
-
-            get_group_by_key(10, 2, "company:456")
-
-            mock_objects.get.assert_called_once_with(team_id=10, group_type_index=2, group_key="company:456")
-
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CONVERTER_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_converter_exception_falls_back_to_orm(
-        self, mock_get_client, mock_convert, mock_routing_counter, mock_errors_counter
-    ):
-        proto_group = _make_proto_group(id=7, team_id=10, group_key="org:123")
-        mock_response = MagicMock()
-        mock_response.group = proto_group
-        mock_client = MagicMock()
-        mock_client.get_group.return_value = mock_response
-        mock_get_client.return_value = mock_client
-
-        mock_convert.side_effect = ValueError("malformed JSON")
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_group = MagicMock(spec=Group)
-            mock_objects.get.return_value = mock_group
-
-            result = get_group_by_key(10, 0, "org:123")
-
-            assert result is mock_group
-            mock_errors_counter.labels.assert_called_once()
+        with self.assertRaises(RuntimeError):
+            get_groups_by_identifiers(self.team_id, self.group_type_index, ["k1", "k2"])
 
 
 class TestGetGroupsByIdentifiersEdgeCases(SimpleTestCase):
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_orm_fallback_passes_correct_filter_kwargs(
-        self, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
-        mock_client = MagicMock()
-        mock_client.get_groups.side_effect = RuntimeError("grpc timeout")
-        mock_get_client.return_value = mock_client
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_qs = MagicMock()
-            mock_qs.__iter__ = MagicMock(return_value=iter([]))
-            mock_objects.filter.return_value = mock_qs
-
-            get_groups_by_identifiers(10, 2, ["k1", "k2"])
-
-            mock_objects.filter.assert_called_once_with(team_id=10, group_type_index=2, group_key__in=["k1", "k2"])
-
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CONVERTER_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_all_groups_have_zero_id_returns_empty_list(
-        self, mock_get_client, mock_convert, mock_routing_counter, mock_errors_counter
-    ):
+    def test_all_groups_have_zero_id_returns_empty_list(self, mock_get_client, mock_convert, mock_routing_counter):
         proto_g1 = _make_proto_group(id=0, team_id=10, group_key="k1")
         proto_g2 = _make_proto_group(id=0, team_id=10, group_key="k2")
 
@@ -446,13 +226,10 @@ class TestGetGroupsByTypeIndices(SimpleTestCase):
         self.team_id = 10
 
     @override_settings(PERSONHOG_BATCH_SIZE=2)
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CONVERTER_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_chunks_cross_product(
-        self, mock_get_client, mock_convert, mock_routing_counter, mock_errors_counter
-    ):
+    def test_personhog_chunks_cross_product(self, mock_get_client, mock_convert, mock_routing_counter):
         # {0, 1} x {k1, k2, k3} = 6 identifiers; batch size 2 → 3 chunks
         mock_client = MagicMock()
         mock_client.get_groups.side_effect = [MagicMock(groups=[]) for _ in range(3)]
@@ -474,12 +251,11 @@ class TestGetGroupsByTypeIndices(SimpleTestCase):
         result = get_groups_by_type_indices(self.team_id, {0, 1}, set())
         assert result == []
 
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CONVERTER_PATCH)
     @patch(_CLIENT_PATCH)
     def test_personhog_success_creates_cross_product_identifiers(
-        self, mock_get_client, mock_convert, mock_routing_counter, mock_errors_counter
+        self, mock_get_client, mock_convert, mock_routing_counter
     ):
         proto_g1 = _make_proto_group(id=1, team_id=self.team_id, group_key="k1", group_type_index=0)
         proto_g2 = _make_proto_group(id=2, team_id=self.team_id, group_key="k2", group_type_index=1)
@@ -504,15 +280,11 @@ class TestGetGroupsByTypeIndices(SimpleTestCase):
         mock_routing_counter.labels.assert_called_with(
             operation="get_groups_by_type_indices", source="personhog", client_name="posthog-django"
         )
-        mock_errors_counter.labels.assert_not_called()
 
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CONVERTER_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_filters_out_zero_id_groups(
-        self, mock_get_client, mock_convert, mock_routing_counter, mock_errors_counter
-    ):
+    def test_personhog_filters_out_zero_id_groups(self, mock_get_client, mock_convert, mock_routing_counter):
         proto_with_id = _make_proto_group(id=5, team_id=self.team_id, group_key="k1")
         proto_no_id = _make_proto_group(id=0, team_id=self.team_id, group_key="k2")
 
@@ -530,140 +302,22 @@ class TestGetGroupsByTypeIndices(SimpleTestCase):
         assert len(result) == 1
         mock_convert.assert_called_once_with(proto_with_id)
 
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_failure_falls_back_to_orm_with_correct_filters(
-        self, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
-        mock_client = MagicMock()
-        mock_client.get_groups.side_effect = RuntimeError("grpc timeout")
-        mock_get_client.return_value = mock_client
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            orm_groups = [MagicMock(spec=Group), MagicMock(spec=Group)]
-            mock_qs = MagicMock()
-            mock_qs.__iter__ = MagicMock(return_value=iter(orm_groups))
-            mock_objects.filter.return_value = mock_qs
-
-            result = get_groups_by_type_indices(self.team_id, {0, 2}, {"k1", "k2"})
-
-            assert result == orm_groups
-            mock_objects.filter.assert_called_once_with(
-                team_id=self.team_id, group_type_index__in={0, 2}, group_key__in={"k1", "k2"}
-            )
-            mock_errors_counter.labels.assert_called_once()
-            calls = [str(c) for c in mock_routing_counter.labels.call_args_list]
-            assert any("django_orm" in c for c in calls)
-
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_personhog_client_none_falls_back_to_orm_silently(self, mock_get_client, mock_routing_counter):
+    def test_client_none_raises(self, mock_get_client):
         mock_get_client.return_value = None
 
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            orm_groups = [MagicMock(spec=Group)]
-            mock_qs = MagicMock()
-            mock_qs.__iter__ = MagicMock(return_value=iter(orm_groups))
-            mock_objects.filter.return_value = mock_qs
-
-            result = get_groups_by_type_indices(self.team_id, {0}, {"k1"})
-
-            assert result == orm_groups
-            mock_routing_counter.labels.assert_called_once_with(
-                operation="get_groups_by_type_indices", source="django_orm", client_name="posthog-django"
-            )
-
-    @parameterized.expand(
-        [
-            ("grpc_timeout", RuntimeError("grpc timeout")),
-            ("connection_refused", ConnectionError("connection refused")),
-            ("generic_exception", Exception("unexpected")),
-        ]
-    )
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_error_types_always_increment_error_metric(
-        self, _name, exception, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
-        mock_client = MagicMock()
-        mock_client.get_groups.side_effect = exception
-        mock_get_client.return_value = mock_client
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_qs = MagicMock()
-            mock_qs.__iter__ = MagicMock(return_value=iter([]))
-            mock_objects.filter.return_value = mock_qs
-
+        with self.assertRaises(RuntimeError):
             get_groups_by_type_indices(self.team_id, {0}, {"k1"})
 
-            mock_errors_counter.labels.assert_called_once()
-
-
-class TestOrmDatabaseErrorHandling(SimpleTestCase):
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_get_group_by_key_orm_database_error_returns_none(
-        self, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
-        mock_client = MagicMock()
-        mock_client.get_group.side_effect = RuntimeError("grpc timeout")
-        mock_get_client.return_value = mock_client
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_objects.get.side_effect = DatabaseError("connection lost")
-
-            result = get_group_by_key(10, 0, "org:123")
-
-            assert result is None
-
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_get_groups_by_identifiers_orm_database_error_returns_empty_list(
-        self, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
+    def test_personhog_exception_propagates(self, mock_get_client, mock_routing_counter):
         mock_client = MagicMock()
         mock_client.get_groups.side_effect = RuntimeError("grpc timeout")
         mock_get_client.return_value = mock_client
 
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_objects.filter.side_effect = DatabaseError("connection lost")
-
-            result = get_groups_by_identifiers(10, 0, ["k1", "k2"])
-
-            assert result == []
-
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_get_groups_by_type_indices_orm_database_error_returns_empty_list(
-        self, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
-        mock_client = MagicMock()
-        mock_client.get_groups.side_effect = RuntimeError("grpc timeout")
-        mock_get_client.return_value = mock_client
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_objects.filter.side_effect = DatabaseError("connection lost")
-
-            result = get_groups_by_type_indices(10, {0, 1}, {"k1", "k2"})
-
-            assert result == []
+        with self.assertRaises(RuntimeError):
+            get_groups_by_type_indices(self.team_id, {0, 2}, {"k1", "k2"})
 
 
 class TestCreateGroup(SimpleTestCase):
@@ -710,85 +364,36 @@ class TestCreateGroup(SimpleTestCase):
         mock_ch.assert_called_once()
 
     @patch("posthog.models.group.util.raw_create_group_ch")
-    @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_client_none_falls_back_to_orm(self, mock_get_client, mock_routing_counter, mock_ch):
+    def test_client_none_raises_after_clickhouse_write(self, mock_get_client, mock_ch):
         mock_get_client.return_value = None
 
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_group = MagicMock(spec=Group)
-            mock_objects.create.return_value = mock_group
-
-            result = create_group(
-                team_id=self.team_id,
-                group_type_index=self.group_type_index,
-                group_key=self.group_key,
-                properties=self.properties,
-            )
-
-            assert result is mock_group
-            mock_objects.create.assert_called_once()
-            mock_routing_counter.labels.assert_called_with(
-                operation="create_group", source="django_orm", client_name="posthog-django"
-            )
-
-    @parameterized.expand(
-        [
-            ("grpc_timeout", RuntimeError("grpc timeout")),
-            ("connection_error", ConnectionError("connection refused")),
-        ]
-    )
-    @patch("posthog.models.group.util.raw_create_group_ch")
-    @patch(_ROUTING_ERRORS_PATCH)
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_personhog_exception_falls_back_to_orm(
-        self, _name, exception, mock_get_client, mock_routing_counter, mock_errors_counter, mock_ch
-    ):
-        mock_client = MagicMock()
-        mock_client.create_group.side_effect = exception
-        mock_get_client.return_value = mock_client
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_group = MagicMock(spec=Group)
-            mock_objects.create.return_value = mock_group
-
-            result = create_group(
-                team_id=self.team_id,
-                group_type_index=self.group_type_index,
-                group_key=self.group_key,
-                properties=self.properties,
-            )
-
-            assert result is mock_group
-            mock_errors_counter.labels.assert_called_once_with(
-                operation="create_group",
-                source="personhog",
-                error_type="grpc_error",
-                client_name="posthog-django",
-            )
-
-    @patch("posthog.models.group.util.raw_create_group_ch")
-    @patch(_ROUTING_TOTAL_PATCH)
-    @patch(_CLIENT_PATCH)
-    def test_clickhouse_write_always_happens(self, mock_get_client, mock_routing_counter, mock_ch):
-        mock_get_client.return_value = None
-
-        from posthog.models.group.group import Group
-
-        with patch.object(Group, "objects") as mock_objects:
-            mock_objects.create.return_value = MagicMock(spec=Group)
+        with self.assertRaises(RuntimeError):
             create_group(
                 team_id=self.team_id,
                 group_type_index=self.group_type_index,
                 group_key=self.group_key,
                 properties=self.properties,
             )
-            mock_ch.assert_called_once()
+
+        # ClickHouse write happens before the personhog call, so it runs even when the client is missing.
+        mock_ch.assert_called_once()
+
+    @patch("posthog.models.group.util.raw_create_group_ch")
+    @patch(_ROUTING_TOTAL_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_personhog_exception_propagates(self, mock_get_client, mock_routing_counter, mock_ch):
+        mock_client = MagicMock()
+        mock_client.create_group.side_effect = RuntimeError("grpc timeout")
+        mock_get_client.return_value = mock_client
+
+        with self.assertRaises(RuntimeError):
+            create_group(
+                team_id=self.team_id,
+                group_type_index=self.group_type_index,
+                group_key=self.group_key,
+                properties=self.properties,
+            )
 
 
 class TestSaveGroup(SimpleTestCase):
@@ -822,42 +427,21 @@ class TestSaveGroup(SimpleTestCase):
             operation="group_save", source="personhog", client_name="posthog-django"
         )
 
-    @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_client_none_falls_back_to_orm_save(self, mock_get_client, mock_routing_counter):
+    def test_client_none_raises(self, mock_get_client):
         mock_get_client.return_value = None
 
         group = self._make_group_instance()
-        save_group(group)
+        with self.assertRaises(RuntimeError):
+            save_group(group)
 
-        group.save.assert_called_once()
-        mock_routing_counter.labels.assert_called_with(
-            operation="group_save", source="django_orm", client_name="posthog-django"
-        )
-
-    @parameterized.expand(
-        [
-            ("grpc_timeout", RuntimeError("grpc timeout")),
-            ("connection_error", ConnectionError("connection refused")),
-        ]
-    )
-    @patch(_ROUTING_ERRORS_PATCH)
     @patch(_ROUTING_TOTAL_PATCH)
     @patch(_CLIENT_PATCH)
-    def test_personhog_exception_falls_back_to_orm_save(
-        self, _name, exception, mock_get_client, mock_routing_counter, mock_errors_counter
-    ):
+    def test_personhog_exception_propagates(self, mock_get_client, mock_routing_counter):
         mock_client = MagicMock()
-        mock_client.update_group.side_effect = exception
+        mock_client.update_group.side_effect = RuntimeError("grpc timeout")
         mock_get_client.return_value = mock_client
 
         group = self._make_group_instance()
-        save_group(group)
-
-        group.save.assert_called_once()
-        mock_errors_counter.labels.assert_called_once_with(
-            operation="group_save",
-            source="personhog",
-            error_type="grpc_error",
-            client_name="posthog-django",
-        )
+        with self.assertRaises(RuntimeError):
+            save_group(group)
