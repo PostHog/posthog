@@ -598,7 +598,6 @@ class EventViewSet(
         presence_expr: ast.Expr = field_expr
         string_expr: ast.Expr = ast.Call(name="toString", args=[field_expr])
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not query_params.is_column:
-            value_expr = ast.Call(name="toJSONString", args=[field_expr])
             presence_expr = ast.Call(name="isNotNull", args=[field_expr])
             string_expr = ast.Call(name="toString", args=[field_expr])
         date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")

@@ -147,7 +147,7 @@ class ClickHousePrinter(BasePrinter):
                         args.append(f"ifNull({self.visit(arg)}, '')")
                 else:
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
-        elif node.name == "JSONAllPaths":
+        elif node.name in ("JSONAllPaths", "toJSONString"):
             args = [self._visit_json_function_argument(arg) for arg in node_args]
         else:
             args = [self.visit(arg) for arg in node_args]

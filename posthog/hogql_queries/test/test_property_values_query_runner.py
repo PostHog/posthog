@@ -53,6 +53,7 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert "events_json" in physical_query.clickhouse
         assert "events.properties.browser" in physical_query.clickhouse
         assert "JSONExtractRaw" not in physical_query.clickhouse
+        assert "toJSONString" not in physical_query.clickhouse
         assert "toString(events.properties)" not in physical_query.clickhouse
 
     def test_event_property_values_excludes_null(self):

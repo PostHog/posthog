@@ -1196,6 +1196,13 @@ class TestPrinter(BaseTest):
             self._expr("JSONHas(properties, 'items', 1)", context)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_new_events_schema_to_json_string_keeps_properties_native(self) -> None:
+        printed = self._expr("toJSONString(properties)")
+
+        self.assertEqual(printed, "toJSONString(events.properties)")
+        self.assertNotIn("toString(events.properties)", printed)
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_json_has_rejects_percent_property_key(self) -> None:
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
