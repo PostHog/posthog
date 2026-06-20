@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event'
 
 import {
     clickAtIndex,
+    createDefaultTooltipAccessor,
+    type DefaultTooltipAccessor,
     getHogChartTooltip,
     hoverUntilTooltip,
     waitForHogChartTooltip,
@@ -17,12 +19,7 @@ import { InsightLogicProps } from '~/types'
 
 import { INSIGHT_TEST_ID } from './render-insight'
 import { trendsSeries } from './test-data'
-import {
-    type InsightTooltipAccessor,
-    type SqlTooltipAccessor,
-    createInsightTooltipAccessor,
-    createSqlTooltipAccessor,
-} from './tooltip-helpers'
+import { type InsightTooltipAccessor, createInsightTooltipAccessor } from './tooltip-helpers'
 
 const DEBOUNCE_TIMEOUT = 3000
 
@@ -174,13 +171,13 @@ export const chart = {
 }
 
 /** Interactions for SQL (`DataVisualizationNode`) charts, which render quill's `DefaultTooltip`
- *  instead of the InsightTooltip table — so the tooltip is parsed via `createSqlTooltipAccessor`.
+ *  instead of the InsightTooltip table — so the tooltip is read via quill's `createDefaultTooltipAccessor`.
  *  `totalLabels` (the x-axis label count) is required: there's no canonical default series. */
 export const sqlChart = {
-    async hoverTooltip(index: number, totalLabels: number): Promise<SqlTooltipAccessor> {
+    async hoverTooltip(index: number, totalLabels: number): Promise<DefaultTooltipAccessor> {
         const canvas = await screen.findByRole('img', { name: /chart with/i }, { timeout: DEBOUNCE_TIMEOUT })
         const wrapper = canvas.parentElement!
         const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels)
-        return createSqlTooltipAccessor(tooltip)
+        return createDefaultTooltipAccessor(tooltip)
     },
 }

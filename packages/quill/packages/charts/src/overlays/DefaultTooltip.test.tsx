@@ -1,7 +1,7 @@
 import { cleanup, screen } from '@testing-library/react'
 
 import type { TooltipContext } from '../core/types'
-import { makeOverlayContext, renderOverlayInChart } from '../testing'
+import { createDefaultTooltipAccessor, makeOverlayContext, renderOverlayInChart } from '../testing'
 import { DefaultTooltip } from './DefaultTooltip'
 
 const SCALES = { x: () => 0, y: (v: number) => v, yTicks: () => [] }
@@ -86,7 +86,11 @@ describe('DefaultTooltip', () => {
         it('falls back to valueFormatter for the total, applied with the first summable entry', () => {
             const metaSeries: TooltipContext['seriesData'] = [
                 { series: { key: 'usd', label: 'Revenue', data: [], meta: { unit: '$' } }, value: 10, color: '#000' },
-                { series: { key: 'usd2', label: 'Revenue 2', data: [], meta: { unit: '€' } }, value: 25, color: '#111' },
+                {
+                    series: { key: 'usd2', label: 'Revenue 2', data: [], meta: { unit: '€' } },
+                    value: 25,
+                    color: '#111',
+                },
             ]
             renderTooltip(
                 {
@@ -127,6 +131,29 @@ describe('DefaultTooltip', () => {
             ]
             renderTooltip({ showTotal: true }, oneRealOneOverlay)
             expect(screen.queryByText('Total:')).toBeNull()
+        })
+    })
+
+    describe('createDefaultTooltipAccessor', () => {
+        it('reads the label, rows, values, swatch colors, and total', () => {
+            const seriesData: TooltipContext['seriesData'] = [
+                { series: { key: 'a', label: 'Revenue', data: [] }, value: 100, color: 'rgb(255, 0, 0)' },
+                { series: { key: 'b', label: 'Cost', data: [] }, value: 40, color: 'rgb(0, 255, 0)' },
+            ]
+            renderTooltip({ showTotal: true, valueFormatter: (v) => `$${v}` }, seriesData)
+
+            const tooltip = createDefaultTooltipAccessor(document.body)
+            expect(tooltip.label()).toBe('When')
+            expect(tooltip.rows()).toEqual(['Revenue', 'Cost'])
+            expect(tooltip.value('Revenue')).toBe('$100')
+            expect(tooltip.value('Cost')).toBe('$40')
+            expect(tooltip.swatchColors()).toEqual(['rgb(255, 0, 0)', 'rgb(0, 255, 0)'])
+            expect(tooltip.total()).toBe('$140')
+        })
+
+        it('returns undefined total when no total row is shown', () => {
+            renderTooltip({})
+            expect(createDefaultTooltipAccessor(document.body).total()).toBeUndefined()
         })
     })
 })
