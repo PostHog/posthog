@@ -33,6 +33,7 @@ from posthog.schema import (
     InCohortVia,
     InsightActorsQueryOptionsResponse,
     IntervalType,
+    MetricSummary,
     MultipleBreakdownOptions,
     MultipleBreakdownType,
     QueryTiming,
@@ -126,11 +127,14 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         query = convert_active_user_math_based_on_interval(query)
 
         # The Metric display's change pill compares the current period to the previous one, but the
-        # display has no compare toggle — so always compute the previous period (unless the date range
-        # is all-time, where there's no previous period to compare against).
+        # display has no compare toggle — so compute the previous period whenever the pill needs it.
+        # Skip it when the pill is hidden, when the summary is "latest" (which compares first→last within
+        # the window, not period-over-period), or for an all-time range (no previous period exists).
         if (
             query.trendsFilter
             and query.trendsFilter.display == ChartDisplayType.METRIC
+            and query.trendsFilter.metricShowChange is not False
+            and query.trendsFilter.metricSummary != MetricSummary.LATEST
             and not (query.dateRange and query.dateRange.date_from == "all")
         ):
             if query.compareFilter is None:

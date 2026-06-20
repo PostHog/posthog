@@ -9,6 +9,7 @@ import {
     getMetricChangeTooltip,
     type MetricSeriesSummary,
     MetricSummary,
+    selectCurrentSeries,
     selectPreviousSeriesSummary,
 } from './Metric.utils'
 
@@ -190,6 +191,27 @@ describe('selectPreviousSeriesSummary', () => {
     })
 })
 
+describe('selectCurrentSeries', () => {
+    const current = { count: 600, data: [100, 200, 300], compare_label: 'current' }
+    const previous = { count: 300, data: [50, 100, 150], compare_label: 'previous' }
+    const unlabelled = { count: 600, data: [100, 200, 300] }
+
+    const cases: {
+        name: string
+        results: { count: number; data: number[]; compare_label?: string }[] | undefined
+        expected: { count: number; data: number[]; compare_label?: string } | undefined
+    }[] = [
+        { name: 'undefined results → undefined', results: undefined, expected: undefined },
+        { name: 'single unlabelled series (no comparison) → that series', results: [unlabelled], expected: unlabelled },
+        { name: 'picks the current-labelled series', results: [current, previous], expected: current },
+        { name: 'matches by compare_label, not array position', results: [previous, current], expected: current },
+    ]
+
+    it.each(cases)('$name', ({ results, expected }) => {
+        expect(selectCurrentSeries(results)).toEqual(expected)
+    })
+})
+
 describe('getMetricChangeTooltip', () => {
     const firstLast = (noun: string): string =>
         `Comparing the first ${noun}'s value to the most recent ${noun}'s value.`
@@ -242,6 +264,27 @@ describe('getMetricChangeTooltip', () => {
             hasComparison: false,
             interval: 'month',
             expected: firstLast('month'),
+        },
+        {
+            name: 'second interval reads "second"',
+            summary: 'latest',
+            hasComparison: false,
+            interval: 'second',
+            expected: firstLast('second'),
+        },
+        {
+            name: 'minute interval reads "minute"',
+            summary: 'latest',
+            hasComparison: false,
+            interval: 'minute',
+            expected: firstLast('minute'),
+        },
+        {
+            name: 'weekly interval reads "week"',
+            summary: 'latest',
+            hasComparison: false,
+            interval: 'week',
+            expected: firstLast('week'),
         },
         {
             name: 'missing interval falls back to "day"',

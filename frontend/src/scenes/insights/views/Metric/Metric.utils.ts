@@ -80,6 +80,15 @@ export function selectPreviousSeriesSummary(
     return previous ? { total: previous.count, data: previous.data } : undefined
 }
 
+// The current period from the results. Metric always fetches the previous period too, so the results hold
+// both series — pick the current one by `compare_label` rather than position (which the backend doesn't
+// guarantee), falling back to the first series when there's no comparison.
+export function selectCurrentSeries<T extends { compare_label?: string | null }>(
+    results: readonly T[] | undefined
+): T | undefined {
+    return results?.find((series) => series.compare_label !== 'previous') ?? results?.[0]
+}
+
 // The change pill, matched to the chosen summary:
 //  - `total`/`average` with a comparison period → this period's total/average vs the previous period's.
 //  - `latest`, or `total`/`average` without a comparison period → first → last of the current series.
@@ -96,26 +105,17 @@ export function computeMetricSummaryChange(
     return computeMetricChange(current.data)
 }
 
-// The first→last fallback compares the first interval bucket to the last, so the noun tracks the interval.
-const INTERVAL_NOUN: Record<IntervalType, string> = {
-    second: 'second',
-    minute: 'minute',
-    hour: 'hour',
-    day: 'day',
-    week: 'week',
-    month: 'month',
-}
-
 // What the change pill compares, matched to the chosen summary and whether a comparison period is present.
 // Mirrors computeMetricSummaryChange: total/average compare against the previous period when one is present,
-// otherwise (and always for latest) it's the within-period first→last change.
+// otherwise (and always for latest) it's the within-period first→last change. The fallback noun is the
+// interval itself (each IntervalType value is already its own noun), defaulting to "day".
 export function getMetricChangeTooltip(
     summary: MetricSummary,
     hasComparison: boolean,
     interval: IntervalType | null | undefined
 ): string {
     if (!hasComparison || summary === 'latest') {
-        const noun = INTERVAL_NOUN[interval ?? 'day']
+        const noun = interval ?? 'day'
         return `Comparing the first ${noun}'s value to the most recent ${noun}'s value.`
     }
     return summary === 'total'

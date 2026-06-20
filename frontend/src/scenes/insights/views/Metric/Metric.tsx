@@ -24,6 +24,7 @@ import {
     METRIC_SHOW_CHANGE_DEFAULT,
     METRIC_SUMMARY_DEFAULT,
     METRIC_SUMMARY_LABELS,
+    selectCurrentSeries,
     selectPreviousSeriesSummary,
 } from './Metric.utils'
 
@@ -38,10 +39,8 @@ export function Metric({ inCardView }: ChartParams): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
     const theme = useChartTheme()
 
-    // Metric always fetches the previous period, so the results hold both series — pick the current one
-    // by label rather than position.
     const results = insightData?.result as TrendResult[] | undefined
-    const resultSeries = results?.find((series) => series.compare_label !== 'previous') ?? results?.[0]
+    const resultSeries = selectCurrentSeries(results)
 
     // `count` is typed as a number but can be absent at runtime, which would render a blank tile.
     if (!resultSeries || resultSeries.count == null) {

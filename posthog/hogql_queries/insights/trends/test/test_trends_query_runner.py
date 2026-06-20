@@ -46,6 +46,7 @@ from posthog.schema import (
     InCohortVia,
     IntervalType,
     MathGroupTypeIndex,
+    MetricSummary,
     MultipleBreakdownType,
     PersonPropertyFilter,
     PropertyMathType,
@@ -714,6 +715,36 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.DAY,
             [EventsNode(event="$pageview")],
             TrendsFilter(display=ChartDisplayType.METRIC),
+        )
+
+        self.assertEqual(1, len(response.results))
+        self.assertNotIn("compare_label", response.results[0])
+
+    def test_metric_display_does_not_force_compare_when_change_pill_hidden(self):
+        self._create_test_events()
+
+        # The previous period is only consumed by the change pill, so skip it when the pill is hidden.
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.METRIC, metricShowChange=False),
+        )
+
+        self.assertEqual(1, len(response.results))
+        self.assertNotIn("compare_label", response.results[0])
+
+    def test_metric_display_does_not_force_compare_for_latest_summary(self):
+        self._create_test_events()
+
+        # The "latest" summary compares first→last within the window, so it never needs the previous period.
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.METRIC, metricSummary=MetricSummary.LATEST),
         )
 
         self.assertEqual(1, len(response.results))

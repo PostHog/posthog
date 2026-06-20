@@ -163,6 +163,9 @@ function MetricCardInner({
         fallbackChangePercent,
         formatChange,
     })
+    // `changeTooltip` describes the resting comparison; while the pill shows the hovered point-vs-previous
+    // delta it no longer applies, so hide it rather than show contradicting text.
+    const activeChangeTooltip = usePrevPointHover ? undefined : changeTooltip
     const headlineDisplay = sparklineData ? formatValue(animatedValue) : formatValue(restingValue)
     const resolvedSubtitle =
         subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labels?.[activeIndex])
@@ -191,7 +194,7 @@ function MetricCardInner({
                             label={headerDelta.label}
                             colors={pillColors}
                             size={changeSize}
-                            tooltip={changeTooltip}
+                            tooltip={activeChangeTooltip}
                         />
                     )}
                 </div>
@@ -205,7 +208,7 @@ function MetricCardInner({
                         label={delta.label}
                         colors={pillColors}
                         size={changeSize}
-                        tooltip={changeTooltip}
+                        tooltip={activeChangeTooltip}
                     />
                 </div>
             ) : (
