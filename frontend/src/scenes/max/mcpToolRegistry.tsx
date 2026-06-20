@@ -32,6 +32,7 @@ import { IconRobot } from 'lib/lemon-ui/icons'
 import type { McpToolCallMessage } from './maxTypes'
 import { CreateInsightWidget } from './messages/adapters/CreateInsightWidget'
 import { CreateNotebookWidget } from './messages/adapters/CreateNotebookWidget'
+import { EditDiffRenderer } from './messages/adapters/EditDiffRenderer'
 import { ErrorTrackingWidget } from './messages/adapters/ErrorTrackingWidget'
 import { QueryWidget } from './messages/adapters/QueryWidget'
 import { SearchSessionRecordingsWidget } from './messages/adapters/SearchSessionRecordingsWidget'
@@ -175,11 +176,11 @@ for (const { key, displayName, icon } of QUERY_WRAPPER_TOOLS) {
 // Keyed by the stable SDK tool name (reachable via `_meta.claudeCode.toolName`). All reuse the
 // fallback card — the goal is a friendly title + icon, not a bespoke widget. The fallback header
 // already prefers Twig's rich `title` (e.g. "Edit `foo.ts`"), so these supply the icon and a stable
-// `displayName` for any frame whose title is empty. `MultiEdit`/`Skill` are registered speculatively
-// (not enumerated in Twig's tools.ts) — zero cost if never emitted.
+// `displayName` for any frame whose title is empty. `Skill` is registered speculatively (not
+// enumerated in Twig's tools.ts) — zero cost if never emitted. File-editing built-ins are split out
+// below into a dedicated diff renderer.
 const BUILTIN_TOOLS: { keys: string[]; displayName: string; icon: JSX.Element }[] = [
     { keys: ['Read', 'NotebookRead'], displayName: 'Read', icon: <IconEye /> },
-    { keys: ['Edit', 'Write', 'NotebookEdit', 'MultiEdit'], displayName: 'Edit', icon: <IconPencil /> },
     { keys: ['Grep', 'Glob', 'LS'], displayName: 'Search', icon: <IconSearch /> },
     { keys: ['Bash', 'BashOutput', 'KillShell'], displayName: 'Terminal', icon: <IconTerminal /> },
     { keys: ['WebSearch', 'WebFetch'], displayName: 'Web', icon: <IconGlobe /> },
@@ -197,6 +198,12 @@ for (const { keys, displayName, icon } of BUILTIN_TOOLS) {
     for (const key of keys) {
         mcpToolRegistry.register({ key, displayName, icon, Renderer: FallbackMcpToolRenderer })
     }
+}
+
+// File-editing built-ins render an inline visual diff when the agent attaches `type: "diff"` content
+// blocks; EditDiffRenderer falls back to the same fallback card when none are present.
+for (const key of ['Edit', 'Write', 'NotebookEdit', 'MultiEdit']) {
+    mcpToolRegistry.register({ key, displayName: 'Edit', icon: <IconPencil />, Renderer: EditDiffRenderer })
 }
 
 // AskUserQuestion (the agent asking the user to pick between options) gets a bespoke renderer that
