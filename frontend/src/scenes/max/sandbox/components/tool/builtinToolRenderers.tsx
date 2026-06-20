@@ -1,8 +1,11 @@
+import clsx from 'clsx'
 import { memo } from 'react'
 
 import { IconDocument, IconGlobe, IconSearch, IconTerminal, IconWrench } from '@posthog/icons'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
+// IconRobot is not exported from @posthog/icons — it lives only in the legacy lib icon set.
+import { IconRobot } from 'lib/lemon-ui/icons'
 
 import { languageFromPath } from '../../../toolDiffContent'
 import { getPostHogExecDisplay } from '../../posthogExecDisplay'
@@ -123,6 +126,45 @@ const SearchToolRenderer = memo(function SearchToolRenderer(props: SandboxToolRe
     )
 })
 
+/**
+ * Task / Agent — a delegated subagent run. The header reads `{subagent_type}: {description}`, and the
+ * body carries the prompt the subagent was handed plus its returned output. The description lives only
+ * in the title (not echoed as a subtitle or input dump), so the card no longer duplicates it.
+ */
+const SubagentToolRenderer = memo(function SubagentToolRenderer(props: SandboxToolRendererProps): JSX.Element {
+    const { message, icon, turnComplete, turnCancelled } = props
+    const subagentType = asString(message.rawInput.subagent_type)
+    const description = asString(message.rawInput.description) || message.title || ''
+    const prompt = asString(message.rawInput.prompt)
+    const output = stripCodeFences(getContentText(message.content))
+
+    const title =
+        subagentType && description ? `${subagentType}: ${description}` : subagentType || description || 'Subagent'
+
+    const body =
+        prompt || output ? (
+            <div className="flex flex-col gap-2 min-w-0">
+                {prompt && <ToolOutput>{prompt}</ToolOutput>}
+                {output && (
+                    <div className={clsx('min-w-0', prompt && 'border-t border-border-secondary pt-2')}>
+                        <ToolOutput>{output}</ToolOutput>
+                    </div>
+                )}
+            </div>
+        ) : undefined
+
+    return (
+        <SandboxToolActivity
+            message={message}
+            icon={icon ?? <IconRobot />}
+            title={title}
+            body={body}
+            turnComplete={turnComplete}
+            turnCancelled={turnCancelled}
+        />
+    )
+})
+
 /** WebFetch / WebSearch — linked URL (or query) on line 2, fetched content in the body. */
 const FetchToolRenderer = memo(function FetchToolRenderer(props: SandboxToolRendererProps): JSX.Element {
     const { message, icon, turnComplete, turnCancelled } = props
@@ -206,6 +248,9 @@ export const BuiltinToolRenderer = memo(function BuiltinToolRenderer(props: Sand
         case 'Glob':
         case 'LS':
             return <SearchToolRenderer {...props} />
+        case 'Task':
+        case 'Agent':
+            return <SubagentToolRenderer {...props} />
         case 'WebFetch':
         case 'WebSearch':
             return <FetchToolRenderer {...props} />

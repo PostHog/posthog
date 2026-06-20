@@ -96,6 +96,29 @@ describe('builtin tool renderers', () => {
         expect(screen.getByText('3 results')).toBeInTheDocument()
     })
 
+    it('titles a subagent "type: description" and shows its prompt + output on expand', () => {
+        render(
+            <BuiltinToolRenderer
+                isLastInGroup
+                message={makeMessage({
+                    claudeToolName: 'Task',
+                    resolvedKey: 'Task',
+                    title: 'Review the diff',
+                    rawInput: {
+                        subagent_type: 'code-reviewer',
+                        description: 'Review the diff',
+                        prompt: 'Please review the recent changes',
+                    },
+                    content: [textBlock('Looks good to me')],
+                })}
+            />
+        )
+        expect(screen.getByText('code-reviewer: Review the diff')).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button'))
+        expect(screen.getByText('Please review the recent changes')).toBeInTheDocument()
+        expect(screen.getByText('Looks good to me')).toBeInTheDocument()
+    })
+
     it.each([
         ['tools', 'List tools', '__posthog_exec_tools__'],
         ['info execute-sql', 'Read execute-sql', '__posthog_exec_info__'],

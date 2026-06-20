@@ -58,7 +58,7 @@ export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(
             message={message}
             icon={icon ?? <IconWrench />}
             title={title}
-            subtitle={preview ? <span className="font-mono text-link">{preview}</span> : undefined}
+            subtitle={preview ? <span className="font-mono">{preview}</span> : undefined}
             body={body}
             turnComplete={turnComplete}
             turnCancelled={turnCancelled}

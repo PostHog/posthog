@@ -142,20 +142,20 @@ export function ActivityHeader({
                 </div>
             )}
             <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
-                <div className="min-w-0">
-                    {children ? (
-                        <div className="flex flex-col min-w-0">
-                            {/* Status icon rides the first line with the title; the second line is the subtitle. */}
-                            <div className="flex items-center gap-1 min-w-0">
-                                <div className="min-w-0">{titleNode}</div>
-                                {statusIcon}
-                            </div>
-                            <div className="text-muted truncate min-w-0">{children}</div>
+                {children ? (
+                    // The title/subtitle column grows to fill the row, so the subtitle (second line) gets the
+                    // full available width before it truncates and the chevron stays pinned to the right.
+                    <div className="flex flex-col flex-1 min-w-0">
+                        {/* Status icon rides the first line with the title; the second line is the subtitle. */}
+                        <div className="flex items-center gap-1 min-w-0">
+                            <div className="min-w-0">{titleNode}</div>
+                            {statusIcon}
                         </div>
-                    ) : (
-                        titleNode
-                    )}
-                </div>
+                        <div className="text-muted truncate min-w-0">{children}</div>
+                    </div>
+                ) : (
+                    <div className="min-w-0">{titleNode}</div>
+                )}
                 {hasDetails && (
                     <div className="relative shrink-0 flex flex-col items-start justify-center h-full">
                         <button className="inline-flex items-center hover:opacity-70 transition-opacity shrink-0 cursor-pointer">
