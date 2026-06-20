@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    SignalsReportsBulkStateCreateBody,
     SignalsReportsListQueryParams,
     SignalsReportsRetrieveParams,
     SignalsReportsStateCreateBody,
@@ -30,6 +31,41 @@ import {
 } from '@/generated/signals/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const InboxReportsBulkSetStateSchema = SignalsReportsBulkStateCreateBody
+
+const inboxReportsBulkSetState = (): ToolBase<
+    typeof InboxReportsBulkSetStateSchema,
+    Schemas.SignalReportBulkStateResponse
+> => ({
+    name: 'inbox-reports-bulk-set-state',
+    schema: InboxReportsBulkSetStateSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportsBulkSetStateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.state !== undefined) {
+            body['state'] = params.state
+        }
+        if (params.dismissal_reason !== undefined) {
+            body['dismissal_reason'] = params.dismissal_reason
+        }
+        if (params.dismissal_note !== undefined) {
+            body['dismissal_note'] = params.dismissal_note
+        }
+        if (params.snooze_for !== undefined) {
+            body['snooze_for'] = params.snooze_for
+        }
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        const result = await context.api.request<Schemas.SignalReportBulkStateResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/bulk-state/`,
+            body,
+        })
+        return result
+    },
+})
 
 const InboxReportsListSchema = SignalsReportsListQueryParams
 
@@ -590,6 +626,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
