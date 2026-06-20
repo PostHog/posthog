@@ -1816,6 +1816,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'login-sessions',
+                flag: 'WEB_SESSION_MANAGEMENT',
                 title: 'Web sessions',
                 description: 'Devices and browsers currently signed in to your PostHog account.',
                 component: <LoginSessions />,

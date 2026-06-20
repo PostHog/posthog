@@ -18,7 +18,8 @@ class Session(AbstractBaseSession):
     engine then logs nobody out, since existing cookies decode unchanged.
     """
 
-    # Plain integer reference, not a FK: keeps a constraint off this every-request-written table.
+    # Plain BigIntegerField, not a ForeignKey to posthog_user: avoids a per-write FK constraint
+    # check against the user table on this every-request-written table (performance).
     user_id = models.BigIntegerField(null=True)
     last_activity = models.DateTimeField(null=True)
     ip = models.GenericIPAddressField(null=True)
