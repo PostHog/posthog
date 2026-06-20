@@ -897,6 +897,16 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.created_by_id == self.user.id
         assert config.enabled_by_id == self.user.id
 
+    def test_create_stamps_scout_category_on_skill(self) -> None:
+        skill = self._make_skill("signals-scout-fresh")
+        assert skill.category == ""
+
+        response = self.client.post(self._list_url(), data={"skill_name": "signals-scout-fresh"}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        skill.refresh_from_db()
+        assert skill.category == "scout"
+
     def test_create_disabled_config_does_not_stamp_enabled_by(self) -> None:
         self._make_skill("signals-scout-fresh")
 

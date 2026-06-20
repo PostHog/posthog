@@ -316,16 +316,22 @@ export function createScales(
         /** Applied to the primary y-axis only — goal lines (`{ include }`) render against the
          *  primary axis, so secondary axes keep their own data-derived scale. */
         valueDomain?: ValueDomain
+        /** Per-axis overrides keyed by axis id. When an axis is listed its `scaleType` and
+         *  `position` win; otherwise it falls back to `options.scaleType` and the alternating-side
+         *  default from {@link orderedAxisPositions}. */
+        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log' }[]
     } = {}
 ): ScaleSet {
     const x = createXScale(labels, dimensions)
 
     const positions = orderedAxisPositions(series)
     const hasMultipleAxes = positions.length > 1
+    const axisOverrides = new Map((options.axes ?? []).map((a) => [a.id, a]))
 
     if (!hasMultipleAxes) {
+        const soleAxisId = positions[0]?.axisId ?? DEFAULT_Y_AXIS_ID
         const y = createYScale(series, dimensions, {
-            scaleType: options.scaleType,
+            scaleType: axisOverrides.get(soleAxisId)?.scaleType ?? options.scaleType,
             percentStack: options.percentStack,
             valueDomain: options.valueDomain,
         })
@@ -335,12 +341,13 @@ export function createScales(
     const byAxis = groupVisibleSeriesByAxis(series)
     const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
     positions.forEach(({ axisId, position }, axisIndex) => {
+        const override = axisOverrides.get(axisId)
         const scale = createYScale(byAxis.get(axisId) ?? [], dimensions, {
-            scaleType: options.scaleType,
+            scaleType: override?.scaleType ?? options.scaleType,
             percentStack: options.percentStack,
             valueDomain: axisIndex === 0 ? options.valueDomain : undefined,
         })
-        yAxes[axisId] = { scale, position }
+        yAxes[axisId] = { scale, position: override?.position ?? position }
     })
 
     const primaryAxis = yAxes[DEFAULT_Y_AXIS_ID] ?? yAxes[positions[0].axisId]

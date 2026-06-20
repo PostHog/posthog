@@ -1501,6 +1501,12 @@ class CodePrSnapshot(TeamScopedRootMixin):
     unresolved_threads = models.PositiveIntegerField(default=0)
     mergeable = models.BooleanField(null=True, blank=True)
     author_login = models.CharField(max_length=255, null=True, blank=True)
+    head_branch = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="PR head (source) branch, used to group follow-up task runs under this PR's workstream",
+    )
     requested_reviewer_logins = models.JSONField(default=list, help_text="GitHub logins requested as reviewers")
     pr_updated_at = models.DateTimeField(null=True, blank=True, help_text="PR's last-updated time on GitHub")
     fingerprint = models.CharField(max_length=64, blank=True, default="", help_text="Change-detection hash")

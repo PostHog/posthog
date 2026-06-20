@@ -12,7 +12,11 @@ from __future__ import annotations
 import structlog
 
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, canonical_skill_names
+from products.signals.backend.scout_harness.lazy_seed import (
+    HARNESS_SEEDED_BY,
+    SCOUT_SKILL_CATEGORY,
+    canonical_skill_names,
+)
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.skills.backend.models.skills import LLMSkill
@@ -25,6 +29,23 @@ logger = structlog.get_logger(__name__)
 # persisted (a large enough int would otherwise raise a DB error and abort the coordinator tick).
 MIN_RUN_INTERVAL_MINUTES = 10
 MAX_RUN_INTERVAL_MINUTES = 43200
+
+
+def ensure_scout_category(team_id: int, skill_name: str | None = None) -> None:
+    """Stamp `LLMSkill.category="scout"` on the team's scout skill rows.
+
+    `category` is server-owned, so this is how custom scouts authored via the normal skills API
+    get categorized — canonical scouts are already stamped at seed time (`lazy_seed`). Without it
+    a freshly authored `signals-scout-*` skill would schedule but stay off the skills UI's Scouts
+    tab. Idempotent (skips already-stamped rows). Pass `skill_name` to stamp one scout (e.g. on
+    explicit registration), or omit to reconcile every `signals-scout-*` row for the team.
+    """
+    rows = LLMSkill.objects.filter(team_id=team_id, deleted=False).exclude(category=SCOUT_SKILL_CATEGORY)
+    if skill_name is not None:
+        rows = rows.filter(name=skill_name)
+    else:
+        rows = rows.filter(name__startswith=SIGNALS_SCOUT_SKILL_PREFIX)
+    rows.update(category=SCOUT_SKILL_CATEGORY)
 
 
 def enabled_scout_count(team_id: int, *, exclude_skill: str | None = None) -> int:
@@ -113,6 +134,9 @@ def register_missing_configs(team_id: int, seed_config_layers: list[dict] | None
         ).values_list("name", "metadata")
     )
     skill_names = {name for name, _ in rows}
+    # Keep the skills UI's Scouts tab in sync: stamp `category="scout"` on any scout skill rows
+    # not yet categorized (custom scouts authored via the skills API). Runs every reconcile tick.
+    ensure_scout_category(team_id)
     # The allowlist governs the canonical fleet only; custom (hand-authored or duplicated) scouts
     # always auto-enable. A scout is canonical iff it BOTH carries the harness `seeded_by` tag AND
     # matches an on-disk canonical name — same dual check as `views._scout_origin`. The tag alone

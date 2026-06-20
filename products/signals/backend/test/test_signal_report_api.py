@@ -1170,3 +1170,50 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == SignalReport.Status.POTENTIAL
+
+    @parameterized.expand(
+        [
+            # prior status before archiving, expected status after restore
+            ("ready", SignalReport.Status.READY, SignalReport.Status.READY),
+            ("pending_input", SignalReport.Status.PENDING_INPUT, SignalReport.Status.PENDING_INPUT),
+            ("resolved", SignalReport.Status.RESOLVED, SignalReport.Status.RESOLVED),
+            ("failed", SignalReport.Status.FAILED, SignalReport.Status.FAILED),
+            # In-flight / pre-research states have no live workflow, so restore re-enters the pipeline.
+            ("potential", SignalReport.Status.POTENTIAL, SignalReport.Status.POTENTIAL),
+            ("candidate", SignalReport.Status.CANDIDATE, SignalReport.Status.POTENTIAL),
+            ("in_progress", SignalReport.Status.IN_PROGRESS, SignalReport.Status.POTENTIAL),
+        ]
+    )
+    def test_restore_returns_report_to_pre_suppression_status(self, _name, prior_status, expected_restored_status):
+        report = SignalReport.objects.create(team=self.team, status=prior_status, title="t", summary="s")
+
+        suppress = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
+        )
+        assert suppress.status_code == status.HTTP_200_OK, suppress.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert report.status_before_suppression == prior_status
+
+        restore = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+        assert restore.status_code == status.HTTP_200_OK, restore.json()
+        report.refresh_from_db()
+        assert report.status == expected_restored_status
+        assert report.status_before_suppression is None
+
+    def test_restore_preserves_title_and_summary(self):
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Original title", summary="Original summary"
+        )
+        self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
+        )
+        self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        assert report.title == "Original title"
+        assert report.summary == "Original summary"

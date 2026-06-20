@@ -15,6 +15,8 @@ export interface InboxReportCardProps {
     report: SignalReport
     tabKey: InboxFlatListTabKey
     onArchive: (reason: DismissalReasonValue, note: string) => void
+    /** Restore a suppressed report back to the inbox. Only wired on the Archived tab. */
+    onRestore?: () => void
     /** Rendered as an attached row inside a shared bordered container (vs. a freestanding card). */
     attached?: boolean
 }
@@ -57,7 +59,7 @@ function ActiveFiltersBanner(): JSX.Element | null {
 
 function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
     const { reports, count, hasMore, reportsResponseLoading, isLoaded } = useValues(reportListLogic)
-    const { ensureLoaded, loadMore, archiveReport, refresh } = useActions(reportListLogic)
+    const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
     const sentinelRef = useRef<HTMLDivElement>(null)
 
     // Read fresh state at intersection time via refs so the observer is created once and not
@@ -118,6 +120,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                                 report={report}
                                 tabKey={tabKey}
                                 onArchive={(reason, note) => archiveReport(report.id, reason, note)}
+                                onRestore={() => restoreReport(report.id)}
                             />
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}

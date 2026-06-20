@@ -21291,7 +21291,12 @@
                 "Ahrefs",
                 "Lightfield",
                 "Appstack",
-                "Custom"
+                "Razorpay",
+                "Neon",
+                "NewRelic",
+                "Custom",
+                "Tile38",
+                "Chatwoot"
             ],
             "type": "string"
         },

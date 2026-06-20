@@ -88,6 +88,7 @@ from products.data_warehouse.backend.data_load.service import (
     ensure_cdc_slot_cleanup_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    is_xmin_enabled_for_team,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
@@ -489,7 +490,7 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         choices=ExternalDataSchema.SyncType.choices,
-        help_text="Requested sync mode for the schema.",
+        help_text="Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).",
     )
     incremental_field = serializers.CharField(
         required=False,
@@ -663,6 +664,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "Ignored on update."
         ),
     )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether this synced source is also live-queryable via direct connection. "
+            "Defaults to true for new sources; ignored for pure direct-query sources."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -679,6 +687,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "prefix",
             "description",
             "access_method",
+            "direct_query_enabled",
             "engine",
             "last_run_at",
             "schemas",
@@ -1077,6 +1086,14 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         default=ExternalDataSource.CreatedVia.API,
         help_text="Where the request came from",
     )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether a synced source should also be live-queryable via direct connection. "
+            "Defaults to true; ignored for pure direct-query sources."
+        ),
+    )
 
 
 class SourceSetupSerializer(serializers.Serializer):
@@ -1105,6 +1122,14 @@ class SourceSetupSerializer(serializers.Serializer):
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
+    )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether a synced source should also be live-queryable via direct connection. "
+            "Defaults to true; ignored for pure direct-query sources."
+        ),
     )
 
 
@@ -1334,6 +1359,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
         )
 
     def _create_external_data_source(
@@ -1346,6 +1372,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description: str | None,
         access_method: str,
         created_via: str,
+        direct_query_enabled: bool = True,
         skip_credential_validation: bool = False,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
@@ -1429,6 +1456,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             prefix=prefix,
             description=description,
             access_method=access_method,
+            direct_query_enabled=direct_query_enabled,
         )
 
         # CDC: gate per-source-type adapter availability up front so downstream blocks
@@ -2235,6 +2263,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
         cdc_enabled = is_cdc_enabled_for_team(self.team)
+        xmin_enabled = is_xmin_enabled_for_team(self.team)
+        # xmin is Postgres-only — gate on the source type so the capability never leaks to another SQL source.
+        is_postgres = source_type_model == ExternalDataSourceType.POSTGRES
         data = [
             {
                 "table": schema.name,
@@ -2244,6 +2275,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,
+                "xmin_available": schema.supports_xmin if (is_postgres and xmin_enabled) else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
@@ -2341,6 +2373,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             created_via=ExternalDataSource.CreatedVia.MCP,
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
             skip_credential_validation=True,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.

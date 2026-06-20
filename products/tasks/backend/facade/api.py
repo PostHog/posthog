@@ -1853,6 +1853,7 @@ def bootstrap_task_run(
     reasoning_effort = validated_data.get("reasoning_effort")
     github_user_token = validated_data.get("github_user_token")
     initial_permission_mode = validated_data.get("initial_permission_mode")
+    home_quick_action = validated_data.get("home_quick_action")
     if run_source == RunSource.SIGNAL_REPORT:
         pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -1870,6 +1871,7 @@ def bootstrap_task_run(
         "provider": provider,
         "model": model,
         "reasoning_effort": reasoning_effort,
+        "home_quick_action": home_quick_action,
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -3099,6 +3101,7 @@ def _code_home_workstream_to_dto(ws: CodeWorkstream) -> contracts.CodeHomeWorkst
                 status=t.get("status"),
                 is_generating=False,
                 needs_permission=False,
+                quick_action=t.get("quick_action"),
             )
             for t in (ws.tasks or [])
         ],

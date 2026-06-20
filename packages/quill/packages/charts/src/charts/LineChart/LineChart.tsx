@@ -79,6 +79,7 @@ function LineChartInner<Meta = unknown>({
         showGrid = false,
         showAxisLines = false,
         valueDomain,
+        yAxes: yAxisRenderConfigs,
     } = config ?? {}
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
@@ -127,6 +128,7 @@ function LineChartInner<Meta = unknown>({
                 scaleType: yScaleType,
                 percentStack: percentStackView,
                 valueDomain,
+                axes: yAxisRenderConfigs,
             })
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
@@ -149,7 +151,7 @@ function LineChartInner<Meta = unknown>({
                 _private: lineChartPrivate,
             }
         },
-        [yScaleType, percentStackView, stackedData, valueDomain]
+        [yScaleType, percentStackView, stackedData, valueDomain, yAxisRenderConfigs]
     )
 
     const drawStatic = useCallback(

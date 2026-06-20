@@ -72,6 +72,7 @@ def _serialize_workstream(ws: CodeHomeWorkstreamDTO) -> dict:
                 "status": t.status,
                 "isGenerating": t.is_generating,
                 "needsPermission": t.needs_permission,
+                "quickAction": t.quick_action,
             }
             for t in ws.tasks
         ],

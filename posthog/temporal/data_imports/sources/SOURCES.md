@@ -296,6 +296,7 @@ doesn't conflict with concurrent PRs.
 - chameleon
 - chargedesk
 - chargify
+- chatwoot
 - chift
 - chorus
 - churnkey
@@ -488,7 +489,9 @@ doesn't conflict with concurrent PRs.
 - nasa
 - navan
 - nebius_ai
+- neon
 - netsuite
+- new_relic
 - new_york_times
 - news_api
 - newsdata
@@ -562,6 +565,7 @@ doesn't conflict with concurrent PRs.
 - qualtrics
 - quickbooks
 - railz
+- razorpay
 - rd_station_marketing
 - recreation
 - recruitee
@@ -646,6 +650,7 @@ doesn't conflict with concurrent PRs.
 - ticketmaster
 - tickettailor
 - ticktick
+- tile38
 - timely
 - tinyemail
 - tmdb

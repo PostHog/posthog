@@ -192,6 +192,20 @@ export const Empty: Story = {
     ),
 }
 
+// Empty + paginated — the pager is suppressed when there are no rows, so only
+// the empty state shows (no "0–0 of 0" pager).
+export const EmptyPaginated: Story = {
+    render: () => (
+        <DataTable
+            columns={columns}
+            data={[]}
+            pageSize={10}
+            pageSizeOptions={[10, 25, 50]}
+            className="max-w-2xl rounded-md border border-[var(--border)]"
+        />
+    ),
+}
+
 // Override the empty slot with app-specific copy and actions.
 export const EmptyCustom: Story = {
     render: () => (

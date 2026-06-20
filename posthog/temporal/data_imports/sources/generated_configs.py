@@ -591,6 +591,11 @@ class ChartMogulSourceConfig(config.Config):
 
 
 @config.config
+class ChatwootSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class CheckoutComSourceConfig(config.Config):
     client_id: str
     client_secret: str
@@ -1961,7 +1966,17 @@ class NebiusAISourceConfig(config.Config):
 
 
 @config.config
+class NeonSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class NetSuiteSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class NewRelicSourceConfig(config.Config):
     pass
 
 
@@ -2464,6 +2479,11 @@ class RampSourceConfig(config.Config):
     client_id: str
     client_secret: str
     environment: Literal["production", "sandbox"] = config.value(default="production")
+
+
+@config.config
+class RazorpaySourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3062,6 +3082,11 @@ class TikTokAdsSourceConfig(config.Config):
 
 
 @config.config
+class Tile38SourceConfig(config.Config):
+    pass
+
+
+@config.config
 class TimelySourceConfig(config.Config):
     pass
 
@@ -3539,6 +3564,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CHARGEDESK: ChargedeskSourceConfig,
         ExternalDataSourceType.CHARGIFY: ChargifySourceConfig,
         ExternalDataSourceType.CHARTMOGUL: ChartMogulSourceConfig,
+        ExternalDataSourceType.CHATWOOT: ChatwootSourceConfig,
         ExternalDataSourceType.CHECKOUTCOM: CheckoutComSourceConfig,
         ExternalDataSourceType.CHIFT: ChiftSourceConfig,
         ExternalDataSourceType.CHORUS: ChorusSourceConfig,
@@ -3796,7 +3822,9 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NASA: NasaSourceConfig,
         ExternalDataSourceType.NAVAN: NavanSourceConfig,
         ExternalDataSourceType.NEBIUSAI: NebiusAISourceConfig,
+        ExternalDataSourceType.NEON: NeonSourceConfig,
         ExternalDataSourceType.NETSUITE: NetSuiteSourceConfig,
+        ExternalDataSourceType.NEWRELIC: NewRelicSourceConfig,
         ExternalDataSourceType.NEWYORKTIMES: NewYorkTimesSourceConfig,
         ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
         ExternalDataSourceType.NEWSDATA: NewsDataSourceConfig,
@@ -3893,6 +3921,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.RKICOVID: RKICovidSourceConfig,
         ExternalDataSourceType.RAILZ: RailzSourceConfig,
         ExternalDataSourceType.RAMP: RampSourceConfig,
+        ExternalDataSourceType.RAZORPAY: RazorpaySourceConfig,
         ExternalDataSourceType.RECHARGE: RechargeSourceConfig,
         ExternalDataSourceType.RECREATION: RecreationSourceConfig,
         ExternalDataSourceType.RECRUITEE: RecruiteeSourceConfig,
@@ -4003,6 +4032,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.TICKETTAILOR: TicketTailorSourceConfig,
         ExternalDataSourceType.TICKETMASTER: TicketmasterSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
+        ExternalDataSourceType.TILE38: Tile38SourceConfig,
         ExternalDataSourceType.TIMELY: TimelySourceConfig,
         ExternalDataSourceType.TINYEMAIL: TinyemailSourceConfig,
         ExternalDataSourceType.TODOIST: TodoistSourceConfig,

@@ -1,4 +1,5 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
@@ -31,7 +32,6 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
-from products.customer_analytics.backend.models.account import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
@@ -52,6 +52,11 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+
+if TYPE_CHECKING:
+    from products.customer_analytics.backend.models.account import Account
+else:
+    Account = apps.get_model("customer_analytics", "Account")
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 

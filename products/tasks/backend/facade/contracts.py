@@ -470,6 +470,7 @@ class CodeHomeWorkstreamTaskDTO:
     status: str | None
     is_generating: bool = False
     needs_permission: bool = False
+    quick_action: str | None = None
 
 
 @dataclass(frozen=True)
