@@ -10,14 +10,9 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
 import { SandboxFilePath } from '../../sandbox/components/tool/SandboxFilePath'
-import { SandboxToolRow } from '../../sandbox/components/tool/SandboxToolRow'
-import { ToolTitle } from '../../sandbox/components/tool/toolRowPrimitives'
-import { resolveToolRowChrome } from '../../sandbox/components/tool/toolRowShared'
+import { SandboxToolActivity } from '../../sandbox/components/tool/SandboxToolActivity'
 import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
 import { findAllDiffContent, getDiffStats, languageFromPath, type ToolCallDiffContent } from '../../toolDiffContent'
-
-// Plan files live under the agent's plan directory; their diffs are noisy, so collapse them by default.
-const PLAN_PATH_MARKER = 'claude/plans/'
 
 // A stripped-down, unified diff that reads cleanly embedded in a chat card — mirrors the look of the
 // sandbox agent's own diff UI (unified style, soft-wrapped, compact font, no editor chrome). Module-level
@@ -49,11 +44,9 @@ const DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
 }
 
 function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }): JSX.Element {
-    // Lazy-mount: only instantiate the Monaco diff editor once the card scrolls near the viewport. This
-    // bounds the number of live editors to what's on screen.
+    // Lazy-mount: only instantiate the Monaco diff editor once the card scrolls near the viewport.
     const { ref, inView } = useInView({ rootMargin: '500px', triggerOnce: true })
-    // Match the surrounding app theme — without this Monaco falls back to its default `vs` (white) theme,
-    // which looks broken on a dark card. Same wiring CodeEditorImpl uses.
+    // Match the surrounding app theme — without this Monaco falls back to its default `vs` (white) theme.
     const { isDarkModeOn } = useValues(themeLogic)
 
     return (
@@ -74,62 +67,43 @@ function DiffEditor({ diff, path }: { diff: ToolCallDiffContent; path?: string }
     )
 }
 
-/** +added / -removed mono stat chip for a diff (or aggregate). */
+/** +added / -removed mono stat chip for a diff. */
 function DiffStats({ added, removed }: { added: number; removed: number }): JSX.Element {
     return (
-        <span className="font-mono text-[13px] shrink-0">
+        <span className="font-mono text-xs shrink-0">
             <span className="text-success">+{added}</span> <span className="text-danger">-{removed}</span>
         </span>
     )
 }
 
 /**
- * Renderer for Edit / Write / MultiEdit / NotebookEdit. When the agent attached `type: "diff"` content
- * blocks (full-file old/new text) it shows the file path + line stats in the header and an inline visual
- * diff in the body; MultiEdit lists one diff per edit. Without diff blocks it degrades to the generic
- * card, so non-diff edits and not-yet-streamed content still render.
+ * Renderer for Edit / Write / MultiEdit / NotebookEdit. The header reads "Edited a file" / "Created a
+ * file" (or "Edited N files"); expanding the card reveals the filename, line stats, and an inline visual
+ * diff per file. Without `type: "diff"` content blocks it degrades to the generic card.
  */
 export function EditDiffRenderer(props: SandboxToolRendererProps): JSX.Element {
-    const { message, icon } = props
+    const { message, icon, turnComplete, turnCancelled } = props
     const diffs = findAllDiffContent(message.content)
 
     if (diffs.length === 0) {
         return <GenericMcpToolRenderer {...props} />
     }
 
-    const chrome = resolveToolRowChrome(props)
     const fallbackPath = typeof message.rawInput.file_path === 'string' ? message.rawInput.file_path : undefined
-    const primaryPath = diffs[0].path ?? fallbackPath
-    const isSingle = diffs.length === 1
+    const isCreate = diffs.length === 1 && diffs[0].oldText == null
+    const title = diffs.length > 1 ? `Edited ${diffs.length} files` : isCreate ? 'Created a file' : 'Edited a file'
 
-    const total = diffs.reduce(
-        (acc, diff) => {
-            const stats = getDiffStats(diff.oldText, diff.newText)
-            return { added: acc.added + stats.added, removed: acc.removed + stats.removed }
-        },
-        { added: 0, removed: 0 }
-    )
-
-    const header =
-        isSingle && primaryPath ? (
-            <>
-                <SandboxFilePath path={primaryPath} />
-                <DiffStats {...total} />
-            </>
-        ) : (
-            <>
-                <ToolTitle>{message.title || `Edit ${diffs.length} files`}</ToolTitle>
-                <DiffStats {...total} />
-            </>
-        )
-
-    const content = (
+    const body = (
         <div className="flex flex-col gap-3 w-full min-w-0">
             {diffs.map((diff, index) => {
                 const path = diff.path ?? fallbackPath
+                const stats = getDiffStats(diff.oldText, diff.newText)
                 return (
                     <div key={index} className="flex flex-col gap-1 w-full min-w-0">
-                        {!isSingle && path && <SandboxFilePath path={path} />}
+                        <div className="flex items-center gap-2 min-w-0">
+                            {path && <SandboxFilePath path={path} />}
+                            <DiffStats added={stats.added} removed={stats.removed} />
+                        </div>
                         <DiffEditor diff={diff} path={path} />
                     </div>
                 )
@@ -138,17 +112,13 @@ export function EditDiffRenderer(props: SandboxToolRendererProps): JSX.Element {
     )
 
     return (
-        <SandboxToolRow
+        <SandboxToolActivity
+            message={message}
             icon={icon ?? <IconPencil />}
-            isLoading={chrome.isLoading}
-            isFailed={chrome.isFailed}
-            wasCancelled={chrome.wasCancelled}
-            errorMessage={chrome.errorMessage}
-            defaultOpen={!(primaryPath ?? '').includes(PLAN_PATH_MARKER)}
-            content={content}
-            debugDetails={chrome.debugDetails}
-        >
-            {header}
-        </SandboxToolRow>
+            title={title}
+            body={body}
+            turnComplete={turnComplete}
+            turnCancelled={turnCancelled}
+        />
     )
 }

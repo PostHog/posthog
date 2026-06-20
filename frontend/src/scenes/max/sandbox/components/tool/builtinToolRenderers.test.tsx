@@ -59,7 +59,7 @@ describe('builtin tool renderers', () => {
                 })}
             />
         )
-        expect(screen.getByText('Read 2 lines in')).toBeInTheDocument()
+        expect(screen.getByText('Read 2 lines')).toBeInTheDocument()
         expect(screen.getByText('app.ts')).toBeInTheDocument()
     })
 
@@ -75,7 +75,7 @@ describe('builtin tool renderers', () => {
                 })}
             />
         )
-        expect(screen.getByText('Read image in')).toBeInTheDocument()
+        expect(screen.getByText('Read image')).toBeInTheDocument()
         fireEvent.click(screen.getByRole('button'))
         expect(screen.getByAltText('shot.png')).toBeInTheDocument()
     })
@@ -111,23 +111,5 @@ describe('builtin tool renderers', () => {
         expect(screen.getByText('user-mcp -')).toBeInTheDocument()
         expect(screen.getByText('do_thing')).toBeInTheDocument()
         expect(screen.getByText('(MCP)')).toBeInTheDocument()
-    })
-
-    it('gates the raw debug inspector behind showRawDetails', () => {
-        const message = makeMessage({
-            claudeToolName: 'Bash',
-            resolvedKey: 'Bash',
-            rawInput: { command: 'ls' },
-            status: 'in_progress',
-            content: [textBlock('a\nb')],
-        })
-
-        render(<BuiltinToolRenderer isLastInGroup message={message} showRawDetails={false} />)
-        // in_progress streams open by default, so the body is visible without a click.
-        expect(screen.queryByText('Input')).not.toBeInTheDocument()
-        cleanup()
-
-        render(<BuiltinToolRenderer isLastInGroup message={message} showRawDetails />)
-        expect(screen.getByText('Input')).toBeInTheDocument()
     })
 })

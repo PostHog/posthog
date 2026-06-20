@@ -6,8 +6,6 @@ import { ToolCardSkeleton } from './ToolCardSkeleton'
 
 export interface SandboxToolCallProps {
     message: SandboxToolCallMessage
-    /** Staff/dev gate, computed once at thread level — enables the raw JSON inspector on each card. */
-    showRawDetails?: boolean
     /** Turn-level signals for resolving a still-incomplete tool as loading vs cancelled vs idle. */
     turnComplete?: boolean
     turnCancelled?: boolean
@@ -20,7 +18,6 @@ export interface SandboxToolCallProps {
  */
 export const SandboxToolCall = memo(function SandboxToolCall({
     message,
-    showRawDetails,
     turnComplete,
     turnCancelled,
 }: SandboxToolCallProps): JSX.Element {
@@ -32,7 +29,6 @@ export const SandboxToolCall = memo(function SandboxToolCall({
                 isLastInGroup
                 icon={entry.icon}
                 displayName={entry.displayName}
-                showRawDetails={showRawDetails}
                 turnComplete={turnComplete}
                 turnCancelled={turnCancelled}
             />

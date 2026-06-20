@@ -9,9 +9,8 @@ import { languageFromPath } from '../../../toolDiffContent'
 import type { SandboxToolRendererProps } from '../../sandboxToolRegistry'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
 import { SandboxFilePath } from './SandboxFilePath'
-import { SandboxToolRow } from './SandboxToolRow'
+import { SandboxToolActivity } from './SandboxToolActivity'
 import {
-    MAX_COMMAND_LENGTH,
     MAX_URL_LENGTH,
     getContentImage,
     getContentText,
@@ -23,8 +22,7 @@ import {
     stripCodeFences,
     truncateText,
 } from './toolContentUtils'
-import { ToolContentPre, ToolTitle } from './toolRowPrimitives'
-import { resolveToolRowChrome } from './toolRowShared'
+import { ToolOutput } from './ToolOutput'
 
 function asString(value: unknown): string {
     return typeof value === 'string' ? value : ''
@@ -34,58 +32,49 @@ function firstLocationPath(props: SandboxToolRendererProps): string | undefined 
     return props.message.locations?.[0]?.path ?? (asString(props.message.rawInput.file_path) || undefined)
 }
 
-/** Bash / BashOutput / KillShell — a mono command in the header, ANSI-stripped output in the body. */
+/** Bash / BashOutput / KillShell — command on the second line, ANSI-stripped output in the body. */
 const BashToolRenderer = memo(function BashToolRenderer(props: SandboxToolRendererProps): JSX.Element {
-    const { message, icon } = props
-    const chrome = resolveToolRowChrome(props)
+    const { message, icon, turnComplete, turnCancelled } = props
     const command = asString(message.rawInput.command)
     const description = asString(message.rawInput.description)
     const output = stripAnsi(stripCodeFences(getContentText(message.content)))
 
     return (
-        <SandboxToolRow
+        <SandboxToolActivity
+            message={message}
             icon={icon ?? <IconTerminal />}
-            isLoading={chrome.isLoading}
-            isFailed={chrome.isFailed}
-            wasCancelled={chrome.wasCancelled}
-            errorMessage={chrome.errorMessage}
-            defaultOpen={chrome.isLoading}
-            content={output ? <ToolContentPre>{output}</ToolContentPre> : undefined}
-            debugDetails={chrome.debugDetails}
-        >
-            {description && <ToolTitle>{description}</ToolTitle>}
-            {command ? (
-                <code
-                    title={command}
-                    className="font-mono text-[13px] px-1 py-0.5 rounded border border-border bg-fill-secondary text-secondary truncate max-w-full"
-                >
-                    {truncateText(command, MAX_COMMAND_LENGTH)}
-                </code>
-            ) : (
-                !description && <ToolTitle>{message.title || 'Terminal'}</ToolTitle>
-            )}
-        </SandboxToolRow>
+            title={description || message.title || 'Terminal'}
+            subtitle={
+                command ? (
+                    <span className="font-mono" title={command}>
+                        {command}
+                    </span>
+                ) : undefined
+            }
+            body={output ? <ToolOutput>{output}</ToolOutput> : undefined}
+            turnComplete={turnComplete}
+            turnCancelled={turnCancelled}
+        />
     )
 })
 
-/** Read / NotebookRead — a line/image summary + file chip in the header, file preview in the body. */
+/** Read / NotebookRead — line/image summary on line 1, file chip on line 2, preview in the body. */
 const ReadToolRenderer = memo(function ReadToolRenderer(props: SandboxToolRendererProps): JSX.Element {
-    const { message, icon } = props
-    const chrome = resolveToolRowChrome(props)
+    const { message, icon, turnComplete, turnCancelled } = props
     const path = firstLocationPath(props)
     const image = getContentImage(message.content)
     const text = image ? '' : getReadToolContent(message.content)
     const lineCount = getLineCount(text)
 
-    const verb = image
+    const title = image
         ? 'Read image'
         : lineCount > 0
           ? `Read ${lineCount} ${lineCount === 1 ? 'line' : 'lines'}`
           : 'Read'
 
-    let content: JSX.Element | undefined
+    let body: JSX.Element | undefined
     if (image) {
-        content = (
+        body = (
             <img
                 src={`data:${image.mimeType};base64,${image.base64}`}
                 alt={path ? getFilename(path) : 'Read image'}
@@ -93,7 +82,7 @@ const ReadToolRenderer = memo(function ReadToolRenderer(props: SandboxToolRender
             />
         )
     } else if (text) {
-        content = (
+        body = (
             <CodeSnippet language={languageFromPath(path)} compact maxLinesWithoutExpansion={20}>
                 {text}
             </CodeSnippet>
@@ -101,79 +90,66 @@ const ReadToolRenderer = memo(function ReadToolRenderer(props: SandboxToolRender
     }
 
     return (
-        <SandboxToolRow
+        <SandboxToolActivity
+            message={message}
             icon={icon ?? <IconDocument />}
-            isLoading={chrome.isLoading}
-            isFailed={chrome.isFailed}
-            wasCancelled={chrome.wasCancelled}
-            errorMessage={chrome.errorMessage}
-            content={content}
-            debugDetails={chrome.debugDetails}
-        >
-            <ToolTitle>{path ? `${verb} in` : verb}</ToolTitle>
-            {path && <SandboxFilePath path={path} />}
-        </SandboxToolRow>
+            title={title}
+            subtitle={path ? <SandboxFilePath path={path} /> : undefined}
+            body={body}
+            turnComplete={turnComplete}
+            turnCancelled={turnCancelled}
+        />
     )
 })
 
-/** Grep / Glob / LS — a result count in the header, the matched lines in the body. */
+/** Grep / Glob / LS — result count on line 2, matched lines in the body. */
 const SearchToolRenderer = memo(function SearchToolRenderer(props: SandboxToolRendererProps): JSX.Element {
-    const { message, icon, displayName } = props
-    const chrome = resolveToolRowChrome(props)
+    const { message, icon, displayName, turnComplete, turnCancelled } = props
     const output = getContentText(message.content)
     const count = getResultCount(output)
 
     return (
-        <SandboxToolRow
+        <SandboxToolActivity
+            message={message}
             icon={icon ?? <IconSearch />}
-            isLoading={chrome.isLoading}
-            isFailed={chrome.isFailed}
-            wasCancelled={chrome.wasCancelled}
-            errorMessage={chrome.errorMessage}
-            content={output ? <ToolContentPre>{output}</ToolContentPre> : undefined}
-            debugDetails={chrome.debugDetails}
-        >
-            <ToolTitle>{message.title || displayName || 'Search'}</ToolTitle>
-            {output && (
-                <span className="text-[13px] text-secondary shrink-0">
-                    {count} {count === 1 ? 'result' : 'results'}
-                </span>
-            )}
-        </SandboxToolRow>
+            title={message.title || displayName || 'Search'}
+            subtitle={output ? `${count} ${count === 1 ? 'result' : 'results'}` : undefined}
+            body={output ? <ToolOutput>{output}</ToolOutput> : undefined}
+            turnComplete={turnComplete}
+            turnCancelled={turnCancelled}
+        />
     )
 })
 
-/** WebFetch / WebSearch — a linked URL (or query) in the header, fetched content in the body. */
+/** WebFetch / WebSearch — linked URL (or query) on line 2, fetched content in the body. */
 const FetchToolRenderer = memo(function FetchToolRenderer(props: SandboxToolRendererProps): JSX.Element {
-    const { message, icon, displayName } = props
-    const chrome = resolveToolRowChrome(props)
+    const { message, icon, turnComplete, turnCancelled } = props
     const url = asString(message.rawInput.url)
     const query = asString(message.rawInput.query)
     const output = stripCodeFences(getContentText(message.content))
+    const isSearch = !url && !!query
+
+    let subtitle: JSX.Element | undefined
+    if (url) {
+        subtitle = (
+            <Link to={url} target="_blank" title={url} className="font-mono">
+                {truncateText(url, MAX_URL_LENGTH)}
+            </Link>
+        )
+    } else if (query) {
+        subtitle = <span className="font-mono">{truncateText(query, MAX_URL_LENGTH)}</span>
+    }
 
     return (
-        <SandboxToolRow
+        <SandboxToolActivity
+            message={message}
             icon={icon ?? <IconGlobe />}
-            isLoading={chrome.isLoading}
-            isFailed={chrome.isFailed}
-            wasCancelled={chrome.wasCancelled}
-            errorMessage={chrome.errorMessage}
-            content={output ? <ToolContentPre>{output}</ToolContentPre> : undefined}
-            debugDetails={chrome.debugDetails}
-        >
-            <ToolTitle>{message.title || displayName || 'Fetch'}</ToolTitle>
-            {url ? (
-                <Link to={url} target="_blank" title={url} className="text-[13px] font-mono truncate max-w-full">
-                    {truncateText(url, MAX_URL_LENGTH)}
-                </Link>
-            ) : (
-                query && (
-                    <span className="text-[13px] font-mono text-secondary truncate max-w-full">
-                        {truncateText(query, MAX_URL_LENGTH)}
-                    </span>
-                )
-            )}
-        </SandboxToolRow>
+            title={message.title || (isSearch ? 'Web search' : 'Fetched')}
+            subtitle={subtitle}
+            body={output ? <ToolOutput>{output}</ToolOutput> : undefined}
+            turnComplete={turnComplete}
+            turnCancelled={turnCancelled}
+        />
     )
 })
 

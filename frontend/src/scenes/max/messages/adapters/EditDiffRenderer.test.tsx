@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import type { SandboxToolCallMessage } from '../../maxTypes'
 import { EditDiffRenderer } from './EditDiffRenderer'
@@ -55,6 +55,13 @@ function makeMessage(overrides: Partial<SandboxToolCallMessage> = {}): SandboxTo
     }
 }
 
+// The diff lives in the Activity's collapsible body, which auto-collapses once the call completes —
+// expand it so the editor + stats render.
+function renderExpanded(message: SandboxToolCallMessage): void {
+    render(<EditDiffRenderer message={message} displayName="Edit" isLastInGroup />)
+    fireEvent.click(screen.getByRole('button'))
+}
+
 describe('EditDiffRenderer', () => {
     afterEach(() => {
         cleanup()
@@ -62,11 +69,12 @@ describe('EditDiffRenderer', () => {
     })
 
     it('renders an inline diff with +/- stats for an Edit with a diff block', () => {
-        const message = makeMessage({
-            title: 'Edit `foo.ts`',
-            content: [{ type: 'diff', path: 'foo.ts', oldText: 'a\nb', newText: 'a\nb\nc' }],
-        })
-        render(<EditDiffRenderer message={message} displayName="Edit" isLastInGroup />)
+        renderExpanded(
+            makeMessage({
+                title: 'Edit `foo.ts`',
+                content: [{ type: 'diff', path: 'foo.ts', oldText: 'a\nb', newText: 'a\nb\nc' }],
+            })
+        )
 
         const editor = screen.getByTestId('monaco-diff')
         expect(editor).toBeInTheDocument()
@@ -79,26 +87,40 @@ describe('EditDiffRenderer', () => {
         expect(screen.getByText('-0')).toBeInTheDocument()
     })
 
+    it('reads "Edited a file" in the header', () => {
+        render(
+            <EditDiffRenderer
+                message={makeMessage({ content: [{ type: 'diff', path: 'foo.ts', oldText: 'a', newText: 'b' }] })}
+                displayName="Edit"
+                isLastInGroup
+            />
+        )
+        expect(screen.getByText('Edited a file')).toBeInTheDocument()
+    })
+
     it('renders one editor per diff block for a MultiEdit', () => {
-        const message = makeMessage({
-            resolvedKey: 'MultiEdit',
-            content: [
-                { type: 'diff', path: 'foo.ts', oldText: 'a', newText: 'b' },
-                { type: 'content', content: { type: 'diff', path: 'foo.ts', oldText: 'b', newText: 'c' } },
-            ],
-        })
-        render(<EditDiffRenderer message={message} displayName="Edit" isLastInGroup />)
+        renderExpanded(
+            makeMessage({
+                resolvedKey: 'MultiEdit',
+                content: [
+                    { type: 'diff', path: 'foo.ts', oldText: 'a', newText: 'b' },
+                    { type: 'content', content: { type: 'diff', path: 'foo.ts', oldText: 'b', newText: 'c' } },
+                ],
+            })
+        )
 
         expect(screen.getAllByTestId('monaco-diff')).toHaveLength(2)
     })
 
-    it('shows all-added stats and an empty original for a new file (Write)', () => {
+    it('reads "Created a file" with all-added stats and an empty original for a new file (Write)', () => {
         const message = makeMessage({
             resolvedKey: 'Write',
             content: [{ type: 'diff', path: 'new.py', oldText: null, newText: 'print(1)\nprint(2)' }],
         })
         render(<EditDiffRenderer message={message} displayName="Edit" isLastInGroup />)
+        expect(screen.getByText('Created a file')).toBeInTheDocument()
 
+        fireEvent.click(screen.getByRole('button'))
         const editor = screen.getByTestId('monaco-diff')
         expect(editor).toHaveAttribute('data-original', '')
         expect(editor).toHaveAttribute('data-language', 'python')
@@ -106,11 +128,12 @@ describe('EditDiffRenderer', () => {
     })
 
     it('resolves filename and language from rawInput.file_path when the diff block has no path', () => {
-        const message = makeMessage({
-            content: [{ type: 'diff', oldText: 'a', newText: 'b' }],
-            rawInput: { file_path: 'main.go' },
-        })
-        render(<EditDiffRenderer message={message} displayName="Edit" isLastInGroup />)
+        renderExpanded(
+            makeMessage({
+                content: [{ type: 'diff', oldText: 'a', newText: 'b' }],
+                rawInput: { file_path: 'main.go' },
+            })
+        )
 
         expect(screen.getByText('main.go')).toBeInTheDocument()
         expect(screen.getByTestId('monaco-diff')).toHaveAttribute('data-language', 'go')
@@ -133,8 +156,7 @@ describe('EditDiffRenderer', () => {
 
     it('uses the dark Monaco theme when the app is in dark mode', () => {
         mockDarkMode = true
-        const message = makeMessage({ content: [{ type: 'diff', path: 'foo.ts', oldText: 'a', newText: 'b' }] })
-        render(<EditDiffRenderer message={message} displayName="Edit" isLastInGroup />)
+        renderExpanded(makeMessage({ content: [{ type: 'diff', path: 'foo.ts', oldText: 'a', newText: 'b' }] }))
 
         expect(screen.getByTestId('monaco-diff')).toHaveAttribute('data-theme', 'vs-dark')
     })

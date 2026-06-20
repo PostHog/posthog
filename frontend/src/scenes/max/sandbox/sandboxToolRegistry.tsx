@@ -42,8 +42,6 @@ export interface SandboxToolRendererProps {
     icon?: JSX.Element
     /** Resolved registry entry's stable display name, used as the header label when no title exists. */
     displayName?: string
-    /** Staff/dev gate (computed once at thread level): render the raw JSON inspector below the card. */
-    showRawDetails?: boolean
     /** Turn-level signals so a still-incomplete tool reads as loading vs cancelled vs idle. */
     turnComplete?: boolean
     turnCancelled?: boolean

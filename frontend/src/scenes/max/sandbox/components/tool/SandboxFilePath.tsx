@@ -12,7 +12,7 @@ export function SandboxFilePath({ path }: { path: string }): JSX.Element {
     const dir = path.slice(0, path.length - filename.length).replace(/\/+$/, '')
 
     return (
-        <span className="inline-flex items-center gap-1 min-w-0 max-w-full font-mono text-[13px]">
+        <span className="inline-flex items-center gap-1 min-w-0 max-w-full font-mono text-xs">
             <IconDocument className="shrink-0 text-muted size-3.5" />
             <span className="font-medium text-secondary shrink-0">{filename}</span>
             {dir && <span className="text-muted truncate">{dir}</span>}

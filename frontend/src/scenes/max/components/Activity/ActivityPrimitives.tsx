@@ -77,6 +77,7 @@ export function ActivityStatusIcon({
 
 export function ActivityHeader({
     title,
+    subtitle,
     status,
     icon,
     animate = true,
@@ -88,6 +89,7 @@ export function ActivityHeader({
     failedIcon,
 }: {
     title: React.ReactNode
+    subtitle?: React.ReactNode
     status: ActivityStatus
     icon?: React.ReactNode
     animate?: boolean
@@ -108,7 +110,9 @@ export function ActivityHeader({
                 'transition-all duration-500 flex select-none min-w-0',
                 (isPending || isFailed) && 'text-muted',
                 !isInProgress && !isPending && !isFailed && 'text-default',
-                hasDetails ? 'cursor-pointer' : 'cursor-default'
+                hasDetails ? 'cursor-pointer' : 'cursor-default',
+                hasDetails && 'rounded px-1 -mx-1 hover:bg-fill-button-tertiary-hover',
+                hasDetails && isDetailsExpanded && 'bg-fill-button-tertiary-active'
             )}
             onClick={hasDetails ? onToggleDetails : undefined}
             aria-label={hasDetails ? (isDetailsExpanded ? 'Collapse history' : 'Expand history') : undefined}
@@ -124,7 +128,18 @@ export function ActivityHeader({
             )}
             <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
                 <div className="min-w-0">
-                    {isInProgress && animate ? (
+                    {subtitle ? (
+                        <div className="flex flex-col min-w-0">
+                            <div className="min-w-0">
+                                {isInProgress && animate ? (
+                                    <ShimmeringContent>{title}</ShimmeringContent>
+                                ) : (
+                                    <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
+                                )}
+                            </div>
+                            <div className="text-muted truncate min-w-0">{subtitle}</div>
+                        </div>
+                    ) : isInProgress && animate ? (
                         <ShimmeringContent>{title}</ShimmeringContent>
                     ) : (
                         <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
@@ -237,6 +252,7 @@ export function ActivityToggleSection({
 export function Activity({
     id,
     title,
+    subtitle,
     status,
     icon,
     animate = true,
@@ -249,6 +265,7 @@ export function Activity({
 }: {
     id: string
     title: React.ReactNode
+    subtitle?: React.ReactNode
     status: ActivityStatus
     icon?: React.ReactNode
     animate?: boolean
@@ -271,6 +288,7 @@ export function Activity({
         <div className="flex flex-col rounded transition-all duration-500 w-full min-w-0 gap-1 text-xs">
             <ActivityHeader
                 title={title}
+                subtitle={subtitle}
                 status={status}
                 icon={icon}
                 animate={animate}

@@ -172,10 +172,6 @@ function SandboxThread(): JSX.Element {
         turnComplete,
         currentRunStatus,
     } = useValues(sandboxStreamLogic)
-    // Staff/dev gate for the raw JSON inspector, computed once and passed down (narrow-subscribe).
-    const { user } = useValues(userLogic)
-    const { isDev } = useValues(preflightLogic)
-    const showRawToolDetails = !!(user?.is_staff || user?.is_impersonated || isDev)
     const turnCancelled = currentRunStatus === 'cancelled'
     const hasActiveProgressItem = threadItems.some(
         (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
@@ -233,7 +229,6 @@ function SandboxThread(): JSX.Element {
                         <SandboxToolCall
                             key={item.id}
                             message={message}
-                            showRawDetails={showRawToolDetails}
                             turnComplete={turnComplete}
                             turnCancelled={turnCancelled}
                         />
