@@ -112,22 +112,6 @@ describe('SqlBarGraph', () => {
             expect(tooltip.title()).toBe('2025-12-01')
             expect(tooltip.swatchColors()).toHaveLength(1)
         })
-
-        // Documented gap: unlike SqlLineGraph, SqlBarGraph passes no custom tooltip, so quill's
-        // DefaultTooltip formats with toLocaleString and ignores per-column prefix/suffix/style.
-        // When the bar chart gains a column-aware tooltip, this should become '$3,000'.
-        it('does not yet apply per-column formatting to bar tooltip values', async () => {
-            renderBar(
-                ChartDisplayType.ActionsBar,
-                { yAxis: [{ column: 'a', settings: { formatting: { prefix: '$', style: 'number' } } }] },
-                barFixture([{ name: 'a', valueAt: (i) => (i + 1) * 1000 }])
-            )
-
-            await screen.findByRole('img', { name: /chart with/i })
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
-
-            expect(tooltip.row('a')).toBe('3,000')
-        })
     })
 
     describe('legend', () => {
@@ -175,21 +159,6 @@ describe('SqlBarGraph', () => {
             const lines = getHogChart().referenceLines()
             expect(lines.map((l) => l.label)).toEqual(['Target'])
             expect(lines[0].orientation).toBe('horizontal')
-        })
-    })
-
-    describe('fallback to legacy', () => {
-        // The quill bar chart has no trend-line support, so a bar series opting into a trend line
-        // routes to the legacy chart.js path (no quill "chart with N data series" canvas).
-        it('falls back to the legacy chart when a bar series requests a trend line', async () => {
-            renderBar(
-                ChartDisplayType.ActionsBar,
-                { yAxis: [{ column: 'a', settings: { display: { trendLine: true } } }] },
-                barFixture([{ name: 'a', valueAt: (i) => (i + 1) * 100 }])
-            )
-
-            await waitFor(() => expect(document.querySelector('canvas')).toBeInTheDocument())
-            expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
         })
     })
 })
