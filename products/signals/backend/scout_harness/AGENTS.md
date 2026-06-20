@@ -113,6 +113,13 @@ one sandbox session → zero or more emitted signals.
   (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key for the
   LLM-analytics token / cost roll-up. Failure context (status, error, full chat log via
   LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
+- Each run emits scout-owned lifecycle analytics events (best-effort, keyed on the team):
+  `signals_scout_run_started` (the run cleared the guards and a TaskRun exists),
+  `signals_scout_run_finished` (terminal: `completed`/`failed`/`cancelled` + runtime + emit
+  count), and `signals_scout_run_reaped` (a stranded orphan was reaped by
+  `_self_heal_stale_runs`). They join on `run_id`/`task_run_id` and are the event-derived
+  (no-warehouse-lag) basis for throughput, stall, and worker-death alerting — a `started`
+  with no `finished` is a run that died before finalize; a reaped run emits no `finished`.
 - Emit happens via the harness's `emit_signal_*` tools, which call `emit_signal()`
   with `source_product="signals_scout"` and `source_type="cross_source_issue"`.
   From there the signal flows through the same emitter → buffer → grouping v2 path

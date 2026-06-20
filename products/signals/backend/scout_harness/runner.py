@@ -328,6 +328,18 @@ async def _spawn_and_run(
             config=config,
             skill=skill,
         )
+        # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
+        # reap + single-flight guards, so this counts exactly the runs that actually start —
+        # a skipped dispatch emits nothing. Pairs with `signals_scout_run_finished` for
+        # event-derived throughput and stall detection (started with no finished = a run
+        # that died before finalize), with no warehouse-sync lag.
+        _capture_run_started(
+            team=team,
+            config=config,
+            skill=skill,
+            run_id=run_id,
+            task_run_id=str(task_run.id),
+        )
 
     session, result = await MultiTurnSession.start(
         prompt=prompt,
@@ -424,7 +436,7 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     never block the new run, so each is guarded independently.
     """
     cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
-    stale_runs = (
+    stale_runs = list(
         SignalScoutRun.objects.unscoped()
         .filter(
             team_id=team_id,
@@ -434,8 +446,16 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
         )
         .select_related("task_run")
     )
+    if not stale_runs:
+        return
+    # Resolve the team once, only when there is actually something to reap, so the reaped
+    # event carries the same team / groups shape as the other scout lifecycle events.
+    team = _get_team(team_id)
+    now = timezone.now()
     for run in stale_runs:
         try:
+            status_before = run.task_run.status
+            age_seconds = (now - run.task_run.created_at).total_seconds()
             run.task_run.mark_failed(
                 "Scout run abandoned: no terminal status past the runtime ceiling "
                 "(worker/sandbox lost before finalize)."
@@ -448,6 +468,18 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                     "run_id": str(run.id),
                     "task_run_id": str(run.task_run_id),
                 },
+            )
+            # A reaped run never reaches the finalize path, so it emits no
+            # `signals_scout_run_finished`. This event makes the strand observable with no
+            # warehouse lag — a spike is the worker-death / mass-stall shape (e.g. the
+            # 06-16 fleet freeze), caught within a tick of the cutoff rather than days late.
+            _capture_run_reaped(
+                team=team,
+                skill_name=skill_name,
+                run_id=run.id,
+                task_run_id=str(run.task_run_id),
+                status_before=status_before,
+                age_seconds=age_seconds,
             )
         except Exception:
             logger.exception(
@@ -494,6 +526,82 @@ def _read_run_metrics(run_id: Any, team_id: int) -> tuple[int, str | None]:
         return 0, None
     emitted_count, task_run_id = row
     return emitted_count or 0, str(task_run_id) if task_run_id else None
+
+
+def _capture_run_started(
+    *,
+    team: Team,
+    config: SignalScoutConfig,
+    skill: LoadedSkill,
+    run_id: Any,
+    task_run_id: str,
+) -> None:
+    """Emit the scout-owned run-started analytics event.
+
+    The lifecycle counterpart to `signals_scout_run_finished`, fired once the TaskRun + bridge
+    row exist and the run has cleared the reap + single-flight guards. Keyed on the team (same
+    shape as the finished event) so the two join on `run_id`: `started` minus `finished` is the
+    in-flight / stalled set, and a `started` with no `finished` is a run that died before
+    finalize — an event-derived stall signal with no warehouse lag. Best-effort: a capture
+    failure must never block the run.
+    """
+    try:
+        posthoganalytics.capture(
+            event="signals_scout_run_started",
+            distinct_id=str(team.uuid),
+            properties={
+                "skill_name": skill.name,
+                "skill_version": skill.version,
+                "scout_config_id": str(config.id),
+                "run_id": str(run_id),
+                "task_run_id": task_run_id,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to capture run-started analytics event",
+            extra={"team_id": team.id, "run_id": str(run_id), "skill_name": skill.name},
+        )
+
+
+def _capture_run_reaped(
+    *,
+    team: Team,
+    skill_name: str,
+    run_id: Any,
+    task_run_id: str,
+    status_before: str,
+    age_seconds: float,
+) -> None:
+    """Emit a scout-owned event when a stranded run is reaped (see `_self_heal_stale_runs`).
+
+    A run orphaned by a hard worker death never reaches the finalize path, so it emits no
+    `signals_scout_run_finished` — the reap is otherwise visible only in the logs. This event
+    surfaces the strand directly: a rising count is the worker-death / mass-stall shape, and
+    `status_before` + `age_seconds` distinguish a routine one-off from a fleet event. Keyed on
+    the team to match the other scout lifecycle events. Best-effort: a capture failure must
+    never block the reap or the new run.
+    """
+    try:
+        posthoganalytics.capture(
+            event="signals_scout_run_reaped",
+            distinct_id=str(team.uuid),
+            properties={
+                "skill_name": skill_name,
+                "run_id": str(run_id),
+                "task_run_id": task_run_id,
+                "status_before": status_before,
+                "age_seconds": round(age_seconds, 1),
+                "stale_cutoff_seconds": STALE_RUN_CUTOFF_S,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to capture run-reaped analytics event",
+            extra={"team_id": team.id, "run_id": str(run_id), "skill_name": skill_name},
+        )
 
 
 def _capture_run_finished(
