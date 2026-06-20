@@ -247,6 +247,31 @@ export function formatSqlSeriesValue(value: number, settings?: AxisSeriesSetting
     return String(formatDataWithSettings(value, settings) ?? value)
 }
 
+const isRightAxisSeries = (series: SqlLineYSeries): boolean => series.settings?.display?.yAxisPosition === 'right'
+
+/** Series assigned to a given gutter — tick formatting reads the first series on that axis, so each
+ *  gutter formats from a column actually on it rather than a blind `series[0]`. */
+const seriesForAxis = (
+    ySeriesData: SqlLineYSeries[] | null | undefined,
+    position: 'left' | 'right'
+): SqlLineYSeries[] => (ySeriesData ?? []).filter((series) => isRightAxisSeries(series) === (position === 'right'))
+
+/** True when a column carries formatting that should override quill's default numeric axis ticks —
+ *  a non-default `style`, a prefix/suffix, or an explicit decimal-place count. Default settings fall
+ *  through so the axis keeps quill's human-friendly auto-formatting. */
+export function hasAxisTickFormatting(settings?: AxisSeriesSettings): boolean {
+    const formatting = settings?.formatting
+    if (!formatting) {
+        return false
+    }
+    return (
+        (formatting.style != null && formatting.style !== 'none') ||
+        !!formatting.prefix ||
+        !!formatting.suffix ||
+        formatting.decimalPlaces != null
+    )
+}
+
 /** Built-in tooltip for the line + combo SQL charts: each row formatted by its column's settings
  *  (from `series.meta`), plus an optional total row. */
 export function buildSqlTooltipConfig(
@@ -286,17 +311,36 @@ function buildXAxisConfig(xData: AxisSeries<string>, chartSettings: ChartSetting
     }
 }
 
+/**
+ * One y-axis config from its `YAxisSettings` plus the series on that axis. Tick formatting reads the
+ * first series on the gutter (the same per-column settings the tooltip uses), and "start at zero"
+ * follows legacy: a linear axis begins at 0 unless explicitly turned off (`yAxisAtZero` fallback).
+ * Percent-stacked bars (`forceLinear`) skip both — the axis shows a 0–100% scale, not column values.
+ */
 function buildYAxisConfig(
     yAxis: YAxisSettings | undefined,
+    axisSeries: SqlLineYSeries[],
+    yAxisAtZero: boolean | undefined,
     { forceLinear = false, id, position }: { forceLinear?: boolean; id?: string; position?: 'left' | 'right' } = {}
 ): YAxisConfig {
+    const isLog = !forceLinear && yAxis?.scale === 'logarithmic'
+    const tickSettings = axisSeries[0]?.settings
+    const tickFormatter =
+        !forceLinear && hasAxisTickFormatting(tickSettings)
+            ? (value: number): string => formatSqlSeriesValue(value, tickSettings)
+            : undefined
+
     return {
         ...(id ? { id } : {}),
         ...(position ? { position } : {}),
         label: yAxis?.label,
-        scale: !forceLinear && yAxis?.scale === 'logarithmic' ? 'log' : 'linear',
+        scale: isLog ? 'log' : 'linear',
         showGrid: yAxis?.showGridLines ?? true,
         hide: yAxis?.showTicks === false,
+        tickFormatter,
+        // Quill ignores startAtZero on a log scale; floatBaseline (the false case) is line-only, so
+        // bars/combo keep their zero baseline regardless.
+        startAtZero: forceLinear || !isLog ? (yAxis?.startAtZero ?? yAxisAtZero ?? true) : undefined,
     }
 }
 
@@ -311,19 +355,27 @@ export function buildLineChartConfig({
     goalLines,
     ySeriesData,
 }: BuildConfigArgs): TimeSeriesLineChartConfig {
-    const hasRightAxisSeries =
-        ySeriesData?.some((series) => series.settings?.display?.yAxisPosition === 'right') ?? false
+    const leftSeries = seriesForAxis(ySeriesData, 'left')
+    const rightSeries = seriesForAxis(ySeriesData, 'right')
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
         // Emit a per-axis array only when a series actually targets the right axis — otherwise keep
-        // the single-object form so single-axis charts render unchanged.
-        yAxis: hasRightAxisSeries
-            ? [
-                  buildYAxisConfig(chartSettings.leftYAxisSettings, { id: 'left', position: 'left' }),
-                  buildYAxisConfig(chartSettings.rightYAxisSettings, { id: 'right', position: 'right' }),
-              ]
-            : buildYAxisConfig(chartSettings.leftYAxisSettings),
+        // the single-object form so single-axis charts render unchanged. Each gutter formats and
+        // starts-at-zero from a column on that axis.
+        yAxis:
+            rightSeries.length > 0
+                ? [
+                      buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
+                          id: 'left',
+                          position: 'left',
+                      }),
+                      buildYAxisConfig(chartSettings.rightYAxisSettings, rightSeries, chartSettings.yAxisAtZero, {
+                          id: 'right',
+                          position: 'right',
+                      }),
+                  ]
+                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
@@ -337,12 +389,20 @@ export function buildBarChartConfig({
     timezone,
     goalLines,
     visualizationType,
+    ySeriesData,
 }: BuildBarConfigArgs): TimeSeriesBarChartConfig {
     const barLayout = barLayoutForDisplay(visualizationType, chartSettings)
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
-        yAxis: buildYAxisConfig(chartSettings.leftYAxisSettings, { forceLinear: barLayout === 'percent' }),
+        yAxis: buildYAxisConfig(
+            chartSettings.leftYAxisSettings,
+            seriesForAxis(ySeriesData, 'left'),
+            chartSettings.yAxisAtZero,
+            {
+                forceLinear: barLayout === 'percent',
+            }
+        ),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout,
         legend: buildLegendConfig(chartSettings),
@@ -360,7 +420,11 @@ export function buildComboChartConfig({
 }: BuildBarConfigArgs): TimeSeriesComboChartConfig {
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
-        yAxis: buildYAxisConfig(chartSettings.leftYAxisSettings),
+        yAxis: buildYAxisConfig(
+            chartSettings.leftYAxisSettings,
+            seriesForAxis(ySeriesData, 'left'),
+            chartSettings.yAxisAtZero
+        ),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout: comboBarLayoutForDisplay(visualizationType),
         legend: buildLegendConfig(chartSettings),
