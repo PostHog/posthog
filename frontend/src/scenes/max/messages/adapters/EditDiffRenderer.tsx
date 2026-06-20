@@ -1,25 +1,51 @@
+import { useValues } from 'kea'
 import type { editor } from 'monaco-editor'
 import { useInView } from 'react-intersection-observer'
 
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+
 import { SandboxToolActivity } from '../../components/Activity'
 import type { McpToolRendererProps } from '../../mcpToolRegistry'
 import { findAllDiffContent, getDiffStats, languageFromPath, type ToolCallDiffContent } from '../../toolDiffContent'
 
-// Module-level so the object identity is stable across renders — MonacoDiffEditor calls
-// `updateOptions` whenever this prop changes, and a fresh literal each render would thrash it
-// during streaming.
+// A stripped-down, unified diff that reads cleanly embedded in a chat card — mirrors the look of the
+// sandbox agent's own diff UI (unified style, soft-wrapped, compact font, no editor chrome). Module-level
+// so the object identity is stable across renders: MonacoDiffEditor calls `updateOptions` whenever this
+// prop changes, and a fresh literal each render would thrash it during streaming.
 const DIFF_EDITOR_OPTIONS: editor.IDiffEditorConstructionOptions = {
-    hideUnchangedRegions: { enabled: true },
     readOnly: true,
-    renderSideBySide: true,
+    renderSideBySide: false,
+    hideUnchangedRegions: { enabled: true },
+    diffAlgorithm: 'advanced',
+    wordWrap: 'on',
+    diffWordWrap: 'inherit',
+    fontSize: 12,
+    lineNumbers: 'on',
+    minimap: { enabled: false },
+    renderOverviewRuler: false,
+    overviewRulerLanes: 0,
+    overviewRulerBorder: false,
+    hideCursorInOverviewRuler: true,
+    scrollBeyondLastLine: false,
+    folding: false,
+    glyphMargin: false,
+    renderLineHighlight: 'none',
+    renderGutterMenu: false,
+    guides: { indentation: false },
+    padding: { top: 4, bottom: 4 },
+    // Don't trap the thread's scroll when the cursor is over the diff.
+    scrollbar: { alwaysConsumeMouseWheel: false, vertical: 'auto', horizontal: 'auto' },
 }
 
 function EditDiffBody({ diff, fallbackPath }: { diff: ToolCallDiffContent; fallbackPath?: string }): JSX.Element {
     // Lazy-mount: render the cheap stat line always, but only instantiate the Monaco diff editor once
     // the card scrolls near the viewport. This bounds the number of live editors to what's on screen.
     const { ref, inView } = useInView({ rootMargin: '500px', triggerOnce: true })
+    // Match the surrounding app theme — without this Monaco falls back to its default `vs` (white) theme,
+    // which looks broken on a dark card. Same wiring CodeEditorImpl uses.
+    const { isDarkModeOn } = useValues(themeLogic)
     const path = diff.path ?? fallbackPath
     const { added, removed } = getDiffStats(diff.oldText, diff.newText)
 
@@ -37,6 +63,7 @@ function EditDiffBody({ diff, fallbackPath }: { diff: ToolCallDiffContent; fallb
                     value={diff.newText ?? ''}
                     modified={diff.newText ?? ''}
                     language={languageFromPath(path)}
+                    theme={isDarkModeOn ? 'vs-dark' : 'vs'}
                     options={DIFF_EDITOR_OPTIONS}
                 />
             ) : (
