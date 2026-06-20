@@ -81,41 +81,6 @@ export const DualYAxis: Story = {
     },
 }
 
-/** Three series on three independent axes (showMultipleYAxes): one left, two stacked on the right.
- *  Each axis renders its own title at its gutter — left/right titles resolve the same way. */
-export const TripleYAxis: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        const series: Series[] = [
-            { key: 'revenue', label: 'Revenue', color: '', data: [1100, 1300, 1250, 1700, 1500, 1900, 1800] },
-            { key: 'signups', label: 'Signups', color: '', data: [40, 55, 48, 70, 62, 81, 76], yAxisId: 'right' },
-            {
-                key: 'conversion',
-                label: 'Conversion',
-                color: '',
-                data: [0.022, 0.028, 0.025, 0.034, 0.031, 0.038, 0.036],
-                yAxisId: 'right2',
-            },
-        ]
-        return (
-            <Stage>
-                <TimeSeriesLineChart
-                    series={series}
-                    labels={DAYS}
-                    theme={theme}
-                    config={{
-                        yAxis: [
-                            { id: 'left', label: 'Revenue', format: 'currency', currency: 'USD', showGrid: true },
-                            { id: 'right', position: 'right', label: 'Signups', format: 'short' },
-                            { id: 'right2', position: 'right', label: 'Conversion', format: 'percentage_scaled' },
-                        ],
-                    }}
-                />
-            </Stage>
-        )
-    },
-}
-
 /** Mixed scale types across axes: a linear count on the left and a log-scaled latency series on
  *  the right, each with its own formatter. */
 export const DualYAxisMixedScales: Story = {
