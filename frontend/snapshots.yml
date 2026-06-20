@@ -892,6 +892,14 @@ snapshots:
         hash: v1.k794b7964.c5a1a997378245bd048d35ff7ab54694c9e333ff6369e5c30d40357df99842fa.xXPbAc4NqAr0LvV-0z_5t3MYqgWR7l0eVtIt35KNfhE
     components-hogcharts-timeserieslinechart--drag-to-zoom--light:
         hash: v1.k794b7964.7d8de1c664f78dad36682304cd25c746266b6fb509d28bcaf2d8ae629a808284.eGlPABfqYjC1-H2VGiv5lJxfPOXP5U2fpK2cr7CtOT4
+    components-hogcharts-timeserieslinechart--dual-y-axis--dark:
+        hash: v1.k794b7964.9dd0eaaa2cc7cb1f24435e4ef698026fdff68203f5f47458aae13f44d1f5a728.q1wTd45_ueu_x_Zse6xADTOqGZ08WtEMo0EVf1th-Ws
+    components-hogcharts-timeserieslinechart--dual-y-axis--light:
+        hash: v1.k794b7964.74c876ccaa5fec4e36be5caab089532d26162d4cc8e5d0462331cbfb9b945b07.P2nBmV3pHVf81hjDjOYyrU5VnlwdRy-VAn19v7huY2A
+    components-hogcharts-timeserieslinechart--dual-y-axis-mixed-scales--dark:
+        hash: v1.k794b7964.29818ddbe1b02235c664d60287f532df226476a1397e5fd338462b91cb8b1a43.Gb-KIUMh9HExDL0NOX4gpVcDQKhglUXmBLo_CKKV4Ik
+    components-hogcharts-timeserieslinechart--dual-y-axis-mixed-scales--light:
+        hash: v1.k794b7964.3fe1803ae3e039ead859da938fdef88300ab6ff08254757da777556a499636ff.Ne7zpBUPko3GyNTT5tmSZqQeKABJyVdObd1Sz2V_Cj0
     components-hogcharts-timeserieslinechart--moving-average--dark:
         hash: v1.k794b7964.e332e9beb6b72bee51ab22b8078273883dabe8cd97163f6005a44367378fa8f7.H_JLql_NFDi4zX-Gn0svc0N_NewsyAhqaII4UGIXykg
     components-hogcharts-timeserieslinechart--moving-average--light:
