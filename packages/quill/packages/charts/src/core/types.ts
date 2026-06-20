@@ -297,17 +297,12 @@ export interface TooltipConfig {
      *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
      *  beside the cursor and the hovered bar (chart.js-style) rather than at a fixed anchor. */
     placement?: 'follow-data' | 'top' | 'cursor'
-    // — Built-in tooltip content —
-    // These tune the chart's default {@link DefaultTooltip} without writing a `tooltip` render prop.
-    // They are ignored when a `tooltip` render prop is supplied (that owns content entirely).
-    /** Formats each row's value; receives the row's `seriesData` entry so callers can format
-     *  per-series (e.g. each SQL column with its own currency/duration). Defaults to `toLocaleString`. */
+    // Built-in DefaultTooltip content, applied only when no `tooltip` render prop is given. See
+    // DefaultTooltipProps for semantics — these mirror it.
+    /** Second arg is the row's `seriesData` entry, for per-series formatting. */
     valueFormatter?: (value: number, entry: TooltipContext['seriesData'][number]) => string
-    /** Append a footer row summing the visible (non-`overlay`) series; suppressed below two summable rows. */
     showTotal?: boolean
-    /** Label for the total row. Defaults to 'Total'. */
     totalLabel?: string
-    /** Formats the total value. Defaults to `valueFormatter` applied with the first summable row. */
     totalFormatter?: (value: number) => string
 }
 

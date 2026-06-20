@@ -166,8 +166,7 @@ export function Chart<Meta = unknown>({
         totalFormatter: tooltipTotalFormatter,
     } = tooltipConfig ?? {}
 
-    // A custom render prop owns tooltip content. Without one, render the built-in DefaultTooltip,
-    // applying any content formatters carried on `config.tooltip` (all undefined → the bare default).
+    // No render prop: render DefaultTooltip with config.tooltip's formatters (all undefined → bare default).
     const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
         () =>
             renderTooltipProp ??

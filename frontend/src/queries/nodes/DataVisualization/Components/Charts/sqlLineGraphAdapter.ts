@@ -251,9 +251,8 @@ export function formatSqlSeriesValue(value: number, settings?: AxisSeriesSetting
     return String(formatDataWithSettings(value, settings) ?? value)
 }
 
-/** Tooltip config for the line + combo SQL charts: quill's built-in DefaultTooltip, formatting each
- *  row with its own column's settings (carried in `series.meta`) and an optional total row. Passed as
- *  config so the chart owns the render — no per-component render prop. */
+/** Built-in tooltip for the line + combo SQL charts: each row formatted by its column's settings
+ *  (from `series.meta`), plus an optional total row. */
 export function buildSqlTooltipConfig(
     chartSettings: ChartSettings,
     ySeriesData?: SqlLineYSeries[] | null
