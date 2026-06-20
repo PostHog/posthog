@@ -720,7 +720,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert [c["skill_name"] for c in body] == ["signals-scout-alpha", "signals-scout-beta"]
         assert body[0]["enabled"] is True
         assert body[0]["emit"] is True
-        assert body[0]["run_interval_minutes"] == 60
+        assert body[0]["run_interval_minutes"] == 180
 
     @parameterized.expand(
         [
@@ -882,6 +882,16 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
         assert config.created_by_id == self.user.id
         assert config.enabled_by_id == self.user.id
+
+    def test_create_stamps_scout_category_on_skill(self) -> None:
+        skill = self._make_skill("signals-scout-fresh")
+        assert skill.category == ""
+
+        response = self.client.post(self._list_url(), data={"skill_name": "signals-scout-fresh"}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        skill.refresh_from_db()
+        assert skill.category == "scout"
 
     def test_create_disabled_config_does_not_stamp_enabled_by(self) -> None:
         self._make_skill("signals-scout-fresh")

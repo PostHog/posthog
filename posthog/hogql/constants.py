@@ -50,6 +50,11 @@ BREAKDOWN_VALUE_MAX_LENGTH = 400
 
 type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql"]
 
+# All dialects that compile to an external SQL database queried directly (as opposed to
+# ClickHouse / HogQL). MySQL shares the standard-SQL keyword surface (CURRENT_DATE & co.)
+# but not Postgres-specific features like PIVOT/UNPIVOT, TRY_CAST, or positional references.
+SQL_TARGET_DIALECTS: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql"})
+
 type HogQLParserBackend = Literal["python", "cpp-json", "rust-json", "rust-py"]
 
 

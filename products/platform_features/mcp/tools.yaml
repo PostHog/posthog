@@ -349,6 +349,9 @@ tools:
             referring to a session recording rather than a survey response.
         feature_flag: promoted-product
         feature_flag_variant: intent_plus
+    request-ai-access-create:
+        operation: request_ai_access_create
+        enabled: false
     role-get:
         operation: roles_retrieve
         enabled: true

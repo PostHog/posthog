@@ -5,7 +5,7 @@ One blob per phs_ project secret key / pha_ OAuth token, keyed by the credential
 so the secret never sits in a Redis key. Public phc_ project tokens can't dispatch.
 
     Key: cache/team_tokens_hashed/<sha256$hex>/team_metadata/gateway_credential.json
-    Body: {team_id, project_token, scopes, billing_mode, revoked_at}
+    Body: {team_id, project_token, scopes, billing_mode, revoked_at, overspend_allowance_usd?}
 
 The hash matches Django's hash_key_value(token, mode="sha256") = "sha256$"+hex, which the
 gateway derives identically. A credential holding llm_gateway:read attributes to its team
@@ -19,6 +19,8 @@ cold Redis.
 
 import os
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
@@ -34,6 +36,7 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
+from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
 
 logger = structlog.get_logger(__name__)
@@ -64,6 +67,36 @@ GATEWAY_CREDENTIAL_FIELDS = [
     "billing_mode",
     "revoked_at",
 ]
+
+# Overspend allowance wire contract (gateway-defined, internal/auth/gateway_credential.go):
+# fixed-point USD string, 6dp, present only when set. Out-of-range/malformed clamps to 0 there,
+# so we validate at the write surfaces instead of relying on the clamp.
+OVERSPEND_ALLOWANCE_KEY = "overspend_allowance_usd"
+OVERSPEND_ALLOWANCE_QUANTUM = Decimal("0.000001")
+OVERSPEND_ALLOWANCE_MIN_USD = Decimal(0)
+OVERSPEND_ALLOWANCE_MAX_USD = Decimal(10000)
+
+
+def format_overspend_allowance_usd(value: Decimal) -> str:
+    """Fixed-point 6dp string for the wire. `:f` avoids scientific notation, which the
+    gateway's decimal parser can't read."""
+    return f"{value.quantize(OVERSPEND_ALLOWANCE_QUANTUM):f}"
+
+
+def validate_overspend_allowance_usd(value: Decimal) -> Decimal:
+    """Quantize to 6dp; raise ValueError outside [0, 10000] or beyond 6dp. Callers map to
+    their own error type."""
+    if not value.is_finite():
+        raise ValueError("overspend allowance must be a finite number")
+    if value < OVERSPEND_ALLOWANCE_MIN_USD or value > OVERSPEND_ALLOWANCE_MAX_USD:
+        raise ValueError(
+            f"overspend allowance must be between {OVERSPEND_ALLOWANCE_MIN_USD} and {OVERSPEND_ALLOWANCE_MAX_USD} USD"
+        )
+    exponent = value.as_tuple().exponent  # int for any finite Decimal
+    if isinstance(exponent, int) and -exponent > 6:
+        raise ValueError("overspend allowance supports at most 6 decimal places")
+    return value.quantize(OVERSPEND_ALLOWANCE_QUANTUM)
+
 
 Credential = ProjectSecretAPIKey | OAuthAccessToken
 
@@ -243,13 +276,20 @@ def _policy_for_credential(
     if isinstance(credential, OAuthAccessToken) and not _oauth_authorization_ok(credential, team, team.id, memo):
         return HyperCacheStoreMissing()
 
-    return {
+    policy: dict[str, Any] = {
         "team_id": team.id,
         "project_token": project_token,
         "scopes": [GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
         "billing_mode": GATEWAY_CREDENTIAL_BILLING_MODE,
         "revoked_at": None,
     }
+
+    # Omit when null so the gateway uses its default; an explicit 0 disables the allowance.
+    allowance = team.llm_gateway_overspend_allowance_usd
+    if allowance is not None:
+        policy[OVERSPEND_ALLOWANCE_KEY] = format_overspend_allowance_usd(allowance)
+
+    return policy
 
 
 def _resolve_credential(hash_key: str) -> Credential | None:
@@ -351,3 +391,66 @@ def refresh_all_gateway_credentials() -> int:
             count += 1
 
     return count
+
+
+# Gateway-owned Valkey hash (credential sha256$<hex> -> unix-second last-used),
+# written by the gateway. Wire contract: must match internal/lastused.ValkeyKey.
+GATEWAY_CREDENTIAL_LAST_USED_KEY = "ai-gateway:cred-last-used"
+
+# Match the authenticator's hour-granular throttle (posthog/auth.py).
+_LAST_USED_THROTTLE = timedelta(hours=1)
+
+
+def _decode_last_used_marks(raw: dict[Any, Any]) -> dict[str, int]:
+    """Fold an HGETALL result (bytes field -> bytes ts) into {hash: unix_ts}."""
+    marks: dict[str, int] = {}
+    for field, value in raw.items():
+        hash_key = field.decode() if isinstance(field, bytes | bytearray) else str(field)
+        raw_ts = value.decode() if isinstance(value, bytes | bytearray) else value
+        try:
+            marks[hash_key] = int(raw_ts)
+        except (TypeError, ValueError):
+            continue
+    return marks
+
+
+def drain_gateway_credential_last_used() -> int:
+    """Stamp ProjectSecretAPIKey.last_used_at from the gateway-coalesced Valkey hash.
+
+    phs_ only (OAuthAccessToken has no such field). bulk_update bypasses signals,
+    like the authenticator's .update(), to avoid churning the cache. Returns rows updated.
+    """
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return 0
+
+    client = get_client(settings.AI_GATEWAY_REDIS_URL)
+    # Atomic read-and-clear (at-most-once): a crash before the DB commit drops
+    # this window's marks. Accepted for a cosmetic, hour-granular, self-healing
+    # field; process-then-delete would be at-least-once but races a gateway HSET.
+    pipe = client.pipeline(transaction=True)
+    pipe.hgetall(GATEWAY_CREDENTIAL_LAST_USED_KEY)
+    pipe.delete(GATEWAY_CREDENTIAL_LAST_USED_KEY)
+    raw = pipe.execute()[0]
+    if not raw:
+        return 0
+
+    marks = _decode_last_used_marks(raw)
+    if not marks:
+        return 0
+
+    to_update = []
+    for secret_key in ProjectSecretAPIKey.objects.filter(secure_value__in=marks.keys()).only(
+        "id", "last_used_at", "secure_value"
+    ):
+        ts = marks.get(secret_key.secure_value or "")
+        if ts is None:
+            continue
+        used = datetime.fromtimestamp(ts, UTC)
+        # Never regress, and honour the hour throttle against whatever last wrote it.
+        if secret_key.last_used_at is None or used - secret_key.last_used_at > _LAST_USED_THROTTLE:
+            secret_key.last_used_at = used
+            to_update.append(secret_key)
+
+    if to_update:
+        ProjectSecretAPIKey.objects.bulk_update(to_update, ["last_used_at"])
+    return len(to_update)

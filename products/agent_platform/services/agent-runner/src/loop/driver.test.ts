@@ -72,6 +72,7 @@ function makeRev(spec: Partial<Parameters<typeof AgentSpecSchema.parse>[0]> = {}
         bundle_uri: 's3://x/',
         bundle_sha256: null,
         spec: AgentSpecSchema.parse({ model: FAUX_MODEL_ID, ...spec }),
+        encrypted_env: null,
     }
 }
 
@@ -679,14 +680,48 @@ describe('driver runSession', () => {
             expect(calls[0].headers).toMatchObject({
                 'X-PostHog-Distinct-Id': 'team:1:agent:app',
                 'X-PostHog-Trace-Id': TEST_SESSION_ID,
-                'Idempotency-Key': `agent:${TEST_SESSION_ID}:1`,
-                'X-Request-Id': `agent:${TEST_SESSION_ID}:1`,
             })
+            // The id carries the `agent:<session>:<turn>:<nonce>` shape;
+            // Idempotency-Key and X-Request-Id are the same id, and the nonce
+            // makes each call unique (see the resume regression test below).
+            const reqId = calls[0].headers?.['Idempotency-Key']
+            expect(reqId).toMatch(new RegExp(`^agent:${TEST_SESSION_ID}:1:[0-9a-f-]{36}$`))
+            expect(calls[0].headers?.['X-Request-Id']).toBe(reqId)
             // getUsage was called for that exact request id; the returned
             // cost landed in usage_total.
             expect(getUsage).toHaveBeenCalledTimes(1)
-            expect(getUsage).toHaveBeenCalledWith(`agent:${TEST_SESSION_ID}:1`, { phc: 'phc_test' })
+            expect(getUsage).toHaveBeenCalledWith(reqId, { phc: 'phc_test' })
             expect(session.usage_total.cost_total).toBeCloseTo(0.42, 5)
+        })
+
+        it('uses a unique Idempotency-Key per call so resumes never collide', async () => {
+            // Regression: `outboundTurn` resets to 1 on every runSession, so a
+            // key of just `agent:<session>:<turn>` made every follow-up's first
+            // call reuse `agent:<session>:1`. The gateway then replayed the
+            // first turn's cached response (24h Idempotency-Key window) instead
+            // of calling the model, and the follow-up ended instantly with no
+            // output. The per-call nonce must make each key distinct.
+            const calls: Array<{ headers: Record<string, string> | undefined }> = []
+            const gatewayHeaders = { 'X-PostHog-Trace-Id': TEST_SESSION_ID }
+            const session = makeSession()
+            // Two independent runSession invocations against the SAME session —
+            // an initial turn followed by a /send-driven resume.
+            await run(makeRev(), session, {
+                script: [stop('first')],
+                streamFn: recordingStreamFn(calls),
+                gatewayHeaders,
+            })
+            await run(makeRev(), session, {
+                script: [stop('second')],
+                streamFn: recordingStreamFn(calls),
+                gatewayHeaders,
+            })
+            expect(calls).toHaveLength(2)
+            const firstKey = calls[0].headers?.['Idempotency-Key']
+            const secondKey = calls[1].headers?.['Idempotency-Key']
+            expect(firstKey).toMatch(new RegExp(`^agent:${TEST_SESSION_ID}:1:`))
+            expect(secondKey).toMatch(new RegExp(`^agent:${TEST_SESSION_ID}:1:`))
+            expect(secondKey).not.toBe(firstKey)
         })
 
         it('survives a getUsage NaN/failure without polluting cost_total', async () => {

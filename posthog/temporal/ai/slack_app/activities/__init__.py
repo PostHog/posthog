@@ -2,6 +2,8 @@ from posthog.temporal.ai.slack_app.activities.billing import enforce_posthog_cod
 from posthog.temporal.ai.slack_app.activities.classifiers import (
     CLASSIFIER_THREAD_HISTORY_MESSAGES,
     classify_message_is_agent_directed,
+    classify_posthog_code_task_needs_repo_activity,
+    classify_task_needs_repo,
     classify_untagged_followup_activity,
 )
 from posthog.temporal.ai.slack_app.activities.messaging import (
@@ -15,7 +17,6 @@ from posthog.temporal.ai.slack_app.activities.messaging import (
 )
 from posthog.temporal.ai.slack_app.activities.repo_selection import (
     cascade_posthog_code_repository_activity,
-    classify_posthog_code_task_needs_repo_activity,
     discover_posthog_code_repository_via_agent_activity,
 )
 from posthog.temporal.ai.slack_app.activities.rules import (
@@ -42,6 +43,7 @@ __all__ = [
     "cascade_posthog_code_repository_activity",
     "classify_message_is_agent_directed",
     "classify_posthog_code_task_needs_repo_activity",
+    "classify_task_needs_repo",
     "classify_untagged_followup_activity",
     "collect_posthog_code_thread_messages_activity",
     "create_posthog_code_routing_rule_activity",

@@ -365,6 +365,19 @@ class TestSignalReportListAPI(APIBaseTest):
         assert ids.index(str(r_p3.id)) < ids.index(str(r_p4.id))
         assert ids.index(str(r_p4.id)) < ids.index(str(r_none.id))
 
+    def test_ordering_skips_unknown_clause_keeps_valid_ones(self):
+        """An unrecognized clause (e.g. a stale persisted field) is skipped, not fatal:
+        the valid clauses still apply instead of silently reverting to the default order."""
+        r_p1 = self._create_report(title="P1 report", summary="s", signal_count=1, total_weight=1.0)
+        r_p3 = self._create_report(title="P3 report", summary="s", signal_count=1, total_weight=1.0)
+        self._priority_artefact(r_p1, priority="P1")
+        self._priority_artefact(r_p3, priority="P3")
+
+        response = self.client.get(self._list_url(status="ready", ordering="bogus_field,priority"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids.index(str(r_p1.id)) < ids.index(str(r_p3.id))
+
     def test_ordering_by_total_weight_only_crosses_status_rank(self):
         """Without `status`, `ordering=-total_weight` is a global sort by weight."""
         low_ready = self._create_report(
@@ -1149,3 +1162,50 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == SignalReport.Status.POTENTIAL
+
+    @parameterized.expand(
+        [
+            # prior status before archiving, expected status after restore
+            ("ready", SignalReport.Status.READY, SignalReport.Status.READY),
+            ("pending_input", SignalReport.Status.PENDING_INPUT, SignalReport.Status.PENDING_INPUT),
+            ("resolved", SignalReport.Status.RESOLVED, SignalReport.Status.RESOLVED),
+            ("failed", SignalReport.Status.FAILED, SignalReport.Status.FAILED),
+            # In-flight / pre-research states have no live workflow, so restore re-enters the pipeline.
+            ("potential", SignalReport.Status.POTENTIAL, SignalReport.Status.POTENTIAL),
+            ("candidate", SignalReport.Status.CANDIDATE, SignalReport.Status.POTENTIAL),
+            ("in_progress", SignalReport.Status.IN_PROGRESS, SignalReport.Status.POTENTIAL),
+        ]
+    )
+    def test_restore_returns_report_to_pre_suppression_status(self, _name, prior_status, expected_restored_status):
+        report = SignalReport.objects.create(team=self.team, status=prior_status, title="t", summary="s")
+
+        suppress = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
+        )
+        assert suppress.status_code == status.HTTP_200_OK, suppress.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert report.status_before_suppression == prior_status
+
+        restore = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+        assert restore.status_code == status.HTTP_200_OK, restore.json()
+        report.refresh_from_db()
+        assert report.status == expected_restored_status
+        assert report.status_before_suppression is None
+
+    def test_restore_preserves_title_and_summary(self):
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Original title", summary="Original summary"
+        )
+        self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
+        )
+        self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        assert report.title == "Original title"
+        assert report.summary == "Original summary"

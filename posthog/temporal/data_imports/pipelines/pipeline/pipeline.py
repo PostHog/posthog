@@ -15,6 +15,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
+    advance_xmin_state,
     cdp_producer_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
@@ -164,7 +165,9 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._schema = schema
         self._source = source
         self._table = table
-        self._is_incremental = schema.is_incremental or schema.is_webhook
+        # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
+        # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
+        self._is_incremental = schema.is_incremental or schema.is_webhook or schema.is_xmin
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._resumable_source_manager = resumable_source_manager
@@ -256,6 +259,8 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             await self._post_run_operations(row_count=row_count)
 
+            await advance_xmin_state(self._resource, self._schema, self._logger)
+
             return {"should_trigger_cdp_producer": await self._cdp_producer.should_produce_table()}
         finally:
             # Help reduce the memory footprint of each job
@@ -293,7 +298,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"
-        if self._schema.is_incremental or self._schema.is_webhook:
+        if self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
             write_type = "incremental"
         elif self._schema.is_append:
             write_type = "append"

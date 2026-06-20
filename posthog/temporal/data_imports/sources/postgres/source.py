@@ -33,6 +33,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgresImplementation,
     SSLRequiredError,
     _rls_active_from_conn,
+    _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
@@ -46,7 +47,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
 )
 
 from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +55,17 @@ PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
     # libpq reports a bad password via SCRAM with a different wording than the line above.
     "error received from server in SCRAM exchange: Wrong password": "Invalid user or password",
+    # Supabase/Supavisor poolers report a missing tenant/user during credential validation with
+    # "FATAL: (ENOTFOUND) tenant/user <user> not found" — the project is paused/deleted or the
+    # pooler username/host is wrong. `get_non_retryable_errors` already handles this on the
+    # streaming path; map it here too so validation returns an actionable message instead of
+    # surfacing the expected user/upstream condition as captured error noise. Match the stable
+    # fragment and exclude the volatile username/host.
+    "(ENOTFOUND) tenant/user": (
+        "Your database connection pooler couldn't find the tenant or user. This usually means the "
+        "database project is paused or deleted, or the pooler username/host is wrong. Check that "
+        "your database is active and the connection details are correct."
+    ),
     "could not translate host name": "Could not connect to the host",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
@@ -61,6 +73,11 @@ PostgresErrors = {
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
     "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    # An invalid SSL-negotiation response means the host/port isn't a PostgreSQL server speaking SSL
+    # (wrong port, an HTTP/proxy/edge endpoint, or a TCP proxy fronting a paused/deleted database).
+    # Map it to an actionable message so validation stops surfacing this expected user/upstream
+    # condition as captured error noise. See `get_non_retryable_errors` for the streaming-path twin.
+    "received invalid response to SSL negotiation": "PostHog reached the host and port you configured, but the server didn't respond like a PostgreSQL server speaking SSL. Check that the host and port point at your PostgreSQL server (not an HTTP, proxy, or edge endpoint) and that the database is running.",
     "SSL connection has been closed unexpectedly": "The SSL/TLS connection to your database was closed unexpectedly. Check your database's SSL configuration and that the port is correct.",
     # libpq reports a server-side socket close during the startup handshake with this wording. During
     # credential validation it almost always means the host/port points at something that isn't (or
@@ -71,6 +88,21 @@ PostgresErrors = {
     # transient mid-stream drop in the streaming path (`_CONNECTION_DROPPED_ERROR_SUBSTRINGS`) and
     # must stay retryable there.
     "server closed the connection unexpectedly": "Your database closed the connection unexpectedly while connecting. This usually means the host or port is wrong, the server requires SSL/TLS, or a connection pooler, firewall, or SSH tunnel dropped the connection. Check your host, port, and SSL settings.",
+    # Supabase/Supavisor reports a saturated session-mode pooler as
+    # "FATAL: (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to
+    # pool_size: <n>". Every client slot the pooler exposes is in use, so it refuses new connections
+    # until one frees up — a config/capacity condition on the customer's pooler, not a PostHog bug.
+    # Map it to an actionable message so credential validation stops surfacing it as captured error
+    # noise. The volatile pool_size number and the "(EMAXCONNSESSION)" code prefix are excluded from
+    # the match. NB: this is intentionally NOT added to `get_non_retryable_errors` — pooler
+    # saturation is transient (it clears once connections are returned to the pool), so the streaming
+    # path must keep retrying it. See `test_transient_connection_errors_are_retryable`.
+    "max clients reached in session mode": (
+        "Your database's connection pooler has no free client connections "
+        '("max clients reached in session mode"). Raise the pooler\'s client limit (for example '
+        "increase pool_size, or switch it to transaction mode) or reduce the number of concurrent "
+        "connections to your database, then try again."
+    ),
 }
 
 
@@ -179,6 +211,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # xmin can't run against this relation (server < PG13, no primary key, or a partitioned
+            # parent) — deterministic, so don't retry. `XminUnsupportedError` matches once Temporal
+            # wraps the failure; the message fragment matches the raw activity-level `str(e)`.
+            "XminUnsupportedError": None,
+            "xmin replication": None,
             "NoSuchTableError": None,
             "is not permitted to log in": None,
             "Tenant or user not found connection to server": None,
@@ -195,6 +232,34 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "and the connection details are correct, then re-enable the sync."
             ),
             "error received from server in SCRAM exchange: Wrong password": None,
+            # The server (commonly Supabase's Supavisor transaction pooler on port 6543) rejects the
+            # SASL/SCRAM credential exchange with "FATAL: SASL authentication failed" instead of
+            # PostgreSQL's "password authentication failed for user" — so none of the password keys
+            # above substring-match it and Temporal keeps retrying a credential mismatch that only the
+            # customer can fix. It surfaces alone via `str(e)`: when `options` is rejected first, the
+            # no-`options` reconnect raises this and the "unsupported startup parameter: options"
+            # error is only its chained context (which `str(e)` drops). Auth rejection is
+            # deterministic, never a transient blip, so stop retrying.
+            "SASL authentication failed": (
+                "Your database rejected the credentials during authentication "
+                '("SASL authentication failed"). This usually means the username or password is '
+                "wrong. Some connection poolers (for example Supabase's transaction pooler) also "
+                "require a pooler-specific username such as postgres.<project-ref>. Check your "
+                "credentials, then re-enable the sync."
+            ),
+            # A Postgres server configured with `pam` auth in pg_hba.conf rejects bad credentials with
+            # "FATAL: PAM authentication failed for user <user>" instead of PostgreSQL's
+            # "password authentication failed for user", so the password key above doesn't
+            # substring-match it and Temporal keeps retrying a credential mismatch only the customer
+            # can fix. PAM delegates to an external module (system password db, LDAP, etc.); a
+            # rejection here is a deterministic auth failure, not a transient blip. Match the stable
+            # fragment and exclude the volatile user/host.
+            "PAM authentication failed": (
+                "Your database rejected the credentials during PAM authentication "
+                '("PAM authentication failed"). Your PostgreSQL server authenticates this user '
+                "through PAM (for example against the system password database or LDAP), and it "
+                "rejected the username or password. Check your credentials, then re-enable the sync."
+            ),
             "could not translate host name": None,
             "timeout expired connection to server at": None,
             "password authentication failed for user": None,
@@ -241,6 +306,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # Match that message substring so the role-lacks-SELECT case is caught at both layers
             # and we stop retrying instead of re-reading into the same denial every attempt.
             "InsufficientPrivilege": None,
+            # A view selected for sync calls a function the connecting role can't execute (SQLSTATE
+            # 42501) — most often a view that decrypts secrets via Supabase Vault / pgsodium
+            # (`crypto_aead_det_decrypt`). Distinct from the table/view SELECT denial below: granting
+            # SELECT won't help, so it needs its own EXECUTE-oriented message and must precede the
+            # generic "permission denied for" so that message is the one selected.
+            "permission denied for function": (
+                "PostHog's database role isn't allowed to execute a function used by one or more of the "
+                'tables or views you selected to sync (PostgreSQL reported "permission denied for function"). '
+                "This often happens when a view decrypts secrets (for example Supabase Vault's "
+                "crypto_aead_det_decrypt). Grant the connecting role EXECUTE on that function, or remove the "
+                "view that uses it from the sync, then re-enable the sync."
+            ),
             "permission denied for": (
                 "PostHog's database role isn't allowed to read one or more of the tables you selected to sync "
                 '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
@@ -267,18 +344,25 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "speaking TLS (for example an HTTP, proxy, or edge endpoint, or the wrong port). "
                 "Check your host and port, then re-enable the sync."
             ),
+            # libpq emits "received invalid response to SSL negotiation: <byte>" when the server
+            # answers its SSLRequest with a byte that isn't 'S'/'N'. In practice the configured
+            # host/port isn't a PostgreSQL server speaking SSL — an HTTP/proxy/edge endpoint, the
+            # wrong port, or a TCP proxy fronting a paused/deleted database — so retrying re-runs
+            # into the same wall. Surfaced raw on both require_ssl paths (postgres.py deliberately
+            # does NOT wrap it as SSLRequiredError, whose "enable SSL" message would be misleading).
+            # Placed before the generic SSL entries so its accurate message wins. The volatile
+            # trailing byte is excluded from the match.
+            "received invalid response to SSL negotiation": (
+                "PostHog reached the host and port you configured, but the server didn't respond "
+                'like a PostgreSQL server during the SSL handshake ("received invalid response to '
+                "SSL negotiation\"). This usually means the host and port don't point at a "
+                "PostgreSQL server speaking SSL — for example an HTTP, proxy, or edge endpoint, the "
+                "wrong port, or a database that's paused or deleted behind a TCP proxy. Check your "
+                "host and port, then re-enable the sync."
+            ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
-            # Surfaced by a connection pooler (e.g. PgBouncer) as a psycopg ProtocolViolation when
-            # the pooler has *repeatedly* failed to log in to the backend database within its
-            # server_login_retry window (full message: "server login has been failing, cached
-            # error: <reason> (server_login_retry)"). By the time this is returned the backend is in
-            # a sustained failure state — unreachable, refusing connections, or rejecting the
-            # pooler's credentials — so it is not a one-off transient blip; retrying the whole sync
-            # just hits the same wall. Matches the stable pooler signature; the cached <reason>
-            # ("connect timeout", etc.) and the trailing "(server_login_retry)" suffix vary and are
-            # excluded.
             "server login has been failing": (
                 "Your database's connection pooler (for example PgBouncer) reported that it has "
                 'repeatedly failed to connect to the backend database ("server login has been '
@@ -286,28 +370,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "the pooler's credentials for the database are wrong. Check that the database is "
                 "running and reachable from your pooler, then re-enable the sync."
             ),
-            # Serverless Postgres providers (e.g. Neon) suspend a project's compute once it exhausts
-            # the plan's compute-time quota, and the connection attempt fails at handshake with
-            # "Your account or project has exceeded the compute time quota. Upgrade your plan to
-            # increase limits." The compute stays suspended until the customer upgrades their plan or
-            # the quota resets at the next billing period, so retrying the activity just re-hits the
-            # same wall. Match the stable provider message and exclude the volatile host/IP/port.
             "exceeded the compute time quota": (
                 "Your database provider has suspended the database because the account or project "
                 'exceeded its compute-time quota ("exceeded the compute time quota"). PostHog can\'t '
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
             ),
-            # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
-            # due to conflict with recovery") 30 times in-process with backoff + chunk-size
-            # reduction before raising this. The conflict comes from the customer's read replica
-            # applying WAL that removes row versions our long-running read still needs
-            # (max_standby_streaming_delay exceeded). Once those in-process retries are exhausted the
-            # condition is sustained, not a transient blip — retrying the whole activity just
-            # re-reads from offset 0 into the same wall, so stop and surface an actionable message.
-            # Matched substring excludes the volatile retry count and is distinct from the
-            # connection-dropped abort ("successive connection-dropped errors"), which stays retryable.
-            "successive SerializationFailure errors. Aborting.": (
+            # A single recovery conflict ("conflict with recovery") is transient and retried in-process,
+            # so it stays retryable. This abort is only raised once those retries are exhausted — by then
+            # the condition is sustained and a whole-activity retry just re-reads from offset 0 into the
+            # same wall, so it's non-retryable. Substring excludes the volatile retry count.
+            "kept canceling reads due to conflict with recovery": (
                 "PostHog repeatedly hit Postgres recovery conflicts while reading from your read replica "
                 '("canceling statement due to conflict with recovery"). This happens when the replica must '
                 "apply changes from the primary that remove rows the sync is still reading. Increase "
@@ -468,6 +541,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             indexed_columns_by_table: dict[str, set[str]] | None = {}
             tables_with_pks: set[str] = set()
             rls_active_by_table: dict[str, bool] = {}
+            xmin_capable_tables: set[str] = set()
 
             try:
                 with pg_connection(
@@ -537,6 +611,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
                     # Row-level security check powers the advisory warning in the table picker.
                     rls_active_by_table = _rls_active_from_conn(conn, config.schema, names)
+
+                    # xmin availability (heap tables + matviews, PG13+). Postgres-only: the generic
+                    # `supports_xmin` default stays False for every other source.
+                    xmin_capable_tables = _xmin_capable_tables_from_conn(conn, config.schema, names)
             except Exception as e:
                 # Connection-level failure for the best-effort PK/index/RLS metadata lookup. The
                 # schema listing already succeeded above (`db_schemas`), so degrade quietly — log a
@@ -550,6 +628,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 indexed_columns_by_table = None
                 tables_with_pks = set()
                 rls_active_by_table = {}
+                xmin_capable_tables = set()
 
         for table_name, discovered_schema in db_schemas.items():
             incremental_field_tuples = filter_postgres_incremental_fields(discovered_schema.columns)
@@ -567,13 +646,32 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 }
                 for field_name, field_type, nullable in incremental_field_tuples
             ]
+            # `supports_incremental`/`supports_append` must reflect the real cursor fields only —
+            # compute them before appending the synthetic xmin entry.
+            supports_real_cursor = len(incremental_fields) > 0
+
+            # xmin is advertised synthetically: it's never in information_schema (negative attnum),
+            # so `filter_postgres_incremental_fields` can't produce it. It's always unindexed
+            # (`xmin::text::bigint` is an expression), so the UI warns about the full seq scan.
+            supports_xmin = table_name in xmin_capable_tables
+            if supports_xmin:
+                incremental_fields.append(
+                    {
+                        "label": "xmin",
+                        "type": IncrementalFieldType.XID,
+                        "field": "xmin",
+                        "field_type": IncrementalFieldType.XID,
+                        "is_indexed": False,
+                    }
+                )
 
             schemas.append(
                 SourceSchema(
                     name=table_name,
-                    supports_incremental=len(incremental_fields) > 0,
-                    supports_append=len(incremental_fields) > 0,
+                    supports_incremental=supports_real_cursor,
+                    supports_append=supports_real_cursor,
                     supports_cdc=table_name in tables_with_pks,
+                    supports_xmin=supports_xmin,
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
                     columns=discovered_schema.columns,
@@ -745,6 +843,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             is_initial_sync=not schema.initial_sync_complete,
             enabled_columns=inputs.enabled_columns,
             row_filters=inputs.row_filters,
+            # xmin state is read straight off the schema here (the generic `SourceInputs` stays
+            # Postgres-agnostic). xmin rides the normal full per-schema path — no CDC dispatch.
+            is_xmin=schema.is_xmin,
+            xmin_last_value=schema.xmin_last_value,
+            xmin_num_wraparound=schema.xmin_num_wraparound,
         )
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.

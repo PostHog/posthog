@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
+    columns_in_position_order,
     remove_named_tuples,
+    stamp_column_positions,
 )
 
 logger = structlog.get_logger(__name__)
@@ -136,6 +138,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             self.expires_at = timezone.now() + TEST_VIEW_EXPIRY_INTERVAL
         elif not self.is_test and self.expires_at:
             self.expires_at = None
+        if isinstance(self.columns, dict):
+            stamp_column_positions(self.columns)
         super().save(*args, **kwargs)
 
     class Meta:
@@ -288,7 +292,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(self.team),
-            database=database or Database.create_for(self.team.pk),
+            # Internal saved-query resolution (no user); bypass warehouse HogQL access control.
+            database=database or Database.create_for(self.team.pk, bypass_warehouse_access_control=True),
         )
 
         query = self.query or {}
@@ -305,7 +310,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     @property
     def folder_path(self):
-        return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
+        return f"team_{self.team_id}_model_{self.id.hex}/modeling"
 
     @property
     def normalized_name(self):
@@ -336,7 +341,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         from products.warehouse_sources.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
 
-        for column, type in columns.items():
+        # jsonb scrambles key order, so restore the stamped column positions
+        for column, type in columns_in_position_order(columns):
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type
