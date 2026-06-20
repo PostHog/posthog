@@ -30,7 +30,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
-from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.models.person.util import create_person, create_person_distinct_id, get_distinct_ids_for_persons
 from posthog.personhog_client.fake_client import fake_personhog_client
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -974,9 +974,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 400)
         self.assertIn("not_on_this_person", response.content.decode())
 
-        # Nothing should have moved.
-        original = Person.objects.get(team_id=self.team.id, pk=person1.pk)
-        self.assertCountEqual(original.distinct_ids, ["a", "b"])
+        # Nothing should have moved. Distinct IDs are read via personhog (the ORM fallback
+        # on `Person.distinct_ids` was removed), so resolve them through the routed helper.
+        original_distinct_ids = get_distinct_ids_for_persons(self.team.id, [person1.pk]).get(person1.pk, [])
+        self.assertCountEqual(original_distinct_ids, ["a", "b"])
 
     def test_split_people_partial_rejects_combined_with_main_distinct_id(self) -> None:
         person1 = _create_person(
@@ -1516,9 +1517,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             version=2,
         )
 
-        # Now person_b has both "active_user" and "deleted_user"
+        # Now person_b has both "active_user" and "deleted_user". Distinct IDs are read via
+        # personhog (the ORM fallback on `Person.distinct_ids` was removed), so resolve them
+        # through the routed helper rather than the (out-of-band, stale) in-memory cache.
         person_b.refresh_from_db()
-        self.assertEqual(set(person_b.distinct_ids), {"active_user", "deleted_user"})
+        person_b_distinct_ids = get_distinct_ids_for_persons(self.team.pk, [person_b.pk]).get(person_b.pk, [])
+        self.assertEqual(set(person_b_distinct_ids), {"active_user", "deleted_user"})
 
         # Split person B
         with fake_personhog_client() as fake:
@@ -1662,7 +1666,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(11):
+        # The persons-list read path no longer issues the two ORM queries (person fetch +
+        # distinct-id fetch) — those route through personhog — so the count drops 11 -> 9.
+        with self.assertNumQueries(9):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -1673,7 +1679,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(9):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
