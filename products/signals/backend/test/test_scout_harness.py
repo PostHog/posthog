@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -17,6 +17,7 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
@@ -478,6 +479,80 @@ async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, 
     assert len(spawn_calls) == 1
     assert result.run_id is not None
     assert result.skip_reason is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerrors_skill):
+    # An IN_PROGRESS run orphaned by a crashed worker must not block the lane forever. The
+    # stale-run self-heal fails any run older than STALE_RUN_CUTOFF_S before the skip-if-running
+    # guard, so a fresh dispatch proceeds and the orphan is marked FAILED.
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(
+        team=ateam, skill_name="signals-scout-errors"
+    )
+    task_run = await database_sync_to_async(_make_task_run)(ateam)
+    # An IN_PROGRESS run whose start is older than the cutoff = an orphan from a crashed worker.
+    await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(
+        status=TaskRun.Status.IN_PROGRESS,
+        created_at=datetime.now(UTC) - timedelta(seconds=STALE_RUN_CUTOFF_S + 60),
+    )
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=task_run,
+        team=ateam,
+        scout_config=config,
+        skill_name="signals-scout-errors",
+        skill_version=1,
+    )
+
+    spawn_calls: list[dict] = []
+
+    async def fake_spawn(**kwargs):
+        spawn_calls.append(kwargs)
+        return "ok", str(task_run.id)
+
+    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # The orphan was reaped, so the guard didn't block — dispatch went through.
+    assert len(spawn_calls) == 1
+    assert result.run_id is not None
+    assert result.skip_reason is None
+    # The stale run is now terminal.
+    reaped = await database_sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    assert reaped.status == TaskRun.Status.FAILED
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_recent_in_progress_run_is_not_reaped_and_still_blocks(ateam, aerrors_skill):
+    # A genuinely in-flight run (younger than the cutoff) must still single-flight — the
+    # self-heal must not reap a live run out from under itself.
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(
+        team=ateam, skill_name="signals-scout-errors"
+    )
+    task_run = await database_sync_to_async(_make_task_run)(ateam)
+    await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(
+        status=TaskRun.Status.IN_PROGRESS,
+        created_at=datetime.now(UTC) - timedelta(seconds=30),
+    )
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=task_run,
+        team=ateam,
+        scout_config=config,
+        skill_name="signals-scout-errors",
+        skill_version=1,
+    )
+
+    with patch(
+        "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+        new_callable=AsyncMock,
+        side_effect=AssertionError("session.start should not run while a live run is IN_PROGRESS"),
+    ):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert result.skip_reason is not None
+    still_running = await database_sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    assert still_running.status == TaskRun.Status.IN_PROGRESS
 
 
 @pytest.mark.asyncio
