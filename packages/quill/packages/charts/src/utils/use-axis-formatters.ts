@@ -30,6 +30,10 @@ export interface YAxisConfig extends YFormatterConfig {
     tickFormatter?: (value: number) => string
     hide?: boolean
     showGrid?: boolean
+    /** Y-axis baseline behavior. The default (`undefined`/`true`) clamps a non-negative axis down to
+     *  0. Set `false` to float the axis to its data range instead (zoom in on the variation). Ignored
+     *  on a log scale, and only honored for the primary axis in the array (multi-axis) form. */
+    startAtZero?: boolean
 }
 
 export function useXTickFormatter(
@@ -126,7 +130,8 @@ export function useYTickFormatter(yAxis: YAxisConfig | undefined): ((value: numb
     // unrelated config-identity changes — the same field set forms the dependency array.
     const { tickFormatter, format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency } = yAxis ?? {}
     return useMemo(
-        () => resolveYTickFormatter({ tickFormatter, format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency }),
+        () =>
+            resolveYTickFormatter({ tickFormatter, format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency }),
         [tickFormatter, format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency]
     )
 }

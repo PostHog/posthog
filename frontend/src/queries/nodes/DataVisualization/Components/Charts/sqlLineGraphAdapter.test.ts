@@ -1,4 +1,6 @@
-import { type TooltipContext, type TrendLineConfig } from '@posthog/quill-charts'
+import { type TooltipContext, type TrendLineConfig, type YAxisConfig } from '@posthog/quill-charts'
+
+import { compactNumber } from 'lib/utils/numbers'
 
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -24,6 +26,7 @@ import {
     comboBarLayoutForDisplay,
     exceedsMaxSeries,
     formatSqlSeriesValue,
+    hasAxisTickFormatting,
     hasMixedSeriesTypes,
     seriesDisplayType,
 } from './sqlLineGraphAdapter'
@@ -442,6 +445,23 @@ describe('sqlLineGraphAdapter', () => {
         })
     })
 
+    describe('hasAxisTickFormatting', () => {
+        it.each<[string, AxisSeries<number | null>['settings'], boolean]>([
+            ['undefined settings', undefined, false],
+            ['no formatting block', { display: { color: '#abc' } }, false],
+            ['default empty prefix/suffix', { formatting: { prefix: '', suffix: '' } }, false],
+            ['style none', { formatting: { style: 'none' } }, false],
+            ['style number', { formatting: { style: 'number' } }, true],
+            ['style short', { formatting: { style: 'short' } }, true],
+            ['style percent', { formatting: { style: 'percent' } }, true],
+            ['prefix', { formatting: { prefix: '$' } }, true],
+            ['suffix', { formatting: { suffix: ' req' } }, true],
+            ['decimal places', { formatting: { decimalPlaces: 2 } }, true],
+        ])('returns %s -> %s', (_name, settings, expected) => {
+            expect(hasAxisTickFormatting(settings)).toBe(expected)
+        })
+    })
+
     describe('buildSqlTooltipConfig', () => {
         const entry = (settings: AxisSeries<number | null>['settings']): TooltipContext['seriesData'][number] => ({
             series: { key: 'r', label: 'Revenue', data: [1200], meta: { settings } },
@@ -523,9 +543,68 @@ describe('sqlLineGraphAdapter', () => {
             }
             const config = buildLineChartConfig({ xData: dateXData, chartSettings, timezone: 'UTC', ySeriesData })
             expect(config.yAxis).toEqual([
+                // Left is logarithmic, so startAtZero is omitted (no zero baseline on a log scale).
                 { id: 'left', position: 'left', label: 'Left', scale: 'log', showGrid: true, hide: false },
-                { id: 'right', position: 'right', label: 'Right', scale: 'linear', showGrid: false, hide: false },
+                {
+                    id: 'right',
+                    position: 'right',
+                    label: 'Right',
+                    scale: 'linear',
+                    showGrid: false,
+                    hide: false,
+                    startAtZero: true,
+                },
             ])
+        })
+
+        it('formats each gutter from a series on that axis and starts linear axes at zero', () => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                ySeriesData: [
+                    ySeries('revenue', [1200, 1400], { formatting: { prefix: '$' } }),
+                    ySeries('conversion', [12, 18], {
+                        formatting: { suffix: '%' },
+                        display: { yAxisPosition: 'right' },
+                    }),
+                ],
+            })
+            const yAxis = config.yAxis as YAxisConfig[]
+            expect(Array.isArray(yAxis)).toBe(true)
+            expect(yAxis[0].tickFormatter?.(1200)).toBe('$1200')
+            expect(yAxis[1].tickFormatter?.(18)).toBe('18%')
+            expect(yAxis[0].startAtZero).toBe(true)
+        })
+
+        it('formats single-axis ticks from the first series column and defaults startAtZero on', () => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                ySeriesData: [ySeries('revenue', [1200], { formatting: { prefix: '$', style: 'short' } })],
+            })
+            const yAxis = config.yAxis as YAxisConfig
+            // Same path the tooltip uses, so ticks and tooltip read identically.
+            expect(yAxis.tickFormatter?.(1200)).toBe(`$${compactNumber(1200)}`)
+            expect(yAxis.startAtZero).toBe(true)
+        })
+
+        it.each([
+            ['honors an explicit startAtZero=false', { leftYAxisSettings: { startAtZero: false } }, false],
+            ['falls back to the deprecated yAxisAtZero', { yAxisAtZero: false }, false],
+        ])('%s on the left axis', (_name, chartSettings, expected) => {
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings, timezone: 'UTC' })
+            expect((config.yAxis as YAxisConfig).startAtZero).toBe(expected)
+        })
+
+        it('leaves startAtZero unset on a logarithmic axis (no zero baseline to drop)', () => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: { leftYAxisSettings: { scale: 'logarithmic' } },
+                timezone: 'UTC',
+            })
+            expect((config.yAxis as YAxisConfig).startAtZero).toBeUndefined()
         })
 
         it.each([
@@ -575,6 +654,28 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsStackedBar,
             })
             expect(config.yAxis?.scale).toBe('linear')
+        })
+
+        it('formats y-axis ticks with the first series column settings for plain bars', () => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+                ySeriesData: [ySeries('revenue', [1200], { formatting: { prefix: '$' } })],
+            })
+            expect(config.yAxis?.tickFormatter?.(1200)).toBe('$1200')
+        })
+
+        it('skips the column tick formatter for percent-stacked bars (the axis is 0–100%)', () => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { stackBars100: true },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsStackedBar,
+                ySeriesData: [ySeries('revenue', [1200], { formatting: { prefix: '$' } })],
+            })
+            expect(config.yAxis?.tickFormatter).toBeUndefined()
         })
 
         it('never emits trend lines (quill bar charts have no trend-line support)', () => {

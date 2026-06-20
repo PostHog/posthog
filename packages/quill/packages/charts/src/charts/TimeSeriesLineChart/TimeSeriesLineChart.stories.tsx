@@ -215,6 +215,26 @@ export const YAxisFormats: Story = {
     ),
 }
 
+/** Offset, all-positive series: clamping leaves a tall empty gutter below the data; floating zooms
+ *  onto the band so the day-to-day variation is legible. */
+const OFFSET_SERIES: Series[] = [{ key: 'latency', label: 'p95 latency', data: [820, 860, 840, 905, 880, 930, 910] }]
+
+/** `startAtZero` controls the baseline: the default (left) clamps a non-negative axis to 0; setting
+ *  it `false` (right) floats the axis to the data range. */
+export const StartAtZero: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
+            <YFormatCell title="default (clamped to 0)" series={OFFSET_SERIES} config={{ suffix: ' ms' }} />
+            <YFormatCell
+                title="startAtZero: false (floated)"
+                series={OFFSET_SERIES}
+                config={{ suffix: ' ms', startAtZero: false }}
+            />
+        </div>
+    ),
+}
+
 const DERIVED_SERIES: Series[] = [
     { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] },
     { key: 'signups', label: 'Sign-ups', data: [4, 8, 6, 14, 11, 19, 13] },
