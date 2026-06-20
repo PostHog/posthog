@@ -16,6 +16,11 @@ export type {
 export type { ValueLabelsConfig } from './charts/utils/use-value-labels'
 export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
+export { TimeSeriesComboChart } from './charts/TimeSeriesComboChart/TimeSeriesComboChart'
+export type {
+    TimeSeriesComboChartConfig,
+    TimeSeriesComboChartProps,
+} from './charts/TimeSeriesComboChart/TimeSeriesComboChart'
 export { Sparkline } from './charts/Sparkline/Sparkline'
 export type { SparklineProps } from './charts/Sparkline/Sparkline'
 export { MetricCard } from './components/MetricCard/MetricCard'

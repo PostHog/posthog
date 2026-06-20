@@ -1,23 +1,23 @@
 import clsx from 'clsx'
 
-import { TimeSeriesLineChart } from '@posthog/quill-charts'
+import { TimeSeriesComboChart } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { LineGraphProps } from './LineGraph'
-import { SqlLineSeriesMeta, buildLineChartConfig } from './sqlLineGraphAdapter'
+import { SqlLineSeriesMeta, buildComboChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
-const handleChartError = makeChartErrorHandler('sql-line-chart')
+const handleChartError = makeChartErrorHandler('sql-combo-chart')
 
 /**
- * SQL line/area graph rendered via @posthog/quill-charts, gated behind the
- * `product-analytics-quill-sql-charts` flag (see {@link LineGraph}). Handles line, area, goal
- * lines, and trend lines; everything else falls back to the legacy chart.js path. Tooltip content
- * (per-column formatting, total row) is configured in {@link buildLineChartConfig}.
+ * SQL mixed bar + line/area graph rendered via @posthog/quill-charts' {@link TimeSeriesComboChart},
+ * gated behind the `product-analytics-quill-sql-charts` flag (see {@link LineGraph}). Handles the
+ * mixed-type case the line-only and bar-only paths can't. Tooltip content (per-column formatting,
+ * total row) is configured in {@link buildComboChartConfig}.
  */
-export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
-    const model = useSqlChartModel(props, buildLineChartConfig)
+export const SqlComboGraph = (props: LineGraphProps): JSX.Element => {
+    const model = useSqlChartModel(props, buildComboChartConfig)
 
     return (
         <div
@@ -28,7 +28,7 @@ export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
             )}
         >
             {model && (
-                <TimeSeriesLineChart<SqlLineSeriesMeta>
+                <TimeSeriesComboChart<SqlLineSeriesMeta>
                     series={model.series}
                     labels={model.labels}
                     theme={model.theme}
