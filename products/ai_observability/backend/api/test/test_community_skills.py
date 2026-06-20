@@ -319,6 +319,16 @@ class TestSkillTemplateRendering(APIBaseTest):
                 supplied={"repo-name": "x"},
             )
 
+    def test_render_allows_braces_inside_supplied_value(self) -> None:
+        # Validation is on the source template, so a value containing literal {{ }} is not re-parsed.
+        rendered = render_template_skill(
+            variables=parse_template_variables({"variables": [{"name": "snippet", "required": True}]}),
+            body="config: {{ snippet }}",
+            files=[],
+            supplied={"snippet": "{{ not_a_var }}"},
+        )
+        self.assertEqual(rendered.body, "config: {{ not_a_var }}")
+
     def test_render_oversized_output_raises(self) -> None:
         with self.assertRaises(TemplateRenderTooLargeError):
             render_template_skill(

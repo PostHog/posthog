@@ -189,7 +189,9 @@ class CommunitySkillInstallSerializer(serializers.Serializer):
         help_text="Name for the installed skill in your team. Defaults to the community skill's slug.",
     )
     variables = serializers.DictField(
-        child=serializers.CharField(allow_blank=True),
+        # trim_whitespace=False so a value's exact text (multiline snippets, leading/trailing
+        # whitespace meant for the rendered output) survives into the installed skill.
+        child=serializers.CharField(allow_blank=True, trim_whitespace=False),
         required=False,
         help_text=(
             "Values for a template skill's declared variables, as a {name: value} map. Required only when "

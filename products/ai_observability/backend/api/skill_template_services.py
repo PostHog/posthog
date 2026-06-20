@@ -57,10 +57,11 @@ class TemplateRenderTooLargeError(TemplateRenderError):
 def parse_template_variables(metadata: dict[str, Any] | None) -> list[TemplateVariable]:
     """Read the `variables` schema out of a skill's frontmatter metadata.
 
-    Tolerant of malformed entries from synced/external content: anything without a usable string
-    `name` is skipped rather than raising, so a bad row never breaks discovery or install.
+    Tolerant of malformed entries from synced/external content: a non-dict metadata or anything
+    without a usable string `name` is skipped rather than raising, so a bad row never breaks
+    discovery or install.
     """
-    if not metadata:
+    if not isinstance(metadata, dict):
         return []
     raw = metadata.get("variables")
     if not isinstance(raw, list):
@@ -110,21 +111,22 @@ def resolve_bindings(variables: list[TemplateVariable], supplied: dict[str, str]
 
 
 def render_text(text: str, bindings: dict[str, str]) -> str:
-    """Substitute every `{{ name }}` placeholder, erroring on any undeclared/unrenderable name."""
+    """Substitute every `{{ name }}` placeholder, erroring on any undeclared/unrenderable name.
 
-    def _replace(match: re.Match[str]) -> str:
-        name = match.group(1)
-        if name not in bindings:
-            raise UnknownTemplatePlaceholderError(name)
-        return bindings[name]
+    Validation runs against the source `text` only, before substitution — a supplied value may
+    legitimately contain literal `{{ }}` and must not be re-interpreted as a placeholder.
+    """
+    for match in _LOOSE_PLACEHOLDER_RE.finditer(text):
+        token = match.group(0)
+        strict = _PLACEHOLDER_RE.fullmatch(token)
+        if strict is None:
+            # A `{{ ... }}` whose name the strict pattern can't match (e.g. a hyphen) — fail loudly
+            # rather than install a skill with a dangling placeholder.
+            raise UnknownTemplatePlaceholderError(token.strip())
+        if strict.group(1) not in bindings:
+            raise UnknownTemplatePlaceholderError(strict.group(1))
 
-    rendered = _PLACEHOLDER_RE.sub(_replace, text)
-    # Anything still wrapped in `{{ }}` had a name the strict pattern couldn't match — fail loudly
-    # rather than install a skill with a dangling placeholder.
-    leftover = _LOOSE_PLACEHOLDER_RE.search(rendered)
-    if leftover is not None:
-        raise UnknownTemplatePlaceholderError(leftover.group(0).strip())
-    return rendered
+    return _PLACEHOLDER_RE.sub(lambda m: bindings[m.group(1)], text)
 
 
 @dataclass(frozen=True)
