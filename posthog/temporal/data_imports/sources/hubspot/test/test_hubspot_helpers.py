@@ -17,7 +17,9 @@ def _make_response(status: int, payload: dict[str, Any] | None = None) -> MagicM
     response = MagicMock()
     response.status_code = status
     response.json.return_value = payload or {}
-    response.raise_for_status.side_effect = None if 200 <= status < 300 else HTTPError(f"{status} Client Error")
+    response.raise_for_status.side_effect = (
+        None if 200 <= status < 300 else HTTPError(f"{status} Client Error", response=response)
+    )
     return response
 
 

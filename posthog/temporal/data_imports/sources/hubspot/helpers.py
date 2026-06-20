@@ -174,7 +174,7 @@ def fetch_data(
         except RequestsJSONDecodeError as e:
             raise HubspotRetryableError(f"Hubspot API malformed JSON response (retryable): url={page_url}") from e
 
-    _data = _get(url, params)
+    _data: Optional[dict[str, Any]] = _get(url, params)
     # Yield the properties of each result in the API response
     while _data is not None:
         if "results" in _data:
