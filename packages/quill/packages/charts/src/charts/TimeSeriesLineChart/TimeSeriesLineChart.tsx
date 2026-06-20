@@ -145,6 +145,10 @@ export function TimeSeriesLineChart<Meta = unknown>({
     // object stays referentially stable and doesn't re-trigger scale recomputation each render.
     const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
 
+    // `startAtZero === false` floats the primary axis to its data range; the default (undefined/true)
+    // keeps the baseline clamped to 0. A log scale has no zero baseline to clamp, so it's a no-op there.
+    const floatBaseline = primaryYAxis?.startAtZero === false && primaryYAxis?.scale !== 'log'
+
     const lineChartConfig: LineChartConfig = {
         yScaleType: primaryYAxis?.scale,
         xTickFormatter,
@@ -159,6 +163,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showCrosshair,
         tooltip: tooltipConfig,
         valueDomain,
+        floatBaseline,
         yAxes,
     }
 

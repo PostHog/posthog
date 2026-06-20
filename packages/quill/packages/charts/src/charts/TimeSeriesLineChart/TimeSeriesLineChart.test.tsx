@@ -145,6 +145,49 @@ describe('TimeSeriesLineChart', () => {
         })
     })
 
+    describe('config.yAxis startAtZero', () => {
+        // An offset, all-positive series: clamping to 0 leaves a big empty gutter below the data,
+        // while floating zooms the axis onto the 50–70 band — so the lowest tick distinguishes them.
+        const OFFSET_SERIES: Series[] = [{ key: 'a', label: 'A', data: [50, 60, 70] }]
+        const lowestTick = (chart: ReturnType<typeof renderHogChart>['chart']): number =>
+            Math.min(...chart.yTicks().map((t) => parseFloat(t.replace(/[^0-9.eE+-]/g, ''))))
+
+        it.each([
+            ['by default', undefined],
+            ['when startAtZero is true', { yAxis: { startAtZero: true } }],
+        ])('clamps the baseline to 0 %s', (_name, config) => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart series={OFFSET_SERIES} labels={LABELS} theme={THEME} config={config} />
+            )
+            expect(lowestTick(chart)).toBe(0)
+        })
+
+        it('floats the axis to the data range when startAtZero is false', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={OFFSET_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { startAtZero: false } }}
+                />
+            )
+            expect(lowestTick(chart)).toBeGreaterThan(0)
+        })
+
+        it('ignores startAtZero=false on a log scale, where there is no zero baseline to drop', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={OFFSET_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { startAtZero: false, scale: 'log' } }}
+                />
+            )
+            // A log axis can't include 0 regardless; this just guards against a crash / NaN domain.
+            expect(lowestTick(chart)).toBeGreaterThan(0)
+        })
+    })
+
     describe('config.yAxis array (dual y-axis)', () => {
         const LEFT_RIGHT_SERIES: Series[] = [
             { key: 'rev', label: 'Revenue', data: [1000, 1500, 1200] },

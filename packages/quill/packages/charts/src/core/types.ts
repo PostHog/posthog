@@ -386,6 +386,9 @@ export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start
+     *  at zero = off"). Applied to the primary axis only; ignored on a log scale. Defaults to false. */
+    floatBaseline?: boolean
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
 }
