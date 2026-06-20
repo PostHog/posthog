@@ -55,15 +55,15 @@ _underlying detail_ — pair them when the user wants to dig in.
 
 ## Available tools
 
-| Tool                                  | Purpose                                                                 |
-| ------------------------------------- | ----------------------------------------------------------------------- |
-| `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)           |
-| `inbox-reports-retrieve`              | Full detail for a single report                                         |
-| `inbox-reports-set-state`             | Dismiss (`suppressed`) or snooze (`potential`) a single report          |
-| `inbox-reports-bulk-set-state`        | Same transition for 1–100 reports in one call (per-id result)           |
-| `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)               |
-| `inbox-source-configs-retrieve`       | Full record for a single source config                                  |
-| `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first)     |
+| Tool                                  | Purpose                                                             |
+| ------------------------------------- | ------------------------------------------------------------------- |
+| `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)       |
+| `inbox-reports-retrieve`              | Full detail for a single report                                     |
+| `inbox-reports-set-state`             | Dismiss (`suppressed`) or snooze (`potential`) a single report      |
+| `inbox-reports-bulk-set-state`        | Same transition for 1–100 reports in one call (per-id result)       |
+| `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)           |
+| `inbox-source-configs-retrieve`       | Full record for a single source config                              |
+| `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first) |
 
 The `inbox-reports-*-list` / `-retrieve` and `inbox-source-configs-*` tools are read-only. The
 exposed writes are `inbox-reports-set-state` (dismiss / snooze a single report) and
