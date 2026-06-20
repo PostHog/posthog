@@ -81,6 +81,13 @@ Charts fill their container and need a parent with real dimensions — a `0`-hei
 - Dual / multi y-axis: give a series a `yAxisId` to scale it against a second axis. On `TimeSeriesLineChart`, pass `config.yAxis` as an **array** — one `YAxisConfig` per axis — to format/scale each axis independently: set `id` (matches `Series.yAxisId`; first entry defaults to `'left'`), `position` (`'left'`/`'right'`; first entry defaults to `'left'`, the rest to `'right'`), and the usual `scale`/`format`/`tickFormatter`/`label`/`showGrid` per entry. A single object stays single-axis (unchanged). The second axis only renders when a series actually targets it; the primary (left) axis owns the gridlines. `TimeSeriesBarChart`/`ComboChart` already render per-`yAxisId` axes but share one tick formatter across gutters.
 - `onDateRangeZoom` (on `LineChart`/`TimeSeriesLineChart`/base `Chart`) enables x-axis drag-to-zoom: the user drags horizontally and the callback fires once with `{ startLabel, endLabel, startIndex, endIndex }` for the spanned range. The cursor switches to a crosshair when set. x-axis only — no effect on charts with a vertical interaction axis.
 
+## Testing
+
+Import test helpers from `@posthog/quill-charts/testing` (jsdom-only).
+
+- `getHogChart(scope?)` reads rendered overlays via stable `data-attr` hooks — `yTicks()`, `xTicks()`, `valueLabels()`, `referenceLines()`, axis titles, `seriesCount`, etc. Its `waitForTooltip()` returns a structured `TooltipSnapshot` but only when the chart was mounted via `renderHogChart` (it needs the captured tooltip context).
+- For a chart rendered outside `renderHogChart` (e.g. a real product scene), read the tooltip from the DOM: `getHogChartTooltip()` / `waitForHogChartTooltip()` return the portal element; `createHogChartTooltip(el)` wraps it as `{ element, isPinned }`. If the chart renders the built-in `DefaultTooltip`, use `createDefaultTooltipAccessor(el)` for `label()`, `rows()`, `value(seriesLabel)`, `swatchColors()`, and `total()` — it reads `DefaultTooltip`'s `data-attr="hog-chart-tooltip-*"` hooks (a stable testing contract; keep the accessor and the component's attrs in sync).
+
 ## Maintenance
 
 When adding or changing a chart, overlay, or config option, update this guide in the same PR and add a story next to the component.
