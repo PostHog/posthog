@@ -95,6 +95,23 @@ describe('sandboxToolRegistry', () => {
         expect(lookupSandboxToolRenderer(key).displayName).toEqual(displayName)
     })
 
+    // PostHog single-exec discovery verbs are keyed by their sentinel key (from `resolveToolKey`); the
+    // registry gives each a fitting icon + displayName instead of the wrench fallback.
+    const execVerbCases: [string, string][] = [
+        ['__posthog_exec_tools__', 'List tools'],
+        ['__posthog_exec_search__', 'Search tools'],
+        ['__posthog_exec_info__', 'Read tool'],
+        ['__posthog_exec_schema__', 'Inspect schema'],
+        ['__posthog_exec_unknown__', 'Run command'],
+    ]
+
+    it.each(execVerbCases)('resolves exec verb %s to a registered entry with displayName "%s"', (key, displayName) => {
+        const entry = sandboxToolRegistry.lookup(key)
+        expect(entry).not.toBeNull()
+        expect(entry?.displayName).toEqual(displayName)
+        expect(lookupSandboxToolRenderer(key).displayName).toEqual(displayName)
+    })
+
     it('falls back to the wrench card (key as displayName) for an unmapped built-in-looking name', () => {
         expect(sandboxToolRegistry.lookup('NotARealTool')).toBeNull()
         expect(lookupSandboxToolRenderer('NotARealTool').displayName).toEqual('NotARealTool')

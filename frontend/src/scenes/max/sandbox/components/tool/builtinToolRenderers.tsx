@@ -1,15 +1,17 @@
 import { memo } from 'react'
 
-import { IconDocument, IconGlobe, IconSearch, IconTerminal } from '@posthog/icons'
+import { IconDocument, IconGlobe, IconSearch, IconTerminal, IconWrench } from '@posthog/icons'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 
 import { languageFromPath } from '../../../toolDiffContent'
+import { getPostHogExecDisplay } from '../../posthogExecDisplay'
 import type { SandboxToolRendererProps } from '../../sandboxToolRegistry'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
 import { SandboxFilePath } from './SandboxFilePath'
 import { SandboxToolActivity } from './SandboxToolActivity'
 import {
+    MAX_COMMAND_LENGTH,
     MAX_URL_LENGTH,
     getCommandOutput,
     getContentImage,
@@ -151,11 +153,46 @@ const FetchToolRenderer = memo(function FetchToolRenderer(props: SandboxToolRend
 })
 
 /**
+ * PostHog single-exec discovery verbs (`tools` / `search` / `info` / `schema`, plus the `unknown`
+ * fallback). `getPostHogExecDisplay` turns the `command` into a friendly label ("List tools",
+ * "Search tools", "Read <tool>", "Inspect <tool>.<field>") and an optional input preview; the
+ * discovery output renders in the body. The `call` verb never reaches here — it resolves to its inner
+ * tool's renderer instead.
+ */
+const PostHogExecRenderer = memo(function PostHogExecRenderer(props: SandboxToolRendererProps): JSX.Element {
+    const { message, icon, turnComplete, turnCancelled } = props
+    const display = getPostHogExecDisplay(message.rawInput)
+    const input = display?.input
+    const output = stripCodeFences(getContentText(message.content))
+
+    return (
+        <SandboxToolActivity
+            message={message}
+            icon={icon ?? <IconWrench />}
+            title={display?.label || message.title || 'Run command'}
+            subtitle={
+                input ? (
+                    <span className="font-mono" title={input}>
+                        {truncateText(input, MAX_COMMAND_LENGTH)}
+                    </span>
+                ) : undefined
+            }
+            body={output ? <ToolOutput>{output}</ToolOutput> : undefined}
+            turnComplete={turnComplete}
+            turnCancelled={turnCancelled}
+        />
+    )
+})
+
+/**
  * Single lazy entry covering every Claude built-in plus the generic MCP fallback — mirrors the agent
  * UI's `ToolCallBlock` dispatch. Switches on the resolved tool name; anything unrecognised renders
  * through `GenericMcpToolRenderer`. Registered for each built-in key and as the registry's default.
  */
 export const BuiltinToolRenderer = memo(function BuiltinToolRenderer(props: SandboxToolRendererProps): JSX.Element {
+    if (props.message.resolvedKey.startsWith('__posthog_exec_')) {
+        return <PostHogExecRenderer {...props} />
+    }
     const name = props.message.claudeToolName ?? props.message.resolvedKey
     switch (name) {
         case 'Bash':

@@ -96,6 +96,42 @@ describe('builtin tool renderers', () => {
         expect(screen.getByText('3 results')).toBeInTheDocument()
     })
 
+    it.each([
+        ['tools', 'List tools', '__posthog_exec_tools__'],
+        ['info execute-sql', 'Read execute-sql', '__posthog_exec_info__'],
+        ['schema insight-create field', 'Inspect insight-create.field', '__posthog_exec_schema__'],
+        ['bogus', 'Run command', '__posthog_exec_unknown__'],
+    ])('labels the PostHog exec verb "%s" as "%s"', (command, label, resolvedKey) => {
+        render(
+            <BuiltinToolRenderer
+                isLastInGroup
+                message={makeMessage({
+                    resolvedKey,
+                    rawServerName: 'posthog',
+                    rawToolName: 'exec',
+                    rawInput: { command },
+                })}
+            />
+        )
+        expect(screen.getByText(label)).toBeInTheDocument()
+    })
+
+    it('shows the search regex as the PostHog exec subtitle', () => {
+        render(
+            <BuiltinToolRenderer
+                isLastInGroup
+                message={makeMessage({
+                    resolvedKey: '__posthog_exec_search__',
+                    rawServerName: 'posthog',
+                    rawToolName: 'exec',
+                    rawInput: { command: 'search funnel' },
+                })}
+            />
+        )
+        expect(screen.getByText('Search tools')).toBeInTheDocument()
+        expect(screen.getByText('funnel')).toBeInTheDocument()
+    })
+
     it('renders an unmapped MCP tool with a server - tool (MCP) header', () => {
         render(
             <GenericMcpToolRenderer

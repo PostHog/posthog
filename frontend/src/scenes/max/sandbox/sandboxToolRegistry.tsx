@@ -237,6 +237,20 @@ for (const key of ['Edit', 'Write', 'NotebookEdit', 'MultiEdit']) {
     sandboxToolRegistry.register({ key, displayName: 'Edit', icon: <IconPencil />, Renderer: EditToolRenderer })
 }
 
+// PostHog single-exec discovery verbs. `resolveToolKey` parses `exec tools|search|info|schema` into
+// these sentinel keys; PostHogExecRenderer (inside the built-in chunk) derives the friendly label and
+// input preview from the command. Registered so they get a fitting icon instead of the wrench fallback.
+const POSTHOG_EXEC_VERBS: { key: string; displayName: string; icon: JSX.Element }[] = [
+    { key: '__posthog_exec_tools__', displayName: 'List tools', icon: <IconListCheck /> },
+    { key: '__posthog_exec_search__', displayName: 'Search tools', icon: <IconSearch /> },
+    { key: '__posthog_exec_info__', displayName: 'Read tool', icon: <IconDocument /> },
+    { key: '__posthog_exec_schema__', displayName: 'Inspect schema', icon: <IconDocument /> },
+    { key: '__posthog_exec_unknown__', displayName: 'Run command', icon: <IconWrench /> },
+]
+for (const { key, displayName, icon } of POSTHOG_EXEC_VERBS) {
+    sandboxToolRegistry.register({ key, displayName, icon, Renderer: BuiltinToolRenderer })
+}
+
 // AskUserQuestion (the agent asking the user to pick between options) gets a bespoke renderer that
 // lays the question + options out like the LangGraph question recap, rather than the generic JSON card.
 sandboxToolRegistry.register({
