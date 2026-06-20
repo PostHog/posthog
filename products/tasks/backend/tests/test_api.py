@@ -985,6 +985,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         task = Task.objects.get(id=response.json()["id"])
         self.assertEqual(task.title, "Explicit title")
+        self.assertTrue(task.title_manually_set)
 
     @patch("products.tasks.backend.serializers.generate_task_title", return_value="Generated title")
     def test_signal_report_task_without_report_title_falls_back_to_generation(self, mock_generate):
