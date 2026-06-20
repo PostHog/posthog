@@ -179,12 +179,14 @@ async def test_mark_export_failed_sets_status_and_truncated_message():
     mock_record = MagicMock()
     mock_record.save = MagicMock()
 
+    mock_async_save = AsyncMock()
+
     with (
         patch("posthog.temporal.session_replay.export_recording.activities.ExportedRecording.objects") as mock_objects,
         patch("posthog.temporal.session_replay.export_recording.activities.database_sync_to_async") as mock_db_sync,
     ):
         mock_objects.aget = AsyncMock(return_value=mock_record)
-        mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
+        mock_db_sync.return_value = mock_async_save
 
         await mark_export_failed(
             MarkExportFailedInput(exported_recording_id=TEST_RECORDING_ID, error_message="x" * 5000)
@@ -193,6 +195,8 @@ async def test_mark_export_failed_sets_status_and_truncated_message():
     mock_objects.aget.assert_called_once_with(id=TEST_RECORDING_ID)
     assert mock_record.status == ExportedRecording.Status.FAILED
     assert mock_record.error_message == "x" * 2000
+    mock_db_sync.assert_called_once_with(mock_record.save)
+    mock_async_save.assert_awaited_once_with(update_fields=["status", "error_message"])
 
 
 @pytest.mark.asyncio

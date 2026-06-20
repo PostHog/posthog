@@ -32,13 +32,17 @@ class ExportRecordingWorkflow(PostHogWorkflow):
             # asyncio.TaskGroup wraps a failing parallel activity in an ExceptionGroup whose str()
             # is generic, so surface the underlying messages instead.
             message = "; ".join(str(sub) for sub in e.exceptions) if isinstance(e, BaseExceptionGroup) else str(e)
-            await workflow.execute_activity(
-                mark_export_failed,
-                MarkExportFailedInput(exported_recording_id=input.exported_recording_id, error_message=message),
-                start_to_close_timeout=timedelta(minutes=1),
-                schedule_to_close_timeout=timedelta(minutes=10),
-                retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5)),
-            )
+            try:
+                await workflow.execute_activity(
+                    mark_export_failed,
+                    MarkExportFailedInput(exported_recording_id=input.exported_recording_id, error_message=message),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    schedule_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5)),
+                )
+            except Exception:
+                # don't let a failure to record the failure mask the original error
+                workflow.logger.exception("Failed to mark export as failed")
             raise
 
     async def _export(self, input: ExportRecordingInput) -> None:

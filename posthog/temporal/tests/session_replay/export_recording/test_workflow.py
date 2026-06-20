@@ -110,3 +110,71 @@ async def test_export_recording_workflow_marks_failed_on_activity_error():
     assert len(marked) == 1
     assert marked[0].exported_recording_id == recording_id
     assert marked[0].error_message
+
+
+@pytest.mark.asyncio
+async def test_export_recording_workflow_reraises_original_when_marking_also_fails():
+    recording_id = UUID("01938a67-1234-7000-8000-000000000098")
+
+    @activity.defn(name="build_recording_export_context")
+    async def build_mocked(input: ExportRecordingInput) -> ExportContext:
+        return ExportContext(
+            export_id=uuid.uuid4(),
+            exported_recording_id=input.exported_recording_id,
+            session_id="test-session",
+            team_id=1,
+            redis_config=input.redis_config,
+        )
+
+    @activity.defn(name="export_event_clickhouse_rows")
+    async def event_rows_failing(input: ExportContext) -> None:
+        raise ApplicationError("original export error", non_retryable=True)
+
+    @activity.defn(name="export_replay_clickhouse_rows")
+    async def noop_replay(input: ExportContext) -> None: ...
+
+    @activity.defn(name="export_recording_data")
+    async def noop_data(input: ExportContext) -> None: ...
+
+    @activity.defn(name="export_recording_data_prefix")
+    async def noop_prefix(input: ExportContext) -> None: ...
+
+    @activity.defn(name="store_export_data")
+    async def noop_store(input: ExportContext) -> None: ...
+
+    @activity.defn(name="cleanup_export_data")
+    async def noop_cleanup(input: ExportContext) -> None: ...
+
+    # the failure handler itself fails (e.g. DB unreachable) - this must not mask the original error
+    @activity.defn(name="mark_export_failed")
+    async def mark_failed_failing(input: MarkExportFailedInput) -> None:
+        raise ApplicationError("could not reach the database", non_retryable=True)
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[ExportRecordingWorkflow],
+            activities=[
+                build_mocked,
+                event_rows_failing,
+                noop_replay,
+                noop_data,
+                noop_prefix,
+                noop_store,
+                noop_cleanup,
+                mark_failed_failing,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await env.client.execute_workflow(
+                    ExportRecordingWorkflow.run,
+                    ExportRecordingInput(exported_recording_id=recording_id),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue_name,
+                )
+
+    # the workflow still fails on the original export error, not the secondary marking failure
+    assert "could not reach the database" not in str(exc_info.value)
