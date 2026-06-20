@@ -232,7 +232,6 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             type,
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
-            // Right y-axis series scale against the secondary axis.
             ...(settings?.display?.yAxisPosition === 'right' ? { yAxisId: 'right' } : {}),
             // Area fill, but never on a bar — a bar-override on an area-graph chart resolves to
             // `type: 'bar'` yet `isAreaSeries` is still true for the whole area graph.
@@ -361,7 +360,7 @@ export function buildComboChartConfig({
 }: BuildBarConfigArgs): TimeSeriesComboChartConfig {
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
-        yAxis: buildYAxisConfig(chartSettings),
+        yAxis: buildYAxisConfig(chartSettings.leftYAxisSettings),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout: comboBarLayoutForDisplay(visualizationType),
         legend: buildLegendConfig(chartSettings),

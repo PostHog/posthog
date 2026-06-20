@@ -633,5 +633,18 @@ describe('sqlLineGraphAdapter', () => {
             })
             expect('trendLines' in config).toBe(false)
         })
+
+        it('honors leftYAxisSettings for the single y-axis', () => {
+            const chartSettings: ChartSettings = {
+                leftYAxisSettings: { label: 'Combo Left', scale: 'logarithmic', showGridLines: false },
+            }
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings,
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+            expect(config.yAxis).toEqual({ label: 'Combo Left', scale: 'log', showGrid: false, hide: false })
+        })
     })
 })
