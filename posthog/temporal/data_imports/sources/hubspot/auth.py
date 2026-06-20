@@ -16,7 +16,7 @@ _FALLBACK_WAIT = wait_exponential_jitter(initial=1, max=30)
 
 
 class HubspotRetryableError(Exception):
-    """Transient HubSpot API failure (429 rate limit or 5xx) that should be retried with backoff."""
+    """Transient HubSpot API failure (429 rate limit, 5xx, or portal migration) that should be retried with backoff."""
 
     def __init__(self, message: str, retry_after: float | None = None) -> None:
         super().__init__(message)
