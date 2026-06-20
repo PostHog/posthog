@@ -36,8 +36,9 @@ export const INBOX_FLAT_TAB_LIST_PARAMS: Record<InboxFlatListTabKey, ReportListP
         actionability: ACTIONABLE_ACTIONABILITY_VALUES.join(','),
     },
     'not-actionable': { actionability: 'not_actionable' },
-    // Archived = reports the user dismissed (suppressed). Restorable back into the inbox.
-    archived: { status: 'suppressed' },
+    // Archive = terminal reports: ones the user dismissed (suppressed, restorable) and ones
+    // resolved by a merged implementation PR (terminal, not restorable).
+    archived: { status: 'suppressed,resolved' },
 }
 
 function teammateUuidFromScope(scope: string): string | undefined {
