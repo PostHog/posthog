@@ -336,15 +336,18 @@ If automatic creation failed due to a permissions error and you're using a restr
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
-        except StripeAuthenticationError as e:
+        except StripeAuthenticationError:
             if config.auth_method.selection == "oauth":
                 return (
                     False,
                     "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
                 )
+            # Stripe's 401 body echoes the rejected key verbatim, so interpolating `e.stripe_message`
+            # leaks whatever the user pasted (often a password) into the toast and the
+            # `warehouse credentials invalid` analytics event. The guidance below stands on its own.
             return (
                 False,
-                f"Stripe rejected the API key: {e.stripe_message}. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
+                "Stripe rejected the API key. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
             )
         except StripePermissionError as e:
             # 403s are self-explanatory — the resource name tells the customer which Stripe scope
