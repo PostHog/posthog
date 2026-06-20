@@ -93,6 +93,8 @@ import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
 import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
 import { RecordingsWidget, isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
+import { SandboxPullRequestCard } from './sandbox/SandboxPullRequestCard'
+import { SandboxRunContext } from './sandbox/SandboxRunContext'
 import {
     SandboxCompactBoundaryItem,
     SandboxStatusItem,
@@ -160,13 +162,19 @@ function toolInvocationToMessage(
 function SandboxThread(): JSX.Element {
     // Drive the thinking indicator from real agent progress: show the latest `_posthog/progress`
     // message while the run is active, falling back to the canned rotation.
-    const { threadItems, toolInvocations, currentProgress, isThinking, streamPhase } = useValues(sandboxStreamLogic)
+    const { threadItems, toolInvocations, currentProgress, isThinking, streamPhase, runArtifacts } =
+        useValues(sandboxStreamLogic)
     const hasActiveProgressItem = threadItems.some(
         (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
     )
 
     return (
         <>
+            <SandboxRunContext
+                branch={runArtifacts.branch}
+                baseBranch={runArtifacts.baseBranch}
+                repo={runArtifacts.repo}
+            />
             {threadItems.map((item, index) => {
                 if (item.type === 'human_message') {
                     return (
@@ -238,6 +246,7 @@ function SandboxThread(): JSX.Element {
                 <SandboxProvisioningIndicator progress={currentProgress} />
             )}
             {isThinking && !hasActiveProgressItem && <SandboxThinkingIndicator progress={currentProgress} />}
+            <SandboxPullRequestCard prUrl={runArtifacts.prUrl} branch={runArtifacts.branch} />
         </>
     )
 }

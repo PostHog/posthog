@@ -17,6 +17,7 @@ import type {
     ContextUsage,
     PermissionRequestRecord,
     ResourceProduct,
+    RunArtifacts,
     SandboxProgressStatus,
     SandboxProgressStep,
     SdkSession,
@@ -196,6 +197,53 @@ export function mergeResourceProducts(
     return next
 }
 
+const RUN_ARTIFACT_KEYS = ['prUrl', 'branch', 'baseBranch', 'repo'] as const
+
+/**
+ * Latest-wins fold of git artifacts onto the accumulated snapshot — a non-empty string overwrites,
+ * undefined/empty values are ignored (so a later frame that omits a field never clears it). Mirrors
+ * the `mergeResourceProducts` accumulation pattern.
+ */
+export function mergeRunArtifacts(existing: RunArtifacts, partial: Partial<RunArtifacts>): RunArtifacts {
+    const next: RunArtifacts = { ...existing }
+    for (const key of RUN_ARTIFACT_KEYS) {
+        const value = partial[key]
+        if (typeof value === 'string' && value !== '') {
+            next[key] = value
+        }
+    }
+    return next
+}
+
+/**
+ * Pull the git artifacts a run-shaped payload exposes. The bootstrap `run` carries
+ * `state.pr_base_branch`, a top-level `branch`, and `output.pr_url`; a live `task_run_state` frame
+ * carries only the top-level `branch` and `output` (no `state`). Both feed through here. The wire is
+ * loosely typed, so `state`/`output` are guarded with `isRecord` before any field read.
+ */
+export function extractRunArtifacts(run: {
+    state?: unknown
+    output?: unknown
+    branch?: string | null
+}): Partial<RunArtifacts> {
+    const partial: Partial<RunArtifacts> = {}
+    const state = isRecord(run.state) ? run.state : undefined
+    const output = isRecord(run.output) ? run.output : undefined
+    if (typeof run.branch === 'string') {
+        partial.branch = run.branch
+    }
+    if (typeof state?.pr_base_branch === 'string') {
+        partial.baseBranch = state.pr_base_branch
+    }
+    if (typeof state?.repository === 'string') {
+        partial.repo = state.repository
+    }
+    if (typeof output?.pr_url === 'string') {
+        partial.prUrl = output.pr_url
+    }
+    return partial
+}
+
 /** Normalize either wire cost shape (a bare number, or `{amount, currency}`) to a number | undefined. */
 function normalizeUsageCost(
     cost: number | { amount?: number; currency?: string } | null | undefined
@@ -241,14 +289,15 @@ export function foldUsageAggregate(existing: ContextUsage | null, update: Sessio
     return next
 }
 
-/** Refetch the run's status; on failure return the mapped error envelope instead. */
+/** Refetch the run's status (plus any git artifacts it now exposes); on failure return the mapped error envelope. */
 async function fetchRunStatus(
     taskId: string,
     runId: string
-): Promise<{ status: string | null } | { error: StreamErrorEnvelope }> {
+): Promise<{ status: string | null; artifacts: Partial<RunArtifacts> } | { error: StreamErrorEnvelope }> {
     try {
-        const run: { status?: string } = await api.tasks.runs.get(taskId, runId)
-        return { status: run.status ?? null }
+        const run: { status?: string; state?: unknown; output?: unknown; branch?: string | null } =
+            await api.tasks.runs.get(taskId, runId)
+        return { status: run.status ?? null, artifacts: extractRunArtifacts(run) }
     } catch (error) {
         return { error: mapHttpStatusToStreamError((error as { status?: number })?.status) }
     }
@@ -954,6 +1003,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
         /** Union the products an answer was grounded in — accumulates across the whole session. */
         mergeResourcesUsed: (products: { id?: string; label?: string }[]) => ({ products }),
+        /** Latest-wins merge of git artifacts (PR url / branch / base / repo) a run exposes. */
+        mergeRunArtifacts: (partial: Partial<RunArtifacts>) => ({ partial }),
         /** Latest-wins context-usage snapshot fold (token/cost/breakdown or numeric aggregate). */
         setContextUsage: (usage: ContextUsage) => ({ usage }),
         /** Diagnostic `_posthog/sdk_session` plumbing — no UI. */
@@ -1149,6 +1200,17 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 reset: () => [],
             },
         ],
+        // Git artifacts a coding run exposes (PR url, working branch, base branch, repo), accumulated
+        // latest-wins from the bootstrap run fetch and live task_run_state frames. The pre/post-turn
+        // coding UI reads this and self-hides while empty, so a pure-analytics conversation shows
+        // nothing. NOT cleared on markTurnComplete — only a reset clears it.
+        runArtifacts: [
+            {} as RunArtifacts,
+            {
+                mergeRunArtifacts: (state, { partial }) => mergeRunArtifacts(state, partial),
+                reset: () => ({}),
+            },
+        ],
         // Latest-wins context-usage snapshot for the footer ring. The setContextUsage payload is the
         // already-folded snapshot (the listener merges onto the prior value).
         contextUsage: [
@@ -1220,6 +1282,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return 'idle'
             },
         ],
+        /** Whether the run exposes any git artifact worth surfacing — gates the pre/post-turn coding UI. */
+        hasGitArtifacts: [
+            (s) => [s.runArtifacts],
+            (runArtifacts): boolean => !!runArtifacts.prUrl || !!runArtifacts.branch,
+        ],
     }),
     listeners(({ values, actions, cache, props }) => ({
         bootstrapRun: async ({ taskId, runId, justCreatedRun }, breakpoint) => {
@@ -1243,7 +1310,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
 
             // Existing run: read the status first to branch terminal (read-only history) vs.
             // in-progress (connect-first, then reconcile the seam).
-            let run: { status?: string; state?: unknown }
+            let run: { status?: string; state?: unknown; output?: unknown; branch?: string | null }
             try {
                 run = await api.tasks.runs.get(taskId, runId)
             } catch (error) {
@@ -1254,6 +1321,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // Flag the run's resume-ness so the projection can drop the synthetic resume-context
             // prompt (§6) before any history frame folds.
             actions.markBootstrapResumeRun(isResumeRun(run))
+            // Surface any git artifacts the run already carries (working/base branch, an opened PR)
+            // so the pre-turn header and post-turn PR card render immediately on reopen.
+            actions.mergeRunArtifacts(extractRunArtifacts(run))
             const terminal = isTerminalRunStatus(run.status ?? null)
 
             // Connect the live SSE *before* reading the S3 snapshot for an in-progress run. Frames the
@@ -1379,6 +1449,9 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     if (parsed.stage !== undefined) {
                         actions.setCurrentStage(parsed.stage ?? null)
                     }
+                    // The frame carries the working `branch` and an `output.pr_url` once the run opens
+                    // a PR — fold them in so the post-turn PR card appears the moment it lands.
+                    actions.mergeRunArtifacts(extractRunArtifacts(parsed))
                     actions.handleTerminalStatus({
                         status: parsed.status as SandboxRunStatus,
                         errorMessage: parsed.error_message ?? null,
@@ -1497,6 +1570,10 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 actions.handleStreamError(result.error)
                 return
             }
+
+            // A reconnect refetch can be the first place a freshly-opened PR (or branch) shows up —
+            // fold it in even if the run has since terminated.
+            actions.mergeRunArtifacts(result.artifacts)
 
             // Terminal → final terminal-status action + close.
             if (isTerminalRunStatus(result.status)) {
