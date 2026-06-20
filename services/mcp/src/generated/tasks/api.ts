@@ -115,10 +115,11 @@ export const TasksRunsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * API for managing task runs. Each run represents an execution of a task.
+ * Retrieve a single run for a specific task.
+ * @summary Get task run
  */
 export const TasksRunsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this task run.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -132,7 +133,7 @@ export const TasksRunsRetrieveParams = /* @__PURE__ */ zod.object({
  * @summary Get filtered task run session logs
  */
 export const TasksRunsSessionLogsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this task run.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

@@ -14,7 +14,7 @@ import type {
     PaginatedSandboxEnvironmentDTOListApi,
     PaginatedTaskAutomationDTOListApi,
     PaginatedTaskListApi,
-    PaginatedTaskRunDetailListApi,
+    PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryListApi,
     PatchedSandboxEnvironmentWriteApi,
     PatchedTaskApi,
@@ -45,7 +45,7 @@ import type {
     TaskRunCommandRequestApi,
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
-    TaskRunDetailApi,
+    TaskRunDetailDTOApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
@@ -593,8 +593,8 @@ export const tasksRunsList = async (
     taskId: string,
     params?: TasksRunsListParams,
     options?: RequestInit
-): Promise<PaginatedTaskRunDetailListApi> => {
-    return apiMutator<PaginatedTaskRunDetailListApi>(getTasksRunsListUrl(projectId, taskId, params), {
+): Promise<PaginatedTaskRunDetailDTOListApi> => {
+    return apiMutator<PaginatedTaskRunDetailDTOListApi>(getTasksRunsListUrl(projectId, taskId, params), {
         ...options,
         method: 'GET',
     })
@@ -613,8 +613,8 @@ export const tasksRunsCreate = async (
     taskId: string,
     taskRunBootstrapCreateRequestApi?: TaskRunBootstrapCreateRequestApi,
     options?: RequestInit
-): Promise<TaskRunDetailApi> => {
-    return apiMutator<TaskRunDetailApi>(getTasksRunsCreateUrl(projectId, taskId), {
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsCreateUrl(projectId, taskId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -627,15 +627,16 @@ export const getTasksRunsRetrieveUrl = (projectId: string, taskId: string, id: s
 }
 
 /**
- * API for managing task runs. Each run represents an execution of a task.
+ * Retrieve a single run for a specific task.
+ * @summary Get task run
  */
 export const tasksRunsRetrieve = async (
     projectId: string,
     taskId: string,
     id: string,
     options?: RequestInit
-): Promise<TaskRunDetailApi> => {
-    return apiMutator<TaskRunDetailApi>(getTasksRunsRetrieveUrl(projectId, taskId, id), {
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
     })
@@ -655,8 +656,8 @@ export const tasksRunsPartialUpdate = async (
     id: string,
     patchedTaskRunUpdateApi?: PatchedTaskRunUpdateApi,
     options?: RequestInit
-): Promise<TaskRunDetailApi> => {
-    return apiMutator<TaskRunDetailApi>(getTasksRunsPartialUpdateUrl(projectId, taskId, id), {
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsPartialUpdateUrl(projectId, taskId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -678,8 +679,8 @@ export const tasksRunsAppendLogCreate = async (
     id: string,
     taskRunAppendLogRequestApi: TaskRunAppendLogRequestApi,
     options?: RequestInit
-): Promise<TaskRunDetailApi> => {
-    return apiMutator<TaskRunDetailApi>(getTasksRunsAppendLogCreateUrl(projectId, taskId, id), {
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsAppendLogCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -887,8 +888,8 @@ export const tasksRunsResumeInCloudCreate = async (
     taskId: string,
     id: string,
     options?: RequestInit
-): Promise<TaskRunDetailApi> => {
-    return apiMutator<TaskRunDetailApi>(getTasksRunsResumeInCloudCreateUrl(projectId, taskId, id), {
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsResumeInCloudCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
     })
@@ -946,8 +947,8 @@ export const tasksRunsSetOutputPartialUpdate = async (
     id: string,
     patchedTaskRunSetOutputRequestApi?: PatchedTaskRunSetOutputRequestApi,
     options?: RequestInit
-): Promise<TaskRunDetailApi> => {
-    return apiMutator<TaskRunDetailApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -990,8 +991,8 @@ export const tasksRunsStreamRetrieve = async (
     taskId: string,
     id: string,
     options?: RequestInit
-): Promise<TaskRunDetailApi> => {
-    return apiMutator<TaskRunDetailApi>(getTasksRunsStreamRetrieveUrl(projectId, taskId, id), {
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsStreamRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
     })

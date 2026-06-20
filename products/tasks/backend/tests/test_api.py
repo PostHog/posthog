@@ -1505,7 +1505,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["pr_authorship_mode"], "bot")
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_start_run_endpoint_triggers_workflow_for_existing_cloud_run(self, mock_workflow):
         task = self.create_task()
         task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
@@ -1543,7 +1543,7 @@ class TestTaskAPI(BaseTaskAPITest):
             posthog_mcp_scopes="full",
         )
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_start_run_endpoint_rejects_missing_run_artifacts(self, mock_workflow):
         task = self.create_task()
         task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
@@ -1564,7 +1564,7 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_start_run_endpoint_rejects_non_startable_status(self, mock_workflow):
         task = self.create_task()
         task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
@@ -1584,7 +1584,7 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         mock_workflow.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_start_run_endpoint_rolls_back_pending_state_when_workflow_trigger_fails(self, mock_workflow):
         mock_workflow.side_effect = RuntimeError("workflow start failed")
         task = self.create_task()
@@ -3097,7 +3097,7 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
 
 class TestTaskRunAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
-    @patch("products.tasks.backend.presentation.views.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_publishes_stream_state_event(self, mock_signal, mock_publish_stream_state_event):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -3172,7 +3172,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
         assert "scratch" not in run.state  # non-protected key removed
 
-    @patch("products.tasks.backend.presentation.views.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -3193,7 +3193,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
         self.assertIsNotNone(run.completed_at)
 
-    @patch("products.tasks.backend.presentation.views.api.resume_task_in_cloud_workflow")
+    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     def test_resume_in_cloud_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_resume):
         task = self.create_task(created_by=self.user)
         run = TaskRun.objects.create(
@@ -3213,7 +3213,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
         mock_resume.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.resume_task_in_cloud_workflow")
+    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     def test_resume_in_cloud_persists_user_integration_when_no_repo(self, mock_resume):
         task = self.create_task(created_by=self.user)
         user_integration = _grant_user_github_access(self.user)
@@ -3235,7 +3235,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
         mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
 
-    @patch("products.tasks.backend.presentation.views.api.resume_task_in_cloud_workflow")
+    @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     def test_resume_in_cloud_falls_back_to_team_integration_when_no_user_integration(self, mock_resume):
         integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
         task = self.create_task(created_by=self.user)
@@ -3259,7 +3259,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
         mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
 
-    @patch("products.tasks.backend.presentation.views.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_failed_signals_workflow_with_error(self, mock_signal):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -3280,7 +3280,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.status, TaskRun.Status.FAILED)
         self.assertEqual(run.error_message, "Something went wrong")
 
-    @patch("products.tasks.backend.presentation.views.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_cancelled_signals_workflow(self, mock_signal):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -3296,7 +3296,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         call_args = mock_signal.call_args
         self.assertEqual(call_args[0][1], "cancelled")
 
-    @patch("products.tasks.backend.presentation.views.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     @patch("products.tasks.backend.push_dispatcher.notify_task_run_cancelled")
     def test_update_run_status_to_cancelled_triggers_push(self, mock_notify, _mock_signal):
         """Cancellation only flows through the API PATCH path — mark_completed / mark_failed
@@ -3314,7 +3314,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_notify.assert_called_once()
         self.assertEqual(str(mock_notify.call_args.args[0].id), str(run.id))
 
-    @patch("products.tasks.backend.presentation.views.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     @patch("products.tasks.backend.push_dispatcher.notify_task_run_cancelled")
     def test_update_run_status_to_non_cancelled_terminal_does_not_trigger_cancel_push(self, mock_notify, _mock_signal):
         """Sanity check: a PATCH to completed/failed must NOT fire the cancelled push."""
@@ -3329,7 +3329,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_notify.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_non_terminal_status_does_not_signal(self, mock_signal):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
@@ -3343,7 +3343,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         mock_signal.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_same_terminal_status_does_not_signal(self, mock_signal):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
@@ -3633,7 +3633,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
 
-    @patch("products.tasks.backend.presentation.views.api.execute_posthog_code_agent_relay_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
         from posthog.models.integration import Integration
 
@@ -3670,7 +3670,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             delete_progress=True,
         )
 
-    @patch("products.tasks.backend.presentation.views.api.execute_posthog_code_agent_relay_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_skips_when_no_slack_mapping(self, mock_execute_relay):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -3685,7 +3685,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.json(), {"status": "skipped"})
         mock_execute_relay.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_posthog_code_agent_relay_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_skips_for_terminal_run(self, mock_execute_relay):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
@@ -3700,7 +3700,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.json(), {"status": "skipped"})
         mock_execute_relay.assert_not_called()
 
-    @patch("products.tasks.backend.presentation.views.api.execute_posthog_code_agent_relay_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_rejects_blank_text(self, mock_execute_relay):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -3715,7 +3715,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_execute_relay.assert_not_called()
 
     @patch(
-        "products.tasks.backend.presentation.views.api.execute_posthog_code_agent_relay_workflow",
+        "products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow",
         side_effect=Exception("temporal down"),
     )
     def test_relay_message_returns_503_on_enqueue_failure(self, mock_execute_relay):
@@ -5740,7 +5740,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_resp.text = json.dumps(body) if isinstance(body, dict) else str(body)
         mock_post.return_value = mock_resp
 
-    @patch("products.tasks.backend.presentation.views.api.signal_task_followup_message")
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message(self, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
@@ -5758,7 +5758,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
 
-    @patch("products.tasks.backend.presentation.views.api.signal_task_followup_message")
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_without_active_sandbox(self, mock_signal_followup):
         task = self.create_task()
         run = TaskRun.objects.create(
@@ -5778,7 +5778,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertTrue(response.json()["result"]["queued"])
         mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
 
-    @patch("products.tasks.backend.presentation.views.api.signal_task_followup_message")
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_artifact_ids(self, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
@@ -5810,7 +5810,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertTrue(response.json()["result"]["queued"])
         mock_signal_followup.assert_called_once_with(run.workflow_id, "See attached", ["artifact-123"])
 
-    @patch("products.tasks.backend.presentation.views.api.signal_task_followup_message")
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_returns_502_when_user_message_signal_fails(self, mock_signal_followup):
         mock_signal_followup.side_effect = RuntimeError("temporal unavailable")
         task = self.create_task()

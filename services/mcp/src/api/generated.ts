@@ -32400,6 +32400,125 @@ export namespace Schemas {
     }
 
     /**
+     * * `claude` - claude
+     * * `codex` - codex
+     */
+    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
+
+
+    export const RuntimeAdapterEnum = {
+      Claude: 'claude',
+      Codex: 'codex',
+    } as const;
+
+    /**
+     * * `anthropic` - anthropic
+     * * `openai` - openai
+     */
+    export type TaskRunDetailDTOProviderEnum = typeof TaskRunDetailDTOProviderEnum[keyof typeof TaskRunDetailDTOProviderEnum];
+
+
+    export const TaskRunDetailDTOProviderEnum = {
+      Anthropic: 'anthropic',
+      Openai: 'openai',
+    } as const;
+
+    export interface TaskRunArtifactResponse {
+      /** Stable identifier for the artifact within this run */
+      id?: string;
+      /** Artifact file name */
+      name: string;
+      /** Artifact classification (plan, context, etc.) */
+      type: string;
+      /** Source of the artifact, such as agent_output or user_attachment */
+      source?: string;
+      /** Artifact size in bytes */
+      size?: number;
+      /** Optional MIME type */
+      content_type?: string;
+      /** S3 object key for the artifact */
+      storage_path: string;
+      /** Timestamp when the artifact was uploaded */
+      uploaded_at: string;
+    }
+
+    /**
+     * @nullable
+     */
+    export type TaskRunDetailDTOOutput = { [key: string]: unknown } | null;
+
+    export type TaskRunDetailDTOState = { [key: string]: unknown };
+
+    /**
+     * Detail response for a task run.
+     *
+     * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+     * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+     * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+     * ``latest_run`` shape by the task detail response.
+     */
+    export interface TaskRunDetailDTO {
+      id: string;
+      /** Parent task id this run belongs to. */
+      task: string;
+      /** @nullable */
+      stage: string | null;
+      /** @nullable */
+      branch: string | null;
+      status: string;
+      environment: string;
+      /** Configured runtime adapter for this run, such as 'claude' or 'codex'.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum | null;
+      /** Configured LLM provider for this run, such as 'anthropic' or 'openai'.
+       *
+       * * `anthropic` - anthropic
+       * * `openai` - openai */
+      provider?: TaskRunDetailDTOProviderEnum | null;
+      /**
+         * Configured LLM model identifier for this run.
+         * @nullable
+         */
+      model?: string | null;
+      /** Configured reasoning effort for this run when the selected model supports it.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * Presigned S3 URL for log access (valid for 1 hour).
+         * @nullable
+         */
+      log_url?: string | null;
+      /** @nullable */
+      error_message: string | null;
+      /** @nullable */
+      output: TaskRunDetailDTOOutput;
+      state: TaskRunDetailDTOState;
+      readonly artifacts: readonly TaskRunArtifactResponse[];
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      /** @nullable */
+      completed_at?: string | null;
+    }
+
+    export interface PaginatedTaskRunDetailDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskRunDetailDTO[];
+    }
+
+    /**
      * * `not_started` - Not Started
      * * `queued` - Queued
      * * `in_progress` - In Progress
@@ -32430,107 +32549,6 @@ export namespace Schemas {
       Local: 'local',
       Cloud: 'cloud',
     } as const;
-
-    /**
-     * * `claude` - claude
-     * * `codex` - codex
-     */
-    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
-
-
-    export const RuntimeAdapterEnum = {
-      Claude: 'claude',
-      Codex: 'codex',
-    } as const;
-
-    export type TaskRunDetailProviderEnum = typeof TaskRunDetailProviderEnum[keyof typeof TaskRunDetailProviderEnum];
-
-
-    export const TaskRunDetailProviderEnum = {
-      Anthropic: 'anthropic',
-      Openai: 'openai',
-    } as const;
-
-    export interface TaskRunArtifactResponse {
-      /** Stable identifier for the artifact within this run */
-      id?: string;
-      /** Artifact file name */
-      name: string;
-      /** Artifact classification (plan, context, etc.) */
-      type: string;
-      /** Source of the artifact, such as agent_output or user_attachment */
-      source?: string;
-      /** Artifact size in bytes */
-      size?: number;
-      /** Optional MIME type */
-      content_type?: string;
-      /** S3 object key for the artifact */
-      storage_path: string;
-      /** Timestamp when the artifact was uploaded */
-      uploaded_at: string;
-    }
-
-    export interface TaskRunDetail {
-      readonly id: string;
-      readonly task: string;
-      /**
-         * Current stage for this run (e.g., 'research', 'plan', 'build')
-         * @maxLength 100
-         * @nullable
-         */
-      stage?: string | null;
-      /**
-         * Branch name for the run
-         * @maxLength 255
-         * @nullable
-         */
-      branch?: string | null;
-      status?: TaskRunStatusEnum;
-      /** Execution environment
-       *
-       * * `local` - Local
-       * * `cloud` - Cloud */
-      environment?: TaskRunEnvironmentEnum;
-      /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-      readonly runtime_adapter: RuntimeAdapterEnum | null;
-      /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
-      readonly provider: TaskRunDetailProviderEnum | null;
-      /**
-         * Configured LLM model identifier for this run.
-         * @nullable
-         */
-      readonly model: string | null;
-      /** Configured reasoning effort for this run when the selected model supports it. */
-      readonly reasoning_effort: ReasoningEffortEnum | null;
-      /**
-         * Presigned S3 URL for log access (valid for 1 hour).
-         * @nullable
-         */
-      readonly log_url: string | null;
-      /**
-         * Error message if execution failed
-         * @nullable
-         */
-      error_message?: string | null;
-      /** Run output data (e.g., PR URL, commit SHA, etc.) */
-      output?: unknown;
-      /** Run state data for resuming or tracking execution state */
-      state?: unknown;
-      readonly artifacts: readonly TaskRunArtifactResponse[];
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** @nullable */
-      readonly completed_at: string | null;
-    }
-
-    export interface PaginatedTaskRunDetailList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskRunDetail[];
-    }
 
     export interface TaskRunSummary {
       status: TaskRunStatusEnum | null;

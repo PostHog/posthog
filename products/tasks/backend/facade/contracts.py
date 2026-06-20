@@ -74,6 +74,92 @@ class TaskRunDTO:
 
 
 @dataclass(frozen=True)
+class TaskRunDetailDTO:
+    """The HTTP detail representation of a task run.
+
+    Mirrors exactly the fields ``TaskRunDetailSerializer`` emits, in order. ``task`` is the
+    parent task id (rendered as a string, matching the original ``PrimaryKeyRelatedField``).
+    The SMF-derived fields are computed in the facade mapper ``_task_run_detail_to_dto``:
+    ``log_url`` is a presigned S3 URL (cached); ``runtime_adapter`` / ``provider`` / ``model`` /
+    ``reasoning_effort`` are parsed off the run ``state``. ``artifacts`` carries the run's
+    artifact manifest entries verbatim. Reused by the run-detail responses and nested as
+    ``latest_run`` by the task detail response.
+    """
+
+    id: UUID
+    task: UUID
+    stage: str | None
+    branch: str | None
+    status: str
+    environment: str
+    runtime_adapter: str | None
+    provider: str | None
+    model: str | None
+    reasoning_effort: str | None
+    log_url: str | None
+    error_message: str | None
+    output: dict | None
+    state: dict
+    artifacts: list = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunValidationError:
+    """A structured validation-error payload the presentation layer renders as a 400.
+
+    ``kind`` distinguishes the response shape the original view built:
+      - ``"validation_error"`` -> the ``{type, code, detail, attr}`` body, fields carried here.
+      - ``"detail"`` -> a plain ``{"detail": detail}`` body.
+    """
+
+    kind: str
+    detail: str
+    code: str | None = None
+    attr: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunCreateResult:
+    """Outcome of bootstrapping a task run.
+
+    Exactly one of ``run`` / ``error`` is set. ``error`` carries the structured validation
+    error the original view returned inline; the presentation layer maps it to a 400.
+    """
+
+    run: "TaskRunDetailDTO | None" = None
+    error: TaskRunValidationError | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunStreamInfoDTO:
+    """The minimal run facts the SSE stream view needs without holding a model.
+
+    ``id`` keys the Redis stream, ``state`` decides dedicated-stream routing, and
+    ``origin_product`` is the bounded metric label resolved off the parent task.
+    """
+
+    id: UUID
+    state: dict
+    origin_product: str
+
+
+@dataclass(frozen=True)
+class TaskRunSandboxConnectionDTO:
+    """A run's live-sandbox connection details, for proxying agent-server commands.
+
+    Carries the sandbox URL and connect token parsed off the run state plus a freshly-minted
+    connection token. ``sandbox_url`` is ``None`` when the run has no active sandbox.
+    """
+
+    sandbox_url: str | None
+    sandbox_connect_token: str | None
+    connection_token: str | None = None
+
+
+@dataclass(frozen=True)
 class CreatedTaskDTO:
     """Result of creating-and-running a task.
 

@@ -14,30 +14,29 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
-from posthog.storage import object_storage
 
 from products.signals.backend.models import SignalReportTask
-from products.tasks.backend.constants import (
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import (
+    SandboxEnvironmentDTO,
+    TaskAutomationDTO,
+    TaskRunDetailDTO,
+    TaskUserBasicInfo,
+)
+from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
-)
-from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.contracts import SandboxEnvironmentDTO, TaskAutomationDTO, TaskUserBasicInfo
-from products.tasks.backend.logic.services.title_generator import generate_task_title
-from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.redis import get_tasks_cache
-from products.tasks.backend.temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
     LLMProvider,
     PrAuthorshipMode,
     RunSource,
-    RunState,
     RuntimeAdapter,
     get_reasoning_effort_error,
-    parse_run_state,
-    resolve_user_github_integration_for_task,
 )
+from products.tasks.backend.logic.services.title_generator import generate_task_title
+from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.process_task.utils import resolve_user_github_integration_for_task
 
 
 class TaskUserBasicInfoSerializer(DataclassSerializer):
@@ -47,7 +46,6 @@ class TaskUserBasicInfoSerializer(DataclassSerializer):
         dataclass = TaskUserBasicInfo
 
 
-PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
 TASK_RUN_ARTIFACT_MAX_SIZE_BYTES = 30 * 1024 * 1024
 TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES = 10 * 1024 * 1024
 TASK_RUN_ARTIFACT_TYPE_CHOICES = [
@@ -179,7 +177,9 @@ class TaskSerializer(serializers.ModelSerializer):
     def get_latest_run(self, obj):
         latest_run = obj.latest_run
         if latest_run:
-            return TaskRunDetailSerializer(latest_run, context=self.context).data
+            run_dto = tasks_facade.get_task_run_detail(latest_run.id, obj.id, obj.team_id)
+            if run_dto is not None:
+                return TaskRunDetailSerializer(run_dto).data
         return None
 
     def validate_github_integration(self, value):
@@ -359,24 +359,44 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
 
 
-class TaskRunDetailSerializer(serializers.ModelSerializer):
-    _run_state_cache: dict[str, RunState]
+class TaskRunDetailSerializer(DataclassSerializer):
+    """Detail response for a task run.
 
-    log_url = serializers.SerializerMethodField(help_text="Presigned S3 URL for log access (valid for 1 hour).")
+    Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+    presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+    ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+    ``latest_run`` shape by the task detail response.
+    """
+
+    task = serializers.UUIDField(help_text="Parent task id this run belongs to.")
+    log_url = serializers.URLField(
+        allow_null=True, required=False, help_text="Presigned S3 URL for log access (valid for 1 hour)."
+    )
     artifacts = TaskRunArtifactResponseSerializer(many=True, read_only=True)
-    runtime_adapter = serializers.SerializerMethodField(
-        help_text="Configured runtime adapter for this run, such as 'claude' or 'codex'."
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter],
+        allow_null=True,
+        required=False,
+        help_text="Configured runtime adapter for this run, such as 'claude' or 'codex'.",
     )
-    provider = serializers.SerializerMethodField(
-        help_text="Configured LLM provider for this run, such as 'anthropic' or 'openai'."
+    provider = serializers.ChoiceField(
+        choices=[provider.value for provider in LLMProvider],
+        allow_null=True,
+        required=False,
+        help_text="Configured LLM provider for this run, such as 'anthropic' or 'openai'.",
     )
-    model = serializers.SerializerMethodField(help_text="Configured LLM model identifier for this run.")
-    reasoning_effort = serializers.SerializerMethodField(
-        help_text="Configured reasoning effort for this run when the selected model supports it."
+    model = serializers.CharField(
+        allow_null=True, required=False, help_text="Configured LLM model identifier for this run."
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        allow_null=True,
+        required=False,
+        help_text="Configured reasoning effort for this run when the selected model supports it.",
     )
 
     class Meta:
-        model = TaskRun
+        dataclass = TaskRunDetailDTO
         fields = [
             "id",
             "task",
@@ -397,103 +417,6 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "updated_at",
             "completed_at",
         ]
-        read_only_fields = [
-            "id",
-            "task",
-            "log_url",
-            "created_at",
-            "updated_at",
-            "completed_at",
-        ]
-
-    @extend_schema_field(
-        serializers.URLField(allow_null=True, help_text="Presigned S3 URL for log access (valid for 1 hour).")
-    )
-    def get_log_url(self, obj: TaskRun) -> str | None:
-        """Return presigned S3 URL for log access, cached to avoid regeneration."""
-        cache_key = f"task_run_log_url:{obj.id}"
-
-        cached_url = get_tasks_cache().get(cache_key)
-        if cached_url:
-            return cached_url
-
-        presigned_url = object_storage.get_presigned_url(obj.log_url, expiration=3600)
-
-        if presigned_url:
-            get_tasks_cache().set(cache_key, presigned_url, timeout=PRESIGNED_URL_CACHE_TTL)
-
-        return presigned_url
-
-    def _get_run_state(self, obj: TaskRun) -> RunState:
-        if not hasattr(self, "_run_state_cache"):
-            self._run_state_cache = {}
-
-        cache_key = str(obj.id)
-        cached_state = self._run_state_cache.get(cache_key)
-        if cached_state is not None:
-            return cached_state
-
-        parsed_state = parse_run_state(obj.state)
-        self._run_state_cache[cache_key] = parsed_state
-        return parsed_state
-
-    @extend_schema_field(
-        serializers.ChoiceField(
-            choices=[adapter.value for adapter in RuntimeAdapter],
-            allow_null=True,
-            help_text="Configured runtime adapter for this run, such as 'claude' or 'codex'.",
-        )
-    )
-    def get_runtime_adapter(self, obj: TaskRun) -> str | None:
-        state = self._get_run_state(obj)
-        return state.runtime_adapter.value if state.runtime_adapter is not None else None
-
-    @extend_schema_field(
-        serializers.ChoiceField(
-            choices=[provider.value for provider in LLMProvider],
-            allow_null=True,
-            help_text="Configured LLM provider for this run, such as 'anthropic' or 'openai'.",
-        )
-    )
-    def get_provider(self, obj: TaskRun) -> str | None:
-        state = self._get_run_state(obj)
-        return state.provider.value if state.provider is not None else None
-
-    @extend_schema_field(
-        serializers.CharField(allow_null=True, help_text="Configured LLM model identifier for this run.")
-    )
-    def get_model(self, obj: TaskRun) -> str | None:
-        return self._get_run_state(obj).model
-
-    @extend_schema_field(
-        serializers.ChoiceField(
-            choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
-            allow_null=True,
-            help_text="Configured reasoning effort for this run when the selected model supports it.",
-        )
-    )
-    def get_reasoning_effort(self, obj: TaskRun) -> str | None:
-        state = self._get_run_state(obj)
-        return state.reasoning_effort.value if state.reasoning_effort is not None else None
-
-    def validate_task(self, value):
-        team = self.context.get("team")
-        if team and value.team_id != team.id:
-            raise serializers.ValidationError("Task must belong to the same team")
-        return value
-
-    def create(self, validated_data):
-        validated_data["team"] = self.context["team"]
-        return super().create(validated_data)
-
-    def update(self, instance, validated_data):
-        # Never allow task reassignment through updates
-        validated_data.pop("task", None)
-
-        status = validated_data.get("status")
-        if status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and not validated_data.get("completed_at"):
-            validated_data["completed_at"] = timezone.now()
-        return super().update(instance, validated_data)
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):

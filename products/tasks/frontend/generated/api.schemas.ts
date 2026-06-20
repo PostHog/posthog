@@ -988,36 +988,6 @@ export interface TaskStagedArtifactsPrepareUploadResponseApi {
 }
 
 /**
- * * `not_started` - Not Started
- * * `queued` - Queued
- * * `in_progress` - In Progress
- * * `completed` - Completed
- * * `failed` - Failed
- * * `cancelled` - Cancelled
- */
-export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
-
-export const TaskRunStatusEnumApi = {
-    NotStarted: 'not_started',
-    Queued: 'queued',
-    InProgress: 'in_progress',
-    Completed: 'completed',
-    Failed: 'failed',
-    Cancelled: 'cancelled',
-} as const
-
-/**
- * * `local` - Local
- * * `cloud` - Cloud
- */
-export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
-
-export const TaskRunEnvironmentEnumApi = {
-    Local: 'local',
-    Cloud: 'cloud',
-} as const
-
-/**
  * * `claude` - claude
  * * `codex` - codex
  */
@@ -1028,74 +998,92 @@ export const RuntimeAdapterEnumApi = {
     Codex: 'codex',
 } as const
 
-export type TaskRunDetailProviderEnumApi =
-    (typeof TaskRunDetailProviderEnumApi)[keyof typeof TaskRunDetailProviderEnumApi]
+/**
+ * * `anthropic` - anthropic
+ * * `openai` - openai
+ */
+export type TaskRunDetailDTOProviderEnumApi =
+    (typeof TaskRunDetailDTOProviderEnumApi)[keyof typeof TaskRunDetailDTOProviderEnumApi]
 
-export const TaskRunDetailProviderEnumApi = {
+export const TaskRunDetailDTOProviderEnumApi = {
     Anthropic: 'anthropic',
     Openai: 'openai',
 } as const
 
-export interface TaskRunDetailApi {
-    readonly id: string
-    readonly task: string
-    /**
-     * Current stage for this run (e.g., 'research', 'plan', 'build')
-     * @maxLength 100
-     * @nullable
-     */
-    stage?: string | null
-    /**
-     * Branch name for the run
-     * @maxLength 255
-     * @nullable
-     */
-    branch?: string | null
-    status?: TaskRunStatusEnumApi
-    /** Execution environment
+/**
+ * @nullable
+ */
+export type TaskRunDetailDTOApiOutput = { [key: string]: unknown } | null
+
+export type TaskRunDetailDTOApiState = { [key: string]: unknown }
+
+/**
+ * Detail response for a task run.
+ *
+ * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+ * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+ * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+ * ``latest_run`` shape by the task detail response.
+ */
+export interface TaskRunDetailDTOApi {
+    id: string
+    /** Parent task id this run belongs to. */
+    task: string
+    /** @nullable */
+    stage: string | null
+    /** @nullable */
+    branch: string | null
+    status: string
+    environment: string
+    /** Configured runtime adapter for this run, such as 'claude' or 'codex'.
      *
-     * * `local` - Local
-     * * `cloud` - Cloud */
-    environment?: TaskRunEnvironmentEnumApi
-    /** Configured runtime adapter for this run, such as 'claude' or 'codex'. */
-    readonly runtime_adapter: RuntimeAdapterEnumApi | null
-    /** Configured LLM provider for this run, such as 'anthropic' or 'openai'. */
-    readonly provider: TaskRunDetailProviderEnumApi | null
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /** Configured LLM provider for this run, such as 'anthropic' or 'openai'.
+     *
+     * * `anthropic` - anthropic
+     * * `openai` - openai */
+    provider?: TaskRunDetailDTOProviderEnumApi | null
     /**
      * Configured LLM model identifier for this run.
      * @nullable
      */
-    readonly model: string | null
-    /** Configured reasoning effort for this run when the selected model supports it. */
-    readonly reasoning_effort: ReasoningEffortEnumApi | null
+    model?: string | null
+    /** Configured reasoning effort for this run when the selected model supports it.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
      * @nullable
      */
-    readonly log_url: string | null
-    /**
-     * Error message if execution failed
-     * @nullable
-     */
-    error_message?: string | null
-    /** Run output data (e.g., PR URL, commit SHA, etc.) */
-    output?: unknown
-    /** Run state data for resuming or tracking execution state */
-    state?: unknown
-    readonly artifacts: readonly TaskRunArtifactResponseApi[]
-    readonly created_at: string
-    readonly updated_at: string
+    log_url?: string | null
     /** @nullable */
-    readonly completed_at: string | null
+    error_message: string | null
+    /** @nullable */
+    output: TaskRunDetailDTOApiOutput
+    state: TaskRunDetailDTOApiState
+    readonly artifacts: readonly TaskRunArtifactResponseApi[]
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    completed_at?: string | null
 }
 
-export interface PaginatedTaskRunDetailListApi {
+export interface PaginatedTaskRunDetailDTOListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: TaskRunDetailApi[]
+    results: TaskRunDetailDTOApi[]
 }
 
 /**
@@ -1810,6 +1798,36 @@ export interface TaskSummariesRequestApi {
      */
     ids: string[]
 }
+
+/**
+ * * `not_started` - Not Started
+ * * `queued` - Queued
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `cancelled` - Cancelled
+ */
+export type TaskRunStatusEnumApi = (typeof TaskRunStatusEnumApi)[keyof typeof TaskRunStatusEnumApi]
+
+export const TaskRunStatusEnumApi = {
+    NotStarted: 'not_started',
+    Queued: 'queued',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
+ * * `local` - Local
+ * * `cloud` - Cloud
+ */
+export type TaskRunEnvironmentEnumApi = (typeof TaskRunEnvironmentEnumApi)[keyof typeof TaskRunEnvironmentEnumApi]
+
+export const TaskRunEnvironmentEnumApi = {
+    Local: 'local',
+    Cloud: 'cloud',
+} as const
 
 export interface TaskRunSummaryApi {
     status: TaskRunStatusEnumApi | null

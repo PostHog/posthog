@@ -572,24 +572,17 @@ ignore_imports = [
     # tasks presentation wave — the thick task/code-home viewsets and serializers still reach
     # in-product internals directly. Thin each to parse -> facade -> serialize and delete its
     # entry; backend:contract-check stays off until this list is empty.
-    "products.tasks.backend.presentation.views.api -> products.tasks.backend.automation_service",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.logic.services.code_usage_gate",
-    "products.tasks.backend.presentation.views.api -> products.tasks.backend.logic.services.connection_token",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.logic.services.staged_artifacts",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.logic.stream.redis_stream",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.metrics",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.models",
-    "products.tasks.backend.presentation.views.api -> products.tasks.backend.push_dispatcher",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.redis",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.repository_readiness",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.temporal.client",
-    "products.tasks.backend.presentation.views.api -> products.tasks.backend.temporal.process_task.activities.post_slack_update",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.temporal.process_task.utils",
-    "products.tasks.backend.presentation.views.api -> products.tasks.backend.temporal.process_task.workflow",
     "products.tasks.backend.presentation.views.api -> products.tasks.backend.visibility",
-    "products.tasks.backend.presentation.serializers -> products.tasks.backend.constants",
     "products.tasks.backend.presentation.serializers -> products.tasks.backend.models",
-    "products.tasks.backend.presentation.serializers -> products.tasks.backend.redis",
     "products.tasks.backend.presentation.serializers -> products.tasks.backend.logic.services.title_generator",
     "products.tasks.backend.presentation.serializers -> products.tasks.backend.temporal.process_task.utils",
     # tasks presentation wave (cross-product): the moved viewsets/serializers still import other
