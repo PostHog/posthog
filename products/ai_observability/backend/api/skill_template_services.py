@@ -10,8 +10,13 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from .skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES
+
 # `{{ name }}` with optional surrounding whitespace. Names are Python-identifier-like.
 _PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
+# Any residual `{{ ... }}` after substitution — catches placeholders whose declared name isn't a
+# valid identifier (e.g. `{{ repo-name }}`), which the strict pattern above silently skips.
+_LOOSE_PLACEHOLDER_RE = re.compile(r"\{\{.*?\}\}", re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,13 @@ class UnknownTemplatePlaceholderError(TemplateRenderError):
     def __init__(self, placeholder: str) -> None:
         self.placeholder = placeholder
         super().__init__(f"Template references undeclared variable '{placeholder}'.")
+
+
+class TemplateRenderTooLargeError(TemplateRenderError):
+    """Rendering expanded the body or a file past the skill size limit."""
+
+    def __init__(self, what: str, limit: int) -> None:
+        super().__init__(f"Rendered {what} exceeds the {limit} byte size limit.")
 
 
 def parse_template_variables(metadata: dict[str, Any] | None) -> list[TemplateVariable]:
@@ -98,7 +110,7 @@ def resolve_bindings(variables: list[TemplateVariable], supplied: dict[str, str]
 
 
 def render_text(text: str, bindings: dict[str, str]) -> str:
-    """Substitute every `{{ name }}` placeholder, erroring on any undeclared name."""
+    """Substitute every `{{ name }}` placeholder, erroring on any undeclared/unrenderable name."""
 
     def _replace(match: re.Match[str]) -> str:
         name = match.group(1)
@@ -106,7 +118,13 @@ def render_text(text: str, bindings: dict[str, str]) -> str:
             raise UnknownTemplatePlaceholderError(name)
         return bindings[name]
 
-    return _PLACEHOLDER_RE.sub(_replace, text)
+    rendered = _PLACEHOLDER_RE.sub(_replace, text)
+    # Anything still wrapped in `{{ }}` had a name the strict pattern couldn't match — fail loudly
+    # rather than install a skill with a dangling placeholder.
+    leftover = _LOOSE_PLACEHOLDER_RE.search(rendered)
+    if leftover is not None:
+        raise UnknownTemplatePlaceholderError(leftover.group(0).strip())
+    return rendered
 
 
 @dataclass(frozen=True)
@@ -118,22 +136,29 @@ class RenderedTemplate:
 
 def render_template_skill(
     *,
-    metadata: dict[str, Any] | None,
+    variables: list[TemplateVariable],
     body: str,
     files: list[dict[str, str]],
     supplied: dict[str, str] | None,
 ) -> RenderedTemplate:
     """Resolve user-supplied values against the declared variables and render body + files.
 
-    Raises MissingTemplateVariableError when a required value is absent, and
-    UnknownTemplatePlaceholderError when a placeholder has no matching declared variable.
+    `variables` is the already-parsed schema (see `parse_template_variables`) so the caller can
+    parse once and reuse the result. Raises MissingTemplateVariableError when a required value is
+    absent, UnknownTemplatePlaceholderError when a placeholder has no matching declared variable,
+    and TemplateRenderTooLargeError when a user-supplied value expands output past the size limit.
     """
-    variables = parse_template_variables(metadata)
     bindings = resolve_bindings(variables, supplied)
 
-    rendered_files = [{**file, "content": render_text(file["content"], bindings)} for file in files]
-    return RenderedTemplate(
-        body=render_text(body, bindings),
-        files=rendered_files,
-        bindings=bindings,
-    )
+    rendered_body = render_text(body, bindings)
+    if len(rendered_body.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
+        raise TemplateRenderTooLargeError("skill body", MAX_SKILL_BODY_BYTES)
+
+    rendered_files: list[dict[str, str]] = []
+    for file in files:
+        content = render_text(file["content"], bindings)
+        if len(content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
+            raise TemplateRenderTooLargeError(f"file '{file['path']}'", MAX_SKILL_FILE_BYTES)
+        rendered_files.append({**file, "content": content})
+
+    return RenderedTemplate(body=rendered_body, files=rendered_files, bindings=bindings)

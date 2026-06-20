@@ -13,7 +13,7 @@ from ..models.community_skills import CommunitySkill, CommunitySkillFile, Commun
 from ..models.skills import LLMSkill
 from .skill_serializers import validate_skill_name_value
 from .skill_services import create_skill
-from .skill_template_services import is_template, render_template_skill
+from .skill_template_services import parse_template_variables, render_template_skill
 
 logger = structlog.get_logger(__name__)
 
@@ -68,9 +68,10 @@ def install_community_skill(
     }
     body = community_skill.body
 
-    if is_template(community_skill.metadata):
+    template_variables = parse_template_variables(community_skill.metadata)
+    if template_variables:
         rendered = render_template_skill(
-            metadata=community_skill.metadata,
+            variables=template_variables,
             body=community_skill.body,
             files=files,
             supplied=variables,

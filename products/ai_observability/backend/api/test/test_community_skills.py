@@ -9,6 +9,7 @@ from ...models.skills import LLMSkill
 from ..community_skill_services import sync_community_skills_from_github
 from ..skill_template_services import (
     MissingTemplateVariableError,
+    TemplateRenderTooLargeError,
     UnknownTemplatePlaceholderError,
     is_template,
     parse_template_variables,
@@ -281,7 +282,7 @@ class TestSkillTemplateRendering(APIBaseTest):
 
     def test_render_substitutes_and_records_bindings(self) -> None:
         rendered = render_template_skill(
-            metadata={"variables": [{"name": "repo", "required": True}]},
+            variables=parse_template_variables({"variables": [{"name": "repo", "required": True}]}),
             body="watch {{ repo }}",
             files=[{"path": "a.md", "content": "ref {{ repo }}", "content_type": "text/plain"}],
             supplied={"repo": "posthog/posthog"},
@@ -293,7 +294,7 @@ class TestSkillTemplateRendering(APIBaseTest):
     def test_render_missing_required_raises(self) -> None:
         with self.assertRaises(MissingTemplateVariableError):
             render_template_skill(
-                metadata={"variables": [{"name": "repo", "required": True}]},
+                variables=parse_template_variables({"variables": [{"name": "repo", "required": True}]}),
                 body="watch {{ repo }}",
                 files=[],
                 supplied={},
@@ -302,8 +303,27 @@ class TestSkillTemplateRendering(APIBaseTest):
     def test_render_unknown_placeholder_raises(self) -> None:
         with self.assertRaises(UnknownTemplatePlaceholderError):
             render_template_skill(
-                metadata={"variables": [{"name": "repo", "required": True}]},
+                variables=parse_template_variables({"variables": [{"name": "repo", "required": True}]}),
                 body="watch {{ repo }} and {{ undeclared }}",
                 files=[],
                 supplied={"repo": "x"},
+            )
+
+    def test_render_rejects_unrenderable_variable_name(self) -> None:
+        # A declared name the placeholder regex can't match (hyphen) must fail, not install dangling.
+        with self.assertRaises(UnknownTemplatePlaceholderError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "repo-name", "required": True}]}),
+                body="watch {{ repo-name }}",
+                files=[],
+                supplied={"repo-name": "x"},
+            )
+
+    def test_render_oversized_output_raises(self) -> None:
+        with self.assertRaises(TemplateRenderTooLargeError):
+            render_template_skill(
+                variables=parse_template_variables({"variables": [{"name": "v", "required": True}]}),
+                body="{{ v }}",
+                files=[],
+                supplied={"v": "x" * 1_000_001},
             )
