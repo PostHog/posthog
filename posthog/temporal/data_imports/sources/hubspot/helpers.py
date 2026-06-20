@@ -2,16 +2,36 @@
 
 import urllib.parse
 from collections.abc import Iterator
+from http import HTTPStatus
 from typing import Any, Optional
 
-from requests.exceptions import HTTPError
+import requests
+from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 
-from .auth import hubspot_refresh_access_token
+from .auth import HubspotRetryableError, hubspot_refresh_access_token
 from .settings import OBJECT_TYPE_PLURAL
 
 BASE_URL = "https://api.hubapi.com/"
+
+
+def _is_retryable_status(status_code: int) -> bool:
+    """Transient HubSpot statuses that warrant a backoff-and-retry rather than failing the sync.
+
+    429 and 5xx are the usual transient signals. Unrecognised 4xx codes (e.g. the non-standard 477
+    HubSpot's edge has been observed returning during brief incidents) aren't actionable client
+    errors, so treat any unknown 4xx as transient too instead of crashing the import on it.
+    """
+    if status_code == 429 or status_code >= 500:
+        return True
+    if 400 <= status_code < 500:
+        try:
+            HTTPStatus(status_code)
+        except ValueError:
+            return True
+    return False
 
 
 def get_url(endpoint: str) -> str:
@@ -117,35 +137,44 @@ def fetch_data(
 
     Notes:
         This function uses the `requests` library to make a GET request to the specified endpoint, with
-        the API key included in the headers. If the API returns a non-successful HTTP status code (e.g.
-        404 Not Found), a `requests.exceptions.HTTPError` exception will be raised.
+        the API key included in the headers. A 401 refreshes the access token; transient statuses
+        (429, 5xx, and unrecognised non-standard 4xx codes) back off and retry. A permanent client
+        error (e.g. 404 Not Found) raises `requests.exceptions.HTTPError`.
 
         The `endpoint` argument should be a relative URL, which will be appended to the base URL for the
-        API. The `params` argument is used to pass additional query parameters to the request
-
-        This function also includes a retry decorator that will automatically retry the API call up to
-        3 times with a 5-second delay between retries, using an exponential backoff strategy.
+        API. The `params` argument is used to pass additional query parameters to the request.
     """
     # Construct the URL and headers for the API request
     url = get_url(endpoint)
     headers = _get_headers(api_key)
 
-    # Make the API request
-    r = make_tracked_session().get(url, headers=headers, params=params)
-    try:
-        r.raise_for_status()
-    except HTTPError as e:
-        if e.response.status_code == 401:
+    @retry(
+        retry=retry_if_exception_type((HubspotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential_jitter(initial=1, max=30),
+        reraise=True,
+    )
+    def _get(page_url: str, query_params: Optional[dict[str, Any]]) -> dict:
+        nonlocal api_key, headers
+        r = make_tracked_session().get(page_url, headers=headers, params=query_params)
+
+        if r.status_code == 401:
             api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
             headers = _get_headers(api_key)
-            r = make_tracked_session().get(url, headers=headers, params=params)
-            r.raise_for_status()
-        else:
-            raise
-    # Parse the API response and yield the properties of each result
-    # Parse the response JSON data
+            raise HubspotRetryableError(f"Hubspot API 401 - refreshed token, retrying: url={page_url}")
 
-    _data = r.json()
+        if _is_retryable_status(r.status_code):
+            raise HubspotRetryableError(f"Hubspot API error (retryable): status={r.status_code}, url={page_url}")
+
+        r.raise_for_status()
+
+        # See hubspot.fetch_page: a truncated/partial body is transient, so retry rather than crash.
+        try:
+            return r.json()
+        except RequestsJSONDecodeError as e:
+            raise HubspotRetryableError(f"Hubspot API malformed JSON response (retryable): url={page_url}") from e
+
+    _data = _get(url, params)
     # Yield the properties of each result in the API response
     while _data is not None:
         if "results" in _data:
@@ -176,20 +205,7 @@ def fetch_data(
         # Follow pagination links if they exist
         _next = _data.get("paging", {}).get("next", None)
         if _next:
-            next_url = _next["link"]
-            # Get the next page response
-            r = make_tracked_session().get(next_url, headers=headers)
-            try:
-                r.raise_for_status()
-            except HTTPError as e:
-                if e.response.status_code == 401:
-                    api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
-                    headers = _get_headers(api_key)
-                    r = make_tracked_session().get(next_url, headers=headers)
-                    r.raise_for_status()
-                else:
-                    raise
-            _data = r.json()
+            _data = _get(_next["link"], None)
         else:
             _data = None
 
