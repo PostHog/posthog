@@ -8,8 +8,7 @@ import { AXIS_LABEL_FONT, truncateToWidth } from '../utils/text-measure'
 
 export interface AxisTitlesProps {
     xAxisLabel?: string
-    /** Category-axis (left) title for horizontal charts, which have no value gutter to hang a title
-     *  on. Ignored for vertical charts, whose titles come per-gutter from the shared layout. */
+    /** Category-axis title for horizontal charts only; vertical titles come per-gutter. */
     yAxisLabel?: string
     hideXAxis?: boolean
     hideYAxis?: boolean
@@ -60,9 +59,8 @@ export function AxisTitles({
     const fullXAxisLabel = normalizeAxisLabel(xAxisLabel)
     const showXAxisTitle = !hideXAxis && !!fullXAxisLabel
 
-    // Horizontal charts have a category (not value) y-axis with no gutter — render its single title
-    // at the left edge, the way the old single-axis path did. Vertical charts title each value
-    // gutter on its own side, from the shared layout.
+    // Horizontal charts have a category y-axis with no gutter — render its single title at the left
+    // edge. Vertical charts title each value gutter on its own side.
     const yTitles: YTitle[] = []
     if (orientation === 'horizontal') {
         const fullYAxisLabel = normalizeAxisLabel(yAxisLabel)

@@ -9,8 +9,7 @@ export interface YAxisMaps {
     positions?: Record<string, 'left' | 'right'>
 }
 
-/** Derive the per-axis lookup maps the base chart's margins and labels need from the resolved axes.
- *  All fields are absent for single-axis charts (`yAxes` omitted). */
+/** Per-axis tick formatters and sides keyed by axis id. All absent for single-axis charts. */
 export function useYAxisMaps(yAxes: YAxis[] | undefined): YAxisMaps {
     return useMemo(() => {
         if (!yAxes) {

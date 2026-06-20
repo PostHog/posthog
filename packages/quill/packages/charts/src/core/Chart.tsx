@@ -129,11 +129,7 @@ export function Chart<Meta = unknown>({
         yAxes,
     } = config ?? {}
 
-    // Per-axis tick formatters and sides for multi-axis charts. Each gutter formats against its own
-    // axis config; absent here, an axis auto-formats against its ticks.
     const { formatters: yAxisFormatters, positions: yAxisPositions } = useYAxisMaps(yAxes)
-    // Both axis titles resolve from the same axis list — single-axis charts fall back to the scalar
-    // `yAxisLabel` as one left axis. Nothing renders directly from the scalar.
     const yAxisTitles = useMemo(() => resolveYAxisTitles(yAxes, yAxisLabel), [yAxes, yAxisLabel])
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
@@ -264,8 +260,7 @@ export function Chart<Meta = unknown>({
     )
     const axisColor = theme.axisColor ?? DEFAULT_AXIS_COLOR
 
-    // Stacked value-axis gutters (ticks + per-axis titles), computed once and shared with AxisLabels
-    // and AxisTitles via context so the two can't drift.
+    // Computed once and shared with AxisLabels and AxisTitles via context so they can't drift.
     const yGutters = useMemo<Gutter[]>(
         () =>
             !scales || hideYAxis || axisOrientation === 'horizontal'

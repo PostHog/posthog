@@ -220,8 +220,6 @@ export const AxisLabels = React.memo(function AxisLabels({
     labelToCoord,
     maxCategoryLabelWidth = 0,
 }: AxisLabelsProps): React.ReactElement | null {
-    // Vertical value-axis gutters come from the shared layout (computed once in Chart) so ticks and
-    // titles can't drift; empty for horizontal / hidden y-axis charts.
     const { scales, dimensions, labels, yGutters } = useChartLayout()
     const yTicks = scales.yTicks()
 

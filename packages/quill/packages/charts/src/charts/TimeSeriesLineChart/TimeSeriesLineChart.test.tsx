@@ -218,8 +218,6 @@ describe('TimeSeriesLineChart', () => {
                     }}
                 />
             )
-            // Left title via the accessor; the right side has two stacked titles (no accessor for a
-            // list), so read those by data-attr and assert their order.
             const rightTitles = Array.from(
                 container.querySelectorAll<SVGTextElement>('[data-attr="hog-chart-axis-title-yr"]')
             ).map((el) => el.textContent)

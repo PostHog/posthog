@@ -12,7 +12,6 @@ function scales(yAxes?: Record<string, YAxisScale>): ChartScales {
 
 const axis = (position: 'left' | 'right'): YAxisScale => ({ scale: identity, ticks: () => [0], position })
 
-// Per-axis formatters give each gutter a deterministic width under the mocked measurer (chars × 10).
 const formatters = { left: () => 'X', right: () => 'XX', right2: () => 'XXX' }
 
 describe('computeYAxisGutters', () => {
@@ -30,7 +29,6 @@ describe('computeYAxisGutters', () => {
         const right = gutters.find((g) => g.axisId === 'right')
         const right2 = gutters.find((g) => g.axisId === 'right2')
         expect(right).toMatchObject({ offset: 0, width: 20 })
-        // right2 clears right's width (20) + the gutter gap.
         expect(right2?.offset).toBe(20 + GUTTER_GAP)
     })
 
@@ -41,7 +39,6 @@ describe('computeYAxisGutters', () => {
             titles: { right: 'Inner title' },
         })
         const right2 = gutters.find((g) => g.axisId === 'right2')
-        // Same as the untitled case (20 + gap) plus one title band for the titled inner gutter.
         expect(right2?.offset).toBe(20 + GUTTER_GAP + Y_AXIS_TITLE_MARGIN)
         expect(gutters.find((g) => g.axisId === 'right')?.title).toBe('Inner title')
     })

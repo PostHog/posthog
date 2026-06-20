@@ -22,7 +22,6 @@ const Y_LABEL_LEFT_GUTTER = 6
 export const GUTTER_GAP = 12
 const X_LABEL_EDGE_PADDING = 4
 export const X_AXIS_TITLE_MARGIN = 22
-/** Outward space a rotated y-axis title occupies — one per titled axis, on its gutter's side. */
 export const Y_AXIS_TITLE_MARGIN = 24
 
 interface UseChartMarginsOptions {
@@ -50,7 +49,6 @@ interface UseChartMarginsOptions {
     /** Per-axis sides keyed by axis id, overriding the alternating-side default. Keeps the margin
      *  reservation in step with the scales' config-driven positions. Multi-axis charts only. */
     yAxisPositions?: Record<string, 'left' | 'right'>
-    /** Per-side y-axis titles — each side reserves extra title margin when its title is present. */
     yAxisTitles?: YAxisTitles
 }
 
@@ -115,9 +113,8 @@ export function useChartMargins({
         return axisIds.size > 1
     }, [series])
 
-    // One rotated-title band per titled axis, on that axis's side. Charts with a single value axis —
-    // and horizontal charts, whose left axis is the category axis — title only the default (left)
-    // axis; multi-axis vertical charts reserve a band for each titled axis on each side.
+    // One rotated-title band per titled axis, on its side. Horizontal charts (category axis on the
+    // left) and single-value-axis charts only ever title the default left axis.
     const titleReserve = useMemo<{ left: number; right: number }>(() => {
         if (hideYAxis || !yAxisTitles) {
             return { left: 0, right: 0 }

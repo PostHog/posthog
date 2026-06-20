@@ -4,10 +4,8 @@ import { autoFormatterFor } from './scales'
 import { DEFAULT_Y_AXIS_ID } from './types'
 import type { ChartScales } from './types'
 
-/** One value-axis gutter: which axis it belongs to, its side, the ticks/scale/formatter it draws
- *  with, the outward pixel `offset` from the plot edge to its inner edge, the `width` its widest
- *  tick label occupies, and its `title` (if any). Gutters stack outward per side; the next gutter's
- *  `offset` clears this one's `width` plus {@link GUTTER_GAP}, plus the title band when titled. */
+/** One stacked value-axis gutter. `offset` is its outward pixel distance from the plot edge; the
+ *  next gutter out clears this one's `width` + {@link GUTTER_GAP}, plus a title band when titled. */
 export interface Gutter {
     axisId: string
     key: string
@@ -21,35 +19,26 @@ export interface Gutter {
 }
 
 export interface YAxisGutterOptions {
-    /** Default (left) axis ticks — `scales.yTicks()`. Used for the single-axis path. */
+    /** `scales.yTicks()` — used for the single-axis path. */
     yTicks: number[]
-    /** Explicit user formatter. When set, every stacked axis uses it; otherwise each axis
-     *  auto-formats against its own ticks. */
     yTickFormatter?: (value: number) => string
-    /** Same as `yTickFormatter` but only the multi-axis path consults it (the single-axis path
-     *  already resolves the user formatter into `yTickFormatter`). */
+    /** Like `yTickFormatter` but only the multi-axis path consults it; the single-axis path already
+     *  resolves the user formatter into `yTickFormatter`. */
     userYTickFormatter?: (value: number) => string
-    /** Per-axis tick formatters keyed by axis id; a gutter prefers its own, then the user
-     *  formatter, then auto-formats. */
     yAxisFormatters?: Record<string, (value: number) => string>
-    /** Per-axis titles keyed by axis id. A titled gutter reserves an extra title band on its side,
-     *  so a stacked inner title doesn't overlap the next axis out. */
     titles?: Record<string, string>
 }
 
-/** Gap between the plot edge and a gutter's tick labels (and between a gutter and its title).
- *  Shared by `AxisLabels` (tick placement) and `AxisTitles` (title placement). */
+/** Gap from the plot edge to a gutter's tick labels — shared by AxisLabels and AxisTitles. */
 export const TICK_GAP = 8
 
 function widestTickWidth(ticks: number[], formatter: (value: number) => string): number {
     return ticks.reduce((widest, tick) => Math.max(widest, measureLabelWidth(formatter(tick))), 0)
 }
 
-/** Resolve the stacked value-axis gutters, outermost-last per side. With per-axis scales
- *  (`scales.yAxes`, i.e. `showMultipleYAxes`) there is one gutter per axis, each offset by the
- *  cumulative width of the inner gutters (and their title bands); without, a single left gutter from
- *  the shared scale. Shared by `AxisLabels` (ticks), `AxisTitles` (titles), and the margin
- *  reservation so the three can't drift. */
+/** Resolve the stacked value-axis gutters, outermost-last per side — one per axis when `scales.yAxes`
+ *  is present (`showMultipleYAxes`), else a single left gutter. Shared by `AxisLabels` (ticks) and
+ *  `AxisTitles` (titles) so the two can't drift. */
 export function computeYAxisGutters(
     scales: ChartScales,
     { yTicks, yTickFormatter, userYTickFormatter, yAxisFormatters, titles }: YAxisGutterOptions

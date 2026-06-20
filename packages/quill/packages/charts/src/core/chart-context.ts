@@ -40,8 +40,8 @@ export interface ChartLayoutContextValue<Meta = unknown> {
     canvasBounds: () => DOMRect | null
     /** Axis-related state (orientation, x-axis formatter, value-scale flags). */
     axis: ChartAxisContextValue
-    /** Stacked value-axis gutters (ticks + per-axis titles), shared by `AxisLabels` and
-     *  `AxisTitles` so the two stay aligned. Empty for horizontal / hidden y-axis charts. */
+    /** Stacked value-axis gutters shared by `AxisLabels` and `AxisTitles`. Empty for horizontal /
+     *  hidden y-axis charts. */
     yGutters: Gutter[]
 }
 
