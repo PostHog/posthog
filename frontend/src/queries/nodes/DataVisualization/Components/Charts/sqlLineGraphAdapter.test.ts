@@ -1,4 +1,6 @@
-import { type TooltipContext, type TrendLineConfig } from '@posthog/quill-charts'
+import { type TooltipContext, type TrendLineConfig, type YAxisConfig } from '@posthog/quill-charts'
+
+import { compactNumber } from 'lib/utils/numbers'
 
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -24,6 +26,7 @@ import {
     comboBarLayoutForDisplay,
     exceedsMaxSeries,
     formatSqlSeriesValue,
+    hasAxisTickFormatting,
     hasMixedSeriesTypes,
     seriesDisplayType,
 } from './sqlLineGraphAdapter'
@@ -79,9 +82,9 @@ describe('sqlLineGraphAdapter', () => {
             expect(canRenderSqlLineGraph(baseProps({ visualizationType, yData }))).toBe(true)
         })
 
-        it('falls back when any series targets the right y-axis', () => {
-            const yData = [ySeries('a', [1], { display: { yAxisPosition: 'right' } })]
-            expect(canRenderSqlLineGraph(baseProps({ yData }))).toBe(false)
+        it('renders right y-axis series natively rather than falling back', () => {
+            const yData = [ySeries('a', [1]), ySeries('b', [2], { display: { yAxisPosition: 'right' } })]
+            expect(canRenderSqlLineGraph(baseProps({ yData }))).toBe(true)
         })
     })
 
@@ -360,6 +363,15 @@ describe('sqlLineGraphAdapter', () => {
             expect([bar.type, line.type, area.type]).toEqual(['bar', 'line', 'area'])
         })
 
+        it.each<[string, AxisSeries<number | null>['settings'], string | undefined]>([
+            ['right when the series targets the right axis', { display: { yAxisPosition: 'right' } }, 'right'],
+            ['unset when the series targets the left axis', { display: { yAxisPosition: 'left' } }, undefined],
+            ['unset when no axis is specified', {}, undefined],
+        ])('assigns yAxisId %s', (_name, settings, expected) => {
+            const [series] = buildSeries([ySeries('a', [1], settings)], ChartDisplayType.ActionsLineGraph)
+            expect(series.yAxisId).toBe(expected)
+        })
+
         it('threads each series settings through meta for the tooltip', () => {
             const usd: AxisSeries<number | null>['settings'] = { formatting: { prefix: '$' } }
             const [withSettings, plain] = buildSeries(
@@ -433,6 +445,23 @@ describe('sqlLineGraphAdapter', () => {
         })
     })
 
+    describe('hasAxisTickFormatting', () => {
+        it.each<[string, AxisSeries<number | null>['settings'], boolean]>([
+            ['undefined settings', undefined, false],
+            ['no formatting block', { display: { color: '#abc' } }, false],
+            ['default empty prefix/suffix', { formatting: { prefix: '', suffix: '' } }, false],
+            ['style none', { formatting: { style: 'none' } }, false],
+            ['style number', { formatting: { style: 'number' } }, true],
+            ['style short', { formatting: { style: 'short' } }, true],
+            ['style percent', { formatting: { style: 'percent' } }, true],
+            ['prefix', { formatting: { prefix: '$' } }, true],
+            ['suffix', { formatting: { suffix: ' req' } }, true],
+            ['decimal places', { formatting: { decimalPlaces: 2 } }, true],
+        ])('returns %s -> %s', (_name, settings, expected) => {
+            expect(hasAxisTickFormatting(settings)).toBe(expected)
+        })
+    })
+
     describe('buildSqlTooltipConfig', () => {
         const entry = (settings: AxisSeries<number | null>['settings']): TooltipContext['seriesData'][number] => ({
             series: { key: 'r', label: 'Revenue', data: [1200], meta: { settings } },
@@ -500,6 +529,84 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.yAxis).toMatchObject({ scale: 'linear', showGrid: true })
         })
 
+        it('keeps a single-object yAxis when no series targets the right axis', () => {
+            const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4])]
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', ySeriesData })
+            expect(Array.isArray(config.yAxis)).toBe(false)
+        })
+
+        it('emits a per-axis array honoring each column settings when a series targets the right axis', () => {
+            const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4], { display: { yAxisPosition: 'right' } })]
+            const chartSettings: ChartSettings = {
+                leftYAxisSettings: { label: 'Left', scale: 'logarithmic' },
+                rightYAxisSettings: { label: 'Right', showGridLines: false },
+            }
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings, timezone: 'UTC', ySeriesData })
+            expect(config.yAxis).toEqual([
+                // Left is logarithmic, so startAtZero is omitted (no zero baseline on a log scale).
+                { id: 'left', position: 'left', label: 'Left', scale: 'log', showGrid: true, hide: false },
+                {
+                    id: 'right',
+                    position: 'right',
+                    label: 'Right',
+                    scale: 'linear',
+                    showGrid: false,
+                    hide: false,
+                    startAtZero: true,
+                },
+            ])
+        })
+
+        it('formats each gutter from a series on that axis and starts linear axes at zero', () => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                ySeriesData: [
+                    ySeries('revenue', [1200, 1400], { formatting: { prefix: '$' } }),
+                    ySeries('conversion', [12, 18], {
+                        formatting: { suffix: '%' },
+                        display: { yAxisPosition: 'right' },
+                    }),
+                ],
+            })
+            const yAxis = config.yAxis as YAxisConfig[]
+            expect(Array.isArray(yAxis)).toBe(true)
+            expect(yAxis[0].tickFormatter?.(1200)).toBe('$1200')
+            expect(yAxis[1].tickFormatter?.(18)).toBe('18%')
+            expect(yAxis[0].startAtZero).toBe(true)
+        })
+
+        it('formats single-axis ticks from the first series column and defaults startAtZero on', () => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                ySeriesData: [ySeries('revenue', [1200], { formatting: { prefix: '$', style: 'short' } })],
+            })
+            const yAxis = config.yAxis as YAxisConfig
+            // Same path the tooltip uses, so ticks and tooltip read identically.
+            expect(yAxis.tickFormatter?.(1200)).toBe(`$${compactNumber(1200)}`)
+            expect(yAxis.startAtZero).toBe(true)
+        })
+
+        it.each([
+            ['honors an explicit startAtZero=false', { leftYAxisSettings: { startAtZero: false } }, false],
+            ['falls back to the deprecated yAxisAtZero', { yAxisAtZero: false }, false],
+        ])('%s on the left axis', (_name, chartSettings, expected) => {
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings, timezone: 'UTC' })
+            expect((config.yAxis as YAxisConfig).startAtZero).toBe(expected)
+        })
+
+        it('leaves startAtZero unset on a logarithmic axis (no zero baseline to drop)', () => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: { leftYAxisSettings: { scale: 'logarithmic' } },
+                timezone: 'UTC',
+            })
+            expect((config.yAxis as YAxisConfig).startAtZero).toBeUndefined()
+        })
+
         it.each([
             ['shows', true, true],
             ['hides', false, false],
@@ -547,6 +654,28 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsStackedBar,
             })
             expect(config.yAxis?.scale).toBe('linear')
+        })
+
+        it('formats y-axis ticks with the first series column settings for plain bars', () => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+                ySeriesData: [ySeries('revenue', [1200], { formatting: { prefix: '$' } })],
+            })
+            expect(config.yAxis?.tickFormatter?.(1200)).toBe('$1200')
+        })
+
+        it('skips the column tick formatter for percent-stacked bars (the axis is 0–100%)', () => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { stackBars100: true },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsStackedBar,
+                ySeriesData: [ySeries('revenue', [1200], { formatting: { prefix: '$' } })],
+            })
+            expect(config.yAxis?.tickFormatter).toBeUndefined()
         })
 
         it('never emits trend lines (quill bar charts have no trend-line support)', () => {
@@ -604,6 +733,19 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsBar,
             })
             expect('trendLines' in config).toBe(false)
+        })
+
+        it('honors leftYAxisSettings for the single y-axis', () => {
+            const chartSettings: ChartSettings = {
+                leftYAxisSettings: { label: 'Combo Left', scale: 'logarithmic', showGridLines: false },
+            }
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings,
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+            expect(config.yAxis).toEqual({ label: 'Combo Left', scale: 'log', showGrid: false, hide: false })
         })
     })
 })

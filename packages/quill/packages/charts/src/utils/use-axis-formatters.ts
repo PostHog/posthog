@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 
+import { DEFAULT_Y_AXIS_ID, type YAxis } from '../core/types'
 import { createXAxisTickCallback, type TimeInterval } from './dates'
 import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
@@ -29,6 +30,10 @@ export interface YAxisConfig extends YFormatterConfig {
     tickFormatter?: (value: number) => string
     hide?: boolean
     showGrid?: boolean
+    /** Y-axis baseline behavior. The default (`undefined`/`true`) clamps a non-negative axis down to
+     *  0. Set `false` to float the axis to its data range instead (zoom in on the variation). Ignored
+     *  on a log scale, and only honored for the primary axis in the array (multi-axis) form. */
+    startAtZero?: boolean
 }
 
 export function useXTickFormatter(
@@ -82,12 +87,51 @@ export function resolveYTickFormatter(yAxis: YAxisConfig | undefined): ((value: 
     })
 }
 
+interface NormalizedYAxis {
+    id: string
+    position: 'left' | 'right'
+    config: YAxisConfig
+}
+
+/** Normalize the user `yAxis` config into a per-axis list. A single object (or omitted) is the
+ *  primary left axis; an array assigns ids/positions, defaulting the first entry to the primary
+ *  left axis and subsequent entries to the right. */
+export function normalizeYAxisList(yAxis: YAxisConfig | YAxisConfig[] | undefined): NormalizedYAxis[] {
+    if (!Array.isArray(yAxis)) {
+        return yAxis ? [{ id: DEFAULT_Y_AXIS_ID, position: 'left', config: yAxis }] : []
+    }
+    return yAxis.map((config, index) => ({
+        id: config.id ?? (index === 0 ? DEFAULT_Y_AXIS_ID : `axis-${index}`),
+        position: config.position ?? (index === 0 ? 'left' : 'right'),
+        config,
+    }))
+}
+
+/** Resolve a normalized axis list into the {@link YAxis}es the base chart consumes —
+ *  each axis's id, side, scale, label, and resolved tick formatter. */
+export function buildYAxes(axisList: NormalizedYAxis[]): YAxis[] {
+    return axisList.map(({ id, position, config }) => ({
+        id,
+        position,
+        scaleType: config.scale,
+        tickFormatter: resolveYTickFormatter(config),
+        label: config.label,
+    }))
+}
+
+/** Resolve the primary (left) axis from a normalized list — the entry whose id is the default
+ *  axis id, falling back to the first entry. Drives the base chart's scalar y-config. */
+export function primaryYAxisConfig(axisList: NormalizedYAxis[]): YAxisConfig | undefined {
+    return (axisList.find((a) => a.id === DEFAULT_Y_AXIS_ID) ?? axisList[0])?.config
+}
+
 export function useYTickFormatter(yAxis: YAxisConfig | undefined): ((value: number) => string) | undefined {
     // Read the formatter-relevant fields here (not the whole object) so the memo stays stable across
     // unrelated config-identity changes — the same field set forms the dependency array.
     const { tickFormatter, format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency } = yAxis ?? {}
     return useMemo(
-        () => resolveYTickFormatter({ tickFormatter, format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency }),
+        () =>
+            resolveYTickFormatter({ tickFormatter, format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency }),
         [tickFormatter, format, prefix, suffix, decimalPlaces, minDecimalPlaces, currency]
     )
 }
