@@ -79,9 +79,9 @@ describe('sqlLineGraphAdapter', () => {
             expect(canRenderSqlLineGraph(baseProps({ visualizationType, yData }))).toBe(true)
         })
 
-        it('falls back when any series targets the right y-axis', () => {
-            const yData = [ySeries('a', [1], { display: { yAxisPosition: 'right' } })]
-            expect(canRenderSqlLineGraph(baseProps({ yData }))).toBe(false)
+        it('renders right y-axis series natively rather than falling back', () => {
+            const yData = [ySeries('a', [1]), ySeries('b', [2], { display: { yAxisPosition: 'right' } })]
+            expect(canRenderSqlLineGraph(baseProps({ yData }))).toBe(true)
         })
     })
 
@@ -360,6 +360,15 @@ describe('sqlLineGraphAdapter', () => {
             expect([bar.type, line.type, area.type]).toEqual(['bar', 'line', 'area'])
         })
 
+        it.each<[string, AxisSeries<number | null>['settings'], string | undefined]>([
+            ['right when the series targets the right axis', { display: { yAxisPosition: 'right' } }, 'right'],
+            ['unset when the series targets the left axis', { display: { yAxisPosition: 'left' } }, undefined],
+            ['unset when no axis is specified', {}, undefined],
+        ])('assigns yAxisId %s', (_name, settings, expected) => {
+            const [series] = buildSeries([ySeries('a', [1], settings)], ChartDisplayType.ActionsLineGraph)
+            expect(series.yAxisId).toBe(expected)
+        })
+
         it('threads each series settings through meta for the tooltip', () => {
             const usd: AxisSeries<number | null>['settings'] = { formatting: { prefix: '$' } }
             const [withSettings, plain] = buildSeries(
@@ -500,6 +509,25 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.yAxis).toMatchObject({ scale: 'linear', showGrid: true })
         })
 
+        it('keeps a single-object yAxis when no series targets the right axis', () => {
+            const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4])]
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings: {}, timezone: 'UTC', ySeriesData })
+            expect(Array.isArray(config.yAxis)).toBe(false)
+        })
+
+        it('emits a per-axis array honoring each column settings when a series targets the right axis', () => {
+            const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4], { display: { yAxisPosition: 'right' } })]
+            const chartSettings: ChartSettings = {
+                leftYAxisSettings: { label: 'Left', scale: 'logarithmic' },
+                rightYAxisSettings: { label: 'Right', showGridLines: false },
+            }
+            const config = buildLineChartConfig({ xData: dateXData, chartSettings, timezone: 'UTC', ySeriesData })
+            expect(config.yAxis).toEqual([
+                { id: 'left', position: 'left', label: 'Left', scale: 'log', showGrid: true, hide: false },
+                { id: 'right', position: 'right', label: 'Right', scale: 'linear', showGrid: false, hide: false },
+            ])
+        })
+
         it.each([
             ['shows', true, true],
             ['hides', false, false],
@@ -604,6 +632,19 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsBar,
             })
             expect('trendLines' in config).toBe(false)
+        })
+
+        it('honors leftYAxisSettings for the single y-axis', () => {
+            const chartSettings: ChartSettings = {
+                leftYAxisSettings: { label: 'Combo Left', scale: 'logarithmic', showGridLines: false },
+            }
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings,
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+            expect(config.yAxis).toEqual({ label: 'Combo Left', scale: 'log', showGrid: false, hide: false })
         })
     })
 })

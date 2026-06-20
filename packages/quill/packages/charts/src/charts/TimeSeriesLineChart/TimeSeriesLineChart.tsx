@@ -2,7 +2,6 @@ import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
-import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import type {
     ChartLegendConfig,
     ChartTheme,
@@ -12,13 +11,15 @@ import type {
     Series,
     TooltipConfig,
     TooltipContext,
-    YAxisRenderConfig,
+    YAxis,
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
 import {
-    resolveYTickFormatter,
+    buildYAxes,
+    normalizeYAxisList,
+    primaryYAxisConfig,
     useXTickFormatter,
     useYTickFormatter,
     type XAxisConfig,
@@ -38,26 +39,6 @@ import {
 } from './utils/use-derived-series'
 
 export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
-
-interface NormalizedYAxis {
-    id: string
-    position: 'left' | 'right'
-    config: YAxisConfig
-}
-
-/** Normalize the `yAxis` config into a per-axis list. A single object (or omitted) is the primary
- *  left axis; an array assigns ids/positions, defaulting the first entry to the primary left axis
- *  and subsequent entries to the right. */
-function normalizeYAxisList(yAxis: YAxisConfig | YAxisConfig[] | undefined): NormalizedYAxis[] {
-    if (!Array.isArray(yAxis)) {
-        return yAxis ? [{ id: DEFAULT_Y_AXIS_ID, position: 'left', config: yAxis }] : []
-    }
-    return yAxis.map((config, index) => ({
-        id: config.id ?? (index === 0 ? DEFAULT_Y_AXIS_ID : `axis-${index}`),
-        position: config.position ?? (index === 0 ? 'left' : 'right'),
-        config,
-    }))
-}
 
 export interface TimeSeriesLineChartConfig {
     xAxis?: XAxisConfig
@@ -130,24 +111,13 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const axisList = useMemo(() => normalizeYAxisList(yAxis), [yAxis])
     // Scalar y-config describes the primary (left) axis — drives single-axis rendering, the default
     // value-label formatter, and the left gutter when a right-axis series is present.
-    const primaryYAxis = useMemo<YAxisConfig | undefined>(
-        () => (axisList.find((a) => a.id === DEFAULT_Y_AXIS_ID) ?? axisList[0])?.config,
-        [axisList]
+    const primaryYAxis = useMemo<YAxisConfig | undefined>(() => primaryYAxisConfig(axisList), [axisList])
+    // Per-axis configs only when the caller passed an array — a single object keeps the existing
+    // single-axis path untouched (no `yAxes` on the LineChart config).
+    const yAxes = useMemo<YAxis[] | undefined>(
+        () => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined),
+        [yAxis, axisList]
     )
-    // Per-axis render configs only when the caller passed an array — a single object keeps the
-    // existing single-axis path untouched (no `yAxes` on the LineChart config).
-    const yAxesRenderConfig = useMemo<YAxisRenderConfig[] | undefined>(() => {
-        if (!Array.isArray(yAxis)) {
-            return undefined
-        }
-        return axisList.map(({ id, position, config }) => ({
-            id,
-            position,
-            scaleType: config.scale,
-            tickFormatter: resolveYTickFormatter(config),
-            label: config.label,
-        }))
-    }, [yAxis, axisList])
 
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(primaryYAxis)
@@ -189,7 +159,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showCrosshair,
         tooltip: tooltipConfig,
         valueDomain,
-        yAxes: yAxesRenderConfig,
+        yAxes,
     }
 
     return (

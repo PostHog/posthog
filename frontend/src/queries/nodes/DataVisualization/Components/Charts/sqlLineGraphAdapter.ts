@@ -14,7 +14,7 @@ import {
     createXAxisTickCallback,
 } from '@posthog/quill-charts'
 
-import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
+import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
@@ -97,9 +97,9 @@ export function buildTrendLineConfigs(ySeriesData: SqlLineYSeries[] | null | und
 }
 
 /**
- * Plain line/area charts — including goal lines and trend lines — render here. Series that mix a bar
- * with a line/area route to {@link canRenderSqlComboGraph}; right y-axis series aren't ported yet, so
- * those fall back to the legacy chart.js path.
+ * Plain line/area charts — including goal lines, trend lines, and right y-axis series — render here.
+ * Series that mix a bar with a line/area route to {@link canRenderSqlComboGraph}; other mixes fall
+ * back to the legacy chart.js path.
  */
 export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
     const { visualizationType, yData } = props
@@ -111,11 +111,6 @@ export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
         return false
     }
     if (yData?.some((series) => series.settings?.display?.displayType === 'bar')) {
-        return false
-    }
-    // quill applies a single tick formatter/scale to both gutters, so a right axis can't honor its
-    // own settings yet — fall back to legacy rather than silently dropping those prefs.
-    if (yData?.some((series) => series.settings?.display?.yAxisPosition === 'right')) {
         return false
     }
     return true
@@ -237,6 +232,7 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             type,
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
+            ...(settings?.display?.yAxisPosition === 'right' ? { yAxisId: 'right' } : {}),
             // Area fill, but never on a bar — a bar-override on an area-graph chart resolves to
             // `type: 'bar'` yet `isAreaSeries` is still true for the whole area graph.
             ...(type !== 'bar' && isAreaSeries(visualizationType, settings)
@@ -291,12 +287,12 @@ function buildXAxisConfig(xData: AxisSeries<string>, chartSettings: ChartSetting
 }
 
 function buildYAxisConfig(
-    chartSettings: ChartSettings,
-    { forceLinear = false }: { forceLinear?: boolean } = {}
+    yAxis: YAxisSettings | undefined,
+    { forceLinear = false, id, position }: { forceLinear?: boolean; id?: string; position?: 'left' | 'right' } = {}
 ): YAxisConfig {
-    const yAxis = chartSettings.leftYAxisSettings
-
     return {
+        ...(id ? { id } : {}),
+        ...(position ? { position } : {}),
         label: yAxis?.label,
         scale: !forceLinear && yAxis?.scale === 'logarithmic' ? 'log' : 'linear',
         showGrid: yAxis?.showGridLines ?? true,
@@ -315,9 +311,19 @@ export function buildLineChartConfig({
     goalLines,
     ySeriesData,
 }: BuildConfigArgs): TimeSeriesLineChartConfig {
+    const hasRightAxisSeries =
+        ySeriesData?.some((series) => series.settings?.display?.yAxisPosition === 'right') ?? false
+
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
-        yAxis: buildYAxisConfig(chartSettings),
+        // Emit a per-axis array only when a series actually targets the right axis — otherwise keep
+        // the single-object form so single-axis charts render unchanged.
+        yAxis: hasRightAxisSeries
+            ? [
+                  buildYAxisConfig(chartSettings.leftYAxisSettings, { id: 'left', position: 'left' }),
+                  buildYAxisConfig(chartSettings.rightYAxisSettings, { id: 'right', position: 'right' }),
+              ]
+            : buildYAxisConfig(chartSettings.leftYAxisSettings),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
@@ -336,7 +342,7 @@ export function buildBarChartConfig({
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
-        yAxis: buildYAxisConfig(chartSettings, { forceLinear: barLayout === 'percent' }),
+        yAxis: buildYAxisConfig(chartSettings.leftYAxisSettings, { forceLinear: barLayout === 'percent' }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout,
         legend: buildLegendConfig(chartSettings),
@@ -354,7 +360,7 @@ export function buildComboChartConfig({
 }: BuildBarConfigArgs): TimeSeriesComboChartConfig {
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
-        yAxis: buildYAxisConfig(chartSettings),
+        yAxis: buildYAxisConfig(chartSettings.leftYAxisSettings),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout: comboBarLayoutForDisplay(visualizationType),
         legend: buildLegendConfig(chartSettings),
