@@ -162,6 +162,12 @@ async def test_export_event_clickhouse_rows_success():
         await export_event_clickhouse_rows(export_context)
 
         mock_client.aget_query.assert_called_once()
+        # the events SELECT * must exclude the internal materialized columns, including the
+        # churny properties_group_* maps, otherwise the query breaks whenever the distributed
+        # and sharded schemas are briefly out of step (e.g. dropping properties_group_ai_large)
+        executed_query = mock_client.aget_query.call_args.kwargs["query"]
+        assert "properties_group_.*" in executed_query
+
         mock_redis.setex.assert_called_once()
         call_args = mock_redis.setex.call_args
         assert call_args[0][0] == _redis_key(export_id, "events")

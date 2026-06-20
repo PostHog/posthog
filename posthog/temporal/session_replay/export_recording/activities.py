@@ -98,8 +98,13 @@ async def export_event_clickhouse_rows(input: ExportContext) -> None:
     logger = LOGGER.bind()
     logger.info(f"Exporting event ClickHouse rows for session {input.session_id}")
 
+    # Exclude internal materialized columns: mat_/dmat_ materialized properties and the
+    # properties_group_* map columns. The latter churn (added/dropped by migrations, e.g.
+    # properties_group_ai_large), and a bare SELECT * breaks with "no column ... in table
+    # 'sharded_events'" whenever the distributed and sharded schemas are briefly out of step.
+    # They duplicate data already in `properties`, so an export never needs them.
     query: str = """
-        SELECT * EXCEPT('mat_.*|dmat_.*')
+        SELECT * EXCEPT('mat_.*|dmat_.*|properties_group_.*')
         FROM events
         WHERE
             team_id = %(team_id)s AND

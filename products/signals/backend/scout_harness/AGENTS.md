@@ -98,8 +98,10 @@ one sandbox session → zero or more emitted signals.
   live on `task_run`, not on the bridge row. Single-flight is a best-effort app-layer guard:
   `_has_running_run` skips dispatch when a prior run for the same `(team, skill_name)` has
   `task_run.status = IN_PROGRESS`. The old `WHERE status='running'` partial unique index was
-  dropped in the bridge simplification; a `task_run.status`-based constraint plus active
-  stale-run recovery (`_self_heal_stale_runs` is a no-op today) is a tracked follow-up.
+  dropped in the bridge simplification; `_self_heal_stale_runs` now reaps the orphan case at
+  the app layer (failing any `QUEUED`/`IN_PROGRESS` run older than `STALE_RUN_CUTOFF_S` before
+  the guard), so a worker crash no longer wedges a lane permanently. A `task_run.status`-based
+  DB constraint is still a possible follow-up for stronger single-flight guarantees.
 - The sandbox is opened with the team's MCP token plus the harness-internal tools.
   The skill body is loaded into the system prompt; each scout has its own
   `SignalScoutConfig` row (keyed on `(team, skill_name)`) whose `enabled` flag and
@@ -166,9 +168,10 @@ one sandbox session → zero or more emitted signals.
   every team.
 - Run lifecycle lives on the linked `TaskRun` (`task_run.status`), managed by
   `MultiTurnSession` — the `SignalScoutRun` bridge row carries no status of its own. A
-  `TaskRun` stranded in `IN_PROGRESS` (worker SIGKILL before finalize) blocks new runs for
-  that `(team, skill)` via `_has_running_run` until it transitions out; active recovery of
-  such rows is a deferred follow-up (`_self_heal_stale_runs` is currently a no-op).
+  `TaskRun` stranded in `IN_PROGRESS` (worker SIGKILL before finalize) would block new runs
+  for that `(team, skill)` via `_has_running_run` — so `_self_heal_stale_runs` fails any such
+  run older than `STALE_RUN_CUTOFF_S` before the guard, letting the lane recover within a tick
+  or two instead of wedging until manual intervention.
 - Emit path goes through `emit_signal()` and only `emit_signal()`. Do not write to
   the embeddings pipeline or `SignalReport` directly from harness code.
 - **If you add or rename a workflow/activity in `temporal/agentic/`, update

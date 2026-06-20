@@ -79,6 +79,20 @@ describe('hog-charts scales', () => {
             expect(domainMin).toBeLessThan(0)
         })
 
+        it('floats the baseline to the data range when floatBaseline is set', () => {
+            const series = [makeSeries({ key: 's1', data: [50, 60, 70] })]
+            const [domainMin] = createYScale(series, dimensions, { floatBaseline: true }).domain()
+            // Without floatBaseline this would clamp to 0; floated, the floor tracks the data minimum.
+            expect(domainMin).toBeGreaterThan(0)
+            expect(domainMin).toBeLessThanOrEqual(50)
+        })
+
+        it('ignores floatBaseline on a log scale (no zero baseline to drop)', () => {
+            const series = [makeSeries({ key: 's1', data: [50, 60, 70] })]
+            const [domainMin] = createYScale(series, dimensions, { floatBaseline: true, scaleType: 'log' }).domain()
+            expect(domainMin).toBeGreaterThan(0)
+        })
+
         it('extends max to 0 when all values are negative (mirror of positive-data zero baseline)', () => {
             const series = [makeSeries({ key: 's1', data: [-30, -20, -10] })]
             const scale = createYScale(series, dimensions)
