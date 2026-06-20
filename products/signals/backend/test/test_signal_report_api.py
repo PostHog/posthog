@@ -1290,3 +1290,18 @@ class TestAvailableReviewersAPI(APIBaseTest):
         response = self.client.get(self._url(query="User0001"))
         assert response.status_code == status.HTTP_200_OK
         mock_capture.assert_not_called()
+
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_empty_org_returns_empty(self, mock_map):
+        mock_map.return_value = {}
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {}
+
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_missing_team_map_returns_empty(self, mock_map):
+        # The helper returns None for an unknown team; the view coalesces it to an empty result.
+        mock_map.return_value = None
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {}
