@@ -86,14 +86,8 @@ def get_fernet(region: str) -> MultiFernet:
         sys.exit(1)
 
     secret_key = Fernet(_prepare_key(_load_as_bytes(secret_data["TEMPORAL_SECRET_KEY"])))
-    fallback_keys = map(
-        Fernet(
-            _prepare_key,
-            (
-                _load_as_bytes(secret, check_length=should_check_length)
-                for secret in secret_data.get("TEMPORAL_FALLBACK_SECRET_KEYS", [])
-            ),
-        )
+    fallback_keys = (
+        Fernet(_prepare_key(_load_as_bytes(secret))) for secret in secret_data.get("TEMPORAL_FALLBACK_SECRET_KEYS", [])
     )
 
     return MultiFernet([secret_key, *fallback_keys])
