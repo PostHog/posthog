@@ -54,7 +54,10 @@ async function createReportTask(
         const { results } = await api.signalReports.artefacts(report.id)
         const selected = results.find((a) => a.type === 'repo_selection')?.content?.repository
         repository = typeof selected === 'string' && selected ? selected : undefined
-    } catch {
+    } catch (e) {
+        if (requireRepository) {
+            throw e
+        }
         repository = undefined
     }
 
