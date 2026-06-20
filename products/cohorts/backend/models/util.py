@@ -1186,10 +1186,7 @@ def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int])
     if not cohort_ids:
         return {}
 
-    # Local import to avoid circulars (cohort → person via CohortPeople FK).
-    from posthog.models.person.person import READ_DB_FOR_PERSONS
-
-    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+    from products.cohorts.backend.models.cohort import Cohort
 
     # Scope cohort_ids to the team via Cohort on the default DB before querying
     # either the personhog RPC or the persons-DB CohortPeople table. Neither
@@ -1202,18 +1199,9 @@ def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int])
     if not scoped_cohort_ids:
         return dict.fromkeys(cohort_ids, False)
 
-    def orm_fn() -> dict[int, bool]:
-        member_ids = set(
-            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(person_id=person_id, cohort_id__in=scoped_cohort_ids)
-            .values_list("cohort_id", flat=True)
-        )
-        return {cohort_id: cohort_id in member_ids for cohort_id in scoped_cohort_ids}
-
     scoped_result = _personhog_routed(
         "check_cohort_membership",
         lambda: _check_cohort_membership_via_personhog(person_id, scoped_cohort_ids),
-        orm_fn,
         team_id=team_id,
     )
     # Expand back to the caller's original cohort_ids; cohorts that were scoped
@@ -1256,10 +1244,9 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
     Routes through personhog when the gate is enabled, falling back to a Django
     ORM query against ``posthog_cohortpeople`` (on the persons DB) otherwise.
     """
-    from posthog.models.person.person import READ_DB_FOR_PERSONS
     from posthog.models.person.util import _personhog_routed
 
-    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+    from products.cohorts.backend.models.cohort import Cohort
 
     # Validate cohort ownership on the default DB before querying the persons DB
     # or the personhog RPC — neither downstream path enforces team isolation
@@ -1268,17 +1255,9 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
     if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return []
 
-    def orm_fn() -> list[int]:
-        return list(
-            CohortPeople.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(cohort_id=cohort_id)
-            .values_list("person_id", flat=True)
-        )
-
     return _personhog_routed(
         "list_cohort_member_ids",
         lambda: _list_cohort_member_ids_via_personhog(cohort_id),
-        orm_fn,
         team_id=team_id,
     )
 
@@ -1323,36 +1302,14 @@ def insert_cohort_members(
     if not person_ids:
         return 0
 
-    from posthog.models.person import Person
-
-    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+    from products.cohorts.backend.models.cohort import Cohort
 
     if not _skip_ownership_check and not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return 0
 
-    def orm_fn() -> int:
-        from django.db import connections, router
-
-        db_write = router.db_for_write(Person) or "default"
-        cursor = connections[db_write].cursor()
-        table = CohortPeople._meta.db_table
-        placeholders = ",".join(["%s"] * len(person_ids))
-        query = f"""
-            INSERT INTO "{table}" ("person_id", "cohort_id", "version")
-            SELECT pid, %s, %s
-            FROM UNNEST(ARRAY[{placeholders}]) AS t(pid)
-            WHERE NOT EXISTS (
-                SELECT 1 FROM "{table}" AS cp
-                WHERE cp."person_id" = pid AND cp."cohort_id" = %s
-            )
-        """
-        cursor.execute(query, [cohort_id, version, *person_ids, cohort_id])
-        return cursor.rowcount
-
     return _personhog_routed(
         "insert_cohort_members",
         lambda: _insert_cohort_members_via_personhog(cohort_id, person_ids, version),
-        orm_fn,
         team_id=team_id,
     )
 
@@ -1378,21 +1335,14 @@ def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
     """
     from posthog.models.person.util import _personhog_routed
 
-    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+    from products.cohorts.backend.models.cohort import Cohort
 
     if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return False
 
-    def orm_fn() -> bool:
-        deleted_count, _ = CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            cohort_id=cohort_id, person_id=person_id
-        ).delete()  # nosemgrep: no-direct-persons-db-orm
-        return deleted_count > 0
-
     return _personhog_routed(
         "delete_cohort_member",
         lambda: _delete_cohort_member_via_personhog(cohort_id, person_id),
-        orm_fn,
         team_id=team_id,
     )
 
@@ -1438,19 +1388,9 @@ def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: 
     if not cohort_ids:
         return 0
 
-    from products.cohorts.backend.models.cohort import CohortPeople
-
-    def orm_fn() -> int:
-        from django.db import router
-
-        qs = CohortPeople.objects.filter(cohort_id__in=cohort_ids)  # nosemgrep: no-direct-persons-db-orm
-        db_alias = router.db_for_write(CohortPeople)
-        return qs._raw_delete(db_alias)
-
     return _personhog_routed(
         "delete_cohort_members_bulk",
         lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size),
-        orm_fn,
         team_id=team_id,
     )
 
@@ -1485,22 +1425,8 @@ def count_cohort_members(team_id: int, cohort_id: int, *, consistency: ReadConsi
     """
     from posthog.models.person.util import _personhog_routed
 
-    from products.cohorts.backend.models.cohort import Cohort, CohortPeople
-
-    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
-        return 0
-
-    def orm_fn() -> int:
-        qs = CohortPeople.objects.filter(cohort_id=cohort_id)  # nosemgrep: no-direct-persons-db-orm
-        if consistency == "strong":
-            from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-            qs = qs.using(PERSONS_DB_FOR_WRITE)
-        return qs.count()
-
     return _personhog_routed(
         "count_cohort_members",
         lambda: _count_cohort_members_via_personhog([cohort_id], consistency),
-        orm_fn,
         team_id=team_id,
     )

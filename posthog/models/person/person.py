@@ -647,5 +647,5 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str
             f"Ensure the person was loaded via personhog or with prefetch_related."
         )
     else:
-        distinct_ids = []
+        distinct_ids: list[str] = []
     return list(map(str, distinct_ids))
