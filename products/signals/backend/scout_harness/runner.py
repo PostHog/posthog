@@ -4,6 +4,7 @@ import time
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 from django.utils import timezone
@@ -17,7 +18,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S
+from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.temporal.agentic import (
@@ -106,12 +107,15 @@ async def arun_signals_scout(
     )
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team, skill.name)
 
-    # Hook for stale-run recovery — currently a no-op (see `_self_heal_stale_runs`). The
-    # partial unique index that made orphaned RUNNING rows block dispatch was dropped when
-    # `SignalScoutRun` became a `TaskRun` bridge (status now lives on `task_run.status`), so
-    # stale bridge rows no longer gate new runs at the DB level. Kept as a seam for the
-    # `task_run.status`-based recovery follow-up.
-    await database_sync_to_async(_self_heal_stale_runs, thread_sensitive=False)(team_id, skill_name)
+    # Stale-run recovery, before the skip-if-running guard below. A scout run writes its own
+    # terminal `task_run.status` from inside the activity; if the worker/sandbox dies hard
+    # mid-run that write never lands, leaving the TaskRun stuck `IN_PROGRESS` — which would
+    # otherwise block every future dispatch for this `(team, skill)` forever via
+    # `_has_running_run`. Reap such orphans here so the lane self-heals. Keyed on the same
+    # canonical `(team, skill_name)` the guard uses so it reaps exactly the rows the guard sees.
+    await database_sync_to_async(_self_heal_stale_runs, thread_sensitive=False)(
+        team.parent_team_id or team.id, skill.name
+    )
 
     # Skip-if-running guard, keyed on (team, skill_name). Different skills for the same
     # team are allowed to run concurrently — the coordinator can dispatch several due
@@ -402,24 +406,54 @@ def _has_running_run(*, team_id: int, skill_name: str) -> bool:
 
 
 def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
-    """No-op pending the task_run-based partial unique index follow-up.
+    """Reap orphaned in-flight runs so a dead run can't block the lane forever.
 
-    The original self-heal recovered RUNNING rows orphaned by a worker / sandbox
-    crash, because a DB-level partial unique index on
-    `(team_id, skill_name) WHERE status='running'` would otherwise block all
-    future dispatches for the same (team, skill). That index was dropped during
-    the 2026-05-21 restack — it referenced `SignalScoutRun.status`, which no
-    longer exists on the slim bridge row (status lives on `task_run.status`).
+    A scout run writes its own terminal `task_run.status` from inside the activity. If the
+    worker / sandbox dies hard mid-run (SIGKILL, pod eviction, sandbox loss), that write
+    never lands and the TaskRun is frozen at `QUEUED`/`IN_PROGRESS`. `_has_running_run`
+    then single-flights against that frozen row and skips every future dispatch for this
+    `(team, skill)` indefinitely — there is no other release. Nothing else reconciles it:
+    Temporal has already torn the workflow down (the activity is killed at
+    `WORKFLOW_HARD_CEILING_S` with `maximum_attempts=1`), and the Tasks cleanup path does
+    not cover a crashed worker.
 
-    `_has_running_run` queries `task_run__status=IN_PROGRESS` so single-flighting
-    still works at the app layer; stale bridge rows no longer block dispatch,
-    they just take up space. The Tasks subsystem owns `task_run.status` and has
-    its own timeout / cleanup path, so cross-product writes from here would be
-    inappropriate. Restore real recovery logic once a `task_run.status`-based
-    DB constraint lands as a follow-up.
+    A run older than `STALE_RUN_CUTOFF_S` (a generous multiple of that ceiling) cannot
+    still be legitimately executing, so it is an orphan and we mark it failed. The cutoff's
+    slack means a run merely at the wall — about to fail or finish on its own — is never
+    reaped out from under itself. Best-effort and silent: a failure to reap one row must
+    never block the new run, so each is guarded independently.
     """
-    _ = team_id, skill_name
-    return
+    cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
+    stale_runs = (
+        SignalScoutRun.objects.unscoped()
+        .filter(
+            team_id=team_id,
+            skill_name=skill_name,
+            task_run__status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
+            task_run__created_at__lt=cutoff,
+        )
+        .select_related("task_run")
+    )
+    for run in stale_runs:
+        try:
+            run.task_run.mark_failed(
+                "Scout run abandoned: no terminal status past the runtime ceiling "
+                "(worker/sandbox lost before finalize)."
+            )
+            logger.warning(
+                "signals_scout: reaped stale in-progress run before dispatch",
+                extra={
+                    "team_id": team_id,
+                    "skill_name": skill_name,
+                    "run_id": str(run.id),
+                    "task_run_id": str(run.task_run_id),
+                },
+            )
+        except Exception:
+            logger.exception(
+                "signals_scout: failed to reap stale in-progress run; continuing",
+                extra={"team_id": team_id, "skill_name": skill_name, "run_id": str(run.id)},
+            )
 
 
 def _create_run_row(
