@@ -1248,13 +1248,14 @@ class SignalReportViewSet(
             # Captured for both suppress and snooze (transition to potential) flows.
             if target in ("suppressed", "potential") and (dismissal_reason or dismissal_note):
                 user = self.request.user
+                is_authenticated = getattr(user, "is_authenticated", False)
+                # getattr (not direct attribute access) so the AnonymousUser branch type-checks.
+                user_uuid = getattr(user, "uuid", None) if is_authenticated else None
                 artefact_content = {
                     "reason": dismissal_reason,
                     "note": dismissal_note,
-                    "user_id": getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
-                    "user_uuid": str(user.uuid)
-                    if getattr(user, "is_authenticated", False) and getattr(user, "uuid", None)
-                    else None,
+                    "user_id": getattr(user, "id", None) if is_authenticated else None,
+                    "user_uuid": str(user_uuid) if user_uuid else None,
                 }
                 SignalReportArtefact.objects.create(
                     team=self.team,
@@ -1314,14 +1315,7 @@ class SignalReportViewSet(
             report = reports_by_id.get(report_id)
             if report is None:
                 outcome = SignalReportBulkStateOutcome.NOT_FOUND
-                results.append(
-                    {
-                        "id": report_id,
-                        "outcome": outcome.value,
-                        "status": None,
-                        "detail": "No report with this id is visible to you.",
-                    }
-                )
+                report_status = None
             else:
                 outcome = self._transition_report_state(
                     report,
@@ -1330,14 +1324,15 @@ class SignalReportViewSet(
                     dismissal_note=dismissal_note,
                     snooze_for=snooze_for,
                 )
-                results.append(
-                    {
-                        "id": report_id,
-                        "outcome": outcome.value,
-                        "status": report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None,
-                        "detail": self._BULK_STATE_OUTCOME_DETAIL.get(outcome),
-                    }
-                )
+                report_status = report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None
+            results.append(
+                {
+                    "id": report_id,
+                    "outcome": outcome.value,
+                    "status": report_status,
+                    "detail": self._BULK_STATE_OUTCOME_DETAIL.get(outcome),
+                }
+            )
             counts[outcome.value] += 1
 
         return Response(
