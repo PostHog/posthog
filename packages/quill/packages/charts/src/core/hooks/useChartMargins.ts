@@ -6,7 +6,6 @@ import { measureLabelWidth } from '../../utils/text-measure'
 import { autoFormatterFor, orderedAxisPositions, seriesValueRange } from '../scales'
 import { DEFAULT_Y_AXIS_ID } from '../types'
 import type { ChartMargins, Series } from '../types'
-import type { YAxisTitles } from '../y-axis-titles'
 
 export const DEFAULT_MARGINS: ChartMargins = { top: 16, right: 16, bottom: 32, left: 48 }
 
@@ -49,7 +48,7 @@ interface UseChartMarginsOptions {
     /** Per-axis sides keyed by axis id, overriding the alternating-side default. Keeps the margin
      *  reservation in step with the scales' config-driven positions. Multi-axis charts only. */
     yAxisPositions?: Record<string, 'left' | 'right'>
-    yAxisTitles?: YAxisTitles
+    yAxisTitles?: Record<string, string>
 }
 
 function widestCategoryLabelWidth(

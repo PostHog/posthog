@@ -18,7 +18,6 @@ import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
 import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
-import { resolveYAxisTitles } from './y-axis-titles'
 import type {
     ChartConfig,
     ChartDrawArgs,
@@ -129,8 +128,10 @@ export function Chart<Meta = unknown>({
         yAxes,
     } = config ?? {}
 
-    const { formatters: yAxisFormatters, positions: yAxisPositions } = useYAxisMaps(yAxes)
-    const yAxisTitles = useMemo(() => resolveYAxisTitles(yAxes, yAxisLabel), [yAxes, yAxisLabel])
+    const { formatters: yAxisFormatters, positions: yAxisPositions, titles: yAxisTitles } = useYAxisMaps(
+        yAxes,
+        yAxisLabel
+    )
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
