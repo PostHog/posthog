@@ -1,5 +1,7 @@
 import { type MetricChange } from '@posthog/quill-charts'
 
+import { IntervalType } from '~/types'
+
 // Above this magnitude the exact percentage is noise (it comes from a near-zero start), so show ∞ instead.
 export const MAX_CHANGE_PERCENT = 10_000 // ≈100×
 
@@ -67,16 +69,14 @@ interface ComparableSeries {
     compare_label?: string | null
 }
 
-// The previous comparison period, when "compare to previous" is on. Matched by `compare_label` rather
-// than position so it stays correct if the results array ever holds more than the current series.
+// The previous comparison period from the results, if present. Matched by `compare_label` rather than
+// position so it stays correct regardless of how the series are ordered. Absent when the comparison
+// period couldn't be computed (e.g. an "all time" date range), in which case the pill falls back to
+// the within-window first→last change.
 export function selectPreviousSeriesSummary(
-    compareEnabled: boolean,
     results: readonly ComparableSeries[] | undefined
 ): MetricSeriesSummary | undefined {
-    if (!compareEnabled || !results) {
-        return undefined
-    }
-    const previous = results.find((series) => series.compare_label === 'previous')
+    const previous = results?.find((series) => series.compare_label === 'previous')
     return previous ? { total: previous.count, data: previous.data } : undefined
 }
 
@@ -96,11 +96,29 @@ export function computeMetricSummaryChange(
     return computeMetricChange(current.data)
 }
 
-// Plain-language description of what the change pill compares, for a tooltip — keyed to the branches in
-// `computeMetricSummaryChange`. `total`/`average` apply only with a comparison period; otherwise (and
-// always for `latest`) the pill is the within-period first→last movement.
-export const METRIC_CHANGE_TOOLTIPS = {
-    total: "Comparing this period's total to the previous period's total.",
-    average: "Comparing this period's average to the previous period's average.",
-    firstToLatest: 'Comparing the first value in this period to the most recent value.',
+// The first→last fallback compares the first interval bucket to the last, so the noun tracks the interval.
+const INTERVAL_NOUN: Record<IntervalType, string> = {
+    second: 'second',
+    minute: 'minute',
+    hour: 'hour',
+    day: 'day',
+    week: 'week',
+    month: 'month',
+}
+
+// What the change pill compares, matched to the chosen summary and whether a comparison period is present.
+// Mirrors computeMetricSummaryChange: total/average compare against the previous period when one is present,
+// otherwise (and always for latest) it's the within-period first→last change.
+export function getMetricChangeTooltip(
+    summary: MetricSummary,
+    hasComparison: boolean,
+    interval: IntervalType | null | undefined
+): string {
+    if (!hasComparison || summary === 'latest') {
+        const noun = INTERVAL_NOUN[interval ?? 'day']
+        return `Comparing the first ${noun}'s value to the most recent ${noun}'s value.`
+    }
+    return summary === 'total'
+        ? "Comparing this period's total to the previous period's total."
+        : "Comparing this period's average to the previous period's average."
 }

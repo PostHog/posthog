@@ -1,9 +1,12 @@
 import { type MetricChange } from '@posthog/quill-charts'
 
+import { IntervalType } from '~/types'
+
 import {
     computeMetricChange,
     computeMetricSummary,
     computeMetricSummaryChange,
+    getMetricChangeTooltip,
     type MetricSeriesSummary,
     MetricSummary,
     selectPreviousSeriesSummary,
@@ -165,28 +168,91 @@ describe('selectPreviousSeriesSummary', () => {
 
     const cases: {
         name: string
-        enabled: boolean
         results: { count: number; data: number[]; compare_label?: string }[] | undefined
         expected: MetricSeriesSummary | undefined
     }[] = [
-        { name: 'compare disabled → no previous', enabled: false, results: [current, previous], expected: undefined },
-        { name: 'undefined results → no previous', enabled: true, results: undefined, expected: undefined },
-        { name: 'no previous-labelled series → no previous', enabled: true, results: [current], expected: undefined },
+        { name: 'undefined results → no previous', results: undefined, expected: undefined },
+        { name: 'no previous-labelled series → no previous', results: [current], expected: undefined },
         {
             name: 'picks the previous-labelled series',
-            enabled: true,
             results: [current, previous],
             expected: { total: 300, data: [50, 100, 150] },
         },
         {
             name: 'matches by compare_label, not array position',
-            enabled: true,
             results: [previous, current],
             expected: { total: 300, data: [50, 100, 150] },
         },
     ]
 
-    it.each(cases)('$name', ({ enabled, results, expected }) => {
-        expect(selectPreviousSeriesSummary(enabled, results)).toEqual(expected)
+    it.each(cases)('$name', ({ results, expected }) => {
+        expect(selectPreviousSeriesSummary(results)).toEqual(expected)
+    })
+})
+
+describe('getMetricChangeTooltip', () => {
+    const firstLast = (noun: string): string =>
+        `Comparing the first ${noun}'s value to the most recent ${noun}'s value.`
+
+    const cases: {
+        name: string
+        summary: MetricSummary
+        hasComparison: boolean
+        interval: IntervalType | null | undefined
+        expected: string
+    }[] = [
+        {
+            name: 'total vs previous period',
+            summary: 'total',
+            hasComparison: true,
+            interval: 'day',
+            expected: "Comparing this period's total to the previous period's total.",
+        },
+        {
+            name: 'average vs previous period',
+            summary: 'average',
+            hasComparison: true,
+            interval: 'day',
+            expected: "Comparing this period's average to the previous period's average.",
+        },
+        {
+            name: 'latest ignores the comparison period',
+            summary: 'latest',
+            hasComparison: true,
+            interval: 'day',
+            expected: firstLast('day'),
+        },
+        {
+            name: 'total falls back to first→last without a comparison',
+            summary: 'total',
+            hasComparison: false,
+            interval: 'day',
+            expected: firstLast('day'),
+        },
+        {
+            name: 'hourly interval reads "hour"',
+            summary: 'latest',
+            hasComparison: false,
+            interval: 'hour',
+            expected: firstLast('hour'),
+        },
+        {
+            name: 'monthly interval reads "month"',
+            summary: 'average',
+            hasComparison: false,
+            interval: 'month',
+            expected: firstLast('month'),
+        },
+        {
+            name: 'missing interval falls back to "day"',
+            summary: 'latest',
+            hasComparison: false,
+            interval: null,
+            expected: firstLast('day'),
+        },
+    ]
+
+    it.each(cases)('$name', ({ summary, hasComparison, interval, expected }) => {
+        expect(getMetricChangeTooltip(summary, hasComparison, interval)).toBe(expected)
     })
 })

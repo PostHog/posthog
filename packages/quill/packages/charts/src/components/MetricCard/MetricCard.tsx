@@ -1,8 +1,22 @@
-import React, { useMemo, useState } from 'react'
+import {
+    arrow,
+    autoUpdate,
+    flip,
+    FloatingArrow,
+    FloatingPortal,
+    offset,
+    shift,
+    useFloating,
+    useHover,
+    useInteractions,
+    useRole,
+} from '@floating-ui/react'
+import React, { useMemo, useRef, useState } from 'react'
 
 import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type { ChartTheme } from '../../core/types'
+import { TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from '../../overlays/TooltipSurface'
 import { percentage } from '../../utils/format'
 import { type MetricChange, resolveDelta } from './resolveDelta'
 import { useAnimatedNumber } from './useAnimatedNumber'
@@ -44,7 +58,7 @@ export interface MetricCardProps {
     changeSize?: 'sm' | 'md'
     /** Render the change pill inline next to the headline instead of in the header row. */
     changeInline?: boolean
-    /** Native tooltip (title attribute) on the change pill, e.g. explaining what it compares. */
+    /** Tooltip shown on hover over the change pill, e.g. explaining what it compares. */
     changeTooltip?: string
     positiveColor?: ChangeColor
     negativeColor?: ChangeColor
@@ -264,16 +278,85 @@ interface ChangePillProps {
 
 function ChangePill({ positive, label, colors, size = 'sm', tooltip }: ChangePillProps): React.ReactElement {
     const sizeClasses = size === 'md' ? 'gap-1.5 px-2.5 py-1 text-sm' : 'gap-1 px-2 py-0.5 text-xs'
-    return (
+    const pill = (
         <div
             className={`inline-flex items-center rounded-full font-medium transition-colors ${sizeClasses}`}
             style={{ background: colors.background, color: colors.foreground }}
             data-attr="metric-card-change-pill"
-            title={tooltip}
         >
             <Chevron up={positive} size={size === 'md' ? 12 : 10} />
             <span className="tabular-nums">{label}</span>
         </div>
+    )
+    if (!tooltip) {
+        return pill
+    }
+    return <ChangePillTooltip content={tooltip}>{pill}</ChangePillTooltip>
+}
+
+// A hover tooltip for the change pill. Built on floating-ui directly so the charts package stays
+// dependency-light (no app Tooltip import), but styled with the app's tooltip surface tokens so it
+// reads as a normal PostHog tooltip and stays legible over the tile's own --card background. Falls
+// back to the chart tooltip constants in non-app hosts that don't define those vars.
+const TOOLTIP_BG = `var(--color-bg-surface-tooltip, ${TOOLTIP_FALLBACK_BG})`
+const TOOLTIP_COLOR = `var(--color-text-primary-inverse, ${TOOLTIP_FALLBACK_COLOR})`
+
+function ChangePillTooltip({
+    content,
+    children,
+}: {
+    content: React.ReactNode
+    children: React.ReactNode
+}): React.ReactElement {
+    const [open, setOpen] = useState(false)
+    const arrowRef = useRef<SVGSVGElement>(null)
+    const { refs, floatingStyles, context } = useFloating({
+        open,
+        onOpenChange: setOpen,
+        placement: 'top',
+        strategy: 'fixed',
+        whileElementsMounted: autoUpdate,
+        middleware: [offset(8), flip(), shift({ padding: 8 }), arrow({ element: arrowRef })],
+    })
+    const hover = useHover(context, { move: false })
+    const role = useRole(context, { role: 'tooltip' })
+    const { getReferenceProps, getFloatingProps } = useInteractions([hover, role])
+
+    return (
+        <>
+            <span ref={refs.setReference} {...getReferenceProps()} className="inline-flex">
+                {children}
+            </span>
+            {open && (
+                <FloatingPortal>
+                    <div
+                        ref={refs.setFloating}
+                        {...getFloatingProps()}
+                        className="pointer-events-none max-w-80 rounded-md px-3 py-1.5 text-xs font-normal leading-snug"
+                        // Dynamic only: floating-ui position + app tooltip tokens. Static styling stays in Tailwind.
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            ...floatingStyles,
+                            zIndex: 'var(--z-tooltip, 9999)',
+                            background: TOOLTIP_BG,
+                            color: TOOLTIP_COLOR,
+                            boxShadow: 'var(--modal-shadow-elevation, 0 2px 8px rgb(0 0 0 / 18%))',
+                        }}
+                    >
+                        {content}
+                        {/* `currentColor` + the bg-colored `color` paints the arrow the same surface color
+                            (a CSS var can't go in the SVG `fill` attribute directly). */}
+                        <FloatingArrow
+                            ref={arrowRef}
+                            context={context}
+                            fill="currentColor"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ color: TOOLTIP_BG }}
+                        />
+                    </div>
+                </FloatingPortal>
+            )}
+        </>
     )
 }
 
