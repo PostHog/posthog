@@ -36,6 +36,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
 from posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock import release_v3_pipeline_lock
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking
+from posthog.temporal.data_imports.sources.revenuecat.schema_repair import maybe_repair_revenuecat_event_double_columns
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.utils import get_machine_id
 
@@ -413,6 +414,15 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
 
         # Capture file URIs before write for partial data loading
         previous_file_uris = existing_delta_table.file_uris() if existing_delta_table else []
+
+        existing_delta_table = async_to_sync(maybe_repair_revenuecat_event_double_columns)(
+            source_type=schema.source.source_type,
+            schema_name=schema.name,
+            incoming_table=pa_table,
+            delta_table=existing_delta_table,
+            delta_table_helper=delta_table_helper,
+            logger=logger,
+        )
 
         primary_keys = export_signal.primary_keys
         cdc_write_mode = export_signal.cdc_write_mode

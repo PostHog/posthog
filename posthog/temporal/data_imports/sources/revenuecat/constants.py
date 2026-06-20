@@ -4,6 +4,13 @@ ENTITLEMENT_RESOURCE_NAME = "entitlements"
 OFFERING_RESOURCE_NAME = "offerings"
 APP_RESOURCE_NAME = "apps"
 EVENT_RESOURCE_NAME = "events"
+REVENUECAT_WEBHOOK_DOUBLE_FIELDS = (
+    "price",
+    "price_in_purchased_currency",
+    "tax_percentage",
+    "commission_percentage",
+    "takehome_percentage",
+)
 
 # Maps PostHog schema name -> the value RevenueCat emits in `event.type` (webhook payload).
 # The webhook handler uses the schema-level `webhook_resource_map` to route events into

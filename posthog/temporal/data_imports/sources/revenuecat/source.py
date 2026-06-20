@@ -33,6 +33,7 @@ from posthog.temporal.data_imports.sources.revenuecat import revenuecat as api_c
 from posthog.temporal.data_imports.sources.revenuecat.constants import (
     EVENT_RESOURCE_NAME,
     RESOURCE_TO_REVENUECAT_EVENT_TYPE,
+    REVENUECAT_WEBHOOK_DOUBLE_FIELDS,
 )
 from posthog.temporal.data_imports.sources.revenuecat.revenuecat import RevenueCatResumeConfig
 from posthog.temporal.data_imports.sources.revenuecat.settings import (
@@ -48,13 +49,6 @@ if TYPE_CHECKING:
 
 
 REVENUECAT_API_KEYS_URL = "https://app.revenuecat.com/projects/_/api-keys"
-REVENUECAT_WEBHOOK_DOUBLE_FIELDS = (
-    "price",
-    "price_in_purchased_currency",
-    "tax_percentage",
-    "commission_percentage",
-    "takehome_percentage",
-)
 
 
 def _webhook_double_schema_for_rows(rows: list[dict[str, Any]]) -> pa.Schema | None:

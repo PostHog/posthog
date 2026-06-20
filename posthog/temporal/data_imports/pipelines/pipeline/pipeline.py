@@ -50,6 +50,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
 )
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.revenuecat.schema_repair import maybe_repair_revenuecat_event_double_columns
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -280,6 +281,14 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         pa_table = await setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 
+        delta_table = await maybe_repair_revenuecat_event_double_columns(
+            source_type=self._source.source_type,
+            schema_name=self._schema.name,
+            incoming_table=pa_table,
+            delta_table=delta_table,
+            delta_table_helper=self._delta_table_helper,
+            logger=self._logger,
+        )
         pa_table = evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 

@@ -1,14 +1,16 @@
 from collections.abc import Iterable
 from typing import cast
 
-from unittest.mock import MagicMock, patch
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
+import deltalake
 
 from posthog.schema import SourceFieldInputConfig
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from posthog.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema, table_from_py_list
 from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
@@ -21,6 +23,7 @@ from posthog.temporal.data_imports.sources.revenuecat.constants import (
     RESOURCE_TO_REVENUECAT_EVENT_TYPE,
 )
 from posthog.temporal.data_imports.sources.revenuecat.revenuecat import RevenueCatResumeConfig
+from posthog.temporal.data_imports.sources.revenuecat.schema_repair import maybe_repair_revenuecat_event_double_columns
 from posthog.temporal.data_imports.sources.revenuecat.settings import (
     REVENUECAT_API_ENDPOINTS,
     REVENUECAT_API_SCHEMA_NAMES,
@@ -28,9 +31,17 @@ from posthog.temporal.data_imports.sources.revenuecat.settings import (
 )
 from posthog.temporal.data_imports.sources.revenuecat.source import RevenueCatSource, _webhook_table_transformer
 
+from products.data_warehouse.backend.types import ExternalDataSourceType
+
 
 def _config(api_key: str = "sk_test", project_id: str = "proj_test") -> RevenueCatSourceConfig:
     return RevenueCatSourceConfig(secret_api_key=api_key, project_id=project_id)
+
+
+def _mock_delta_table(schema: pa.Schema) -> MagicMock:
+    delta_table = MagicMock()
+    delta_table.schema.return_value = deltalake.Schema.from_arrow(schema)
+    return delta_table
 
 
 class TestRevenueCatSourceConfigFields:
@@ -447,6 +458,67 @@ class TestRevenueCatWebhookTableTransformer:
         assert result.field("price_in_purchased_currency").type == pa.float64()
         assert [row["price"] for row in rows] == [0.0, 19.99]
         assert [row["price_in_purchased_currency"] for row in rows] == [0.0, 19.99]
+
+    @pytest.mark.asyncio
+    async def test_repairs_existing_int64_price_delta_schema_for_decimal_price_batch(self):
+        incoming = _webhook_table_transformer(
+            table_from_py_list(
+                [
+                    {
+                        "api_version": "1.0",
+                        "event": {
+                            "id": "evt-2",
+                            "type": "RENEWAL",
+                            "price": 19.99,
+                            "price_in_purchased_currency": 19.99,
+                        },
+                    }
+                ]
+            )
+        )
+        legacy_delta_table = _mock_delta_table(
+            pa.schema(
+                [
+                    pa.field("id", pa.string()),
+                    pa.field("price", pa.int64()),
+                    pa.field("price_in_purchased_currency", pa.int64()),
+                ]
+            )
+        )
+        repaired_delta_table = _mock_delta_table(
+            pa.schema(
+                [
+                    pa.field("id", pa.string()),
+                    pa.field("price", pa.float64()),
+                    pa.field("price_in_purchased_currency", pa.float64()),
+                ]
+            )
+        )
+        delta_table_helper = MagicMock()
+        delta_table_helper.rewrite_columns = AsyncMock(return_value=repaired_delta_table)
+        logger = MagicMock()
+        logger.awarning = AsyncMock()
+
+        with pytest.raises(pa.ArrowInvalid, match="truncated converting to int64"):
+            evolve_pyarrow_schema(incoming, legacy_delta_table.schema())
+
+        result_delta_table = await maybe_repair_revenuecat_event_double_columns(
+            source_type=ExternalDataSourceType.REVENUECAT,
+            schema_name=EVENT_RESOURCE_NAME,
+            incoming_table=incoming,
+            delta_table=legacy_delta_table,
+            delta_table_helper=delta_table_helper,
+            logger=logger,
+        )
+        evolved = evolve_pyarrow_schema(incoming, result_delta_table.schema())
+
+        delta_table_helper.rewrite_columns.assert_awaited_once_with(
+            {"price": pa.float64(), "price_in_purchased_currency": pa.float64()}
+        )
+        assert evolved.field("price").type == pa.float64()
+        assert evolved.field("price_in_purchased_currency").type == pa.float64()
+        assert evolved.column("price").to_pylist() == [19.99]
+        assert evolved.column("price_in_purchased_currency").to_pylist() == [19.99]
 
     def test_handles_event_as_json_string(self):
         # Defensive: if upstream serializes `event` as a JSON string, we still

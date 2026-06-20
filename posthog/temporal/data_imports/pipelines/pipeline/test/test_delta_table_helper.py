@@ -180,6 +180,39 @@ class TestHasBatchBeenCommitted:
             m.assert_called_once_with({"run_uuid": run_uuid, "batch_index": str(batch_index)})
 
 
+class TestRewriteColumns:
+    @pytest.mark.parametrize("partitioned", [False, True])
+    @pytest.mark.asyncio
+    async def test_rewrites_existing_column_type_and_preserves_rows(self, tmp_path: Path, partitioned: bool):
+        table_path = str(tmp_path / "delta")
+        data = {
+            "id": pa.array(["evt-1", "evt-2"], type=pa.string()),
+            "price": pa.array([0, 1], type=pa.int64()),
+        }
+        if partitioned:
+            data[PARTITION_KEY] = pa.array(["2026-06", "2026-06"], type=pa.string())
+
+        deltalake.write_deltalake(
+            table_path,
+            pa.table(data),
+            partition_by=PARTITION_KEY if partitioned else None,
+        )
+        helper = DeltaTableHelper(resource_name="events", job=MagicMock(), logger=_make_logger())
+
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=table_path)),
+            patch.object(helper, "_get_credentials", MagicMock(return_value={})),
+        ):
+            delta_table = await helper.rewrite_columns({"price": pa.float64()})
+
+        assert delta_table is not None
+        rewritten = delta_table.to_pyarrow_table()
+        assert rewritten.field("price").type == pa.float64()
+        assert rewritten.column("id").to_pylist() == ["evt-1", "evt-2"]
+        assert rewritten.column("price").to_pylist() == [0.0, 1.0]
+        assert (PARTITION_KEY in delta_table.metadata().partition_columns) is partitioned
+
+
 class TestWriteToDeltalakeCommitMetadataPassThrough:
     """Covers that commit_metadata is forwarded to deltalake.write_deltalake as CommitProperties."""
 

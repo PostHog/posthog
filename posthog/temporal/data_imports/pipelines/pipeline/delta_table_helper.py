@@ -230,6 +230,48 @@ class DeltaTableHelper:
         await self._logger.adebug("reset_table: _is_first_sync=True")
         self._is_first_sync = True
 
+    async def rewrite_columns(self, column_types: dict[str, pa.DataType]) -> deltalake.DeltaTable | None:
+        delta_table = await self.get_delta_table()
+        if delta_table is None:
+            return None
+
+        existing_table = await asyncio.to_thread(delta_table.to_pyarrow_table)
+        rewrite_needed = False
+
+        for column_name, target_type in column_types.items():
+            if column_name not in existing_table.column_names:
+                continue
+
+            column_index = existing_table.schema.get_field_index(column_name)
+            current_field = existing_table.field(column_name)
+            if current_field.type == target_type:
+                continue
+
+            cast_column = existing_table.column(column_name).cast(target_type).combine_chunks()
+            existing_table = existing_table.set_column(column_index, current_field.with_type(target_type), cast_column)
+            rewrite_needed = True
+
+        if not rewrite_needed:
+            return delta_table
+
+        partition_columns = getattr(delta_table.metadata(), "partition_columns", None) or []
+        use_partitioning = PARTITION_KEY in partition_columns and PARTITION_KEY in existing_table.column_names
+        existing_table = _realign_decimal_buffers(existing_table)
+
+        await asyncio.to_thread(
+            _write_deltalake,
+            delta_table,
+            existing_table,
+            partition_by=PARTITION_KEY if use_partitioning else None,
+            mode="overwrite",
+            schema_mode="overwrite",
+        )
+
+        self.get_delta_table.cache_clear()
+        delta_table = await self.get_delta_table()
+        assert delta_table is not None
+        return delta_table
+
     async def get_file_uris(self) -> list[str]:
         delta_table = await self.get_delta_table()
         if delta_table is None:
