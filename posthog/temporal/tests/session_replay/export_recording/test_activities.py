@@ -1,13 +1,17 @@
 import json
 import base64
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.utils import timezone
+
 from posthog.session_recordings.recordings.errors import BlockFetchError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.session_replay.export_recording.activities import (
+    _mark_stale_exports_failed,
     _redis_key,
     _redis_url,
     build_recording_export_context,
@@ -89,6 +93,8 @@ async def test_build_recording_export_context_success():
     mock_qs.select_related.assert_called_once_with("team")
     mock_qs.select_related.return_value.only.assert_called_once_with("status", "session_id", "team__id")
     mock_qs.select_related.return_value.only.return_value.aget.assert_called_once_with(id=TEST_RECORDING_ID)
+    # stale exports are reaped opportunistically when a new export starts
+    mock_qs.filter.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -611,3 +617,32 @@ async def test_cleanup_export_data_no_manifest():
         mock_redis.delete.assert_called_once()
         delete_args = mock_redis.delete.call_args[0]
         assert len(delete_args) == 4
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status,age_hours,expect_swept",
+    [
+        (ExportedRecording.Status.RUNNING, 49, True),
+        (ExportedRecording.Status.PENDING, 49, True),
+        # still within the export workflow's max legitimate lifetime - must not be reaped
+        (ExportedRecording.Status.RUNNING, 13, False),
+        (ExportedRecording.Status.PENDING, 1, False),
+        (ExportedRecording.Status.COMPLETE, 49, False),
+        (ExportedRecording.Status.FAILED, 49, False),
+    ],
+)
+def test_mark_stale_exports_failed_only_sweeps_old_unfinished(team, status, age_hours, expect_swept):
+    record = ExportedRecording.objects.create(team=team, session_id="s", reason="r", status=status)
+    ExportedRecording.objects.filter(pk=record.pk).update(created_at=timezone.now() - timedelta(hours=age_hours))
+
+    swept = _mark_stale_exports_failed()
+    record.refresh_from_db()
+
+    if expect_swept:
+        assert swept == 1
+        assert record.status == ExportedRecording.Status.FAILED
+        assert record.error_message == "timed out"
+    else:
+        assert swept == 0
+        assert record.status == status

@@ -2,11 +2,12 @@ import json
 import uuid
 import base64
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 from django.conf import settings
+from django.utils import timezone
 
 import pytz
 from temporalio import activity
@@ -32,6 +33,12 @@ from products.replay.backend.models.exported_recording import ExportedRecording
 
 LOGGER = get_write_only_logger()
 
+# Set safely beyond the export workflow's maximum legitimate lifetime (build 3h + parallel export
+# 6h + store 6h + cleanup 3h, which a workflow-level retry can roughly double) so an actively
+# running export is never reaped. Anything older is wedged (e.g. a worker died before its failure
+# handler ran). We reap these opportunistically when a new export starts.
+STALE_EXPORT_AFTER = timedelta(hours=48)
+
 
 def _redis_url(config: RedisConfig) -> str:
     return config.redis_url or settings.SESSION_RECORDING_REDIS_URL
@@ -46,6 +53,8 @@ def _redis_key(export_id: uuid.UUID, key_type: str, suffix: str = "") -> str:
 async def build_recording_export_context(input: ExportRecordingInput) -> ExportContext:
     logger = LOGGER.bind()
     logger.info(f"Building export context for recording {input.exported_recording_id}")
+
+    await _reap_stale_exports(logger)
 
     export_record = (
         await ExportedRecording.objects.select_related("team")
@@ -312,6 +321,25 @@ async def mark_export_failed(input: MarkExportFailedInput) -> None:
     await database_sync_to_async(export_record.save)(update_fields=["status", "error_message"])
 
     logger.info(f"Marked ExportedRecording {input.exported_recording_id} as failed")
+
+
+def _mark_stale_exports_failed() -> int:
+    cutoff = timezone.now() - STALE_EXPORT_AFTER
+    return ExportedRecording.objects.filter(
+        status__in=[ExportedRecording.Status.PENDING, ExportedRecording.Status.RUNNING],
+        created_at__lt=cutoff,
+    ).update(status=ExportedRecording.Status.FAILED, error_message="timed out")
+
+
+async def _reap_stale_exports(logger) -> None:
+    # best-effort fallback: a worker can die before its failure handler runs, leaving a row stuck
+    # in RUNNING. We have no scheduled sweep, so reap on the next export. Never let this block one.
+    try:
+        count = await database_sync_to_async(_mark_stale_exports_failed)()
+        if count:
+            logger.warning(f"Reaped {count} stale recording export(s) before starting this one")
+    except Exception:
+        logger.warning("Failed to reap stale exports; continuing with this export", exc_info=True)
 
 
 @activity.defn
