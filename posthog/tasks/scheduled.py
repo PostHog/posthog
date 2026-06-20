@@ -94,6 +94,7 @@ from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import sync_pending_signals_refund_credits
+from products.skills.backend.tasks import sync_community_skills
 from products.stamphog.backend.facade.tasks import DAILY_DIGEST_CRONTAB, send_daily_digests
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
@@ -444,6 +445,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="4", minute="15"),
         send_ai_observability_usage_reports.s(),
         name="send llm analytics usage reports",
+    )
+
+    # Sync the community skills catalog from GitHub hourly
+    sender.add_periodic_task(
+        crontab(minute="20"),
+        sync_community_skills.s(),
+        name="sync community skills catalog",
     )
 
     # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)
