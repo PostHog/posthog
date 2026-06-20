@@ -18,6 +18,27 @@ tools:
     inbox-processing-pause-update:
         operation: signals_processing_pause_update
         enabled: false
+    inbox-reports-bulk-set-state:
+        operation: signals_reports_bulk_state_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Dismiss or snooze many signal reports
+        description: >
+            Transition many signal reports to the same state in one call — pass `ids` (an array of report UUIDs, up to
+            200) plus the target `state` ('suppressed' to dismiss, 'potential' to snooze/reopen) and the optional
+            `dismissal_reason` / `dismissal_note` shared across all of them. Prefer this over looping
+            `inbox-reports-set-state` when clearing a batch from the inbox. Each report is transitioned independently,
+            so one report being in a conflicting status does not block the others. The response returns one result per
+            requested id with an `outcome`: 'transitioned' (state changed), 'skipped_conflict' (transition not allowed
+            from that report's current status — the single-report tool would 409), 'not_found' (no such report in this
+            project), or 'failed' (unexpected error). `dismissal_reason` must be one of the canonical inbox reason codes
+            (`already_fixed`, `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other`);
+            `already_fixed` snoozes rather than dismisses.
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
@@ -86,33 +107,12 @@ tools:
             Transition a single signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the
             user has reviewed it and decided no action is needed), or 'potential' to snooze/reopen it for later review.
             Optionally include a `dismissal_reason` — one of the canonical inbox reason codes (`already_fixed`,
-            `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other`); any other value is
-            rejected so invented codes don't leak into the inbox as raw chips. Note that `already_fixed` snoozes the
+            `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other`); any other value
+            is rejected so invented codes don't leak into the inbox as raw chips. Note that `already_fixed` snoozes the
             report (restores it to potential) rather than dismissing it. Optionally also include a `dismissal_note`
             (free-form text, up to 4000 chars). Both are persisted as a DISMISSAL artefact so the rationale survives
             later transitions. Returns 409 if the transition is not allowed from the report's current status. To dismiss
             or snooze many reports at once, use `inbox-reports-bulk-set-state` instead of looping this tool.
-    inbox-reports-bulk-set-state:
-        operation: signals_reports_bulk_state_create
-        enabled: true
-        scopes:
-            - task:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Dismiss or snooze many signal reports
-        description: >
-            Transition many signal reports to the same state in one call — pass `ids` (an array of report UUIDs, up to
-            200) plus the target `state` ('suppressed' to dismiss, 'potential' to snooze/reopen) and the optional
-            `dismissal_reason` / `dismissal_note` shared across all of them. Prefer this over looping
-            `inbox-reports-set-state` when clearing a batch from the inbox. Each report is transitioned independently, so
-            one report being in a conflicting status does not block the others. The response returns one result per
-            requested id with an `outcome`: 'transitioned' (state changed), 'skipped_conflict' (transition not allowed
-            from that report's current status — the single-report tool would 409), 'not_found' (no such report in this
-            project), or 'failed' (unexpected error). `dismissal_reason` must be one of the canonical inbox reason codes
-            (`already_fixed`, `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other`);
-            `already_fixed` snoozes rather than dismisses.
     inbox-source-configs-create:
         operation: signals_source_configs_create
         enabled: true
