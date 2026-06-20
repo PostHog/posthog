@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
+import { captureInboxReportAction } from '../inboxAnalytics'
 import { ACTIONABLE_ACTIONABILITY_VALUES, INBOX_SCOPE_FOR_YOU, InboxFlatListTabKey, SignalReport } from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -214,6 +215,8 @@ export const reportListLogic = kea<reportListLogicType>([
         // Restore a suppressed report back to the inbox (transition to `potential`). Optimistically
         // drops it from the Archived list; the report re-enters the pipeline and resurfaces elsewhere.
         restoreReport: async ({ reportId }) => {
+            const report = values.reports.find((r) => r.id === reportId)
+            captureInboxReportAction({ report, actionType: 'restore', surface: 'list_row' })
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, { state: 'potential' })

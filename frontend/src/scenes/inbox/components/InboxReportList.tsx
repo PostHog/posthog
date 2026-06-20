@@ -3,6 +3,7 @@ import { ComponentType, JSX, useEffect, useRef } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { captureInboxViewed } from '../inboxAnalytics'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
 import { reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
 import { InboxFlatListTabKey, SignalReport } from '../types'
@@ -60,7 +61,25 @@ function ActiveFiltersBanner(): JSX.Element | null {
 function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
     const { reports, count, hasMore, reportsResponseLoading, isLoaded } = useValues(reportListLogic)
     const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
+    const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
     const sentinelRef = useRef<HTMLDivElement>(null)
+
+    // Fire `Inbox viewed` once per tab mount, the first time its list settles (loaded with a known count).
+    const viewedFiredRef = useRef(false)
+    useEffect(() => {
+        if (isLoaded && count !== null && !viewedFiredRef.current) {
+            viewedFiredRef.current = true
+            captureInboxViewed({
+                tab: tabKey,
+                reports,
+                totalCount: count,
+                hasActiveFilters,
+                sourceProductFilter,
+                priorityFilter,
+                scope,
+            })
+        }
+    }, [isLoaded, count, reports, tabKey, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
 
     // Read fresh state at intersection time via refs so the observer is created once and not
     // rebuilt twice per page fetch (`hasMore`/`reportsResponseLoading` both flip during a load).
