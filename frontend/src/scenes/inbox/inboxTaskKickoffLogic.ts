@@ -42,15 +42,27 @@ async function createReportTask(
     report: SignalReport,
     relationship: SignalReportTaskRelationship,
     prompt: string,
-    fallbackTitle: string
+    fallbackTitle: string,
+    requireRepository = false
 ): Promise<void> {
-    // Pick a default repository (mirrors desktop resolving lastUsedCloudRepository → first repo).
+    // Use the repository the signals pipeline already selected for this report (its
+    // `repo_selection` artefact), matching the desktop app and the auto-start flow. Never fall
+    // back to an arbitrary project repo — `repositories[0]` previously leaked whichever repo
+    // sorted first (e.g. a personal repo) and pinned the task to the wrong codebase.
     let repository: string | undefined
     try {
-        const { repositories } = await api.tasks.repositories()
-        repository = repositories[0]
+        const { results } = await api.signalReports.artefacts(report.id)
+        const selected = results.find((a) => a.type === 'repo_selection')?.content?.repository
+        repository = typeof selected === 'string' && selected ? selected : undefined
     } catch {
         repository = undefined
+    }
+
+    // Opening a PR needs a concrete target repo. If selection hasn't resolved one (e.g. a
+    // pending-input report), fail with a clear message instead of creating a task pinned to no
+    // repository that can never open a PR. Discuss doesn't require one, so it stays lenient.
+    if (requireRepository && !repository) {
+        throw new Error('No repository has been selected for this report yet — try again once analysis finishes.')
     }
 
     const task = await api.tasks.create({
@@ -113,7 +125,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     report,
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
                     buildCreatePrReportPrompt(report),
-                    'Implement report fix'
+                    'Implement report fix',
+                    true
                 )
                 actions.createPrSuccess()
             } catch (error: any) {
