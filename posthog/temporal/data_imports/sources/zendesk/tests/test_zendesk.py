@@ -1,10 +1,13 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from unittest.mock import patch
 
 from requests import Request, Response
 
+from posthog.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
+from posthog.temporal.data_imports.sources.zendesk.source import ZendeskSource
 from posthog.temporal.data_imports.sources.zendesk.zendesk import (
     ZendeskTicketsCursorIncrementalPaginator,
     normalize_subdomain,
@@ -17,6 +20,28 @@ def _make_response(json_body: dict[str, Any] | None = None) -> Response:
     resp.headers["Content-Type"] = "application/json"
     resp._content = json.dumps(json_body or {}).encode()
     return resp
+
+
+class TestZendeskValidateCredentials:
+    def _config(self) -> ZendeskSourceConfig:
+        return cast(
+            ZendeskSourceConfig,
+            ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com"),
+        )
+
+    @patch("posthog.temporal.data_imports.sources.zendesk.source.validate_credentials", return_value=False)
+    def test_rejected_credentials_message_names_each_credential(self, _mock_validate) -> None:
+        valid, error = ZendeskSource().validate_credentials(self._config(), team_id=1)
+
+        assert not valid
+        assert error is not None
+        assert "subdomain" in error
+        assert "email address" in error
+        assert "API token" in error
+
+    @patch("posthog.temporal.data_imports.sources.zendesk.source.validate_credentials", return_value=True)
+    def test_accepts_valid_credentials(self, _mock_validate) -> None:
+        assert ZendeskSource().validate_credentials(self._config(), team_id=1) == (True, None)
 
 
 class TestNormalizeSubdomain:
