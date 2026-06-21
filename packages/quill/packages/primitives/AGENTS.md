@@ -758,6 +758,19 @@ Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableC
 </Table>
 ```
 
+**Table in a Card — let the table own the edges.** A `Table` sits flush inside a `Card` because its cells are transparent (they inherit the card surface). Put `gap-0 pb-0` on the `Card` and `p-0` on the `CardContent` so the table reaches the card's rounded edges with no double padding, and use `fullWidth` on the `Table`. For an empty/loading table that should fill a tall card, build the height chain `Card min-h-* → CardContent flex-1 → Table h-full` so `TableEmpty` stretches to the body area.
+
+```tsx
+<Card className="gap-0 pb-0">
+  <CardHeader>
+    <CardTitle>Members</CardTitle>
+  </CardHeader>
+  <CardContent className="p-0">
+    <Table fullWidth>{/* … */}</Table>
+  </CardContent>
+</Card>
+```
+
 ### Menubar
 
 ```tsx
