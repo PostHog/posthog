@@ -93,6 +93,13 @@ Each iteration:
 - **Behavior changes are gated.** Anything that changes what reaches Postgres (e.g.
   dropping last_seen_at precision, sharding caches) goes behind a config flag so it can be
   rolled out and reverted independently.
+- **Single-flight — one iteration at a time.** The scheduler keeps firing on its cadence (we
+  want ticks to keep coming), but a tick that starts while another iteration is still in progress
+  must be **skipped**, not run concurrently — overlapping iterations race git, the working tree,
+  and the benchmarks. Enforce with an atomic lock (`mkdir /tmp/propdefs_loop.lock`) taken before
+  any work and released at the very end (keep or revert, success or failure); a lock older than
+  ~60 min is treated as stale and stolen so a died iteration or mid-run container reset can't wedge
+  the loop.
 - **Tests green every iteration.** Run `cargo test -p property-defs-rs` each iteration and fix
   any failure (real regression → fix code; legitimate API change → update the test). Never
   delete/ignore/weaken a test to go green, and never commit a red `cargo test`.
