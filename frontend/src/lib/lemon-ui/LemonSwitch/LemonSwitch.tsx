@@ -27,7 +27,7 @@ export interface LemonSwitchProps {
     sliderColorOverrideChecked?: string
     sliderColorOverrideUnchecked?: string
     loading?: boolean
-    /** Forwarded to the clickable element so autocapture can read them off the clicked switch. */
+    /** Forwarded to the switch element so autocapture can read them off the click. Autocapture only fires on the interactive (`onChange`) variant, which renders a button; a read-only switch renders a div and these never reach an autocapture event. */
     [captureAttribute: `data-ph-capture-attribute-${string}`]: string | boolean | undefined
 }
 
