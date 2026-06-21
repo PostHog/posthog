@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 import React, { useLayoutEffect, useMemo, useState } from 'react'
 
 import {
-    IconBrain,
     IconChevronRight,
     IconCollapse,
     IconCopy,
@@ -41,7 +40,6 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybookTestRunner } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -68,7 +66,7 @@ import { PendingApproval, Region } from '~/types'
 
 import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
 
-import { LangGraphActivity, SandboxActivity, ShimmeringContent } from './components/Activity'
+import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { MaxWebAnalyticsNudge } from './components/MaxWebAnalyticsNudge'
 import { SandboxContextUsage } from './components/SandboxContextUsage'
@@ -82,30 +80,21 @@ import { EnhancedToolCall, ToolRegistration, getToolDefinitionFromToolCall } fro
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
-import type { SandboxToolCallMessage } from './maxTypes'
 import { AssistantFailureMessage } from './messages/AssistantFailureMessage'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
+import { ReasoningAnswer } from './messages/ReasoningAnswer'
 import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
 import { RecordingsWidget, isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
-import { SandboxToolCall } from './sandbox/components/tool/SandboxToolCall'
-import { SandboxPullRequestCard } from './sandbox/SandboxPullRequestCard'
-import { SandboxRunContext } from './sandbox/SandboxRunContext'
-import {
-    SandboxCompactBoundaryItem,
-    SandboxStatusItem,
-    SandboxTaskNotificationItem,
-} from './sandbox/SandboxThreadItems'
-import { resolveToolCall } from './sandbox/sandboxToolResolver'
+import { SandboxThreadView } from './sandbox/components/SandboxThreadView'
 import { sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { TicketPrompt } from './TicketPrompt'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { ToolCallWidgetDef, getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import { TraceIdProvider, useTraceId } from './TraceIdContext'
-import type { SandboxProgressStep, ThreadItem as SandboxThreadItem } from './types/sandboxStreamTypes'
 import { useFeedback } from './useFeedback'
 import {
     isArtifactMessage,
@@ -119,207 +108,11 @@ import {
     isVisualizationArtifactContent,
     visualizationTypeToQuery,
 } from './utils'
-import { getRandomThinkingMessage, getThinkingMessageFromResponse } from './utils/thinkingMessages'
+import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
 // Helper function to check if a message is an error or failure
 function isErrorMessage(message: ThreadMessage): boolean {
     return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
-}
-
-/** Maps a raw merged `ToolInvocation` into the flat `SandboxToolCallMessage` the registry renderers read. */
-function toolInvocationToMessage(
-    invocation: ReturnType<typeof sandboxStreamLogic.values.toolInvocations.get>
-): SandboxToolCallMessage | null {
-    if (!invocation) {
-        return null
-    }
-    const resolved = resolveToolCall(invocation)
-    return {
-        id: invocation.toolCallId,
-        resolvedKey: resolved.resolvedKey,
-        rawServerName: invocation.rawServerName,
-        rawToolName: invocation.rawToolName,
-        innerToolName: resolved.innerToolName,
-        claudeToolName: resolved.claudeToolName,
-        rawInput: invocation.input,
-        innerInput: resolved.innerInput,
-        rawOutput: invocation.output,
-        content: invocation.contentBlocks,
-        status: invocation.status,
-        title: invocation.title,
-        kind: invocation.kind,
-        locations: invocation.locations,
-        error: invocation.error,
-    }
-}
-
-/**
- * Sandbox-runtime thread renderer. Reads `sandboxStreamLogic.values.threadItems` (assistant text,
- * tool-invocation references, run separators, inline errors) and dispatches tool cards through
- * `sandboxToolRegistry`. Coexistence sibling to the LangGraph thread render path; selected by
- * `conversation.agent_runtime === 'sandbox'`.
- */
-function SandboxThread(): JSX.Element {
-    // Drive the thinking indicator from real agent progress: show the latest `_posthog/progress`
-    // message while the run is active, falling back to the canned rotation.
-    const {
-        threadItems,
-        toolInvocations,
-        currentProgress,
-        isThinking,
-        streamPhase,
-        runArtifacts,
-        turnComplete,
-        currentRunStatus,
-    } = useValues(sandboxStreamLogic)
-    const turnCancelled = currentRunStatus === 'cancelled'
-    const hasActiveProgressItem = threadItems.some(
-        (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
-    )
-
-    return (
-        <>
-            {runArtifacts.branch && (
-                <SandboxRunContext
-                    branch={runArtifacts.branch}
-                    baseBranch={runArtifacts.baseBranch}
-                    repo={runArtifacts.repo}
-                />
-            )}
-            {threadItems.map((item, index) => {
-                if (item.type === 'human_message') {
-                    return (
-                        <MessageTemplate key={item.id} type="human">
-                            <MarkdownMessage content={item.text || '*No text.*'} id={item.id} />
-                        </MessageTemplate>
-                    )
-                }
-                if (item.type === 'assistant_message') {
-                    return (
-                        <MessageTemplate key={item.id} type="ai">
-                            <MarkdownMessage content={item.text ?? ''} id={item.id} />
-                        </MessageTemplate>
-                    )
-                }
-                if (item.type === 'assistant_thought') {
-                    // Empty chunks prime the stream before any reasoning text arrives — skip them so
-                    // a contentless "Thought" never shows; the bottom indicator covers that gap.
-                    if (!item.text?.trim()) {
-                        return null
-                    }
-                    // Collapse to "Thought" once a later block starts or the run stops thinking —
-                    // mirrors the LangGraph thread's reasoning-complete rule.
-                    const completed = index !== threadItems.length - 1 || !isThinking
-                    return (
-                        <ReasoningAnswer
-                            key={item.id}
-                            content={item.text}
-                            id={item.id}
-                            completed={completed}
-                            showCompletionIcon={false}
-                        />
-                    )
-                }
-                if (item.type === 'tool_invocation' && item.toolCallId) {
-                    const message = toolInvocationToMessage(toolInvocations.get(item.toolCallId))
-                    if (!message) {
-                        return null
-                    }
-                    return (
-                        <SandboxToolCall
-                            key={item.id}
-                            message={message}
-                            turnComplete={turnComplete}
-                            turnCancelled={turnCancelled}
-                        />
-                    )
-                }
-                if (item.type === 'error') {
-                    return <AssistantFailureMessage key={item.id} id={item.id} content={item.errorMessage} />
-                }
-                if (item.type === 'status') {
-                    return <SandboxStatusItem key={item.id} item={item} />
-                }
-                if (item.type === 'compact_boundary') {
-                    return <SandboxCompactBoundaryItem key={item.id} item={item} />
-                }
-                if (item.type === 'task_notification') {
-                    return <SandboxTaskNotificationItem key={item.id} item={item} />
-                }
-                if (item.type === 'progress') {
-                    return <SandboxProgressItem key={item.id} item={item} />
-                }
-                return null
-            })}
-            {streamPhase === 'thinking' && !hasActiveProgressItem && (
-                <SandboxThinkingIndicator progress={currentProgress} />
-            )}
-            {/* Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking. */}
-            {!isThinking && runArtifacts.prUrl && (
-                <SandboxPullRequestCard prUrl={runArtifacts.prUrl} branch={runArtifacts.branch} />
-            )}
-        </>
-    )
-}
-
-function progressStepText(step: SandboxProgressStep): string {
-    return step.detail ? `${step.label}\n\n${step.detail}` : step.label
-}
-
-function resolveSandboxProgressState(steps: SandboxProgressStep[]): ExecutionStatus {
-    if (steps.some((step) => step.status === 'failed')) {
-        return ExecutionStatus.Failed
-    }
-    if (steps.some((step) => step.status === 'in_progress')) {
-        return ExecutionStatus.InProgress
-    }
-    if (steps.length > 0 && steps.every((step) => step.status === 'pending')) {
-        return ExecutionStatus.Pending
-    }
-    return ExecutionStatus.Completed
-}
-
-function resolveSandboxProgressHeadline(steps: SandboxProgressStep[]): string {
-    const active = steps.find((step) => step.status === 'in_progress')
-    if (active) {
-        return active.label
-    }
-    return steps.at(-1)?.label ?? 'Working'
-}
-
-function SandboxProgressItem({ item }: { item: SandboxThreadItem }): JSX.Element | null {
-    const steps = item.progressSteps ?? []
-    if (!steps.length) {
-        return null
-    }
-
-    const headline = resolveSandboxProgressHeadline(steps)
-    const substeps = steps.length > 1 ? steps.map(progressStepText) : []
-    const state = resolveSandboxProgressState(steps)
-
-    return (
-        <SandboxActivity
-            id={item.id}
-            content={headline}
-            substeps={substeps}
-            state={state}
-            icon={<IconWrench />}
-            showCompletionIcon={true}
-        />
-    )
-}
-
-/**
- * Bottom-of-thread "what's it doing right now" line for sandbox conversations. Reflects the latest
- * `_posthog/progress` message when present, otherwise the canned thinking rotation.
- */
-function SandboxThinkingIndicator({ progress }: { progress: string | null }): JSX.Element {
-    // One roll per mount — re-rolling on every progress transition would visibly swap the verb.
-    const fallbackMessage = useMemo(() => getRandomThinkingMessage(), [])
-    const message = progress?.trim() ? progress : fallbackMessage
-    // Match the LangGraph loader: a bubble-free reasoning line (muted brain icon + muted text),
-    // static (no shimmer), via the shared Activity primitive — not a MessageTemplate bubble.
-    return <ReasoningAnswer content={message} id="sandbox-thinking" completed={false} showCompletionIcon={false} />
 }
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
@@ -343,7 +136,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={sandboxStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <SandboxThread />
+                    <SandboxThreadView />
                 </BindLogic>
             </div>
         )
@@ -363,7 +156,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={sandboxStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <SandboxThread />
+                    <SandboxThreadView />
                 </BindLogic>
             </div>
         )
@@ -1207,34 +1000,6 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 </div>
             )}
         </div>
-    )
-}
-
-interface ReasoningAnswerProps {
-    content: string
-    completed: boolean
-    id: string
-    showCompletionIcon?: boolean
-    animate?: boolean
-}
-
-function ReasoningAnswer({
-    content,
-    completed,
-    id,
-    showCompletionIcon = true,
-    animate = false,
-}: ReasoningAnswerProps): JSX.Element {
-    return (
-        <LangGraphActivity
-            id={id}
-            content={completed ? 'Thought' : content}
-            substeps={completed ? [content] : []}
-            state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
-            icon={<IconBrain />}
-            animate={!inStorybookTestRunner() && animate} // Avoiding flaky snapshots in Storybook
-            showCompletionIcon={showCompletionIcon}
-        />
     )
 }
 
