@@ -219,10 +219,15 @@ impl PropertyDefinitionsBatch {
             group_type_index.unwrap_or(-1),
         );
         if let Some(&idx) = self.seen.get(&dedup_key) {
-            // Last write wins, mirroring the DO UPDATE: refresh the columns the write can change.
+            // Last write wins for the single row we'll write, mirroring the DO UPDATE: refresh the
+            // columns the write can change.
             self.are_numerical[idx] = pd.is_numerical;
             self.property_types[idx] = property_type;
-            self.cached[idx] = Update::Property(pd);
+            // `cached` stays append-only: every appended update was marked in the shared cache by
+            // the producer, so a failed batch must uncache all of them (a superseded duplicate may
+            // have a different property_type and therefore a different cache key). Overwriting here
+            // would leak the older key, leaving it cached as if persisted and never retried.
+            self.cached.push(Update::Property(pd));
             return;
         }
         self.seen.insert(dedup_key, self.ids.len());
@@ -677,5 +682,18 @@ mod tests {
 
         assert_eq!(batch.len(), 1);
         assert_eq!(batch.property_types, vec![Some("Numeric".to_string())]);
+    }
+
+    #[test]
+    fn append_keeps_every_update_cached_for_uncaching() {
+        // Dedupe only collapses the row we write; `cached` must still hold every appended update
+        // so a failed batch uncaches all of them, including superseded duplicates that carry a
+        // different cache key.
+        let mut batch = PropertyDefinitionsBatch::new(100);
+        batch.append(prop_def("revenue", None));
+        batch.append(prop_def("revenue", Some(PropertyValueType::Numeric)));
+
+        assert_eq!(batch.len(), 1); // one row written
+        assert_eq!(batch.cached.len(), 2); // both updates still uncacheable on failure
     }
 }
