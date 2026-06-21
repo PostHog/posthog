@@ -236,6 +236,7 @@ Direct (read-only): `apm-services-list`, `apm-spans-aggregate`, `apm-spans-spark
 `apm-attributes-list`, `apm-attribute-values-list`, `apm-spans-count`, `query-apm-spans`,
 `apm-trace-get`, `inbox-reports-list`. Harness-level: `signals-scout-project-profile-get`,
 `signals-scout-scratchpad-search`, `signals-scout-runs-list`, `signals-scout-runs-retrieve`,
-`signals-scout-emit-signal`, `signals-scout-scratchpad-remember`. Lean on the bundled
+`signals-scout-emit-signal`, `signals-scout-scratchpad-remember`,
+`signals-scout-scratchpad-forget`. Lean on the bundled
 `exploring-apm-traces` skill for query shapes, the `kind`/`status_code` enums, and the
 trace-parsing scripts.
