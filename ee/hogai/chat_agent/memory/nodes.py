@@ -534,7 +534,7 @@ class MemoryCollectorToolsNode(AssistantNode):
                 [("user", TOOL_CALL_ERROR_PROMPT)], template_format="mustache"
             ).format_messages(validation_error_message=e.errors(include_url=False))
             return PartialAssistantState(
-                memory_collection_messages=[*node_messages, *failover_messages],
+                memory_collection_messages=[*node_messages, *new_messages, *failover_messages],
             )
 
         for tool_call, schema in zip(known_tool_calls, tool_calls):

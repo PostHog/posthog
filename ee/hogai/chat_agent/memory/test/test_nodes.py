@@ -1075,6 +1075,38 @@ class TestMemoryCollectorToolsNode(BaseTest):
         await self.core_memory.arefresh_from_db()
         self.assertEqual(self.core_memory.text, "Initial memory content")
 
+    async def test_keeps_unknown_tool_responses_on_validation_error(self):
+        # An unknown tool call alongside an invalid known one: the validation-error failover path must
+        # still answer the unknown call, otherwise its tool ID stays unmatched in the conversation.
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Unknown tool plus invalid known tool",
+                    tool_calls=[
+                        {
+                            "name": "get_dashboard",
+                            "args": {"id": 1},
+                            "id": "1",
+                        },
+                        {
+                            "name": "core_memory_append",
+                            "args": {"invalid_arg": "This will fail"},
+                            "id": "2",
+                        },
+                    ],
+                )
+            ],
+        )
+
+        new_state = await self.node.arun(state, {})
+        assert new_state is not None
+        assert new_state.memory_collection_messages is not None
+        tool_messages = [message for message in new_state.memory_collection_messages if message.type == "tool"]
+        self.assertEqual(len(tool_messages), 1)
+        self.assertIn("does not exist", tool_messages[0].content)
+        self.assertEqual(tool_messages[0].tool_call_id, "1")  # type: ignore[attr-defined]
+
     async def test_handles_mix_of_known_and_unknown_tool_calls(self):
         # A valid memory tool call alongside a hallucinated one: process the former, answer the latter.
         state = AssistantState(
