@@ -565,28 +565,46 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentTimestamp).toBe(START + 61500)
         })
 
-        it('buffers and keeps polling instead of erroring while a recent recording is still ingesting', () => {
-            // Same fully-loaded, no-full-snapshot-anywhere data as the "errors when fully loaded"
-            // case above, but within the ingestion grace period — the missing FullSnapshot may
-            // still arrive, so the seek must buffer (and keep loading sources) rather than show
-            // the terminal noPlayableFullSnapshot error
-            const graceSpy = jest
-                .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
-                .mockReturnValue(true)
-            try {
-                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
-                logic.actions.setPause()
+        // Same fully-loaded, no-full-snapshot-anywhere data as the "errors when fully loaded"
+        // case above. Both sides of the ingestion grace boundary: while within it the missing
+        // FullSnapshot may still arrive, so the seek buffers (and keeps loading sources) instead
+        // of the terminal error; once past it the missing data is definitive and the seek errors.
+        it.each([
+            {
+                description: 'buffers and keeps polling while a recent recording is still ingesting',
+                withinGracePeriod: true,
+                expectedError: null,
+                expectedBuffering: true,
+                expectedWaitingForIngestion: true,
+            },
+            {
+                description: 'errors once the ingestion grace period has elapsed',
+                withinGracePeriod: false,
+                expectedError: 'noPlayableFullSnapshot',
+                expectedBuffering: false,
+                expectedWaitingForIngestion: false,
+            },
+        ])(
+            '$description',
+            ({ withinGracePeriod, expectedError, expectedBuffering, expectedWaitingForIngestion }) => {
+                const graceSpy = jest
+                    .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
+                    .mockReturnValue(withinGracePeriod)
+                try {
+                    seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                    logic.actions.setPause()
 
-                logic.actions.seekToTimestamp(START + 61500)
+                    logic.actions.seekToTimestamp(START + 61500)
 
-                expect(logic.values.playerError).toBeNull()
-                expect(logic.values.isBuffering).toBe(true)
-                expect(logic.values.isWaitingForIngestion).toBe(true)
-                expect(logic.values.currentTimestamp).toBe(START + 61500)
-            } finally {
-                graceSpy.mockRestore()
+                    expect(logic.values.playerError).toBe(expectedError)
+                    expect(logic.values.isBuffering).toBe(expectedBuffering)
+                    expect(logic.values.isWaitingForIngestion).toBe(expectedWaitingForIngestion)
+                    expect(logic.values.currentTimestamp).toBe(START + 61500)
+                } finally {
+                    graceSpy.mockRestore()
+                }
             }
-        })
+        )
 
         it.each([
             {

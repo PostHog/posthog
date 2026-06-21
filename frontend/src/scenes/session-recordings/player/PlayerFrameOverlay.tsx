@@ -125,7 +125,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
             <div className="SessionRecordingPlayer--buffering flex flex-col items-center gap-1 text-center text-white">
                 <div className="text-3xl italic font-medium">Still processing…</div>
                 <div className="text-sm max-w-100">
-                    This recording is finishing ingestion. It should be ready to play in a few minutes.
+                    This recording is finishing ingestion. It's usually ready to play within a few minutes.
                 </div>
             </div>
         ) : (

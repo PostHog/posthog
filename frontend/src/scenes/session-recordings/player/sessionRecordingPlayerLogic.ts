@@ -1193,6 +1193,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // True while the player is buffering on a position whose FullSnapshot hasn't been
         // ingested yet but still might be (within the grace period). Lets the overlay show a
         // "still processing" message instead of the generic "Buffering…".
+        // The grace check reads wall-clock `now()` at call time, so this value is intentionally
+        // stale between recomputes — it only re-derives when seekRenderability/currentTimestamp
+        // change, not when the grace period elapses. That's fine: it only drives the overlay
+        // message, and the buffer machinery (seekToTimestamp, checkBufferingCompleted) re-reads
+        // seekRenderability fresh at event time, so the actual ERROR transition isn't gated on it.
+        // Don't "fix" this with a timer.
         isWaitingForIngestion: [
             (s) => [s.seekRenderability, s.currentTimestamp],
             (
