@@ -93,6 +93,27 @@ tools:
                     created automatically.
             type:
                 description: Use "folder" to create a channel.
+    desktop-file-system-canvas-partial-update:
+        operation: desktop_file_system_canvas_partial_update
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update canvas code
+        description: >
+            Publish the React source for a freeform canvas (a "dashboard" item on the desktop surface). The `id` is the
+            canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code
+            and appends a new version to the canvas's history. This is how a canvas-generation task saves its result;
+            do not write a local file.
+        param_overrides:
+            id:
+                description: ID of the canvas (desktop "dashboard" item) whose code to publish.
+            code:
+                description: >
+                    The complete single-file React source for the canvas. Replaces the current code wholesale.
     desktop-file-system-destroy:
         operation: desktop_file_system_destroy
         enabled: false

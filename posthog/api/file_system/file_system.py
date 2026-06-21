@@ -1,7 +1,9 @@
 import re
+import time
 import shlex
 import builtins
 from typing import Any, cast
+from uuid import uuid4
 
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
@@ -217,6 +219,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "log_view",
         "undo_delete",
         "set_context_generation",
+        "publish_canvas",
     ]
 
     def _basename_regex(self, value: str) -> str:
@@ -957,6 +960,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 item.save()
 
 
+class CanvasPublishSerializer(serializers.Serializer):
+    """Payload for publishing a freeform canvas's React source via the agent."""
+
+    code = serializers.CharField(allow_blank=True, trim_whitespace=False)
+    prompt = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+
+
 @extend_schema(extensions={"x-product": "core"})
 class DesktopFileSystemViewSet(FileSystemViewSet):
     """
@@ -999,6 +1009,64 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return instance
+
+    def _get_dashboard_or_400(self) -> FileSystem | Response:
+        instance = self.get_object()
+        if instance.type != "dashboard":
+            return Response(
+                {"detail": "Canvas code can only be published to dashboards."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return instance
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvas_partial_update",
+        request=CanvasPublishSerializer,
+        responses={200: FileSystemSerializer},
+    )
+    @action(methods=["PATCH"], detail=True, url_path="canvas")
+    def publish_canvas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Publish a new version of a freeform canvas's React source.
+
+        Merges into the dashboard row's `meta` (never replaces it), so existing
+        keys like `channelId`/`templateId` survive. Appends a full-file version
+        snapshot and points `currentVersionId` at it — the server-side mirror of
+        the app's dashboardsService.saveFreeform.
+        """
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+
+        payload = CanvasPublishSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        code = payload.validated_data["code"]
+        prompt = payload.validated_data.get("prompt")
+
+        now_ms = int(time.time() * 1000)
+        meta = dict(dashboard.meta or {})
+        version: dict[str, Any] = {"id": str(uuid4()), "code": code, "createdAt": now_ms}
+        if prompt:
+            version["prompt"] = prompt
+        # Snapshot the live author context onto the version (reverting restores it).
+        existing_context = meta.get("context")
+        if isinstance(existing_context, str):
+            version["context"] = existing_context
+        versions = list(meta.get("versions") or [])
+        versions.append(version)
+
+        meta.update(
+            {
+                "kind": "freeform",
+                "code": code,
+                "versions": versions,
+                "currentVersionId": version["id"],
+                "updatedAt": now_ms,
+            }
+        )
+        dashboard.meta = meta
+        dashboard.save(update_fields=["meta"])
+
+        return Response(self.get_serializer(dashboard).data)
 
     @extend_schema(responses={200: FolderInstructionsSerializer})
     @action(methods=["GET"], detail=True)

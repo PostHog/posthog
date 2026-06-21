@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    DesktopFileSystemCanvasPartialUpdateBody,
+    DesktopFileSystemCanvasPartialUpdateParams,
     DesktopFileSystemCreateBody,
     DesktopFileSystemInstructionsPartialUpdateBody,
     DesktopFileSystemInstructionsPartialUpdateParams,
@@ -54,6 +56,41 @@ const desktopFileSystemCreate = (): ToolBase<typeof DesktopFileSystemCreateSchem
         const result = await context.api.request<Schemas.FileSystem>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartialUpdateParams.omit({ project_id: true })
+    .extend(DesktopFileSystemCanvasPartialUpdateBody.shape)
+    .extend({
+        id: DesktopFileSystemCanvasPartialUpdateParams.shape['id'].describe(
+            'ID of the canvas (desktop "dashboard" item) whose code to publish.'
+        ),
+        code: DesktopFileSystemCanvasPartialUpdateBody.shape['code'].describe(
+            'The complete single-file React source for the canvas. Replaces the current code wholesale.'
+        ),
+    })
+
+const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
+    typeof DesktopFileSystemCanvasPartialUpdateSchema,
+    Schemas.FileSystem
+> => ({
+    name: 'desktop-file-system-canvas-partial-update',
+    schema: DesktopFileSystemCanvasPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.code !== undefined) {
+            body['code'] = params.code
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        const result = await context.api.request<Schemas.FileSystem>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/`,
             body,
         })
         return result
@@ -515,6 +552,7 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'desktop-file-system-create': desktopFileSystemCreate,
+    'desktop-file-system-canvas-partial-update': desktopFileSystemCanvasPartialUpdate,
     'desktop-file-system-instructions-partial-update': desktopFileSystemInstructionsPartialUpdate,
     'desktop-file-system-instructions-retrieve': desktopFileSystemInstructionsRetrieve,
     'desktop-file-system-list': desktopFileSystemList,
