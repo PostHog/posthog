@@ -17225,6 +17225,26 @@ export namespace Schemas {
       checks: DiagnosticCheckResult[];
     }
 
+    /**
+     * * `already_fixed` - Already fixed
+     * * `report_unclear` - Report is unclear to me
+     * * `analysis_wrong` - Agent's analysis is wrong
+     * * `wontfix_intentional` - Won't fix - intentional behavior
+     * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+     * * `other` - Something else…
+     */
+    export type DismissalReasonEnum = typeof DismissalReasonEnum[keyof typeof DismissalReasonEnum];
+
+
+    export const DismissalReasonEnum = {
+      AlreadyFixed: 'already_fixed',
+      ReportUnclear: 'report_unclear',
+      AnalysisWrong: 'analysis_wrong',
+      WontfixIntentional: 'wontfix_intentional',
+      WontfixIrrelevant: 'wontfix_irrelevant',
+      Other: 'other',
+    } as const;
+
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
 
 
@@ -45371,22 +45391,92 @@ export namespace Schemas {
      * * `suppressed` - suppressed
      * * `potential` - potential
      */
-    export type SignalReportStateRequestStateEnum = typeof SignalReportStateRequestStateEnum[keyof typeof SignalReportStateRequestStateEnum];
+    export type SignalReportStateEnum = typeof SignalReportStateEnum[keyof typeof SignalReportStateEnum];
 
 
-    export const SignalReportStateRequestStateEnum = {
+    export const SignalReportStateEnum = {
       Suppressed: 'suppressed',
       Potential: 'potential',
     } as const;
+
+    export interface SignalReportBulkStateRequest {
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+       *
+       * * `suppressed` - suppressed
+       * * `potential` - potential */
+      state: SignalReportStateEnum;
+      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+       *
+       * * `already_fixed` - Already fixed
+       * * `report_unclear` - Report is unclear to me
+       * * `analysis_wrong` - Agent's analysis is wrong
+       * * `wontfix_intentional` - Won't fix - intentional behavior
+       * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+       * * `other` - Something else… */
+      dismissal_reason?: DismissalReasonEnum;
+      /**
+         * Optional free-form note explaining the dismissal. Capped at 4000 characters.
+         * @maxLength 4000
+         */
+      dismissal_note?: string;
+      /**
+         * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
+         * @minimum 1
+         * @maximum 100000
+         */
+      snooze_for?: number;
+      /**
+         * Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id.
+         * @maxItems 100
+         */
+      ids: string[];
+    }
+
+    export interface SignalReportBulkStateResult {
+      /** The report id this result refers to. */
+      id: string;
+      /** One of: transitioned, skipped, failed, not_found. transitioned: the state change was applied. skipped: the transition was not allowed from the report's current status (a 409 on the single-report endpoint). failed: the request data was invalid for this report. not_found: no report with this id is visible to you. */
+      outcome: string;
+      /**
+         * The report's status after the transition. Present only when outcome is 'transitioned'.
+         * @nullable
+         */
+      status?: string | null;
+      /**
+         * Human-readable explanation for non-transitioned outcomes (skipped / failed / not_found).
+         * @nullable
+         */
+      detail?: string | null;
+    }
+
+    export interface SignalReportBulkStateResponse {
+      /** One result per requested id, in request order (after de-duplication). */
+      results: SignalReportBulkStateResult[];
+      /** Number of reports whose state was changed. */
+      transitioned_count: number;
+      /** Number of reports whose transition was not allowed. */
+      skipped_count: number;
+      /** Number of reports that failed on invalid request data. */
+      failed_count: number;
+      /** Number of requested ids not visible to the caller. */
+      not_found_count: number;
+    }
 
     export interface SignalReportStateRequest {
       /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential */
-      state: SignalReportStateRequestStateEnum;
-      /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
-      dismissal_reason?: string;
+      state: SignalReportStateEnum;
+      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+       *
+       * * `already_fixed` - Already fixed
+       * * `report_unclear` - Report is unclear to me
+       * * `analysis_wrong` - Agent's analysis is wrong
+       * * `wontfix_intentional` - Won't fix - intentional behavior
+       * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+       * * `other` - Something else… */
+      dismissal_reason?: DismissalReasonEnum;
       /**
          * Optional free-form note explaining the dismissal. Capped at 4000 characters.
          * @maxLength 4000

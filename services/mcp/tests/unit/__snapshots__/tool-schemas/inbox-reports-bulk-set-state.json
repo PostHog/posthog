@@ -18,9 +18,13 @@
             ],
             "type": "string"
         },
-        "id": {
-            "description": "A UUID string identifying this signal report.",
-            "type": "string"
+        "ids": {
+            "description": "Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
         },
         "snooze_for": {
             "description": "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.",
@@ -34,6 +38,6 @@
             "type": "string"
         }
     },
-    "required": ["id", "state"],
+    "required": ["state", "ids"],
     "type": "object"
 }
