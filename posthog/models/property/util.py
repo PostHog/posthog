@@ -487,15 +487,21 @@ def prop_filter_json_extract(
             "v{}_{}".format(prepend, idx): prop.value,
         }
         if is_denormalized:
+            # `property_expr` is quote-trimmed JSON, so an explicit JSON `null` value comes through
+            # as the literal string "null" rather than SQL NULL. Without excluding it here, "is_set"
+            # would incorrectly match persons whose property value is null (see #29916).
             return (
-                " {property_operator} {left} != ''".format(left=property_expr, property_operator=property_operator),
+                " {property_operator} ({left} != '' AND {left} != 'null')".format(
+                    left=property_expr, property_operator=property_operator
+                ),
                 params,
             )
         return (
-            " {property_operator} JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(
+            " {property_operator} (JSONHas({prop_var}, %(k{prepend}_{idx})s) AND {left} != 'null')".format(
                 idx=idx,
                 prepend=prepend,
                 prop_var=prop_var,
+                left=property_expr,
                 property_operator=property_operator,
             ),
             params,
@@ -506,12 +512,16 @@ def prop_filter_json_extract(
             "v{}_{}".format(prepend, idx): prop.value,
         }
         if is_denormalized:
+            # Mirror the "is_set" fix above: a person with an explicit JSON `null` value should count
+            # as "not set", same as a person missing the key entirely.
             return (
-                " {property_operator} {left} = ''".format(left=property_expr, property_operator=property_operator),
+                " {property_operator} ({left} = '' OR {left} = 'null')".format(
+                    left=property_expr, property_operator=property_operator
+                ),
                 params,
             )
         return (
-            " {property_operator} (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
+            " {property_operator} (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s) OR {left} = 'null')".format(
                 idx=idx,
                 prepend=prepend,
                 prop_var=prop_var,
