@@ -203,7 +203,10 @@ pub async fn update_producer_loop(
             continue;
         }
 
-        let updates = event.into_updates(config.update_count_skip_threshold);
+        let updates = event.into_updates_with(
+            config.update_count_skip_threshold,
+            config.eventdef_last_seen_floor_secs,
+        );
 
         metrics::counter!(EVENTS_RECEIVED).increment(1);
         metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);

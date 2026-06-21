@@ -66,6 +66,13 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub update_count_skip_threshold: usize,
 
+    // event-definition last_seen_at is floored to this many seconds purely as a dedup-cache
+    // key: it bounds how often we re-issue an event-def write to refresh last_seen_at (the DB
+    // always records the real time). Coarser = fewer redundant writes, staler last_seen_at.
+    // Default 1 day; set 3600 to restore the previous hourly cadence.
+    #[envconfig(from = "EVENTDEF_LAST_SEEN_FLOOR_SECS", default = "86400")]
+    pub eventdef_last_seen_floor_secs: i64,
+
     // Do everything except actually write to the DB
     #[envconfig(default = "true")]
     pub skip_writes: bool,

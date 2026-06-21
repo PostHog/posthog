@@ -346,20 +346,27 @@ fn main() {
     // re-issues a write for every active (team, name). Counterfactual: dedup on (team,
     // name) only. The delta is the "wasted timestamp write" volume the year-old
     // "remove last_seen_at" suggestion targets.
+    // Floor period under test: 3600 reproduces the historical hourly cadence (baseline),
+    // 86400 is the new daily default. Uses the SAME production flooring fn so the benchmark
+    // tracks production behavior exactly.
+    let floor_secs = env_usize("PROPDEFS_BENCH_FLOOR_SECS", 3600) as i64;
     let mut real_key_cache: AHashSet<Update> = AHashSet::new();
     let mut team_name_only: AHashSet<(i32, String)> = AHashSet::new();
     let mut real_eventdef_writes: u64 = 0;
     let mut counterfactual_eventdef_writes: u64 = 0;
-    let base = property_defs_rs::types::get_floored_last_seen();
+    // Simulate one arrival per hour over the window; each arrival's last_seen_at is floored
+    // by the production fn, so coarser periods collapse multiple hours into one cache key.
+    let start = property_defs_rs::types::floor_last_seen(chrono::Utc::now(), 3600);
     for h in 0..cfg.hours.max(1) {
-        let hour_ts = base + chrono::Duration::hours(h as i64);
+        let arrival = start + chrono::Duration::hours(h as i64);
+        let last_seen = property_defs_rs::types::floor_last_seen(arrival, floor_secs);
         for updates in &all_updates {
             for u in updates {
                 let Update::Event(ed) = u else { continue };
-                // real: key includes the hourly-floored last_seen_at
-                let mut hourly = ed.clone();
-                hourly.last_seen_at = hour_ts;
-                if real_key_cache.insert(Update::Event(hourly)) {
+                // real: key includes the period-floored last_seen_at
+                let mut keyed = ed.clone();
+                keyed.last_seen_at = last_seen;
+                if real_key_cache.insert(Update::Event(keyed)) {
                     real_eventdef_writes += 1;
                 }
                 // counterfactual: key on (team, name) only
@@ -392,7 +399,11 @@ fn main() {
     println!("  prop_defs      : {:>14}", stats.passed_prop_defs);
     println!("dedup_elapsed_ms : {:>14.1}", dedup_elapsed.as_secs_f64() * 1000.0);
 
-    println!("\n-- last_seen_at churn (Phase C: {} simulated hours) --", cfg.hours.max(1));
+    println!(
+        "\n-- last_seen_at churn (Phase C: {} simulated hours, floor={}s) --",
+        cfg.hours.max(1),
+        floor_secs
+    );
     println!("real_eventdef_writes          : {real_eventdef_writes:>10}");
     println!("counterfactual (team,name)    : {counterfactual_eventdef_writes:>10}");
     println!("wasted_timestamp_writes       : {wasted_eventdef_writes:>10}");
