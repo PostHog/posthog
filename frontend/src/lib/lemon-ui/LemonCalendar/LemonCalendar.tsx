@@ -39,11 +39,14 @@ export interface GetDateStateOpts {
     weekIndex: number
 }
 
-/** A decoupled description of how a single date should render, mirroring Quill's calendar vocabulary. */
+/**
+ * A decoupled description of how a single date should render, mirroring Quill's calendar vocabulary.
+ * `selected` takes precedence: when set, the range flags (`isStart`/`isEnd`/`isBetween`) are ignored.
+ */
 export interface LemonCalendarDateState {
     /** Disable the date and explain why on hover */
     disabledReason?: string
-    /** Render as a selected single date */
+    /** Render as a selected single date; wins over the range flags below */
     selected?: boolean
     /** Render as the start boundary of a range */
     isStart?: boolean
@@ -85,6 +88,8 @@ function dateStateToButtonProps(
     dayIndex: number
 ): LemonButtonProps {
     const props: LemonButtonProps = { ...defaultProps, disabledReason: state.disabledReason }
+    const isFirstDayOfWeek = dayIndex === 0
+    const isLastDayOfWeek = dayIndex === 6
 
     if (state.selected) {
         return { ...props, status: 'default', type: 'primary' }
@@ -99,8 +104,8 @@ function dateStateToButtonProps(
                     : clsx(
                           props.className,
                           {
-                              'rounded-r-none': state.isStart && dayIndex < 6,
-                              'rounded-l-none': state.isEnd && dayIndex > 0,
+                              'rounded-r-none': state.isStart && !isLastDayOfWeek,
+                              'rounded-l-none': state.isEnd && !isFirstDayOfWeek,
                           },
                           'LemonCalendar__range--boundary'
                       ),
@@ -113,7 +118,7 @@ function dateStateToButtonProps(
             ...props,
             className: clsx(
                 props.className,
-                dayIndex === 0 ? 'rounded-r-none' : dayIndex === 6 ? 'rounded-l-none' : 'rounded-none'
+                isFirstDayOfWeek ? 'rounded-r-none' : isLastDayOfWeek ? 'rounded-l-none' : 'rounded-none'
             ),
             active: true,
         }

@@ -207,6 +207,21 @@ describe('LemonCalendar', () => {
         expect(fourteen?.getAttribute('aria-disabled')).toBe('true')
     })
 
+    test('renders the default cell styling when no getDateState is given', async () => {
+        const { container } = render(<LemonCalendar leftmostMonth={dayjs('2020-02-01')} months={1} />)
+        // 30 only exists as a faded out-of-month (January) cell in the February grid
+        const outOfMonth = within(container).getByText('30').closest('[data-attr="lemon-calendar-day"]')
+        expect(outOfMonth?.className.split(' ')).toContain('opacity-25')
+        const inMonth = within(container).getByText('15').closest('[data-attr="lemon-calendar-day"]')
+        expect(inMonth?.className.split(' ')).toContain('flex-col')
+        expect(inMonth?.className.split(' ')).not.toContain('opacity-25')
+    })
+
+    test('marks today with the today class', async () => {
+        const { container } = render(<LemonCalendar />)
+        expect(container.querySelector('.LemonCalendar__today')).toBeTruthy()
+    })
+
     test('calls getTimeState for each time', async () => {
         const calls: any = []
         render(
