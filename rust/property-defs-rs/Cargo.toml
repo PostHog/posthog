@@ -45,5 +45,9 @@ harness = false
 name = "cache_contention"
 harness = false
 
+[[bench]]
+name = "pipeline_scaling"
+harness = false
+
 [lints]
 workspace = true
