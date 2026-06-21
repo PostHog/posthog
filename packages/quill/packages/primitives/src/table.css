@@ -88,6 +88,11 @@
     }
 
     .quill-table {
+        /* Background for sticky cells (plain cells stay transparent so the table
+           inherits its surface). Override on the Table when it sits on a non-default
+           surface, e.g. a Card, so frozen cells match. */
+        --quill-table-sticky-bg: var(--background);
+
         /* max-content lets the table outgrow the viewport → horizontal scroll;
            min-width 100% keeps it filling when content is narrow. */
         width: max-content;
@@ -243,11 +248,16 @@
        generic viewport-edge shadows above still signal off-screen overflow.
        ========================================================================= */
 
+    /* Sticky cells get an opaque background (`--quill-table-sticky-bg`, defined on
+       `.quill-table` above) or scrolled-under content bleeds through; plain cells
+       stay transparent. --- */
+
     /* --- Sticky header --- */
     .quill-table[data-sticky-header] .quill-table__head {
         position: sticky;
         top: var(--quill-table-sticky-top, 0);
         z-index: 2;
+        background-color: var(--quill-table-sticky-bg);
     }
 
     /* --- Sticky columns — sticky="left" | "right" on TableHead / TableCell.
@@ -257,6 +267,7 @@
     .quill-table__cell[data-sticky] {
         position: sticky;
         z-index: 1;
+        background-color: var(--quill-table-sticky-bg);
     }
 
     .quill-table__head[data-sticky='left'],

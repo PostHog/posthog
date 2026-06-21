@@ -262,7 +262,7 @@ const manyRows = Array.from({ length: 40 }, (_, i) => ({
 export const StickyHeader: Story = {
     render: () => (
         <Table stickyHeader className="h-72 max-w-2xl rounded-md border border-(--border)">
-            <TableHeader className="bg-background">
+            <TableHeader>
                 <TableRow>
                     <TableHead>ID</TableHead>
                     <TableHead>Name</TableHead>
@@ -304,7 +304,7 @@ export const StickyColumn: Story = {
         <Table className="max-w-xl rounded-md border border-(--border)">
             <TableHeader>
                 <TableRow>
-                    <TableHead sticky="left" className="bg-background">Region</TableHead>
+                    <TableHead sticky="left">Region</TableHead>
                     {wideColumns.map((q) => (
                         <TableHead key={q} className="text-right whitespace-nowrap">
                             {q}
@@ -315,7 +315,7 @@ export const StickyColumn: Story = {
             <TableBody>
                 {['North America', 'Europe', 'Asia Pacific', 'Latin America'].map((region, r) => (
                     <TableRow key={region}>
-                        <TableCell sticky="left" className="font-medium whitespace-nowrap bg-background">
+                        <TableCell sticky="left" className="font-medium whitespace-nowrap">
                             {region}
                         </TableCell>
                         {wideColumns.map((q, c) => (
@@ -333,11 +333,11 @@ export const StickyColumn: Story = {
 export const StickyHeaderAndFirstColumn: Story = {
     render: () => (
         <Table stickyHeader className="h-72 max-w-xl rounded-md border border-(--border)">
-            <TableHeader className="bg-background">
+            <TableHeader>
                 <TableRow>
-                    <TableHead sticky="left" className="bg-background">User</TableHead>
+                    <TableHead sticky="left">User</TableHead>
                     {wideColumns.map((q) => (
-                        <TableHead key={q} className="text-right whitespace-nowrap bg-background">
+                        <TableHead key={q} className="text-right whitespace-nowrap">
                             {q}
                         </TableHead>
                     ))}
@@ -346,7 +346,7 @@ export const StickyHeaderAndFirstColumn: Story = {
             <TableBody>
                 {manyRows.map((row) => (
                     <TableRow key={row.id}>
-                        <TableCell sticky="left" className="font-medium whitespace-nowrap bg-background">
+                        <TableCell sticky="left" className="font-medium whitespace-nowrap">
                             {row.name}
                         </TableCell>
                         {wideColumns.map((q, c) => (
@@ -367,11 +367,11 @@ export const StickyHeaderAndSecondColumn: Story = {
             <TableHeader>
                 <TableRow>
                     <TableHead className="whitespace-nowrap">ID</TableHead>
-                    <TableHead sticky="left" className="whitespace-nowrap bg-background">
+                    <TableHead sticky="left" className="whitespace-nowrap">
                         User
                     </TableHead>
                     {wideColumns.map((q) => (
-                        <TableHead key={q} className="text-right whitespace-nowrap bg-background">
+                        <TableHead key={q} className="text-right whitespace-nowrap">
                             {q}
                         </TableHead>
                     ))}
@@ -381,11 +381,11 @@ export const StickyHeaderAndSecondColumn: Story = {
                 {manyRows.map((row) => (
                     <TableRow key={row.id}>
                         <TableCell className="whitespace-nowrap">{row.id}</TableCell>
-                        <TableCell sticky="left" className="font-medium whitespace-nowrap bg-background">
+                        <TableCell sticky="left" className="font-medium whitespace-nowrap">
                             {row.name}
                         </TableCell>
                         {wideColumns.map((q, c) => (
-                            <TableCell key={q} className="text-right bg-background">
+                            <TableCell key={q} className="text-right">
                                 {(c + 1) * 7}
                             </TableCell>
                         ))}
@@ -415,10 +415,10 @@ export const PageStickyHeader: Story = {
             <Table stickyHeader="page" className="rounded-md border border-(--border)">
                 <TableHeader>
                     <TableRow>
-                        <TableHead className="bg-background">Order</TableHead>
-                        <TableHead className="bg-background">Customer</TableHead>
-                        <TableHead className="bg-background">Status</TableHead>
-                        <TableHead className="text-right bg-background">Total</TableHead>
+                        <TableHead>Order</TableHead>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -595,8 +595,8 @@ export const EmptyState: Story = {
     ),
 } satisfies Story
 
-// Row actions: a trailing actions column with the same dummy menu at the end of
-// each row.
+// Table flush inside a Card: `gap-0 pb-0` on the Card + `p-0` on CardContent let
+// the transparent cells reach the card's rounded edges with no double padding.
 export const InCard: Story = {
     render: () => (
         <Card className="gap-0 pb-0">
@@ -634,8 +634,8 @@ export const InCard: Story = {
     ),
 } satisfies Story
 
-// Row actions: a trailing actions column with the same dummy menu at the end of
-// each row.
+// Same flush card, with `min-h-120` on the Card + `flex-1` on CardContent so a
+// short table still fills a taller card body.
 export const InCardMinHeight: Story = {
     render: () => (
         <Card className="gap-0 pb-0 min-h-120">
