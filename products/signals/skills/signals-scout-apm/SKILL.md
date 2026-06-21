@@ -53,9 +53,12 @@ APM spans live in their own span store, **not** in the analytics event stream �
 - key: `not-in-use:apm:team{team_id}`
 - content: brief note ("checked at {timestamp}, apm-services-list empty, 0 spans 24h")
 
-Close out empty. Future APM runs read this entry cold and short-circuit in seconds.
-Re-running with the same key idempotently refreshes the timestamp — the entry stays until
-spans actually show up, at which point the next run rewrites or deletes it.
+Close out empty. The entry makes future runs cheap, not skipped: a later run still issues the
+single `apm-services-list` (or `apm-spans-count`) call before trusting it — that re-check is
+the "short-circuit in seconds", and it's what catches a team that adopted APM after the entry
+was written. Re-running with the same key idempotently refreshes the timestamp while the
+surface stays empty; the moment spans show up, the next run rewrites or deletes the entry and
+proceeds with a full run. Never close out on the memory alone.
 
 ## How a run works
 
@@ -132,7 +135,11 @@ error counts — error rate per bucket = errors / total; the bucket where the ra
 the onset. Pull a representative failing trace: `query-apm-spans` with a `status_code = 2`
 filter and `orderBy: "duration"`, grab a `trace_id`, then `apm-trace-get` and read
 `exception.type` / `exception.message` straight off the error span's `attributes` map. Walk
-`parent_span_id` up to see the request path that led there.
+`parent_span_id` up to see the request path that led there. **`query-apm-spans` defaults to
+root spans only** (`rootSpans: true`), so when the regressed operation is a child span (a DB or
+`Client` call), set `flatSpans: true` (and `rootSpans: false`) or the `status_code = 2` +
+operation filter matches nothing — the aggregate flags the regression but you can never pull a
+sample to confirm it.
 
 #### Latency p95 regression
 
@@ -141,7 +148,10 @@ Find operations where `p95_duration_nano` stepped up with steady `count`. Locali
 separate a child that got slower _per call_ from one that merely runs more times per parent.
 On a sample slow trace, sort spans by `self_time_nano`: a parent with a large self-time gap is
 **uninstrumented work**, not a slow child. `apm-spans-duration-histogram` reveals a second hump
-or fat tail = a distinct slow population worth isolating with a `duration` filter.
+or fat tail = a distinct slow population worth isolating with a `duration` filter — but it
+buckets **root-span** duration only (root scoping is unconditional), so reserve it for
+root-operation latency; for a child-span regression use `apm-spans-tree` and `query-apm-spans`
+(`flatSpans: true`) instead.
 
 When several operations in the same service (or sharing a subsystem — e.g. a set of DB or
 query-engine spans) all regress together in the same window, that's **one upstream cause**
@@ -153,9 +163,12 @@ emit per operation.
 
 An operation (or a downstream `Client`-kind span calling another service) newly erroring.
 Scope to the error set (`status_code = 2`) and run `apm-attribute-breakdown` on candidate keys
-— `server.address`, `http.response.status_code`, `db.system`, `service.version`. A value owning
-most of the `error_count` but only a small share of total traffic is the signature; a value at
-~95% of both is just volume. A `service.version` that owns the errors points at a bad deploy.
+— `server.address`, `http.response.status_code`, `db.system`, `service.version`. Scoped to the
+error set, the breakdown only describes the **bad** population, so it can't tell a real
+signature from a value that's simply everywhere: **rerun the same breakdown without the
+`status_code` filter** and compare shares. A value at ~95% of errors but a small share of total
+traffic is the signature; one at ~95% of both is just volume. A `service.version` that owns the
+errors but not the traffic points at a bad deploy.
 
 #### Service traffic cliff
 
