@@ -71,14 +71,14 @@ _T = TypeVar("_T")
 # DB-Lib error 20047 — "DBPROCESS is dead or not enabled". The TDS connection died mid-stream (an
 # idle cull, a failover, a brief network blip), leaving pymssql's dbprocess dead so the in-flight
 # fetch raises. A fresh connection recovers, so this is transient rather than a config error.
-_TRANSIENT_CONNECTION_ERROR_SUBSTRINGS = ("DBPROCESS is dead or not enabled",)
+_TRANSIENT_CONNECTION_ERROR = "DBPROCESS is dead or not enabled"
 _MAX_DISCOVERY_CONNECTION_ATTEMPTS = 5
 
 
 def _is_transient_connection_error(error: BaseException) -> bool:
     """True for a mid-stream TDS connection death that a fresh connection recovers from."""
     message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
-    return any(substring in message for substring in _TRANSIENT_CONNECTION_ERROR_SUBSTRINGS)
+    return _TRANSIENT_CONNECTION_ERROR in message
 
 
 def retry_on_transient_connection_error(
