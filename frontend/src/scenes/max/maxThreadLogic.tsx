@@ -1541,11 +1541,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Process queued messages for sandbox conversations.
             // Regular conversations handle queue consumption on the backend
             // (process_chat_agent_activity pops and starts new workflows).
-            // Sandbox mode doesn't have this, so the frontend drives it.
+            // Sandbox mode doesn't have this, so the frontend drives it: combine every queued
+            // follow-up into one send. `addToThread: false` skips the optimistic echo so the message
+            // renders only when the live stream echoes it back (stream-confirmed), not at drain time.
             if (shouldConsumeSandboxQueue) {
-                const nextMessage = values.queuedMessages[0]
-                actions.consumeQueuedMessage(nextMessage)
-                actions.askMax(nextMessage.content)
+                const combined = values.queuedMessages.map((message) => message.content).join('\n\n')
+                actions.clearQueuedMessages()
+                actions.askMax(combined, false)
             }
 
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
@@ -1839,8 +1841,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         queueingEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM],
+            // Sandbox conversations always queue follow-ups sent mid-turn (the backend queue endpoints
+            // aren't flag-gated, and the sandbox runtime drives the drain itself); LangGraph stays
+            // behind the rollout flag.
+            (s) => [s.featureFlags, s.isSandboxMode],
+            (featureFlags, isSandboxMode): boolean =>
+                !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM] || isSandboxMode,
         ],
 
         queueIsFull: [

@@ -699,12 +699,22 @@ describe('sandboxStreamLogic', () => {
             )
         })
 
-        it('does not render a live (non-replay) user_message frame — it is echoed on send instead', async () => {
+        it('renders a live (non-replay) user_message frame with no optimistic echo (queue drain)', async () => {
             await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'live message' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'drained message' }))
             }).toFinishAllListeners()
 
-            expect(logic.values.threadItems).toHaveLength(0)
+            expect(logic.values.threadItems).toHaveLength(1)
+            expect(logic.values.threadItems[0]).toMatchObject({ type: 'human_message', text: 'drained message' })
+        })
+
+        it('does not double a live user_message frame already echoed optimistically on send', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('hello agent')
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'hello agent' }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(1)
         })
 
         // The backend persists the human turn as a session/update `user_message_chunk`, not a
@@ -872,14 +882,26 @@ describe('sandboxStreamLogic', () => {
             })
         })
 
-        it('does not render a live (non-replay) user_message_chunk — it is echoed on send instead', async () => {
+        it('renders a live (non-replay) user_message_chunk with no optimistic echo (queue drain)', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
-                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'live' } })
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'drained' } })
                 )
             }).toFinishAllListeners()
 
-            expect(logic.values.threadItems).toHaveLength(0)
+            expect(logic.values.threadItems).toHaveLength(1)
+            expect(logic.values.threadItems[0]).toMatchObject({ type: 'human_message', text: 'drained' })
+        })
+
+        it('dedupes a drained send echoed in both user_message wire forms into one bubble', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'drained' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'drained' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(1)
         })
     })
 

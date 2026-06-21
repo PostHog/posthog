@@ -3631,32 +3631,32 @@ describe('maxThreadLogic', () => {
             expect(logic.values.threadLoading).toBe(false)
         })
 
-        it('markTurnComplete drains the sandbox queue (consumeQueuedMessage + askMax)', async () => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM]: true,
-            })
-            jest.spyOn(api.conversations.queue, 'delete').mockResolvedValue({ messages: [], max_queue_messages: 2 })
+        it('markTurnComplete drains the sandbox queue combined, without an optimistic echo', async () => {
+            // No POSTHOG_AI_QUEUE_MESSAGES_SYSTEM flag — sandbox queueing is flag-independent.
+            jest.spyOn(api.conversations.queue, 'clear').mockResolvedValue({ messages: [], max_queue_messages: 2 })
 
             const sandboxStreamInstance = await startSandboxTurn()
             // completeThreadGeneration's queue-drain only runs with a non-null conversation.
             // The id matches the mounted conversationId, so the setConversation listener won't clear the queue.
             logic.actions.setConversation(MOCK_CONVERSATION)
             logic.actions.setIsSandboxMode(true)
-            const queueMessage = { id: 'queue-1', content: 'Next message', created_at: new Date().toISOString() }
-            logic.actions.setQueuedMessages([queueMessage])
+            logic.actions.setQueuedMessages([
+                { id: 'queue-1', content: 'First', created_at: new Date().toISOString() },
+                { id: 'queue-2', content: 'Second', created_at: new Date().toISOString() },
+            ])
 
-            // markTurnComplete tears down streaming and then the queue-drain starts the next turn,
-            // so we assert the drain actions fired (not the final streamingActive, which the new
-            // turn flips back on).
+            // markTurnComplete tears down streaming, then the drain clears the queue and re-sends the
+            // combined text with addToThread:false (so it renders on the live echo, not optimistically).
             await expectLogic(logic, () => {
                 sandboxStreamInstance.actions.markTurnComplete()
-            }).toDispatchActions(['completeThreadGeneration', 'consumeQueuedMessage', 'askMax'])
-
-            featureFlagLogic.unmount()
+            }).toDispatchActions([
+                'completeThreadGeneration',
+                'clearQueuedMessages',
+                (action: any) => action.payload?.prompt === 'First\n\nSecond' && action.payload?.addToThread === false,
+            ])
         })
 
-        it('handleStreamError does NOT drain the sandbox queue (no consumeQueuedMessage, no askMax)', async () => {
+        it('handleStreamError does NOT drain the sandbox queue (no clearQueuedMessages, no askMax)', async () => {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM]: true,
@@ -3675,7 +3675,7 @@ describe('maxThreadLogic', () => {
                 })
             })
                 .toDispatchActions(['endStreaming'])
-                .toNotHaveDispatchedActions(['completeThreadGeneration', 'consumeQueuedMessage', 'askMax'])
+                .toNotHaveDispatchedActions(['completeThreadGeneration', 'clearQueuedMessages', 'askMax'])
 
             expect(logic.values.streamingActive).toBe(false)
             // The failed turn must not auto-start the queued message

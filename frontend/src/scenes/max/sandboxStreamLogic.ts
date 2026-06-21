@@ -376,6 +376,24 @@ function insertHumanMessageAtTurnStart(state: ThreadItem[], item: ThreadItem): T
     return [...state.slice(0, turnStartIndex), item, ...currentTurn]
 }
 
+/**
+ * Is this human message already shown in the current turn (since the last separator)? Used to drop a
+ * live wire user echo that's already on screen — the optimistic `_client/human_message` of an idle
+ * send, or the first wire form of a queue-drained send (which can echo in two forms).
+ */
+function currentTurnHasHumanText(state: ThreadItem[], text: string): boolean {
+    for (let i = state.length - 1; i >= 0; i--) {
+        const item = state[i]
+        if (item.type === 'turn_separator') {
+            return false
+        }
+        if (item.type === 'human_message' && item.text === text) {
+            return true
+        }
+    }
+    return false
+}
+
 function mapAcpStatus(status: unknown): ToolInvocationStatus {
     switch (status) {
         case 'in_progress':
@@ -671,6 +689,21 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
     }
 
+    const renderLiveHuman = (rawText: string): void => {
+        const text = unwrapUserMessageContent(rawText)
+        if (!text) {
+            return
+        }
+        // The server echoes every user send live. An idle send already rendered it optimistically via
+        // `_client/human_message`; a queue-drained send (dispatched with `addToThread: false`) did not,
+        // so its echo is what surfaces it. Render unless the current turn already shows this message —
+        // which both drops the optimistic-paired echo and dedupes a send echoed in two wire forms.
+        if (currentTurnHasHumanText(items, text)) {
+            return
+        }
+        pushHuman(text)
+    }
+
     const handleToolCallUpdate = (
         update: Record<string, unknown>,
         notification: StoredLogEntry['notification']
@@ -825,8 +858,11 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             continue
         }
         if (method === '_posthog/user_message') {
+            const userText = extractUserMessageText(params.content as string | unknown[] | undefined)
             if (source === 'replay') {
-                renderReplayHuman(extractUserMessageText(params.content as string | unknown[] | undefined), true)
+                renderReplayHuman(userText, true)
+            } else {
+                renderLiveHuman(userText)
             }
             continue
         }
@@ -844,9 +880,12 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         }
         const sessionUpdate = update.sessionUpdate
         if (sessionUpdate === 'user_message_chunk' || sessionUpdate === 'user_message') {
+            const content = update.content as { text?: string } | undefined
+            const userText = String(content?.text ?? update.text ?? '')
             if (source === 'replay') {
-                const content = update.content as { text?: string } | undefined
-                renderReplayHuman(String(content?.text ?? update.text ?? ''), false)
+                renderReplayHuman(userText, false)
+            } else {
+                renderLiveHuman(userText)
             }
             continue
         }
