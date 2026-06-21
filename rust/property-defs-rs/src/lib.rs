@@ -14,6 +14,7 @@ use types::{Event, Update};
 
 use ahash::AHashSet;
 use tokio::sync::mpsc::error::TrySendError;
+use tokio::task::JoinSet;
 use tracing::{error, info, warn};
 use update_cache::Cache;
 
@@ -41,6 +42,15 @@ pub async fn update_consumer_loop(
 ) {
     let _guard = handle.process_scope();
 
+    // Bounded set of in-flight batch tasks (group-type resolution + DB writes). This lets us
+    // acquire and resolve the next batch while previous batches are still writing, instead of
+    // fully draining each batch before starting the next. `consumer_max_inflight_batches`
+    // bounds how many batches' writes overlap: 1 keeps writes serialized (only acquisition
+    // overlaps), higher values overlap writes too at the cost of more cross-batch row
+    // contention.
+    let max_inflight = config.consumer_max_inflight_batches.max(1);
+    let mut inflight: JoinSet<()> = JoinSet::new();
+
     loop {
         let mut batch = Vec::with_capacity(config.update_batch_size);
 
@@ -60,11 +70,14 @@ pub async fn update_consumer_loop(
             tokio::select! {
                 _ = handle.shutdown_recv() => {
                     info!("Consumer loop received shutdown signal");
+                    // Let in-flight writes finish so we don't drop buffered updates.
+                    while inflight.join_next().await.is_some() {}
                     return;
                 }
                 got = recv => {
                     if got == 0 {
                         info!("Channel closed, all producers exited");
+                        while inflight.join_next().await.is_some() {}
                         return;
                     }
                     metrics::gauge!(RECV_DEQUEUED).set(got as f64);
@@ -125,19 +138,28 @@ pub async fn update_consumer_loop(
             metrics::gauge!(CACHE_LEN, &[("cache", label)]).set(len as f64);
         }
 
-        // enrich batch group events with resolved group_type_indices
-        // before passing along to process_batch
-        let _unused = context
-            .resolve_group_types_indexes(&mut batch)
-            .await
-            .map_err(|e| {
-                warn!(
-                    "Failed resolving group type indices for batch, got: {:?}",
-                    e
-                )
-            });
+        // Wait for an in-flight slot to free up before starting another batch, so at most
+        // `max_inflight` batches are resolving/writing concurrently.
+        while inflight.len() >= max_inflight {
+            inflight.join_next().await;
+        }
 
-        process_batch(&config, cache.clone(), &context.pool, batch).await;
+        // Resolve group-type indices and write inside the spawned task so the main loop can
+        // immediately go back to acquiring (and, at max_inflight > 1, writing) the next batch.
+        let task_config = config.clone();
+        let task_context = context.clone();
+        let task_cache = cache.clone();
+        inflight.spawn(async move {
+            let mut batch = batch;
+            let _unused = task_context
+                .resolve_group_types_indexes(&mut batch)
+                .await
+                .map_err(|e| {
+                    warn!("Failed resolving group type indices for batch, got: {:?}", e)
+                });
+
+            process_batch(&task_config, task_cache, &task_context.pool, batch).await;
+        });
     }
 }
 

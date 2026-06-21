@@ -40,6 +40,13 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub worker_loop_count: usize,
 
+    // Max number of update batches whose group-type resolution + DB writes may be in flight at
+    // once in the single consumer. 1 keeps writes serialized (only the next batch's acquisition
+    // overlaps the current batch's writes); higher values overlap writes too, trading more
+    // cross-batch row contention / deadlock retries for throughput. Tune up in canary.
+    #[envconfig(default = "1")]
+    pub consumer_max_inflight_batches: usize,
+
     // Per-data-type cache capacities (event definitions, event properties, property definitions).
     // Each internal cache avoids sending the same UPSERT multiple times.
     #[envconfig(default = "1000000")]
