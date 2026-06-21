@@ -345,6 +345,8 @@ export interface GoogleSearchConsoleSiteApi {
 
 export interface GoogleSearchConsoleSitesResponseApi {
     sites: GoogleSearchConsoleSiteApi[]
+}
+
 export interface IntegrationAccessRequestApi {
     /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
      *
