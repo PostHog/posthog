@@ -316,6 +316,7 @@ class TestExportStreamRetry:
 
     def test_retries_day_on_mid_stream_drop(self) -> None:
         manager = FakeManager()
+        day = date(2024, 1, 1)
         incomplete_read = requests.exceptions.ChunkedEncodingError(
             "Connection broken: IncompleteRead(237 bytes read, 275 more expected)"
         )
@@ -326,9 +327,7 @@ class TestExportStreamRetry:
             patch.object(mp.time, "sleep") as mock_sleep,
         ):
             batches = list(
-                mp._iter_export(
-                    "us", "u", "s", "123", LOGGER, manager, start_date=date(2024, 1, 1), end_date=date(2024, 1, 1)
-                )  # type: ignore[arg-type]
+                mp._iter_export("us", "u", "s", "123", LOGGER, manager, start_date=day, end_date=day)  # type: ignore[arg-type]
             )
 
         rows = [row for batch in batches for row in batch]
@@ -342,6 +341,7 @@ class TestExportStreamRetry:
 
     def test_gives_up_after_max_attempts(self) -> None:
         manager = FakeManager()
+        day = date(2024, 1, 1)
         responses = [
             FakeResponse(lines=[], error=requests.exceptions.ChunkedEncodingError("Connection broken"))
             for _ in range(mp.STREAM_MAX_ATTEMPTS)
@@ -352,9 +352,7 @@ class TestExportStreamRetry:
         ):
             with pytest.raises(requests.exceptions.ChunkedEncodingError):
                 list(
-                    mp._iter_export(
-                        "us", "u", "s", "123", LOGGER, manager, start_date=date(2024, 1, 1), end_date=date(2024, 1, 1)
-                    )  # type: ignore[arg-type]
+                    mp._iter_export("us", "u", "s", "123", LOGGER, manager, start_date=day, end_date=day)  # type: ignore[arg-type]
                 )
 
         assert mock_request.call_count == mp.STREAM_MAX_ATTEMPTS
@@ -364,6 +362,7 @@ class TestExportStreamRetry:
 
     def test_does_not_retry_unrelated_error(self) -> None:
         manager = FakeManager()
+        day = date(2024, 1, 1)
         failing = FakeResponse(lines=[], error=ValueError("malformed payload"))
         with (
             patch.object(mp, "_request", side_effect=[failing]) as mock_request,
@@ -371,9 +370,7 @@ class TestExportStreamRetry:
         ):
             with pytest.raises(ValueError):
                 list(
-                    mp._iter_export(
-                        "us", "u", "s", "123", LOGGER, manager, start_date=date(2024, 1, 1), end_date=date(2024, 1, 1)
-                    )  # type: ignore[arg-type]
+                    mp._iter_export("us", "u", "s", "123", LOGGER, manager, start_date=day, end_date=day)  # type: ignore[arg-type]
                 )
 
         assert mock_request.call_count == 1

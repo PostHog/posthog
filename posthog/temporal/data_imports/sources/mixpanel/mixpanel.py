@@ -277,6 +277,10 @@ def _stream_export_day(
             return
         except _STREAM_RETRYABLE_ERRORS as e:
             if attempt == STREAM_MAX_ATTEMPTS:
+                logger.warning(
+                    f"Mixpanel export: stream for {from_date} dropped ({type(e).__name__}); "
+                    f"giving up after {STREAM_MAX_ATTEMPTS} attempts"
+                )
                 raise
             backoff = min(60.0, 2.0 * 2 ** (attempt - 1)) + random.uniform(0, 1)
             logger.warning(
