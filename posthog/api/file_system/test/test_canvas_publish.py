@@ -57,6 +57,27 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         self.assertEqual([v["code"] for v in meta["versions"]], ["v1", "v2"])
         self.assertEqual(meta["currentVersionId"], meta["versions"][-1]["id"])
 
+    def test_publish_canvas_renames_via_name(self):
+        item_id = self._create_dashboard(path="MyChannel/Old name")
+
+        response = self.client.patch(
+            self._canvas_url(item_id),
+            {"code": "v1", "name": "New name"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        row = FileSystem.objects.get(id=item_id)
+        # Leaf segment renamed, parent folder preserved.
+        self.assertEqual(row.path, "MyChannel/New name")
+        self.assertEqual(cast(dict, row.meta)["code"], "v1")
+
+    def test_publish_canvas_without_name_keeps_path(self):
+        item_id = self._create_dashboard(path="MyChannel/Keep me")
+
+        self.client.patch(self._canvas_url(item_id), {"code": "v1"})
+
+        self.assertEqual(FileSystem.objects.get(id=item_id).path, "MyChannel/Keep me")
+
     def test_publish_canvas_rejects_non_dashboard(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/desktop_file_system/",

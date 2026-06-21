@@ -9,6 +9,10 @@
             "description": "ID of the canvas (desktop \"dashboard\" item) whose code to publish.",
             "type": "string"
         },
+        "name": {
+            "description": "Optional new display name for the canvas. When set, renames the canvas (the leaf of its path) in place. Omit to leave the name unchanged.",
+            "type": "string"
+        },
         "prompt": {
             "type": "string"
         }

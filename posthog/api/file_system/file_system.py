@@ -965,6 +965,7 @@ class CanvasPublishSerializer(serializers.Serializer):
 
     code = serializers.CharField(allow_blank=True, trim_whitespace=False)
     prompt = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+    name = serializers.CharField(required=False, allow_blank=False, trim_whitespace=True)
 
 
 @extend_schema(extensions={"x-product": "core"})
@@ -1041,6 +1042,7 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         payload.is_valid(raise_exception=True)
         code = payload.validated_data["code"]
         prompt = payload.validated_data.get("prompt")
+        name = payload.validated_data.get("name")
 
         now_ms = int(time.time() * 1000)
         version: dict[str, Any] = {"id": str(uuid4()), "code": code, "createdAt": now_ms}
@@ -1070,7 +1072,17 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
                 }
             )
             dashboard.meta = meta
-            dashboard.save(update_fields=["meta"])
+
+            update_fields = ["meta"]
+            if name:
+                # The canvas's display name is the leaf segment of its path; rename in place.
+                segments = split_path(dashboard.path)
+                segments[-1] = name
+                dashboard.path = join_path(segments)
+                dashboard.depth = len(segments)
+                update_fields += ["path", "depth"]
+
+            dashboard.save(update_fields=update_fields)
 
         return Response(self.get_serializer(dashboard).data)
 

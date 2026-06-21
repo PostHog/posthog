@@ -84,6 +84,10 @@ tools:
                 required: true
                 description: |
                     The complete single-file React source for the canvas. Replaces the current code wholesale.
+            name:
+                description: |
+                    Optional new display name for the canvas. When set, renames the canvas (the leaf of its path)
+                    in place. Omit to leave the name unchanged.
     desktop-file-system-context-generation-retrieve:
         operation: desktop_file_system_context_generation_retrieve
         enabled: false

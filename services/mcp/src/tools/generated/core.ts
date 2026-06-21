@@ -31,6 +31,9 @@ const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartia
         code: DesktopFileSystemCanvasPartialUpdateBody.shape['code']
             .unwrap()
             .describe('The complete single-file React source for the canvas. Replaces the current code wholesale.'),
+        name: DesktopFileSystemCanvasPartialUpdateBody.shape['name'].describe(
+            'Optional new display name for the canvas. When set, renames the canvas (the leaf of its path) in place. Omit to leave the name unchanged.'
+        ),
     })
 
 const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
@@ -47,6 +50,9 @@ const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
         }
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
         }
         const result = await context.api.request<Schemas.FileSystem>({
             method: 'PATCH',

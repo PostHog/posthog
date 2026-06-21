@@ -2701,6 +2701,7 @@ export interface PatchedFileSystemApi {
 export interface PatchedCanvasPublishApi {
     code?: string
     prompt?: string
+    name?: string
 }
 
 export interface ContextGenerationApi {

@@ -34261,6 +34261,7 @@ export namespace Schemas {
     export interface PatchedCanvasPublish {
       code?: string;
       prompt?: string;
+      name?: string;
     }
 
     export interface PatchedClusteringJob {

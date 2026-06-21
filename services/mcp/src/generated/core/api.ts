@@ -726,6 +726,7 @@ export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         code: zod.string().optional(),
         prompt: zod.string().optional(),
+        name: zod.string().optional(),
     })
     .describe("Payload for publishing a freeform canvas's React source via the agent.")
 
