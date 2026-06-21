@@ -5,7 +5,7 @@ import { IconX } from '@posthog/icons'
 
 import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import {
     GetLemonButtonTimePropsOpts,
     LemonCalendar,
@@ -182,36 +182,24 @@ export function LemonCalendarSelect({
                 onDateClick={onDateClick}
                 leftmostMonth={selectValue?.startOf('month')}
                 months={months}
-                getLemonButtonProps={({ date, props }) => {
-                    const modifiedProps: LemonButtonProps = { ...props }
+                getDateState={({ date }) => {
+                    let disabledReason: string | undefined
 
                     if (selectionPeriod) {
-                        const isToday = date.isSame(today, 'date')
+                        disabledReason = getDateDisabledReason(selectionPeriod, date, today, selectionPeriodLimit)
 
-                        modifiedProps.disabledReason = getDateDisabledReason(
-                            selectionPeriod,
-                            date,
-                            today,
-                            selectionPeriodLimit
-                        )
-
-                        // select date disabled reason
-                        if (selectValue && isToday) {
-                            // select time disabled reason
+                        if (selectValue && date.isSame(today, 'date')) {
                             const selectedTimeOnDate = cloneTimeToDate(date, selectValue)
 
                             if (selectionPeriod === 'upcoming' && selectedTimeOnDate.isBefore(now)) {
-                                modifiedProps.disabledReason = 'Pick a time in the future first'
+                                disabledReason = 'Pick a time in the future first'
                             } else if (selectionPeriod === 'past' && selectedTimeOnDate.isAfter(now)) {
-                                modifiedProps.disabledReason = 'Pick a time in the past first'
+                                disabledReason = 'Pick a time in the past first'
                             }
                         }
                     }
 
-                    if (date.isSame(selectValue, 'd')) {
-                        return { ...modifiedProps, status: 'default', type: 'primary' }
-                    }
-                    return modifiedProps
+                    return { disabledReason, selected: date.isSame(selectValue, 'd') }
                 }}
                 getLemonButtonTimeProps={(props) => {
                     const selected = selectValue

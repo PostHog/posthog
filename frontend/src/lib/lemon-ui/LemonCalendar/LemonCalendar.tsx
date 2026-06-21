@@ -19,8 +19,8 @@ export interface LemonCalendarProps {
     leftmostMonth?: dayjs.Dayjs
     /** Called if the user changed the month in the calendar */
     onLeftmostMonthChanged?: (date: dayjs.Dayjs) => void
-    /** Use custom LemonButton properties for each date */
-    getLemonButtonProps?: (opts: GetLemonButtonPropsOpts) => LemonButtonProps
+    /** Describe the selection state of each date; the calendar owns the resulting styling */
+    getDateState?: (opts: GetDateStateOpts) => LemonCalendarDateState
     /** Use custom LemonButton properties for each date */
     getLemonButtonTimeProps?: (opts: GetLemonButtonTimePropsOpts) => LemonButtonProps
     /** Number of months */
@@ -33,15 +33,72 @@ export interface LemonCalendarProps {
     use24HourFormat?: boolean
 }
 
-export interface GetLemonButtonPropsOpts {
+export interface GetDateStateOpts {
     date: dayjs.Dayjs
-    props: LemonButtonProps
     dayIndex: number
     weekIndex: number
 }
+
+/** A decoupled description of how a single date should render, mirroring Quill's calendar vocabulary. */
+export interface LemonCalendarDateState {
+    /** Disable the date and explain why on hover */
+    disabledReason?: string
+    /** Render as a selected single date */
+    selected?: boolean
+    /** Render as the start boundary of a range */
+    isStart?: boolean
+    /** Render as the end boundary of a range */
+    isEnd?: boolean
+    /** Render as a date sitting between the range boundaries */
+    isBetween?: boolean
+}
+
 export interface GetLemonButtonTimePropsOpts {
     unit: 'h' | 'm' | 'a'
     value: number | string
+}
+
+function dateStateToButtonProps(
+    state: LemonCalendarDateState,
+    defaultProps: LemonButtonProps,
+    dayIndex: number
+): LemonButtonProps {
+    const props: LemonButtonProps = { ...defaultProps, disabledReason: state.disabledReason }
+
+    if (state.selected) {
+        return { ...props, status: 'default', type: 'primary' }
+    }
+
+    if (state.isStart || state.isEnd) {
+        return {
+            ...props,
+            className:
+                state.isStart && state.isEnd
+                    ? props.className
+                    : clsx(
+                          props.className,
+                          {
+                              'rounded-r-none': state.isStart && dayIndex < 6,
+                              'rounded-l-none': state.isEnd && dayIndex > 0,
+                          },
+                          'LemonCalendar__range--boundary'
+                      ),
+            type: 'primary',
+        }
+    }
+
+    if (state.isBetween) {
+        return {
+            ...props,
+            className: clsx(
+                props.className,
+                dayIndex === 0 ? 'rounded-r-none' : dayIndex === 6 ? 'rounded-l-none' : 'rounded-none'
+            ),
+            active: true,
+        }
+    }
+
+    return props
 }
 
 const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
@@ -147,13 +204,14 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                             }),
                                         }
 
-                                        const buttonProps =
-                                            props.getLemonButtonProps?.({
-                                                dayIndex: day,
-                                                weekIndex: week,
-                                                date,
-                                                props: defaultProps,
-                                            }) ?? defaultProps
+                                        const dateState = props.getDateState?.({
+                                            dayIndex: day,
+                                            weekIndex: week,
+                                            date,
+                                        })
+                                        const buttonProps = dateState
+                                            ? dateStateToButtonProps(dateState, defaultProps, day)
+                                            : defaultProps
                                         return (
                                             <td key={day}>
                                                 <LemonButton
