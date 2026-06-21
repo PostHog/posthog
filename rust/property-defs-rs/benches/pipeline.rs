@@ -22,6 +22,8 @@
 //! The numbers are deterministic for a fixed (events, teams, seed, cache_cap): two runs
 //! on the same code produce identical dedup counts, so the loop can diff them directly.
 
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use ahash::AHashSet;
@@ -31,6 +33,28 @@ use serde_json::{json, Map, Value};
 
 use property_defs_rs::types::{Event, Update};
 use property_defs_rs::update_cache::Cache;
+
+// Counting allocator: wall-clock throughput is unreliable on shared CI, so we also report
+// a deterministic proxy — heap allocations per event during parse+into_updates. Allocation
+// count is reproducible run-to-run and moves directly with allocation-reduction work.
+static ALLOC_COUNT: AtomicU64 = AtomicU64::new(0);
+static ALLOC_BYTES: AtomicU64 = AtomicU64::new(0);
+
+struct CountingAlloc;
+
+unsafe impl GlobalAlloc for CountingAlloc {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+        ALLOC_BYTES.fetch_add(layout.size() as u64, Ordering::Relaxed);
+        System.alloc(layout)
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        System.dealloc(ptr, layout)
+    }
+}
+
+#[global_allocator]
+static GLOBAL: CountingAlloc = CountingAlloc;
 
 // ---------------------------------------------------------------------------
 // Tunables (env-overridable so the loop can sweep without recompiling)
@@ -313,7 +337,11 @@ fn main() {
     let payloads = generate_workload(&cfg, &teams, &mut rng);
 
     // ---- Phase A: parse + decompose throughput (deserialize + into_updates) ----
-    // This is exactly the per-event CPU work each producer does before dedup.
+    // This is exactly the per-event CPU work each producer does before dedup. We snapshot
+    // the allocation counters around the loop for a deterministic throughput proxy; the
+    // wall-clock number is reported too but is only indicative on shared hardware.
+    let alloc0 = ALLOC_COUNT.load(Ordering::Relaxed);
+    let bytes0 = ALLOC_BYTES.load(Ordering::Relaxed);
     let start = Instant::now();
     let mut total_updates: u64 = 0;
     let mut all_updates: Vec<Vec<Update>> = Vec::with_capacity(payloads.len());
@@ -324,8 +352,12 @@ fn main() {
         all_updates.push(updates);
     }
     let parse_elapsed = start.elapsed();
+    let phase_a_allocs = ALLOC_COUNT.load(Ordering::Relaxed) - alloc0;
+    let phase_a_bytes = ALLOC_BYTES.load(Ordering::Relaxed) - bytes0;
     let events_per_sec = cfg.num_events as f64 / parse_elapsed.as_secs_f64();
     let updates_per_sec = total_updates as f64 / parse_elapsed.as_secs_f64();
+    let allocs_per_event = phase_a_allocs as f64 / cfg.num_events as f64;
+    let bytes_per_event = phase_a_bytes as f64 / cfg.num_events as f64;
 
     // ---- Phase B: dedup effectiveness through the real Cache ----
     let cache = Cache::new(cfg.cache_cap, cfg.cache_cap, cfg.cache_cap);
@@ -385,7 +417,9 @@ fn main() {
         cfg.num_events, cfg.num_teams, cfg.seed, cfg.cache_cap
     );
     println!("\n-- throughput (Phase A: deserialize + into_updates) --");
-    println!("events/sec       : {events_per_sec:>14.0}");
+    println!("allocs/event     : {allocs_per_event:>14.2}   (deterministic; lower = better)");
+    println!("bytes/event      : {bytes_per_event:>14.1}");
+    println!("events/sec       : {events_per_sec:>14.0}   (wall-clock; indicative only)");
     println!("updates/sec      : {updates_per_sec:>14.0}");
     println!("updates_seen     : {total_updates:>14}");
     println!("parse_elapsed_ms : {:>14.1}", parse_elapsed.as_secs_f64() * 1000.0);
@@ -411,7 +445,9 @@ fn main() {
     if cfg.emit_json {
         // Single machine-readable line for the loop driver to capture + diff.
         println!(
-            "BENCH_JSON {{\"events_per_sec\":{:.0},\"updates_per_sec\":{:.0},\"dedup_ratio\":{:.6},\"writes_per_1k_evt\":{:.4},\"passed_total\":{},\"passed_event_defs\":{},\"passed_event_props\":{},\"passed_prop_defs\":{},\"real_eventdef_writes\":{},\"counterfactual_eventdef_writes\":{},\"wasted_timestamp_writes\":{}}}",
+            "BENCH_JSON {{\"allocs_per_event\":{:.4},\"bytes_per_event\":{:.2},\"events_per_sec\":{:.0},\"updates_per_sec\":{:.0},\"dedup_ratio\":{:.6},\"writes_per_1k_evt\":{:.4},\"passed_total\":{},\"passed_event_defs\":{},\"passed_event_props\":{},\"passed_prop_defs\":{},\"real_eventdef_writes\":{},\"counterfactual_eventdef_writes\":{},\"wasted_timestamp_writes\":{}}}",
+            allocs_per_event,
+            bytes_per_event,
             events_per_sec,
             updates_per_sec,
             dedup_ratio,
