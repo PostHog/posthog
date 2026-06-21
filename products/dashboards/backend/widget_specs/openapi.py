@@ -192,6 +192,30 @@ class DashboardPatchWidgetOpenApiSerializer(serializers.Serializer):
 class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False, help_text="Dashboard tile ID to update.")
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
+    layouts = _WidgetTileLayoutsOpenApiSerializer(
+        required=False,
+        help_text=(
+            "Grid position and size per breakpoint (sm, xs). The desktop grid is 12 columns wide — "
+            "e.g. a compact 3×3 metric card is sm={x, y, w: 3, h: 3}."
+        ),
+    )
+    color = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Tile accent color, or null to clear it.",
+    )
+    show_description = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether the tile's description is shown on the dashboard. Set false to hide it.",
+    )
+    transparent_background = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether the tile renders without its card background.",
+    )
 
 
 class PatchedDashboardOpenApiSerializer(serializers.Serializer):
