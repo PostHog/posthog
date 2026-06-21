@@ -6,6 +6,7 @@ import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-ty
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
+import * as sessionRecordingDataCoordinatorLogicModule from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
@@ -562,6 +563,29 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.isBuffering).toBe(true)
             expect(logic.values.playerError).toBeNull()
             expect(logic.values.currentTimestamp).toBe(START + 61500)
+        })
+
+        it('buffers and keeps polling instead of erroring while a recent recording is still ingesting', () => {
+            // Same fully-loaded, no-full-snapshot-anywhere data as the "errors when fully loaded"
+            // case above, but within the ingestion grace period — the missing FullSnapshot may
+            // still arrive, so the seek must buffer (and keep loading sources) rather than show
+            // the terminal noPlayableFullSnapshot error
+            const graceSpy = jest
+                .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
+                .mockReturnValue(true)
+            try {
+                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+
+                logic.actions.seekToTimestamp(START + 61500)
+
+                expect(logic.values.playerError).toBeNull()
+                expect(logic.values.isBuffering).toBe(true)
+                expect(logic.values.isWaitingForIngestion).toBe(true)
+                expect(logic.values.currentTimestamp).toBe(START + 61500)
+            } finally {
+                graceSpy.mockRestore()
+            }
         })
 
         it.each([
