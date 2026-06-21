@@ -199,6 +199,14 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 filters: ActionFiltersSchema.optional().nullable(),
                 name: z.string().optional(), // Custom name for the condition
             }),
+            events: z
+                .array(
+                    z.object({
+                        filters: ActionFiltersSchema.optional().nullable(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
             max_wait_duration: z.string(),
         }),
     }),

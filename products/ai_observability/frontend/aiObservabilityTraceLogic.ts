@@ -1,6 +1,6 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -8,15 +8,14 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataTableNode,
@@ -31,9 +30,7 @@ import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from 
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import type { aiObservabilityTraceLogicType } from './aiObservabilityTraceLogicType'
-
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = { persist: true, prefix: `${teamId}__` }
+import { buildAiObservabilityStorageConfig } from './preferenceStorage'
 
 export enum DisplayOption {
     ExpandAll = 'expand_all',
@@ -79,20 +76,17 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
-export interface AIObservabilityTraceLogicProps {
-    tabId?: string
-}
+export type AIObservabilityTraceLogicProps = Record<string, never>
 
 export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilityTraceLogic']),
     props({} as AIObservabilityTraceLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect((props: AIObservabilityTraceLogicProps) => ({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['dateFilter', 'propertyFilters', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces'],
         ],
     })),
@@ -124,7 +118,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         loadNeighbors: (traceId: string, timestamp: string) => ({ traceId, timestamp }),
     }),
 
-    reducers({
+    reducers(() => ({
         traceId: ['' as string, { setTraceId: (_, { traceId }) => traceId }],
         eventId: [null as string | null, { setEventId: (_, { eventId }) => eventId }],
         highlightMessageIndex: [
@@ -172,7 +166,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => String(searchQuery || '') }],
         isRenderingMarkdown: [
             true as boolean,
-            persistConfig,
+            buildAiObservabilityStorageConfig('trace.isRenderingMarkdown'),
             {
                 setIsRenderingMarkdown: (_, { isRenderingMarkdown }) => isRenderingMarkdown,
                 toggleMarkdownRendering: (state) => !state,
@@ -180,7 +174,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         isRenderingXml: [
             false as boolean,
-            persistConfig,
+            buildAiObservabilityStorageConfig('trace.isRenderingXml'),
             {
                 setIsRenderingXml: (_, { isRenderingXml }) => isRenderingXml,
                 toggleXmlRendering: (state) => !state,
@@ -227,7 +221,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         displayOption: [
             DisplayOption.CollapseExceptOutputAndLastInput as DisplayOption,
-            persistConfig,
+            buildAiObservabilityStorageConfig('trace.displayOption'),
             {
                 setDisplayOption: (_, { displayOption }) => displayOption,
                 handleTextViewFallback: () => DisplayOption.ExpandAll,
@@ -235,7 +229,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         eventTypeExpandedMap: [
             {} as Record<string, boolean>,
-            persistConfig,
+            buildAiObservabilityStorageConfig('trace.eventTypeExpandedMap'),
             {
                 toggleEventTypeExpanded: (state, { eventType }) => ({
                     ...state,
@@ -245,12 +239,12 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         isTraceReviewPanelExpanded: [
             false as boolean,
-            persistConfig,
+            buildAiObservabilityStorageConfig('trace.isTraceReviewPanelExpanded'),
             {
                 setTraceReviewPanelExpanded: (_, { isExpanded }) => isExpanded,
             },
         ],
-    }),
+    })),
 
     loaders(({ values }) => ({
         commentCount: [
@@ -477,7 +471,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         },
     })),
 
-    tabAwareUrlToAction(({ actions }) => ({
+    urlToAction(({ actions }) => ({
         [urls.aiObservabilityTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab, msg }) => {
             actions.setTraceId(id ?? '')
             void addProductIntent({
@@ -505,7 +499,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const buildUrl = (): string | undefined => {
             if (!values.traceId) {
                 return undefined

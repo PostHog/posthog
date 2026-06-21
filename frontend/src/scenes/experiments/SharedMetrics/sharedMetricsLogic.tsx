@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { toParams } from 'lib/utils'
+import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SharedMetric } from './sharedMetricLogic'
@@ -58,7 +58,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
         sharedMetrics: [
             [] as SharedMetric[],
             {
-                loadSharedMetrics: async () => {
+                loadSharedMetrics: async (_: void, breakpoint) => {
                     const params = toParams({
                         limit: PAGE_SIZE,
                         offset: (values.page - 1) * PAGE_SIZE,
@@ -67,6 +67,8 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
                     const response: CountedPaginatedResponse<SharedMetric> = await api.get(
                         `api/projects/${values.currentProjectId}/experiment_saved_metrics?${params}`
                     )
+                    // Discard stale responses that resolve after a newer search has fired
+                    breakpoint()
                     actions.setCount(response.count)
                     return response.results
                 },

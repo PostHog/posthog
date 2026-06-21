@@ -17,6 +17,7 @@ from posthog.sync import database_sync_to_async
 from products.tasks.backend.models import Task
 from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.services.sandbox import SandboxResources
 
 if TYPE_CHECKING:
     from products.tasks.backend.services.custom_prompt_internals import OutputFn
@@ -302,6 +303,8 @@ async def select_repository(
     context: str,
     *,
     origin_product: Task.OriginProduct,
+    step_name: str = "repo_selection",
+    signal_report_id: str | None = None,
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
@@ -363,16 +366,19 @@ async def select_repository(
         sandbox_environment_id=sandbox_environment_id,
         # Read-only PostHog scopes so the agent can call `execute-sql` against `system.integration_repository_cache`.
         posthog_mcp_scopes="read_only",
+        sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
     )
 
     session, result = await MultiTurnSession.start(
         prompt=prompt,
         context=sandbox_context,
         model=RepoSelectionResult,
-        step_name="repo_selection",
+        step_name=step_name,
         verbose=verbose,
         output_fn=output_fn,
         origin_product=origin_product,
+        signal_report_id=signal_report_id,
+        ai_stage="repo_selection",
         internal=True,
     )
     # Track repo discovery execution (for example, for Slack)

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import random
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -15,8 +16,8 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
@@ -26,6 +27,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -147,8 +149,8 @@ class TestPromptBuilder(BaseTest):
         assert "First: read your skill" in prompt
         # Skill version is pinned explicitly — the run row + tool resolution + budget
         # were snapshotted against v1, so the bootstrap fetch must lock to v1 too.
-        assert 'llma-skill-get(skill_name="signals-scout-errors", version=1)' in prompt
-        assert "llma-skill-file-get" in prompt
+        assert 'skill-get(skill_name="signals-scout-errors", version=1)' in prompt
+        assert "skill-file-get" in prompt
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
         # Second bootstrap step orients the agent on the project via the
@@ -162,6 +164,18 @@ class TestPromptBuilder(BaseTest):
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
+        # The base prompt nudges the scout to report operational friction via the
+        # agent-feedback tool so the scout system improves over time.
+        assert "Report operational friction" in prompt
+        assert "agent-feedback" in prompt
+        # Tag guidance teaches the scratchpad-taxonomy convention — the scout owns and
+        # evolves its vocabulary in the scout loop; the harness only carries the nudge.
+        assert "Tagging your findings" in prompt
+        assert "tags:<domain>:taxonomy" in prompt
+        # The base prompt teaches scouts to format the description for the inbox
+        # surface (markdown, front-loaded into the ~300-char collapsed preview),
+        # while leaving a skill body free to impose its own structure.
+        assert "Writing the description (how it renders in the inbox)" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses
@@ -239,9 +253,40 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
     # Agent close-out is persisted on the bridge row so future runs can dedupe
     # against non-emitting runs via the runs-list ILIKE filter.
     assert bridge.summary == "I would investigate /checkout 500s next."
-    config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam)
-    assert config.enabled is False
+    config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam, skill_name="signals-scout-errors")
+    # Auto-created configs default to enabled (the dogfood flag is the team-level gate).
+    assert config.enabled is True
     assert bridge.scout_config_id == config.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
+    # Scouts pass ai_stage='scout' to the sandbox session so every $ai_generation carries it,
+    # letting scout spend be split out of the ai_product='signals' bucket (scouts have no report id).
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert captured["ai_stage"] == "scout"
 
 
 @pytest.mark.asyncio
@@ -275,6 +320,131 @@ async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new=_fake_start_invoking_hook(session, result),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # A successful run emits the started marker (in the bridge-row hook) then the finished event.
+    events = [c.kwargs["event"] for c in capture.call_args_list]
+    assert events == ["signals_scout_run_started", "signals_scout_run_finished"]
+    finished = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_finished")
+    assert finished.kwargs["distinct_id"] == str(ateam.uuid)
+    props = finished.kwargs["properties"]
+    assert props["skill_name"] == "signals-scout-errors"
+    assert props["skill_version"] == 1
+    assert props["status"] == TaskRun.Status.COMPLETED.value
+    assert props["emitted_count"] == 0
+    assert props["run_id"] == run_result.run_id
+    # task_run_id is the join key into LLM analytics for the richer per-run metrics.
+    assert props["task_run_id"] == str(session.task_run.id)
+    assert isinstance(props["runtime_seconds"], float)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_successful_run_captures_run_started_event(ateam, aerrors_skill):
+    # The started marker fires once the TaskRun + bridge row exist (the on_task_run_created
+    # hook), so it counts only runs that actually start. Pairs with the finished event for
+    # event-derived throughput / stall detection with no warehouse lag.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new=_fake_start_invoking_hook(session, result),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    started = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_started")
+    assert started.kwargs["distinct_id"] == str(ateam.uuid)
+    props = started.kwargs["properties"]
+    assert props["skill_name"] == "signals-scout-errors"
+    assert props["skill_version"] == 1
+    assert props["run_id"] == run_result.run_id
+    assert props["task_run_id"] == str(session.task_run.id)
+    config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam, skill_name="signals-scout-errors")
+    assert props["scout_config_id"] == str(config.id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("sandbox refused to start"),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    capture.assert_called_once()
+    props = capture.call_args.kwargs["properties"]
+    assert capture.call_args.kwargs["event"] == "signals_scout_run_finished"
+    assert props["status"] == TaskRun.Status.FAILED.value
+    # No bridge row persisted (TaskRun never created), so no emit tally or join key.
+    assert props["emitted_count"] == 0
+    assert props["task_run_id"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_cancelled_run_captures_run_finished_event(ateam, aerrors_skill):
+    async def fake_spawn(**_kwargs):
+        raise asyncio.CancelledError("worker is shutting down")
+
+    with (
+        patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # The cancelled path still emits before re-raising, so the metric isn't lost on shutdown.
+    capture.assert_called_once()
+    props = capture.call_args.kwargs["properties"]
+    assert props["status"] == TaskRun.Status.CANCELLED.value
+    # Cancellation skips the DB read, so emit volume is left unknown rather than guessed.
+    assert props["emitted_count"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_missing_skill_does_not_create_run_row(ateam):
     with pytest.raises(SkillNotFoundError):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-missing")
@@ -286,7 +456,9 @@ async def test_missing_skill_does_not_create_run_row(ateam):
 @pytest.mark.django_db
 async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
     # Seed an in-progress run for the same (team, skill) so the skip-if-running guard fires.
-    config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(
+        team=ateam, skill_name="signals-scout-errors"
+    )
     task_run = await database_sync_to_async(_make_task_run)(ateam)
     # Force the TaskRun into IN_PROGRESS so the running-check returns True.
     await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(status=TaskRun.Status.IN_PROGRESS)
@@ -314,6 +486,179 @@ async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, aerrors_skill):
+    """Different skills for the same team must be allowed to run concurrently — the
+    coordinator can dispatch several due scouts for one team in a single tick. The
+    skip-if-running guard locks on `(team, skill_name)` rather than `(team, config_id)`
+    so this works."""
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
+    # A different skill for the same team is in flight — should NOT block. Run status lives
+    # on the linked TaskRun now, so stand up a real IN_PROGRESS TaskRun + bridge row.
+    other_task_run = await database_sync_to_async(_make_task_run)(ateam)
+    await database_sync_to_async(TaskRun.objects.filter(id=other_task_run.id).update)(status=TaskRun.Status.IN_PROGRESS)
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=other_task_run,
+        team=ateam,
+        scout_config=config,
+        skill_name="signals-scout-other",
+        skill_version=1,
+    )
+
+    spawn_calls: list[dict] = []
+
+    async def fake_spawn(**kwargs):
+        spawn_calls.append(kwargs)
+        return "ok"
+
+    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # Spawn went through — the OTHER skill's RUNNING row didn't gate ours.
+    assert len(spawn_calls) == 1
+    assert result.run_id is not None
+    assert result.skip_reason is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerrors_skill):
+    # An IN_PROGRESS run orphaned by a crashed worker must not block the lane forever. The
+    # stale-run self-heal fails any run older than STALE_RUN_CUTOFF_S before the skip-if-running
+    # guard, so a fresh dispatch proceeds and the orphan is marked FAILED.
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(
+        team=ateam, skill_name="signals-scout-errors"
+    )
+    task_run = await database_sync_to_async(_make_task_run)(ateam)
+    # An IN_PROGRESS run whose start is older than the cutoff = an orphan from a crashed worker.
+    await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(
+        status=TaskRun.Status.IN_PROGRESS,
+        created_at=datetime.now(UTC) - timedelta(seconds=STALE_RUN_CUTOFF_S + 60),
+    )
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=task_run,
+        team=ateam,
+        scout_config=config,
+        skill_name="signals-scout-errors",
+        skill_version=1,
+    )
+
+    spawn_calls: list[dict] = []
+
+    async def fake_spawn(**kwargs):
+        spawn_calls.append(kwargs)
+        return "ok", str(task_run.id)
+
+    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # The orphan was reaped, so the guard didn't block — dispatch went through.
+    assert len(spawn_calls) == 1
+    assert result.run_id is not None
+    assert result.skip_reason is None
+    # The stale run is now terminal.
+    reaped = await database_sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    assert reaped.status == TaskRun.Status.FAILED
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_recent_in_progress_run_is_not_reaped_and_still_blocks(ateam, aerrors_skill):
+    # A genuinely in-flight run (younger than the cutoff) must still single-flight — the
+    # self-heal must not reap a live run out from under itself.
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(
+        team=ateam, skill_name="signals-scout-errors"
+    )
+    task_run = await database_sync_to_async(_make_task_run)(ateam)
+    await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(
+        status=TaskRun.Status.IN_PROGRESS,
+        created_at=datetime.now(UTC) - timedelta(seconds=30),
+    )
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=task_run,
+        team=ateam,
+        scout_config=config,
+        skill_name="signals-scout-errors",
+        skill_version=1,
+    )
+
+    with patch(
+        "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+        new_callable=AsyncMock,
+        side_effect=AssertionError("session.start should not run while a live run is IN_PROGRESS"),
+    ):
+        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert result.skip_reason is not None
+    still_running = await database_sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    assert still_running.status == TaskRun.Status.IN_PROGRESS
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill):
+    # Reaping an orphan emits `signals_scout_run_reaped` — the strand's only event (a reaped
+    # run never reaches the finalize path, so it emits no `signals_scout_run_finished`). This
+    # is what makes the worker-death / mass-stall shape alertable with no warehouse lag.
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(
+        team=ateam, skill_name="signals-scout-errors"
+    )
+    task_run = await database_sync_to_async(_make_task_run)(ateam)
+    await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(
+        status=TaskRun.Status.IN_PROGRESS,
+        created_at=datetime.now(UTC) - timedelta(seconds=STALE_RUN_CUTOFF_S + 60),
+    )
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=task_run,
+        team=ateam,
+        scout_config=config,
+        skill_name="signals-scout-errors",
+        skill_version=1,
+    )
+
+    async def fake_spawn(**_kwargs):
+        return "ok", str(task_run.id)
+
+    with (
+        patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    reaped = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_reaped")
+    assert reaped.kwargs["distinct_id"] == str(ateam.uuid)
+    props = reaped.kwargs["properties"]
+    assert props["skill_name"] == "signals-scout-errors"
+    assert props["task_run_id"] == str(task_run.id)
+    assert props["status_before"] == TaskRun.Status.IN_PROGRESS
+    assert props["stale_cutoff_seconds"] == STALE_RUN_CUTOFF_S
+    # Age is measured from the orphan's TaskRun.created_at, so it clears the cutoff.
+    assert props["age_seconds"] >= STALE_RUN_CUTOFF_S
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_cancelled_run_re_raises(ateam, aerrors_skill):
+    """asyncio.CancelledError is BaseException, not Exception — the runner must let it
+    propagate so Temporal marks the activity failed, rather than swallowing it. Run status
+    now lives on the linked TaskRun (managed by MultiTurnSession); the bridge row is created
+    inside `_spawn_and_run`, so a cancellation that escapes before the session starts leaves
+    no orphaned bridge row.
+    """
+
+    async def fake_spawn(**_kwargs):
+        raise asyncio.CancelledError("worker is shutting down")
+
+    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        with pytest.raises(asyncio.CancelledError):
+            await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # No bridge row orphaned — it's created inside the patched-out `_spawn_and_run`.
+    count = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).count)()
+    assert count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_activity_returns_completed_outcome(ateam):
     async def fake_arun(**_kwargs):
         return RunResult(
@@ -327,7 +672,7 @@ async def test_activity_returns_completed_outcome(ateam):
         )
 
     with patch(
-        "products.signals.backend.temporal.agentic.scout_scheduler.arun_signals_scout",
+        "products.signals.backend.scout_harness.runner.arun_signals_scout",
         side_effect=fake_arun,
     ):
         env = ActivityEnvironment()
@@ -359,7 +704,7 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
         )
 
     with patch(
-        "products.signals.backend.temporal.agentic.scout_scheduler.arun_signals_scout",
+        "products.signals.backend.scout_harness.runner.arun_signals_scout",
         side_effect=fake_arun,
     ):
         env = ActivityEnvironment()
@@ -415,7 +760,7 @@ def test_to_summary_and_detail_surface_task_url_from_bridge():
         name=f"surface-team-{random.randint(1, 99999)}",
     )
     with team_scope(team.id, canonical=True):
-        config = SignalScoutConfig.objects.create(team=team)
+        config = SignalScoutConfig.objects.create(team=team, skill_name="signals-scout-errors")
         task_run = _make_task_run(team)
         run = SignalScoutRun.objects.create(
             task_run=task_run,

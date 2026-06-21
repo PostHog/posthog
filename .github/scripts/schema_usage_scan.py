@@ -16,7 +16,9 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 WILDCARD = "*"
-SCHEMA_MODULE = "posthog.schema"
+# schema_enums holds the enum classes split out of posthog.schema — same schema.json names,
+# so its importers depend on schema changes exactly like posthog.schema importers do.
+SCHEMA_MODULES = ("posthog.schema", "posthog.schema_enums")
 
 
 def _product_name(rel_path: Path) -> str | None:
@@ -39,7 +41,7 @@ class _SchemaUsageVisitor(ast.NodeVisitor):
         self._alias_attr_uses: Counter[str] = Counter()  # references of the form `alias.Type`
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        if node.module == SCHEMA_MODULE:
+        if node.module in SCHEMA_MODULES:
             for alias in node.names:
                 if alias.name == "*":
                     self.star_import = True
@@ -48,13 +50,13 @@ class _SchemaUsageVisitor(ast.NodeVisitor):
                     self.types.add(alias.name)
         elif node.module == "posthog":
             for alias in node.names:
-                if alias.name == "schema":
-                    self.module_aliases.add(alias.asname or "schema")
+                if alias.name in ("schema", "schema_enums"):
+                    self.module_aliases.add(alias.asname or alias.name)
         self.generic_visit(node)
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
-            if alias.name == SCHEMA_MODULE:
+            if alias.name in SCHEMA_MODULES:
                 if alias.asname:
                     self.module_aliases.add(alias.asname)
                 else:
@@ -65,11 +67,11 @@ class _SchemaUsageVisitor(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         value = node.value
-        # posthog.schema.Foo
+        # posthog.schema.Foo / posthog.schema_enums.Foo
         if (
             self.posthog_pkg
             and isinstance(value, ast.Attribute)
-            and value.attr == "schema"
+            and value.attr in ("schema", "schema_enums")
             and isinstance(value.value, ast.Name)
             and value.value.id == "posthog"
         ):

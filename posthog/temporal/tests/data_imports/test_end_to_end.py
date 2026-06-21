@@ -63,7 +63,6 @@ from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient as PostHogRESTClient
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -633,8 +632,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         if _current_pipeline_mode == "v3":
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
-                    new_callable=AsyncMock,
+                    "posthog.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                     return_value=True,
                 )
             )
@@ -648,8 +646,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         else:
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
-                    new_callable=AsyncMock,
+                    "posthog.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                     return_value=False,
                 )
             )
@@ -3539,7 +3536,11 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     if pipeline_mode == "non_dlt":
         expected_properties["_ph_partition_key"] = "2023-w14"
 
-    assert call_kwargs["data"] == {
+    # The producer derives a deterministic event id per row per job. Its value depends on the
+    # dynamic job id, so assert it is a valid UUID and compare the rest of the payload.
+    data = call_kwargs["data"]
+    assert str(uuid.UUID(data["event_id"])) == data["event_id"]
+    assert {key: value for key, value in data.items() if key != "event_id"} == {
         "team_id": team.id,
         "properties": expected_properties,
     }
@@ -3691,11 +3692,8 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
     assert len(files.get("Contents", [])) == 1
 
-    # Run the pipeline again with webhook feature flag enabled
-    with (
-        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", new=AsyncMock(return_value=True)),
-        mock.patch.object(DeltaTableHelper, "compact_table"),
-    ):
+    # Run the pipeline again to ingest the webhook parquet
+    with mock.patch.object(DeltaTableHelper, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -3885,11 +3883,8 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     # Verify offsets were committed
     consumer._consumer.commit.assert_called_once_with(asynchronous=False)
 
-    # 6. Run the import pipeline with webhook feature flag enabled to ingest the parquet
-    with (
-        mock.patch.object(WebhookSourceManager, "_is_webhook_feature_flag_enabled", new=AsyncMock(return_value=True)),
-        mock.patch.object(DeltaTableHelper, "compact_table"),
-    ):
+    # 6. Run the import pipeline to ingest the parquet
+    with mock.patch.object(DeltaTableHelper, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 

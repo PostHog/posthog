@@ -51,10 +51,11 @@ from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Cohort, Filter, OrganizationMembership, Person, SharingConfiguration, Team, User
+from posthog.models import Filter, OrganizationMembership, Person, SharingConfiguration, Team, User
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.api.insight import _last_refresh_for_shared_gate
@@ -239,6 +240,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$session_id": "my-session-id",
                     "source": "web",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -285,6 +288,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$session_id": "my-session-id",
                     "source": "web",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -518,6 +523,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
+                user_access_control=mock.ANY,
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
@@ -537,6 +543,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
+                user_access_control=mock.ANY,
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
@@ -881,6 +888,64 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "explicit order=-id should override relevance ranking and put newer insight first"
         )
 
+    def test_list_filter_by_search_returns_union_exact_first_with_match_type(self):
+        for name in ("dashboard overview", "sales dashboard", "dahsboard metrics", "Engineering metrics"):
+            Insight.objects.create(name=name, team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=dashboard")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_name = {r["name"]: r["search_match_type"] for r in results}
+        assert match_type_by_name == {
+            "dashboard overview": "exact",
+            "sales dashboard": "exact",
+            "dahsboard metrics": "similar",
+        }
+
+        match_types = [r["search_match_type"] for r in results]
+        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+
+    def test_list_filter_by_search_match_type_absent_without_search(self):
+        Insight.objects.create(name="Alpha", team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert results
+        assert all("search_match_type" not in r for r in results)
+
+    def test_list_filter_by_search_matches_substring_below_trigram_threshold(self):
+        matching = Insight.objects.create(
+            name="experimentation overview", team=self.team, filters={"events": [{"id": "$pageview"}]}
+        )
+        Insight.objects.create(name="Totally unrelated", team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=ment")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_id = {r["id"]: r["search_match_type"] for r in results}
+        assert match_type_by_id.get(matching.id) == "exact", (
+            "a literal substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert all(r["name"] != "Totally unrelated" for r in results)
+
+    def test_list_filter_by_search_runs_a_single_filtering_query(self):
+        for name in ("revenue overview", "reveneu trends", "Unrelated"):
+            Insight.objects.create(name=name, team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        with capture_db_queries() as capture_query_context:
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/?search=revenue&basic=true")
+            assert response.status_code == status.HTTP_200_OK
+
+        trigram_queries = [q for q in capture_query_context.captured_queries if "word_similarity" in q["sql"].lower()]
+        assert len(trigram_queries) <= 2, (
+            "search must stay one filtering query (+ pagination count); extra trigram queries mean a per-row or "
+            f"per-phase probe crept back in, got {len(trigram_queries)}"
+        )
+
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
@@ -914,7 +979,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [13, 13, 13, 13, 13],
+            [12, 12, 12, 12, 12],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -1432,6 +1497,55 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=ANY,
             request=ANY,
         )
+
+    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    def test_non_web_retrieve_fires_insight_read_event(self, mock_report_user_action: mock.Mock) -> None:
+        insight_id, insight_json = self.dashboard_api.create_insight(
+            {"query": DataVisualizationNode(source=HogQLQuery(query="select 1")).model_dump()}
+        )
+        mock_report_user_action.reset_mock()
+
+        self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}", HTTP_X_POSTHOG_CLIENT="mcp")
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "insight read",
+            {
+                "insight_id": insight_json["short_id"],
+                "query_kind": "DataVisualizationNode",
+                "query_source_kind": "HogQLQuery",
+            },
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    def test_removing_insight_from_dashboard_fires_tile_removed_event(self, mock_report_user_action: mock.Mock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"insight": "STICKINESS"}, "dashboards": [dashboard_id]}
+        )
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_insight(insight_id, {"dashboards": []})
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile removed",
+            {"tile_type": "insight", "insight_type": "stickiness", "dashboard_id": dashboard_id},
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    def test_web_retrieve_does_not_fire_insight_read_event(self, mock_report_user_action: mock.Mock) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({})
+        mock_report_user_action.reset_mock()
+
+        self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
+
+        read_calls = [c for c in mock_report_user_action.call_args_list if c.args[1:2] == ("insight read",)]
+        self.assertEqual(read_calls, [])
 
     def test_can_update_insight_dashboards_without_deleting_tiles(self) -> None:
         dashboard_one_id, _ = self.dashboard_api.create_dashboard({})
@@ -4275,6 +4389,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_insight_access_control_filtering(self) -> None:
         """Test that insights are properly filtered based on access control."""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
 
         user2 = self._create_user("test2@posthog.com")
 
@@ -4417,6 +4535,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         from posthog.models.organization import OrganizationMembership
 
         from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
 
         # Create insights with different access levels
         filter_dict = {"events": [{"id": "$pageview"}]}

@@ -45,3 +45,9 @@ jobs:
             # Shells out to schema_usage_scan.py via python3 (preinstalled on ubuntu).
             - name: Schema-impact tests (Node)
               run: node --test .github/scripts/schema-impact.test.js
+
+            - name: Master CI alerts tests (Node)
+              run: node --test .github/scripts/ci-alerts-devex.test.js
+
+            - name: Rate-limit monitor tests (Node)
+              run: node --test .github/scripts/monitor-github-rate-limit.test.js

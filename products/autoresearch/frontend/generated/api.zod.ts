@@ -11,10 +11,10 @@ import * as zod from 'zod'
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const autoresearchCreateBodyNameMax = 255
 
@@ -328,10 +328,10 @@ export const AutoresearchTrainingRunsMaterializeFeaturesCreateBody = /* @__PURE_
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const autoresearchUpdateBodyNameMax = 255
 
@@ -423,10 +423,10 @@ export const AutoresearchUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const autoresearchPartialUpdateBodyNameMax = 255
 

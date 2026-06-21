@@ -11,7 +11,8 @@ export function PosthogStatusShownOnlyIfNotOperational({
 }: {
     iconOnly?: boolean
 }): JSX.Element | null {
-    const { postHogStatus, postHogStatusTooltip, postHogStatusBadgeStatus } = useValues(posthogStatusLogic)
+    const { postHogStatus, postHogStatusTooltip, postHogStatusBadgeStatus, statusPageUrl } =
+        useValues(posthogStatusLogic)
 
     if (postHogStatus === 'operational') {
         return null
@@ -31,7 +32,7 @@ export function PosthogStatusShownOnlyIfNotOperational({
                     iconOnly: iconOnly,
                     menuItem: !iconOnly,
                 }}
-                to="https://posthogstatus.com"
+                to={statusPageUrl}
                 tooltip={!iconOnly ? tooltipText : undefined}
                 tooltipCloseDelayMs={0}
                 target="_blank"

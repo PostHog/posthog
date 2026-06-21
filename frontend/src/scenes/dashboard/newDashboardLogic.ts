@@ -25,6 +25,7 @@ import {
     JsonType,
 } from '~/types'
 
+import { UNFILED_DASHBOARDS_FOLDER } from './dashboardConstants'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 
 export interface NewDashboardForm {
@@ -209,7 +210,9 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     const queryBasedDashboard = getQueryBasedDashboard(result)
                     queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
                     actions.submitNewDashboardSuccessWithResult(result)
-                    tryShowMCPHint('dashboards.create')
+                    tryShowMCPHint('dashboards.create', {
+                        derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
+                    })
                     if (show && values.redirectAfterCreation) {
                         breakpoint()
                         router.actions.push(urls.dashboard(result.id))
@@ -260,7 +263,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     {
                         template: dashboardJSON,
                         creation_context: creationContext,
-                        _create_in_folder: 'Unfiled/Dashboards',
+                        _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
                     }
                 )
 

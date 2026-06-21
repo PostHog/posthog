@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -102,7 +101,46 @@ describe('InsightDisplayConfig', () => {
         })
     })
 
+    describe('slope graph display options', () => {
+        it('shows the "group by time period" interval picker — grouping defines the slope', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            expect(screen.getByText(/grouped/i)).toBeInTheDocument()
+        })
+
+        it('hides the compare picker', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            expect(screen.queryByText(/Compare to|Previous period/i)).not.toBeInTheDocument()
+        })
+
+        it('shows only the legend in the Display section', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            await openOptionsMenu()
+
+            const items = getDisplaySectionItems()
+            expect(items).toEqual(['Show legend'])
+            // None of the time-series-only options should leak in.
+            expect(items).not.toContain('Show values on series')
+            expect(items).not.toContain('Show trend lines')
+            expect(items).not.toContain('Show alert threshold lines')
+            expect(items).not.toContain('Show multiple Y-axes')
+            expect(items).not.toContain('Show annotations')
+        })
+
+        it('hides the Y-axis scale and statistical analysis sections', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.SlopeGraph))
+            await openOptionsMenu()
+
+            expect(screen.queryByText('Y-axis scale')).not.toBeInTheDocument()
+            expect(screen.queryByText('Statistical analysis')).not.toBeInTheDocument()
+        })
+    })
+
     describe('line graph display options', () => {
+        it('shows the "group by time period" interval picker (control for the slope graph)', async () => {
+            setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
+            expect(screen.getByText(/grouped/i)).toBeInTheDocument()
+        })
+
         it('shows multiple options in the Display section', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
@@ -122,9 +160,6 @@ describe('InsightDisplayConfig', () => {
         })
 
         it('removes axis label option count after clearing a committed label', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]: true,
-            })
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph, { xAxisLabel: 'Signup date' }))
 
             const optionsButton = screen.getAllByRole('button', { name: /Options/ })[0]

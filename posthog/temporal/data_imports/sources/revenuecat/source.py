@@ -6,6 +6,7 @@ import pyarrow as pa
 from asgiref.sync import async_to_sync
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -26,10 +27,7 @@ from posthog.temporal.data_imports.sources.common.base import (
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.webhook_s3 import (
-    WebhookSourceManager,
-    is_webhook_feature_flag_enabled,
-)
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import RevenueCatSourceConfig
 from posthog.temporal.data_imports.sources.revenuecat import revenuecat as api_client
 from posthog.temporal.data_imports.sources.revenuecat.constants import (
@@ -113,6 +111,7 @@ class RevenueCatSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.REVENUE_CAT,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="RevenueCat",
             caption=(
                 "Connect your RevenueCat project using a "
@@ -145,13 +144,15 @@ class RevenueCatSource(
                         required=True,
                         placeholder="proj1a2b3c4d5e",
                         caption=(
-                            "Find this in your RevenueCat dashboard URL: `app.revenuecat.com/projects/<project_id>`."
+                            "The id that starts with `proj`, found in your RevenueCat dashboard URL: "
+                            "`app.revenuecat.com/projects/<project_id>`. You can paste either the id "
+                            "or the full URL."
                         ),
                         secret=False,
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             featureFlag="dwh-revenuecat",
             webhookSetupCaption=(
                 "PostHog tries to register a webhook integration in RevenueCat using your "
@@ -212,7 +213,6 @@ class RevenueCatSource(
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        webhook_supported = is_webhook_feature_flag_enabled(team_id)
         # `events` is webhook-only — the v2 API doesn't expose a historical
         # backfill endpoint for webhook events, so the only way to populate
         # this table is via realtime webhook deliveries.
@@ -221,7 +221,7 @@ class RevenueCatSource(
                 name=name,
                 supports_incremental=False,
                 supports_append=False,
-                supports_webhooks=webhook_supported,
+                supports_webhooks=True,
                 incremental_fields=[],
             )
             for name in REVENUECAT_WEBHOOK_SCHEMA_NAMES

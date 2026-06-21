@@ -1,36 +1,51 @@
 import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 
+import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
-import { DataVisualizationNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, HogQLQuery, NodeKind, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { convertDataTableNodeToDataVisualizationNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeAttributes, NotebookNodeProps } from '../../types'
 
-export const EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT = 500
+export const EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT = 333
+export const EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT = 150
 export const EMBEDDED_SQL_EDITOR_MIN_HEIGHT = 200
+export const EMBEDDED_SQL_EDITOR_EDIT_MIN_HEIGHT = 150
 
 export const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suffix: string | null = null): string =>
     `notebook-sql-${suffix ? `${suffix}-` : ''}${nodeId ?? 'new'}`
+
+const withNotebookHogQLTags = (query: DataVisualizationNode): DataVisualizationNode => ({
+    ...query,
+    source: {
+        ...query.source,
+        tags: {
+            ...query.source.tags,
+            productKey: query.source.tags?.productKey ?? ProductKey.NOTEBOOKS,
+            scene: query.source.tags?.scene ?? 'Notebook',
+        },
+    },
+})
 
 export const getSqlEditorSourceQuery = (query: QuerySchema): DataVisualizationNode | null => {
     const convertedQuery = convertDataTableNodeToDataVisualizationNode(query)
 
     if (isDataVisualizationNode(convertedQuery) && isHogQLQuery(convertedQuery.source)) {
-        return convertedQuery
+        return withNotebookHogQLTags(convertedQuery)
     }
 
     if (isHogQLQuery(query)) {
-        return {
+        return withNotebookHogQLTags({
             kind: NodeKind.DataVisualizationNode,
             source: query,
             display: ChartDisplayType.ActionsTable,
-        }
+        })
     }
 
     return null
@@ -41,9 +56,42 @@ const buildSourceQuery = (query: string): DataVisualizationNode => ({
     source: {
         kind: NodeKind.HogQLQuery,
         query,
+        tags: {
+            productKey: ProductKey.NOTEBOOKS,
+            scene: 'Notebook',
+        },
     },
     display: ChartDisplayType.ActionsTable,
 })
+
+export function getEmbeddedSqlEditorStyle(
+    height: string | number | undefined,
+    defaultHeight: string | number = EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT,
+    minHeight: string | number = EMBEDDED_SQL_EDITOR_MIN_HEIGHT
+): CSSProperties {
+    return {
+        height: height ?? defaultHeight,
+        minHeight,
+    }
+}
+
+function getRunnableHogQLSource(source: HogQLQuery): Omit<HogQLQuery, 'tags'> {
+    const { tags: _tags, ...runnableSource } = {
+        ...source,
+        sendRawQuery: source.connectionId ? source.sendRawQuery || undefined : undefined,
+    }
+    return runnableSource
+}
+
+export function hasAlreadyRunSqlEditorSourceQuery(
+    editorSourceQuery: DataVisualizationNode,
+    lastRunQuery: DataVisualizationNode | null
+): boolean {
+    return (
+        !!lastRunQuery &&
+        equal(getRunnableHogQLSource(editorSourceQuery.source), getRunnableHogQLSource(lastRunQuery.source))
+    )
+}
 
 export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>({
     attributes,
@@ -52,7 +100,7 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
 }: NotebookNodeAttributeProperties<T> & { tabId: string }): DataVisualizationNode | null {
     const editorSourceQuery = useMemo(() => getSqlEditorSourceQuery(attributes.query), [attributes.query])
     const logic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
-    const { queryInput, sourceQuery } = useValues(logic)
+    const { queryInput, sourceQuery, lastRunQuery } = useValues(logic)
     const { initialize, runQuery, setQueryInput, setSourceQuery } = useActions(logic)
 
     // Sync Tiptap node attributes with sqlEditorLogic kea state. Two refs let us tell apart
@@ -86,16 +134,16 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
 
         if (!equal(editorSourceQuery, lastAttrRef.current)) {
             // Attribute moved — pull (overrides any in-flight typing: last write wins).
-            // On first mount `lastAttrRef.current` is null, so we also seed kea here and
-            // kick off an initial `runQuery` so results show on load. We deliberately don't
-            // re-run on subsequent remote updates: that would fire a backend query every
-            // time another tab edits a keystroke through the collab stream.
+            // On first mount `lastAttrRef.current` is null, so seed kea and auto-run if
+            // this tab has not already run the same data-bearing SQL source. The output
+            // and edit panels mount separate sync hooks for the same tab, so the edit panel
+            // must not reload data just because it mounted with fresh refs.
             const isFirstSeed = lastAttrRef.current === null
             lastAttrRef.current = editorSourceQuery
             lastLocalRef.current = editorSourceQuery
             setQueryInput(editorSourceQuery.source.query)
             setSourceQuery(editorSourceQuery)
-            if (isFirstSeed) {
+            if (isFirstSeed && !hasAlreadyRunSqlEditorSourceQuery(editorSourceQuery, lastRunQuery)) {
                 runQuery(editorSourceQuery.source.query)
             }
             return
@@ -109,7 +157,16 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
         }
 
         // Tiptap hasn't propagated a push we already made — wait for the next render.
-    }, [editorSourceQuery, queryInput, sourceQuery, runQuery, setQueryInput, setSourceQuery, updateAttributes])
+    }, [
+        editorSourceQuery,
+        lastRunQuery,
+        queryInput,
+        sourceQuery,
+        runQuery,
+        setQueryInput,
+        setSourceQuery,
+        updateAttributes,
+    ])
 
     return editorSourceQuery
 }
@@ -184,7 +241,9 @@ export function NotebookSQLEditorOutput<T extends { query: QuerySchema }>({
 
     return (
         <div
-            className="flex h-full min-h-0 flex-col"
+            className="flex min-h-0 flex-col overflow-hidden"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={getEmbeddedSqlEditorStyle(attributes.height)}
             onMouseDown={(event) => event.stopPropagation()}
             onDragStart={(event) => event.stopPropagation()}
         >
@@ -205,18 +264,23 @@ export function NotebookSQLEditorSettings<T extends { query: QuerySchema }>({
 }: NotebookNodeAttributeProperties<T>): JSX.Element {
     const tabId = useMemo(() => getNotebookSqlEditorTabId(attributes.nodeId), [attributes.nodeId])
     const editorSourceQuery = useNotebookQuerySQLEditorSync({ attributes, updateAttributes, tabId })
+    // Focus the editor only when this user just inserted the node - a node mounting on
+    // notebook load or after a structural re-render must never steal the caret.
+    const [autoFocusQueryPane] = useState(() => wasNotebookNodeJustInserted(attributes.nodeId))
 
     if (!editorSourceQuery) {
         return <></>
     }
 
-    const editorHeight = attributes.height ?? EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT
-
     return (
         <div
             className="h-full min-h-0 overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ height: editorHeight, minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT }}
+            style={getEmbeddedSqlEditorStyle(
+                attributes.height,
+                EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT,
+                EMBEDDED_SQL_EDITOR_EDIT_MIN_HEIGHT
+            )}
             onMouseDown={(event) => event.stopPropagation()}
             onDragStart={(event) => event.stopPropagation()}
         >
@@ -225,6 +289,8 @@ export function NotebookSQLEditorSettings<T extends { query: QuerySchema }>({
                 mode={SQLEditorMode.Embedded}
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
+                queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
+                autoFocusQueryPane={autoFocusQueryPane}
             />
         </div>
     )
@@ -250,13 +316,19 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
         [attributes.nodeId, tabIdSuffix]
     )
     useNotebookCodeSQLEditorSync({ attributes, updateAttributes, tabId })
-    const editorHeight = attributes.height ?? EMBEDDED_SQL_EDITOR_DEFAULT_HEIGHT
+    // Focus the editor only when this user just inserted the node - a node mounting on
+    // notebook load or after a structural re-render must never steal the caret.
+    const [autoFocusQueryPane] = useState(() => wasNotebookNodeJustInserted(attributes.nodeId))
 
     return (
         <div
             className="h-full min-h-0 overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ height: editorHeight, minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT }}
+            style={getEmbeddedSqlEditorStyle(
+                attributes.height,
+                EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT,
+                EMBEDDED_SQL_EDITOR_EDIT_MIN_HEIGHT
+            )}
             onMouseDown={(event) => event.stopPropagation()}
             onDragStart={(event) => event.stopPropagation()}
         >
@@ -265,10 +337,12 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string }>({
                 mode={SQLEditorMode.Embedded}
                 panel={SQLEditorPanel.Query}
                 defaultShowDatabaseTree={false}
+                autoFocusQueryPane={autoFocusQueryPane}
                 onRunQuery={onRunQuery}
                 runQueryLoading={runQueryLoading}
                 runQueryDisabledReason={runQueryDisabledReason}
                 runQueryTooltip={runQueryTooltip}
+                queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
             />
         </div>
     )

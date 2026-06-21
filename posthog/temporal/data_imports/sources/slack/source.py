@@ -5,6 +5,7 @@ if TYPE_CHECKING:
     from posthog.models.integration import Integration
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -80,10 +81,10 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SLACK,
+            category=DataWarehouseSourceCategory.COMMUNICATION,
             caption="Connect your Slack workspace to sync channels, users, and messages.",
             iconPath="/static/services/slack.png",
             featureFlag="slack-dwh",
-            unreleasedSource=True,
             releaseStatus="alpha",
             fields=cast(
                 list[FieldType],
@@ -200,6 +201,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
                     supports_incremental=False,
                     supports_append=False,
                     supports_webhooks=True,
+                    webhook_only=True,
                     incremental_fields=[],
                 )
             )

@@ -391,7 +391,16 @@ def test_sample_payload_preserves_json_body_keys():
 
 @pytest.mark.parametrize(
     "header_name",
-    ["Authorization", "authorization", "X-API-Key", "x-auth-token", "Cookie", "Set-Cookie", "Proxy-Authorization"],
+    [
+        "Authorization",
+        "authorization",
+        "X-API-Key",
+        "x-sn-apikey",
+        "x-auth-token",
+        "Cookie",
+        "Set-Cookie",
+        "Proxy-Authorization",
+    ],
 )
 def test_scrub_headers_redacts_auth_headers(header_name: str):
     cleaned = _scrub_headers({header_name: "Bearer sk_live_secret"})
@@ -422,6 +431,23 @@ def test_scrub_body_handles_json_list():
     assert isinstance(out, list)
     assert len(out) == 2
     assert "email" in out[0]
+
+
+def test_scrub_body_redacts_oauth_json_secrets():
+    out = _scrub_body('{"access_token": "tok_live_abc", "token_type": "Bearer", "expires_in": 86400}')
+    assert isinstance(out, dict)
+    # Key preserved, secret value dropped; non-secret fields flow through.
+    assert out["access_token"] == "REDACTED"
+    assert out["token_type"] == "Bearer"
+    assert out["expires_in"] == 86400
+
+
+def test_scrub_body_redacts_nested_json_secrets():
+    out = _scrub_body('{"data": {"refresh_token": "rt_secret", "client_secret": "cs_secret", "page": 2}}')
+    assert isinstance(out, dict)
+    assert out["data"]["refresh_token"] == "REDACTED"
+    assert out["data"]["client_secret"] == "REDACTED"
+    assert out["data"]["page"] == 2
 
 
 def test_scrub_body_passes_through_non_json_string():

@@ -66,7 +66,7 @@ pub async fn worker_loop<E, P, F>(
                 handle.report_healthy();
                 flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_TIMER, worker, reduction.max_values_per_key, seen_cache.as_ref()).await;
             }
-            recv = consumer.json_recv::<E>() => {
+            recv = consumer.recv_with(E::decode) => {
                 handle.report_healthy();
                 match recv {
                     Ok((event, offset)) => {
@@ -173,15 +173,17 @@ pub(crate) async fn flush<P: Producer>(
     }
 }
 
-/// Cap each (team, type, key) to its `k` highest-count values, dropping the
-/// rest. Keys with `<= k` distinct values are untouched, so low-cardinality
+/// Cap each (team, type, key) to its `k` highest-count values, dropping
+/// the rest. Keys with `<= k` distinct values are untouched, so low-cardinality
 /// keys keep everything; only high-cardinality keys lose their long tail.
+type CapGroup = (i64, PropertyType, String);
+
 fn cap_top_k(
     snapshot: Vec<(TupleKey, u64)>,
     k: usize,
     worker: &'static str,
 ) -> Vec<(TupleKey, u64)> {
-    let mut by_key: HashMap<(i64, PropertyType, String), Vec<(TupleKey, u64)>> = HashMap::new();
+    let mut by_key: HashMap<CapGroup, Vec<(TupleKey, u64)>> = HashMap::new();
     for entry in snapshot {
         let group = (
             entry.0.team_id,

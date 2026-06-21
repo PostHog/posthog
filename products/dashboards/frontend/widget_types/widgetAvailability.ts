@@ -7,7 +7,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '~/types'
 
 /** New catalog-driven setup requirements: add here — CONTRIBUTING.md */
-export type WidgetAvailabilityRequirementId = 'exception_autocapture'
+export type WidgetAvailabilityRequirementId = 'exception_autocapture' | 'session_replay_enabled'
 
 export type WidgetAvailabilityPresentation = {
     productName: string
@@ -25,6 +25,12 @@ export const WIDGET_AVAILABILITY_PRESENTATION: Record<WidgetAvailabilityRequirem
             productKey: ProductKey.ERROR_TRACKING,
             thingName: 'exception',
             settingsUrl: urls.settings('environment-error-tracking', 'error-tracking-exception-autocapture'),
+        },
+        session_replay_enabled: {
+            productName: 'Session replay',
+            productKey: ProductKey.SESSION_REPLAY,
+            thingName: 'session recording',
+            settingsUrl: urls.settings('environment-replay'),
         },
     }
 
@@ -54,6 +60,8 @@ export function isWidgetAvailabilityRequirementMet(
         // New requirements: add a case here — CONTRIBUTING.md
         case 'exception_autocapture':
             return !!team?.autocapture_exceptions_opt_in
+        case 'session_replay_enabled':
+            return !!team?.session_recording_opt_in
         default: {
             const _exhaustive: never = requirement
             return _exhaustive

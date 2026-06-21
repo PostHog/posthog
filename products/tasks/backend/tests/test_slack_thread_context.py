@@ -58,9 +58,7 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         *,
         slack_mention_workflow_id: str | None = "posthog-code-mention-T_SLACK:Ev01",
     ) -> tuple[Task, TaskRun, SlackThreadTaskMapping]:
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
         task = Task.objects.create(
             team=self.team,
             title="Investigate flaky test",

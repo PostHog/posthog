@@ -2,6 +2,12 @@ from datetime import datetime
 
 from posthog.hogql.ast import JoinExpr, SelectQuery
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import (
+    PERSON_DISTINCT_IDS,
+    REPLAY_TO_CONSOLE_LOGS,
+    REPLAY_TO_EVENTS,
+    REPLAY_TO_SESSIONS_V1,
+)
 from posthog.hogql.database.models import (
     DatabaseField,
     DateTimeDatabaseField,
@@ -17,10 +23,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.log_entries import ReplayConsoleLogsLogEntriesTable
-from posthog.hogql.database.schema.person_distinct_ids import (
-    PersonDistinctIdsTable,
-    join_with_person_distinct_ids_table,
-)
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, select_from_sessions_table_v1
 from posthog.hogql.database.schema.sessions_v2 import (
     select_from_sessions_table_v2,
@@ -212,29 +215,30 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "ai_tags_fixed": DatabaseField(name="ai_tags_fixed", nullable=True),
     "ai_tags_freeform": DatabaseField(name="ai_tags_freeform", nullable=True),
     "ai_highlighted": IntegerDatabaseField(name="ai_highlighted", nullable=False),
+    "surfacing_score": DatabaseField(name="surfacing_score", nullable=True),
     "events": LazyJoin(
         from_field=["session_id"],
         join_table=EventsTable(),
-        join_function=join_with_events_table,
+        resolver=REPLAY_TO_EVENTS,
     ),
     # this is so that HogQL properties e.g. on test account filters can find the correct column
     "properties": FieldTraverser(chain=["events", "properties"]),
     "pdi": LazyJoin(
         from_field=["distinct_id"],
         join_table=PersonDistinctIdsTable(),
-        join_function=join_with_person_distinct_ids_table,
+        resolver=PERSON_DISTINCT_IDS,
     ),
     "console_logs": LazyJoin(
         from_field=["session_id"],
         join_table=ReplayConsoleLogsLogEntriesTable(),
-        join_function=join_with_console_logs_log_entries_table,
+        resolver=REPLAY_TO_CONSOLE_LOGS,
     ),
     "person": FieldTraverser(chain=["pdi", "person"]),
     "person_id": FieldTraverser(chain=["pdi", "person_id"]),
     "session": LazyJoin(
         from_field=["session_id"],
         join_table=SessionsTableV1(),
-        join_function=join_replay_table_to_sessions_table_v1,
+        resolver=REPLAY_TO_SESSIONS_V1,
     ),
 }
 
@@ -286,6 +290,7 @@ def select_from_session_replay_events_table(requested_fields: dict[str, list[str
             name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "ai_tags_freeform"])]
         ),
         "ai_highlighted": ast.Call(name="max", args=[ast.Field(chain=[table_name, "ai_highlighted"])]),
+        "surfacing_score": ast.Call(name="max", args=[ast.Field(chain=[table_name, "surfacing_score"])]),
     }
 
     select_fields: list[ast.Expr] = []

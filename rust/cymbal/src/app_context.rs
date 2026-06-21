@@ -20,8 +20,8 @@ use crate::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
         RemoteResolutionConfig,
     },
-    stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
-    symbol_store::{
+    symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver},
+    symbolication::symbol_store::{
         apple::AppleProvider,
         caching::{Caching, SymbolSetCache},
         chunk_id::ChunkIdFetcher,
@@ -80,10 +80,10 @@ impl Drop for AppContext {
 /// resolution pool — those belong to the full cymbal pipeline and are
 /// constructed by [`AppContext::from_config`].
 ///
-/// Used by `cymbal-resolution`, the standalone gRPC service that only
-/// needs symbol resolution; keeping this separate stops cymbal-resolution
-/// pods from holding Kafka/Redis connections they never use.
-pub async fn build_symbol_resolver(
+/// Used by resolution mode (`crate::modes::resolution`), which only needs
+/// symbol resolution; keeping this separate stops resolution-mode pods from
+/// holding Kafka/Redis connections they never use.
+pub(crate) async fn build_symbol_resolver(
     config: &Config,
 ) -> Result<Arc<dyn SymbolResolver>, UnhandledError> {
     init_global_state(config);
@@ -327,10 +327,7 @@ async fn build_remote_resolution(
     let refresh_task = crate::stages::resolution::remote::pool::spawn_refresh_task(pool.clone());
 
     Ok((
-        Some(RemoteResolutionContext {
-            pool,
-            config: remote_config,
-        }),
+        Some(RemoteResolutionContext::new(pool, remote_config)),
         Some(refresh_task),
     ))
 }

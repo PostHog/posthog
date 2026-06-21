@@ -1,10 +1,11 @@
 import {
+    RecurrenceIntervalEnumApi,
+    ResourceTypeEnumApi,
     SubscriptionDeliveryStatusEnumApi,
-    SubscriptionFrequencyEnumApi,
     TargetTypeEnumApi,
     type SubscriptionApi,
     type SubscriptionDeliveryApi,
-} from '~/generated/core/api.schemas'
+} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 export const MOCK_SUBSCRIPTION_USER = {
     id: 1,
@@ -17,6 +18,7 @@ export const MOCK_SUBSCRIPTION_USER = {
 
 export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     id: 1,
+    resource_type: ResourceTypeEnumApi.Insight,
     insight: 101,
     dashboard: null,
     insight_short_id: 'abc123',
@@ -25,7 +27,7 @@ export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     dashboard_export_insights: [],
     target_type: TargetTypeEnumApi.Email,
     target_value: 'matt.p@posthog.com',
-    frequency: SubscriptionFrequencyEnumApi.Weekly,
+    frequency: RecurrenceIntervalEnumApi.Weekly,
     interval: 1,
     start_date: '2022-01-01T00:00:00Z',
     created_at: '2023-04-27T10:04:37.977401Z',
@@ -47,6 +49,7 @@ export const MOCK_SUBSCRIPTION_INSIGHT_MANY_DESTINATIONS: SubscriptionApi = {
 
 export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     id: 2,
+    resource_type: ResourceTypeEnumApi.Dashboard,
     insight: null,
     dashboard: 501,
     insight_short_id: null,
@@ -55,7 +58,7 @@ export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     dashboard_export_insights: [101],
     target_type: TargetTypeEnumApi.Slack,
     target_value: 'C12345|#alerts-analytics-platform',
-    frequency: SubscriptionFrequencyEnumApi.Daily,
+    frequency: RecurrenceIntervalEnumApi.Daily,
     interval: 1,
     start_date: '2022-01-01T00:00:00Z',
     created_at: '2023-04-27T10:04:37.977401Z',

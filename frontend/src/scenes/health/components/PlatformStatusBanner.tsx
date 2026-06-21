@@ -4,7 +4,6 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import type { LemonBannerProps } from '@posthog/lemon-ui'
 
 import { HeartHog, SleepingHog, WarningHog } from 'lib/components/hedgehogs'
-import { STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
 import type { PostHogStatusBadgeStatus, PostHogStatusType } from 'lib/components/HelpMenu/posthogStatusLogic'
 
@@ -28,7 +27,8 @@ const STATUS_LABELS: Record<PostHogStatusType, string> = {
 }
 
 export const PlatformStatusBanner = (): JSX.Element => {
-    const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatus } = useValues(posthogStatusLogic)
+    const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatus, statusPageUrl } =
+        useValues(posthogStatusLogic)
     const { bannerType, Hog } = STATUS_CONFIG[postHogStatusBadgeStatus]
     const statusLabel = STATUS_LABELS[postHogStatus]
     const statusMessage = postHogStatusTooltip ?? 'Checking for active incidents...'
@@ -40,7 +40,7 @@ export const PlatformStatusBanner = (): JSX.Element => {
             hideIcon={false}
             action={{
                 children: 'View status page',
-                to: STATUS_PAGE_BASE,
+                to: statusPageUrl,
                 targetBlank: true,
             }}
         >

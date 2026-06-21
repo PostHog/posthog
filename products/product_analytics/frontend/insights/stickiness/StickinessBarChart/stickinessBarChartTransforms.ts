@@ -1,4 +1,4 @@
-import type { TimeSeriesBarChartConfig, TooltipConfig } from 'lib/hog-charts'
+import type { TimeSeriesBarChartConfig, TooltipConfig } from '@posthog/quill-charts'
 
 import {
     buildStickinessSeries,

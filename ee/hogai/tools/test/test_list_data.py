@@ -81,6 +81,18 @@ class TestListDataTool(ClickhouseTestMixin, NonAtomicBaseTest):
         with self.assertRaises(ValueError):
             await self.tool._arun_impl(kind="invalid_kind", limit=100, offset=0)
 
+    async def test_list_entities_accounts_routes_to_account(self):
+        """The accounts kind maps to the account database entity type."""
+        with patch("ee.hogai.tools.list_data.EntitySearchContext") as MockEntitySearchContext:
+            mock_instance = MagicMock()
+            mock_instance.list_entities = AsyncMock(return_value=([], 0))
+            mock_instance.format_entities = MagicMock(return_value="")
+            MockEntitySearchContext.return_value = mock_instance
+
+            await self.tool._arun_impl(kind="accounts", limit=100, offset=0)
+
+            mock_instance.list_entities.assert_called_once_with("account", 100, 0)
+
     async def test_list_entities_default_pagination(self):
         """Test that list entities uses default pagination values."""
         entities_data = [

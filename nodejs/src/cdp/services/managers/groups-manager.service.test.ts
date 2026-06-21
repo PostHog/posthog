@@ -1,5 +1,5 @@
 import { TeamManager } from '~/utils/team-manager'
-import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
+import { GroupReadRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
 import { createHogExecutionGlobals } from '../../_tests/fixtures'
 import { GroupsManagerService } from './groups-manager.service'
@@ -22,7 +22,7 @@ describe('Groups Manager', () => {
     const mockGroupRepository = {
         fetchGroupTypesByTeamIds: mockFetchGroupTypesByTeamIds,
         fetchGroupsByKeys: mockFetchGroupsByKeys,
-    } as unknown as GroupRepository
+    } as unknown as GroupReadRepository
 
     beforeEach(() => {
         jest.restoreAllMocks()
@@ -301,6 +301,25 @@ describe('Groups Manager', () => {
         await groupsManager.addGroupsToGlobals(globals2)
         expect(mockFetchGroupTypesByTeamIds).toHaveBeenCalledTimes(0)
         expect(mockFetchGroupsByKeys).toHaveBeenCalledTimes(0)
+    })
+
+    it('handles absent team key in group type response gracefully', async () => {
+        // When personhog returns no mapping for a team, the key is absent from
+        // the response (not present as an empty array). Verify the code handles
+        // this via its ?? [] fallback.
+        mockFetchGroupTypesByTeamIds.mockResolvedValue({})
+
+        const globals = createHogExecutionGlobals({
+            groups: undefined,
+            project: { id: 99 } as any,
+            event: { properties: { $groups: { UnknownType: 'some-key' } } } as any,
+        })
+
+        await groupsManager.addGroupsToGlobals(globals)
+
+        expect(globals.groups).toEqual({})
+        expect(mockFetchGroupTypesByTeamIds).toHaveBeenCalledWith([99], 'cdp/hogflow-group-type-resolution')
+        expect(mockFetchGroupsByKeys).not.toHaveBeenCalled()
     })
 
     it('respects clear() to reset all caches', async () => {

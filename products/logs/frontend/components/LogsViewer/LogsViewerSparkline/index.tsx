@@ -7,8 +7,8 @@ import { LemonButton, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { shortTimeZone } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { shortTimeZone } from 'lib/utils/timezones'
 
 import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
 

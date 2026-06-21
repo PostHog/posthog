@@ -5,7 +5,6 @@ from django.conf import settings
 from django.db.models import QuerySet
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.llm_prompt import LLMPrompt, annotate_llm_prompt_version_history_metadata
 from posthog.models.team.team import Team
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
 from posthog.storage.llm_prompt_cache_keys import (
@@ -21,6 +20,8 @@ from posthog.storage.llm_prompt_cache_payloads import (
     serialize_prompt_version,
     strip_internal_metadata,
 )
+
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, annotate_llm_prompt_version_history_metadata
 
 # Used in tests; keep as module export.
 _serialize_prompt = serialize_prompt

@@ -21,6 +21,7 @@ jobs:
         timeout-minutes: 5
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
+            version-release-needed: ${{ steps.version.outputs.version-release-needed }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -72,6 +73,10 @@ jobs:
                       parser_release_needed='true'
                     fi
                   fi
+                  # A genuinely new version (the 404/unknown cases above) — not a workflow-only
+                  # exercise — is what must move the pyproject/uv.lock pin. Emit it now, before
+                  # the workflow-only override below raises parser-release-needed on its own.
+                  echo "version-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
                   # Exercise the release pipeline on workflow-only edits; skip-existing makes publish a no-op.
                   if [[ "$WORKFLOW_CHANGED" == 'true' ]]; then
                     parser_release_needed='true'
@@ -137,7 +142,7 @@ jobs:
 
     publish:
         name: Publish on PyPI
-        needs: build-wheels
+        needs: [check-version, build-wheels]
         environment: pypi-hogql-parser
         permissions:
             id-token: write
@@ -189,7 +194,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
 
             - name: Install uv
               id: setup-uv
@@ -245,6 +250,10 @@ jobs:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
             - name: Fail if pin update produced no commit
+              # Only a real version release must move the pin. Workflow-only edits
+              # exercise the pipeline as a skip-existing no-op and legitimately leave
+              # the pin untouched, so the guard must not fire for them.
+              if: needs.check-version.outputs.version-release-needed == 'true'
               shell: bash
               env:
                   CHANGED: ${{ steps.check-pin.outputs.changed }}

@@ -58,12 +58,14 @@ class TestCheckProductAccess:
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
             ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
-            # signals requires OAuth with a posthog_code app ID; API keys rejected; no model allowlist
-            ("signals", "personal_api_key", None, None, False, "requires OAuth"),
-            ("signals", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
-            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, True, None),
-            ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, None, True, None),
-            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-3-opus", True, None),
+            # signals allows API keys (shared gateway key) with any model, and OAuth from the
+            # array/twig (posthog_code) app for coding-agent tasks
+            ("signals", "personal_api_key", None, "claude-haiku-4-5", True, None),
+            ("signals", "personal_api_key", None, "claude-sonnet-4-5", True, None),
+            ("signals", "personal_api_key", None, "claude-3-opus", True, None),
+            ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
+            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-haiku-4-5", True, None),
+            ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-5", True, None),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -111,6 +113,7 @@ class TestCheckProductAccess:
             "gpt-4o-mini",
             "claude-3-5-haiku-20241022",
             "claude-3-opus",
+            "claude-fable-5",
             "o1",
         ],
     )
@@ -193,6 +196,23 @@ class TestCheckProductAccess:
         allowed, error = check_product_access("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
+
+    @patch(
+        "llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False, bedrock_region_name="us-east-1")
+    )
+    def test_posthog_code_rejects_claude_fable_5_via_bedrock_provider(self, mock_get_settings: MagicMock):
+        # Fable 5 has no Bedrock mapping, so the bedrock provider path must not
+        # resurrect it via the BEDROCK_MODELS entries in the allowlist union.
+        allowed, error = check_product_access(
+            "posthog_code",
+            "oauth_access_token",
+            POSTHOG_CODE_US_APP_ID,
+            "claude-fable-5",
+            provider="bedrock",
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
 
     @pytest.mark.parametrize(
         "model",

@@ -1,7 +1,7 @@
 import { connect, kea, path, selectors } from 'kea'
 
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { incidentStatusLogic } from './incidentStatusLogic'
 import type { posthogStatusLogicType } from './posthogStatusLogicType'
@@ -14,7 +14,7 @@ export const posthogStatusLogic = kea<posthogStatusLogicType>([
     connect({
         values: [
             incidentStatusLogic,
-            ['status', 'statusDescription'],
+            ['status', 'statusDescription', 'statusPageUrl'],
             superpowersLogic,
             ['fakeStatusOverride', 'superpowersEnabled'],
         ],

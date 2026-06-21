@@ -1,8 +1,9 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
@@ -10,6 +11,9 @@ from prometheus_client import Counter
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import EncryptionModeType, generate_random_token, hash_key_value
+
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
 
 PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[EncryptionModeType, Optional[int]], ...] = (
     ("sha256", None),  # Moved to simple hashing in 2024-02
@@ -72,3 +76,25 @@ def find_personal_api_key(token: str) -> tuple[PersonalAPIKey, str] | None:
             pass
 
     return None
+
+
+def get_organization_personal_api_keys(organization: "Organization") -> QuerySet[PersonalAPIKey]:
+    """Personal API keys of org members that can access this organization or any of its projects.
+
+    Includes fully unscoped keys (which can reach everything the owner can), keys explicitly scoped
+    to this organization, and keys scoped to any of the organization's teams.
+    """
+    team_ids = list(organization.teams.values_list("id", flat=True))
+    return (
+        PersonalAPIKey.objects.filter(user__organization_membership__organization_id=organization.id)
+        .filter(
+            Q(scoped_organizations__contains=[str(organization.id)])
+            | Q(scoped_teams__overlap=team_ids)
+            | (
+                (Q(scoped_organizations__isnull=True) | Q(scoped_organizations=[]))
+                & (Q(scoped_teams__isnull=True) | Q(scoped_teams=[]))
+            )
+        )
+        .select_related("user")
+        .distinct()
+    )

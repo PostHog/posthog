@@ -1,11 +1,13 @@
 {% extends "base.jinja" %}
 {% from "_macros.jinja" import cite_in %}
-{% block task %}Summarize this session per these instructions: {{ user_prompt }}
+{% block task %}Summarize this session.{% if user_prompt %}
+
+Additional context from the team operating the product being recorded:
+{{ user_prompt }}{% endif %}
 
 `title` is at most ~80 characters and contains no event citations. `summary` should be {{ length_guidance }}.
 
 {{ cite_in('summary') }}
-{% if emits_embeddings %}
 
 Also produce facets that characterize this session for free-text search by future users:
 
@@ -15,4 +17,4 @@ Also produce facets that characterize this session for free-text search by futur
 - `keywords`: 5-15 distinctive lowercase terms — favor action verbs and specific feature names; skip generic terms ('user', 'session', 'navigation') and the product/team name.
 
 Do not include any event citations or `event_uuid` values inside `intent`, `outcome`, `friction_points`, or `keywords` — those are consumed by a vector-embedding pipeline and UUID tokens would be noise.
-{% endif %}{% endblock %}
+{% endblock %}

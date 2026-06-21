@@ -11,8 +11,12 @@
         "inference_population": {
             "description": "Population filter for daily scoring. Defaults to training_population if not provided."
         },
+        "target_definition": {
+            "description": "Optional target definition. Pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event."
+        },
         "target_event": {
-            "description": "Event name to predict, e.g. '$pageview'. Must exist in the team's event schema.",
+            "default": "",
+            "description": "Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead).",
             "type": "string"
         },
         "training_lookback_days": {
@@ -26,6 +30,5 @@
             "description": "Population filter for training examples. Use {} for all identified users."
         }
     },
-    "required": ["target_event"],
     "type": "object"
 }

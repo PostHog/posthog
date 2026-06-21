@@ -1,18 +1,16 @@
 import { v4 } from 'uuid'
 
 import { PluginEvent } from '~/plugin-scaffold'
+import { EventHeaders } from '~/types'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
-import { createTestTeam } from '../../../tests/helpers/team'
-import { PerDistinctIdPipelineInput } from '../analytics'
 import { PipelineResultType } from '../pipelines/results'
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'
 
-describe('normalizeProcessPersonFlagStep', () => {
-    const team = createTestTeam()
+type StepInput = { event: PluginEvent; headers: EventHeaders }
 
+describe('normalizeProcessPersonFlagStep', () => {
     const baseEvent: PluginEvent = createTestPluginEvent({
         distinct_id: 'my_id',
         site_url: '',
@@ -21,10 +19,8 @@ describe('normalizeProcessPersonFlagStep', () => {
         uuid: v4(),
     })
 
-    const baseInput: PerDistinctIdPipelineInput = {
-        message: createTestMessage(),
+    const baseInput: StepInput = {
         event: baseEvent,
-        team,
         headers: createTestEventHeaders(),
     }
 
@@ -34,7 +30,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         it.each(['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])(
             'drops event %s when $process_person_profile=false',
             async (eventName) => {
-                const input: PerDistinctIdPipelineInput = {
+                const input: StepInput = {
                     ...baseInput,
                     event: {
                         ...baseEvent,
@@ -60,7 +56,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         )
 
         it('allows regular events when $process_person_profile=false', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -74,12 +70,13 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(false)
+                expect(result.value.processPersonExplicitlyTrue).toBe(false)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
             }
         })
 
         it('adds warning for invalid $process_person_profile values', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -107,7 +104,7 @@ describe('normalizeProcessPersonFlagStep', () => {
 
     describe('force_disable_person_processing header', () => {
         it('sets processPerson to false when header is true', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 headers: createTestEventHeaders({ force_disable_person_processing: true }),
             }
@@ -122,7 +119,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         })
 
         it('defaults to processPerson=true when header is false and no $process_person_profile property', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 headers: createTestEventHeaders(),
             }
@@ -137,7 +134,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         })
 
         it('overrides $process_person_profile property when header is true', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -151,12 +148,14 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(false)
+                // The explicit-true capture happens before the header override.
+                expect(result.value.processPersonExplicitlyTrue).toBe(true)
                 expect(result.value.forceDisablePersonProcessing).toBe(true)
             }
         })
 
         it('respects $process_person_profile=false when header is false', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -177,7 +176,7 @@ describe('normalizeProcessPersonFlagStep', () => {
 
     describe('default behavior', () => {
         it('defaults to processPerson=true when no header and no $process_person_profile property', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
             }
 
@@ -186,16 +185,22 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(true)
+                expect(result.value.processPersonExplicitlyTrue).toBe(false)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
             }
         })
 
-        it('keeps processPerson=true when $process_person_profile=true explicitly', async () => {
-            const input: PerDistinctIdPipelineInput = {
+        it('leaves $feature_flag_called events personful when no $process_person_profile property is set', async () => {
+            const input: StepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
-                    properties: { $process_person_profile: true },
+                    event: '$feature_flag_called',
+                    properties: {
+                        $feature_flag: 'new-homepage',
+                        $feature_flag_response: 'test',
+                        $set: { email: 'user@example.com' },
+                    },
                 },
             }
 
@@ -204,8 +209,34 @@ describe('normalizeProcessPersonFlagStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.processPerson).toBe(true)
+                expect(result.value.processPersonExplicitlyTrue).toBe(false)
                 expect(result.value.forceDisablePersonProcessing).toBe(false)
+                expect(result.value.event.properties?.$process_person_profile).toBeUndefined()
+                expect(result.value.event.properties?.$set).toEqual({ email: 'user@example.com' })
             }
         })
+
+        it.each(['$pageview', '$feature_flag_called'])(
+            'keeps %s personful when $process_person_profile=true explicitly',
+            async (eventName) => {
+                const input: StepInput = {
+                    ...baseInput,
+                    event: {
+                        ...baseEvent,
+                        event: eventName,
+                        properties: { $process_person_profile: true },
+                    },
+                }
+
+                const result = await normalizeStep(input)
+
+                expect(result.type).toBe(PipelineResultType.OK)
+                if (result.type === PipelineResultType.OK) {
+                    expect(result.value.processPerson).toBe(true)
+                    expect(result.value.processPersonExplicitlyTrue).toBe(true)
+                    expect(result.value.forceDisablePersonProcessing).toBe(false)
+                }
+            }
+        )
     })
 })

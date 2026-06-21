@@ -180,9 +180,6 @@ tools:
                 - created_at
                 - updated_at
                 - completed_at
-    tasks-runs-logs-retrieve:
-        operation: tasks_runs_logs_retrieve
-        enabled: false
     tasks-runs-partial-update:
         operation: tasks_runs_partial_update
         enabled: false

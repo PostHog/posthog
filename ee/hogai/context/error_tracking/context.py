@@ -9,7 +9,7 @@ from posthog.sync import database_sync_to_async
 
 from products.error_tracking.backend.facade import (
     api as error_tracking_api,
-    types as error_tracking_types,
+    contracts as error_tracking_contracts,
 )
 
 from .prompts import ERROR_TRACKING_ISSUE_CONTEXT_TEMPLATE
@@ -34,7 +34,7 @@ class ErrorTrackingIssueContext:
         self._issue_id = issue_id
         self._issue_name = issue_name
 
-    def _get_issue_sync(self) -> error_tracking_types.ErrorTrackingIssue | None:
+    def _get_issue_sync(self) -> error_tracking_contracts.ErrorTrackingIssue | None:
         try:
             issue_id = UUID(self._issue_id)
         except ValueError:
@@ -45,7 +45,7 @@ class ErrorTrackingIssueContext:
         except error_tracking_api.IssueNotFoundError:
             return None
 
-    async def aget_issue(self) -> error_tracking_types.ErrorTrackingIssue | None:
+    async def aget_issue(self) -> error_tracking_contracts.ErrorTrackingIssue | None:
         """Fetch the issue from the error tracking facade using async."""
         return await database_sync_to_async(self._get_issue_sync)()
 

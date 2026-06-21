@@ -13,6 +13,7 @@ import type { Group as ProtoGroup } from '../../generated/personhog/personhog/ty
 import { Group as DomainGroup, GroupTypeIndex } from '../../types'
 import { epochMsToDateTime, eventualReadOptions, parseJsonBytes } from './client'
 
+const PERSONHOG_BATCH_SIZE = 100
 const VALID_GROUP_TYPE_INDEXES = new Set<number>([0, 1, 2, 3, 4])
 
 function toGroupTypeIndex(value: number): GroupTypeIndex {
@@ -74,20 +75,6 @@ export class PersonHogGroupOperations {
             return []
         }
 
-        const response = await this.client.getGroupsBatch(
-            create(GetGroupsBatchRequestSchema, {
-                keys: teamIds.map((teamId, i) =>
-                    create(GroupKeySchema, {
-                        teamId: BigInt(teamId),
-                        groupTypeIndex: groupTypeIndexes[i],
-                        groupKey: groupKeys[i],
-                    })
-                ),
-                readOptions: eventualReadOptions(),
-            }),
-            callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
-        )
-
         const results: {
             team_id: number
             group_type_index: GroupTypeIndex
@@ -95,14 +82,34 @@ export class PersonHogGroupOperations {
             group_properties: Record<string, any>
         }[] = []
 
-        for (const result of response.results) {
-            if (result.group && result.key) {
-                results.push({
-                    team_id: Number(result.key.teamId),
-                    group_type_index: toGroupTypeIndex(result.key.groupTypeIndex),
-                    group_key: result.key.groupKey,
-                    group_properties: parseJsonBytes(result.group.groupProperties) ?? {},
-                })
+        for (let i = 0; i < teamIds.length; i += PERSONHOG_BATCH_SIZE) {
+            const batchTeamIds = teamIds.slice(i, i + PERSONHOG_BATCH_SIZE)
+            const batchGroupTypeIndexes = groupTypeIndexes.slice(i, i + PERSONHOG_BATCH_SIZE)
+            const batchGroupKeys = groupKeys.slice(i, i + PERSONHOG_BATCH_SIZE)
+
+            const response = await this.client.getGroupsBatch(
+                create(GetGroupsBatchRequestSchema, {
+                    keys: batchTeamIds.map((teamId, j) =>
+                        create(GroupKeySchema, {
+                            teamId: BigInt(teamId),
+                            groupTypeIndex: batchGroupTypeIndexes[j],
+                            groupKey: batchGroupKeys[j],
+                        })
+                    ),
+                    readOptions: eventualReadOptions(),
+                }),
+                callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+            )
+
+            for (const result of response.results) {
+                if (result.group && result.key) {
+                    results.push({
+                        team_id: Number(result.key.teamId),
+                        group_type_index: toGroupTypeIndex(result.key.groupTypeIndex),
+                        group_key: result.key.groupKey,
+                        group_properties: parseJsonBytes(result.group.groupProperties) ?? {},
+                    })
+                }
             }
         }
 

@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Annotated, Any
+from typing import Annotated, Any, TypedDict
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -8,6 +8,7 @@ from temporalio.exceptions import ApplicationError
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerProvider, ScannerType
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
+from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
@@ -72,11 +73,24 @@ class CreateObservationOutput(BaseModel, frozen=True):
     observation_id: UUID | None
     was_created: bool
     scanner_type: ScannerType
-    emits_embeddings: bool = False
 
 
 class MarkObservationRunningInputs(BaseModel, frozen=True):
     observation_id: UUID
+
+
+# Coarse progress phases, surfaced live via ApplyScannerWorkflow's `get_progress` query and streamed over SSE.
+OBSERVATION_PHASE_ORDER = ("queued", "fetching", "rendering", "uploading", "analyzing", "finalizing")
+OBSERVATION_PHASE_INDEX = {phase: index for index, phase in enumerate(OBSERVATION_PHASE_ORDER)}
+
+
+class ObservationProgress(TypedDict):
+    """Live progress snapshot returned by ApplyScannerWorkflow's `get_progress` query, streamed to the client over SSE."""
+
+    phase: str  # one of OBSERVATION_PHASE_ORDER
+    step: int  # index of `phase` in OBSERVATION_PHASE_ORDER
+    total_steps: int  # len(OBSERVATION_PHASE_ORDER)
+    rasterizer_workflow_id: str | None  # set while rendering, so the stream can read the child's frame heartbeats
 
 
 class MarkObservationFailedInputs(BaseModel, frozen=True):
@@ -190,14 +204,27 @@ class ScannerCallOutput(BaseModel, frozen=True):
     """Result of one `call_scanner_provider` invocation."""
 
     model_output: AnyScannerOutput
+    # Extracted from the LLM response before `finalize` so per-type output mapping can't drop it.
+    signal: SignalFinding | None = None
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):
     gemini_file_name: str
 
 
+class EmbedObservationInputs(BaseModel, frozen=True):
+    """Input to the side-effect activity that emits embedding requests for an observation's reasoning/summary."""
+
+    team_id: int
+    session_id: str
+    observation_id: UUID
+    scanner_id: UUID
+    model_output: AnyScannerOutput
+
+
 class EmbedSummarizerObservationInputs(BaseModel, frozen=True):
-    """Input to the summarizer-side-effect activity that emits per-facet embedding requests."""
+    """Back-compat input for the pre-rename `embed_summarizer_observation_activity`. Kept only so summarizer
+    workflows already in flight when the activity was renamed can still resolve their scheduled activity."""
 
     team_id: int
     session_id: str
@@ -212,6 +239,14 @@ class EmitClassifierTagsInputs(BaseModel, frozen=True):
     session_id: str
     observation_id: UUID
     classifier_output: ClassifierOutput
+
+
+class EmitObservationSignalInputs(BaseModel, frozen=True):
+    """Input to the side-effect activity that emits a side-mission finding as a PostHog Signal."""
+
+    team_id: int
+    observation_id: UUID
+    signal: SignalFinding
 
 
 class MarkObservationSucceededInputs(BaseModel, frozen=True):

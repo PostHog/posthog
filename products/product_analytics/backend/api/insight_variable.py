@@ -35,10 +35,18 @@ class InsightVariableSerializer(serializers.ModelSerializer):
         variable_type = attrs.get("type", getattr(self.instance, "type", None))
         if variable_type == InsightVariable.Type.LIST:
             values = attrs.get("values", getattr(self.instance, "values", None))
-            if values is None:
+            if not isinstance(values, list):
                 attrs["values"] = []
 
         return attrs
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # `values` is a JSONField; older List records may hold null or a non-array
+        # value, which crashes clients that iterate it. Always present an array.
+        if instance.type == InsightVariable.Type.LIST and not isinstance(data.get("values"), list):
+            data["values"] = []
+        return data
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]

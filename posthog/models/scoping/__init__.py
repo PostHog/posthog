@@ -56,7 +56,7 @@ def reset_current_team_id(token: Token[int | None]) -> None:
 
 
 @contextmanager
-def team_scope(team_id: int, *, canonical: bool = False) -> Generator[None, None, None]:
+def team_scope(team_id: int, *, canonical: bool = False) -> Generator[None]:
     """
     Context manager to set the current team_id for a block of code.
 
@@ -92,7 +92,7 @@ def team_scope(team_id: int, *, canonical: bool = False) -> Generator[None, None
 
 
 @contextmanager
-def unscoped() -> Generator[None, None, None]:
+def unscoped() -> Generator[None]:
     """
     Context manager to temporarily disable automatic team scoping.
 

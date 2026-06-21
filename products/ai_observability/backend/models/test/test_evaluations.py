@@ -1,9 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.core.exceptions import ValidationError
-
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus, EvaluationStatusReason
 
@@ -251,6 +250,38 @@ class TestEvaluationModel(BaseTest):
 
         self.assertIn("bytecode", evaluation.evaluation_config)
         self.assertNotEqual(evaluation.evaluation_config["bytecode"], original_bytecode)
+
+    def test_sentiment_evaluation_defaults_to_user_messages_source(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Sentiment Eval",
+            evaluation_type="sentiment",
+            evaluation_config={},
+            output_type="sentiment",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
+
+        evaluation.refresh_from_db()
+
+        self.assertEqual(evaluation.evaluation_config, {"source": "user_messages"})
+        self.assertEqual(evaluation.output_config, {})
+
+    def test_unsupported_evaluation_output_type_combination_rejected(self):
+        with self.assertRaises(ValidationError):
+            Evaluation.objects.create(
+                team=self.team,
+                name="Bad Eval",
+                evaluation_type="llm_judge",
+                evaluation_config={},
+                output_type="sentiment",
+                output_config={},
+                enabled=True,
+                created_by=self.user,
+                conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+            )
 
     def test_preserves_other_condition_fields(self):
         """

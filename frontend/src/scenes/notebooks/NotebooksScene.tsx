@@ -6,7 +6,7 @@ import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { base64Encode } from 'lib/utils'
+import { base64Encode } from 'lib/utils/base64'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -44,8 +44,11 @@ export function NotebooksScene(): JSX.Element {
                                             contentType: 'application/json',
                                             multiple: false,
                                         })
-                                            .then((files) => getTextFromFile(files[0]))
-                                            .then((text) => {
+                                            .then(async (files) => {
+                                                if (!files.length) {
+                                                    return
+                                                }
+                                                const text = await getTextFromFile(files[0])
                                                 const data = JSON.parse(text)
                                                 if (data.type !== 'doc') {
                                                     throw new Error('Not a notebook')

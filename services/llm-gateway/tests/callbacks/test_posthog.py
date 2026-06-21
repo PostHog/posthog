@@ -110,6 +110,111 @@ class TestPostHogCallback:
             mock_client.shutdown.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_on_success_header_team_id_overrides_auth_user_team(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        """A caller-supplied x-posthog-property-team_id wins over the key owner's team.
+
+        This is how a shared-key caller (e.g. signals) attributes a generation to the
+        customer team rather than the key owner's team that the usage reporter reads.
+        """
+        _, mock_client = mock_posthog_client
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="signals"),
+            # headers arrive as strings — this is the realistic x-posthog-property-team_id path
+            patch("llm_gateway.callbacks.posthog.get_posthog_properties", return_value={"team_id": "999"}),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            call_kwargs = mock_client.capture.call_args.kwargs
+            props = call_kwargs["properties"]
+            # header-supplied customer team wins over auth_user.team_id (456), stored as an int
+            assert props["team_id"] == 999
+            assert isinstance(props["team_id"], int)
+            # the analytics project the event lands in still follows the authenticated team
+            assert call_kwargs["groups"] == {"instance": "https://us.posthog.com", "project": 456}
+
+    @pytest.mark.asyncio
+    async def test_on_success_invalid_header_team_id_falls_back_to_auth_team(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="signals"),
+            patch("llm_gateway.callbacks.posthog.get_posthog_properties", return_value={"team_id": "not-a-number"}),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert props["team_id"] == 456
+            assert isinstance(props["team_id"], int)
+
+    @pytest.mark.asyncio
+    async def test_on_success_invalid_header_team_id_dropped_without_auth_team(
+        self,
+        callback: PostHogCallback,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        _, mock_client = mock_posthog_client
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=None),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="signals"),
+            patch("llm_gateway.callbacks.posthog.get_posthog_properties", return_value={"team_id": "not-a-number"}),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert "team_id" not in props
+
+    @pytest.mark.asyncio
+    async def test_on_success_headers_cannot_override_ai_product_or_billable(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        """ai_product and $ai_billable are gateway-owned: caller headers can't override them.
+
+        Otherwise a typo'd header would silently mis-bill or misattribute the generation.
+        """
+        _, mock_client = mock_posthog_client
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
+            patch(
+                "llm_gateway.callbacks.posthog.get_posthog_properties",
+                return_value={"ai_product": "spoofed", "$ai_billable": True},
+            ),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            # route-derived product wins over the header value
+            assert props["ai_product"] == "posthog_code"
+            # config-derived billable flag wins (posthog_code is non-billable)
+            assert props["$ai_billable"] is False
+
+    @pytest.mark.asyncio
     async def test_on_success_uses_uuid_when_no_auth_user(
         self,
         callback: PostHogCallback,

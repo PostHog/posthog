@@ -12,9 +12,6 @@ from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, Experim
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -30,6 +27,9 @@ from posthog.temporal.experiments.utils import (
     get_metric,
 )
 
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
@@ -193,6 +193,9 @@ def _calculate_experiment_regular_metric_sync(
             query=experiment_query,
             team=experiment.team,
             workload=Workload.OFFLINE,
+            # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
+            # warehouse HogQL access control is enforced.
+            user=experiment.created_by,
         )
         # .run() writes to the response cache. The "warming/*" trigger tells
         # run() this is a scheduled job, not a user query, so it skips logging
@@ -460,6 +463,9 @@ def _calculate_experiment_saved_metric_sync(
             query=experiment_query,
             team=experiment.team,
             workload=Workload.OFFLINE,
+            # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
+            # warehouse HogQL access control is enforced.
+            user=experiment.created_by,
         )
         # .run() writes to the response cache. The "warming/*" trigger tells
         # run() this is a scheduled job, not a user query, so it skips logging
@@ -621,6 +627,9 @@ def _backfill_experiment_metric_sync(recalculation_id: str) -> dict[str, Any]:
                     team=experiment.team,
                     override_end_date=query_to_utc,
                     workload=Workload.OFFLINE,
+                    # Scheduled backfill has no request user. Attribute the query to the experiment's creator
+                    # so warehouse HogQL access control is enforced.
+                    user=experiment.created_by,
                 )
                 result = query_runner._calculate()
 

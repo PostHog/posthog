@@ -360,10 +360,22 @@ impl IntoResponse for FlagError {
                 (StatusCode::BAD_REQUEST, "The distinct_id field is missing from the request. Please include a valid identifier.".to_string())
             }
             FlagError::NoTokenError => {
-                (StatusCode::UNAUTHORIZED, "No API token provided. Please include a valid API token in your request.".to_string())
+                let response = AuthenticationErrorResponse {
+                    error_type: "authentication_error".to_string(),
+                    code: "not_authenticated".to_string(),
+                    detail: "No API token provided. Please include a valid API token in your request.".to_string(),
+                    attr: None,
+                };
+                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
             }
             FlagError::TokenValidationError => {
-                (StatusCode::UNAUTHORIZED, "The provided API key is invalid or has expired. Please check your API key and try again.".to_string())
+                let response = AuthenticationErrorResponse {
+                    error_type: "authentication_error".to_string(),
+                    code: "authentication_failed".to_string(),
+                    detail: "The provided API key is invalid or has expired. Please check your API key and try again.".to_string(),
+                    attr: None,
+                };
+                return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
             }
             FlagError::PersonalApiKeyInvalid => {
                 let response = AuthenticationErrorResponse {

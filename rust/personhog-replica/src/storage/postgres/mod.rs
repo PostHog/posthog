@@ -97,7 +97,8 @@ impl PostgresStorage {
     }
 
     /// Acquire a connection from the given pool, recording the acquisition time
-    /// as `personhog_replica_db_pool_acquire_duration_ms` with `pool` and `client` labels.
+    /// as `personhog_replica_db_pool_acquire_duration_ms` with `pool`, `client`,
+    /// and `method` labels.
     pub(crate) async fn acquire_timed(
         pool: &PgPool,
         pool_label: &str,
@@ -112,6 +113,10 @@ impl PostgresStorage {
                 (
                     "client".to_string(),
                     personhog_common::grpc::current_client_name().to_string(),
+                ),
+                (
+                    "method".to_string(),
+                    personhog_common::grpc::current_method_name().to_string(),
                 ),
             ],
             elapsed_ms,

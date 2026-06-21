@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 import React, { useMemo } from 'react'
 
+import { AnomalyPointsLayer, ReferenceLines } from '@posthog/quill-charts'
+
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
-import { AnomalyPointsLayer, ReferenceLines } from 'lib/hog-charts'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import type { InsightLogicProps } from '~/types'

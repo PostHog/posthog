@@ -39,6 +39,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     getGroupTypeMappingsByProjectId: () => ({ mappings: [] }),
     getGroupTypeMappingsByProjectIds: () => ({ results: [] }),
     getGroupTypeMappingByDashboardId: () => ({}),
+    countGroupTypeMappings: () => ({ counts: [] }),
     createGroup: () => ({}),
     updateGroup: () => ({ updated: false }),
     deleteGroupsBatchForTeam: () => ({ deletedCount: 0n }),
@@ -66,6 +67,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     updatePersonProperties: () => ({}),
     deletePersons: () => ({ deletedCount: 0n }),
     deletePersonsBatchForTeam: () => ({ deletedCount: 0n }),
+    splitPerson: () => ({ splits: [] }),
 }
 
 function createOperations(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): {

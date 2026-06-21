@@ -1,14 +1,24 @@
-from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 import structlog
 
+# DRF's ValidationError (not Django's) so save() raise sites surface as 400s via the DRF exception
+# handler — Django's variant falls through to the unhandled-exception path and returns a 500.
+from rest_framework.exceptions import ValidationError
+
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
 
-from .evaluation_configs import EvaluationType, OutputType, validate_evaluation_configs
+from .evaluation_configs import (
+    EVALUATION_CONFIG_MODELS,
+    EvaluationType,
+    OutputType,
+    evaluation_configs_allow_empty,
+    evaluation_uses_model_configuration,
+    validate_evaluation_configs,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -152,8 +162,18 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         # either field — typically `enabled` from user PATCHes, `status` from system transitions.
         self._coerce_status_and_enabled()
 
-        # Validate evaluation and output configs
-        if self.evaluation_config or self.output_config:
+        if not evaluation_uses_model_configuration(self.evaluation_type) and self.model_configuration_id:
+            raise ValidationError({"model_configuration": "This evaluation type does not use model configuration."})
+
+        if (self.evaluation_type, self.output_type) not in EVALUATION_CONFIG_MODELS:
+            raise ValidationError(f"Unsupported combination: {self.evaluation_type} + {self.output_type}")
+
+        # Validate configs when callers provide them, or when the selected config models can supply every default.
+        if (
+            evaluation_configs_allow_empty(self.evaluation_type, self.output_type)
+            or self.evaluation_config
+            or self.output_config
+        ):
             try:
                 self.evaluation_config, self.output_config = validate_evaluation_configs(
                     self.evaluation_type, self.output_type, self.evaluation_config, self.output_config

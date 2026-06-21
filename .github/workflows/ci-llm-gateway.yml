@@ -65,7 +65,8 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: '3.12'
+                  python-version: '3.13.13'
+                  token: ${{ github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -81,6 +82,7 @@ jobs:
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
                   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
                   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+                  AWS_DEFAULT_REGION: us-east-1
               run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
 
             - name: Upload test results

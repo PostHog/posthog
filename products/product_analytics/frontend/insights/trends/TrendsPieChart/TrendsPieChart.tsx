@@ -2,9 +2,10 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
+import { PieChart } from '@posthog/quill-charts'
+import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
+
 import { buildTheme } from 'lib/charts/utils/theme'
-import { PieChart } from 'lib/hog-charts'
-import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from 'lib/hog-charts'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
@@ -43,11 +44,7 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
     })
 }
 
-export function TrendsPieChart({
-    context,
-    inSharedMode = false,
-    showPersonsModal = true,
-}: TrendsPieChartProps): JSX.Element | null {
+export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieChartProps): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
@@ -64,6 +61,8 @@ export function TrendsPieChart({
         formula,
         showValuesOnSeries,
         showLabelOnSeries,
+        showPercentStackView,
+        supportsPercentStackView,
         pieChartVizOptions,
         hasDataWarehouseSeries,
         querySource,
@@ -72,6 +71,8 @@ export function TrendsPieChart({
         getTrendsColor,
         getTrendsHidden,
     } = useValues(trendsDataLogic(insightProps))
+
+    const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
 
     const resolvedGroupTypeLabel =
         context?.groupTypeLabel ??
@@ -126,9 +127,10 @@ export function TrendsPieChart({
         () => ({
             showValueOnSlice: !!showValuesOnSeries,
             showLabelOnSlice: !!showLabelOnSeries,
+            isPercent: isPercentStackView,
             disableHoverOffset: !!pieChartVizOptions?.disableHoverOffset,
         }),
-        [showValuesOnSeries, showLabelOnSeries, pieChartVizOptions?.disableHoverOffset]
+        [showValuesOnSeries, showLabelOnSeries, isPercentStackView, pieChartVizOptions?.disableHoverOffset]
     )
 
     // ActionsPie disables clicks entirely when the insight has data-warehouse series (see
@@ -233,7 +235,10 @@ export function TrendsPieChart({
     }
 
     return (
-        <div className={`flex flex-col w-full h-full ${inSharedMode ? 'ActionsPie--shared' : 'ActionsPie'}`}>
+        // `flex-1 min-h-0` (not `h-full`) so the chart fills the flex column even when the
+        // parent only sets `min-height`/`flex` — a percentage height would collapse to 0,
+        // leaving `PieChart` with `outerRadius <= 0` and no slices. Mirrors the bar/line charts.
+        <div className="flex flex-col w-full flex-1 min-h-0">
             <PieChart<TrendsSeriesMeta>
                 series={series}
                 theme={theme}

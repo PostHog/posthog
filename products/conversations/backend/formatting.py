@@ -511,6 +511,10 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
                         section_elements.append({"type": "link", "url": src, "text": alt})
 
             if section_elements:
+                if rich_text_elements:
+                    rich_text_elements.append(
+                        {"type": "rich_text_section", "elements": [{"type": "text", "text": "\n"}]}
+                    )
                 rich_text_elements.append({"type": "rich_text_section", "elements": section_elements})
             continue
 

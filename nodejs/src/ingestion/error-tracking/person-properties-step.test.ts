@@ -5,14 +5,14 @@ import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson } from '~/types'
 import {
     InternalPersonWithDistinctId,
-    PersonRepository,
+    PersonReadRepository,
 } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { PipelineResultType, isOkResult } from '../pipelines/results'
 import { createFetchPersonBatchStep } from './person-properties-step'
 
 describe('createFetchPersonBatchStep', () => {
-    let mockPersonRepository: jest.Mocked<PersonRepository>
+    let mockPersonRepository: jest.Mocked<PersonReadRepository>
     let step: ReturnType<typeof createFetchPersonBatchStep>
 
     const team = createTestTeam({ id: 123 })
@@ -38,18 +38,6 @@ describe('createFetchPersonBatchStep', () => {
             fetchPersonsByDistinctIds: jest.fn(),
             fetchPersonsByPersonIds: jest.fn(),
             fetchDistinctIdsForPersons: jest.fn(),
-            createPerson: jest.fn(),
-            updatePerson: jest.fn(),
-            updatePersonAssertVersion: jest.fn(),
-            updatePersonsBatch: jest.fn(),
-            deletePerson: jest.fn(),
-            addDistinctId: jest.fn(),
-            addPersonlessDistinctId: jest.fn(),
-            addPersonlessDistinctIdForMerge: jest.fn(),
-            addPersonlessDistinctIdsBatch: jest.fn(),
-            personPropertiesSize: jest.fn(),
-            updateCohortsAndFeatureFlagsForMerge: jest.fn(),
-            inTransaction: jest.fn(),
         }
         step = createFetchPersonBatchStep(mockPersonRepository)
     })
@@ -102,7 +90,6 @@ describe('createFetchPersonBatchStep', () => {
                 { teamId: 123, distinctId: 'user-1' },
                 { teamId: 123, distinctId: 'user-2' },
             ],
-            true, // useReadReplica
             'error-tracking/person-properties'
         )
     })
@@ -205,7 +192,6 @@ describe('createFetchPersonBatchStep', () => {
         // Should only query for the event with distinct_id
         expect(mockPersonRepository.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
             [{ teamId: 123, distinctId: 'user-123' }],
-            true,
             'error-tracking/person-properties'
         )
     })

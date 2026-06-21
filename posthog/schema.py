@@ -5,76 +5,296 @@
 
 from __future__ import annotations
 
-from enum import Enum, StrEnum
 from typing import Annotated, Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
 
+from posthog.schema_enums import (
+    Action as Action,
+    Action1 as Action1,
+    AgentMode as AgentMode,
+    AggregationAxisFormat as AggregationAxisFormat,
+    AggregationPropertyType as AggregationPropertyType,
+    AggregationType as AggregationType,
+    AIEventType as AIEventType,
+    AlertCalculationInterval as AlertCalculationInterval,
+    AlertConditionType as AlertConditionType,
+    AlertState as AlertState,
+    ApprovalDecisionStatus as ApprovalDecisionStatus,
+    ArtifactContentType as ArtifactContentType,
+    ArtifactSource as ArtifactSource,
+    AssistantArrayPropertyFilterOperator as AssistantArrayPropertyFilterOperator,
+    AssistantDataVisualizationDisplayType as AssistantDataVisualizationDisplayType,
+    AssistantDateTimePropertyFilterOperator as AssistantDateTimePropertyFilterOperator,
+    AssistantEventMultipleBreakdownFilterType as AssistantEventMultipleBreakdownFilterType,
+    AssistantEventType as AssistantEventType,
+    AssistantFunnelsBreakdownType as AssistantFunnelsBreakdownType,
+    AssistantFunnelsMath as AssistantFunnelsMath,
+    AssistantGenerationStatusType as AssistantGenerationStatusType,
+    AssistantGenericPropertyFilterType as AssistantGenericPropertyFilterType,
+    AssistantLifecycleStatus as AssistantLifecycleStatus,
+    AssistantMessageType as AssistantMessageType,
+    AssistantNavigateUrl as AssistantNavigateUrl,
+    AssistantNumericValuePropertyFilterOperator as AssistantNumericValuePropertyFilterOperator,
+    AssistantSetPropertyFilterOperator as AssistantSetPropertyFilterOperator,
+    AssistantStickinessDisplayType as AssistantStickinessDisplayType,
+    AssistantStringOrBooleanValuePropertyFilterOperator as AssistantStringOrBooleanValuePropertyFilterOperator,
+    AssistantTool as AssistantTool,
+    AttributionMode as AttributionMode,
+    AutocompleteCompletionItemKind as AutocompleteCompletionItemKind,
+    BaseMathType as BaseMathType,
+    BillingSpendResponseBreakdownType as BillingSpendResponseBreakdownType,
+    BillingUsageResponseBreakdownType as BillingUsageResponseBreakdownType,
+    BingAdsDefaultSources as BingAdsDefaultSources,
+    BingAdsTableExclusions as BingAdsTableExclusions,
+    BingAdsTableKeywords as BingAdsTableKeywords,
+    BounceRatePageViewMode as BounceRatePageViewMode,
+    BreakdownAttributionType as BreakdownAttributionType,
+    BreakdownType as BreakdownType,
+    CalendarHeatmapMathType as CalendarHeatmapMathType,
+    ChartDisplayCategory as ChartDisplayCategory,
+    ChartDisplayType as ChartDisplayType,
+    ColorMode as ColorMode,
+    Compare as Compare,
+    ConversionRateInputType as ConversionRateInputType,
+    CoreEventCategory as CoreEventCategory,
+    CorrelationType as CorrelationType,
+    CountPerActorMathType as CountPerActorMathType,
+    CurrencyCode as CurrencyCode,
+    CustomChannelField as CustomChannelField,
+    CustomChannelOperator as CustomChannelOperator,
+    DatabaseSchemaManagedViewTableKind as DatabaseSchemaManagedViewTableKind,
+    DatabaseSchemaTableType as DatabaseSchemaTableType,
+    DatabaseSerializedFieldType as DatabaseSerializedFieldType,
+    DataColorToken as DataColorToken,
+    DataTableNodeViewPropsContextType as DataTableNodeViewPropsContextType,
+    DataWarehouseSavedQueryOrigin as DataWarehouseSavedQueryOrigin,
+    DataWarehouseSourceCategory as DataWarehouseSourceCategory,
+    DeepResearchType as DeepResearchType,
+    DefaultChannelTypes as DefaultChannelTypes,
+    DetailedResultsAggregationType as DetailedResultsAggregationType,
+    DetectorType as DetectorType,
+    Display as Display,
+    Display1 as Display1,
+    DisplayType as DisplayType,
+    DistanceFunc as DistanceFunc,
+    DomainConnectProviderName as DomainConnectProviderName,
+    DurationType as DurationType,
+    EmbeddingModelName as EmbeddingModelName,
+    EndpointRefreshMode as EndpointRefreshMode,
+    EndpointsUsageBreakdown as EndpointsUsageBreakdown,
+    EndpointsUsageOrderByDirection as EndpointsUsageOrderByDirection,
+    EndpointsUsageOrderByField as EndpointsUsageOrderByField,
+    EndpointsUsageOverviewItemKey as EndpointsUsageOverviewItemKey,
+    EnsembleOperator as EnsembleOperator,
+    EntityType as EntityType,
+    ErrorTrackingIssueAssigneeType as ErrorTrackingIssueAssigneeType,
+    ErrorTrackingIssueStatus as ErrorTrackingIssueStatus,
+    ErrorTrackingOrderBy as ErrorTrackingOrderBy,
+    EvaluationRuntime as EvaluationRuntime,
+    ExperimentMetricGoal as ExperimentMetricGoal,
+    ExperimentMetricMathType as ExperimentMetricMathType,
+    ExperimentMetricType as ExperimentMetricType,
+    ExperimentSignificanceCode as ExperimentSignificanceCode,
+    ExperimentStatsMethod as ExperimentStatsMethod,
+    ExperimentStatsValidationFailure as ExperimentStatsValidationFailure,
+    ExternalDataSourceType as ExternalDataSourceType,
+    ExternalQueryErrorCode as ExternalQueryErrorCode,
+    ExternalQueryStatus as ExternalQueryStatus,
+    FileSystemIconType as FileSystemIconType,
+    FilterLogicalOperator as FilterLogicalOperator,
+    FunnelAggregateByHogQL as FunnelAggregateByHogQL,
+    FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
+    FunnelCorrelationResultsType as FunnelCorrelationResultsType,
+    FunnelLayout as FunnelLayout,
+    FunnelMathType as FunnelMathType,
+    FunnelPathType as FunnelPathType,
+    FunnelStepReference as FunnelStepReference,
+    FunnelVizType as FunnelVizType,
+    Goal as Goal,
+    GoogleAdsDefaultSources as GoogleAdsDefaultSources,
+    GoogleAdsTableExclusions as GoogleAdsTableExclusions,
+    GoogleAdsTableKeywords as GoogleAdsTableKeywords,
+    GradientScaleMode as GradientScaleMode,
+    HealthCheckSeverity as HealthCheckSeverity,
+    HeatmapSortOrder as HeatmapSortOrder,
+    HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
+    HedgehogActorColorOption as HedgehogActorColorOption,
+    HedgehogActorSkinOption as HedgehogActorSkinOption,
+    HideViewedRecordings as HideViewedRecordings,
+    HogLanguage as HogLanguage,
+    HogQLAlertEvaluation as HogQLAlertEvaluation,
+    HrefMatching as HrefMatching,
+    InCohortVia as InCohortVia,
+    InfinityValue as InfinityValue,
+    InlineCohortCalculation as InlineCohortCalculation,
+    InsightFilterProperty as InsightFilterProperty,
+    InsightNodeKind as InsightNodeKind,
+    InsightThresholdType as InsightThresholdType,
+    IntegrationKind as IntegrationKind,
+    IntervalType as IntervalType,
+    Key as Key,
+    Key5 as Key5,
+    Key10 as Key10,
+    Kind as Kind,
+    Kind1 as Kind1,
+    LegendPosition as LegendPosition,
+    LifecycleToggle as LifecycleToggle,
+    LimitContext as LimitContext,
+    LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
+    LinkedinAdsTableExclusions as LinkedinAdsTableExclusions,
+    LinkedinAdsTableKeywords as LinkedinAdsTableKeywords,
+    LogPropertyFilterType as LogPropertyFilterType,
+    LogSeverityLevel as LogSeverityLevel,
+    LogsOrderBy as LogsOrderBy,
+    LogsSparklineBreakdownBy as LogsSparklineBreakdownBy,
+    ManualMetricType as ManualMetricType,
+    MarketingAnalyticsBaseColumns as MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsColumnsSchemaNames as MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsConstants as MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel as MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsOrderByEnum as MarketingAnalyticsOrderByEnum,
+    MarketingAnalyticsSchemaFieldTypes as MarketingAnalyticsSchemaFieldTypes,
+    MatchedOn as MatchedOn,
+    MatchField as MatchField,
+    MaterializationMode as MaterializationMode,
+    MaterializationType as MaterializationType,
+    MaterializedColumnsOptimizationMode as MaterializedColumnsOptimizationMode,
+    MathGroupTypeIndex as MathGroupTypeIndex,
+    MaxBillingContextBillingPeriodInterval as MaxBillingContextBillingPeriodInterval,
+    MaxBillingContextSubscriptionLevel as MaxBillingContextSubscriptionLevel,
+    MeanRetentionCalculation as MeanRetentionCalculation,
+    MetaAdsConversionFallbackActionTypes as MetaAdsConversionFallbackActionTypes,
+    MetaAdsConversionOmniActionTypes as MetaAdsConversionOmniActionTypes,
+    MetaAdsConversionSpecificActionTypes as MetaAdsConversionSpecificActionTypes,
+    MetaAdsDefaultSources as MetaAdsDefaultSources,
+    MetaAdsTableExclusions as MetaAdsTableExclusions,
+    MetaAdsTableKeywords as MetaAdsTableKeywords,
+    Method as Method,
+    Metric as Metric,
+    MetricSummary as MetricSummary,
+    MrrOrGross as MrrOrGross,
+    MultipleBreakdownType as MultipleBreakdownType,
+    MultipleVariantHandling as MultipleVariantHandling,
+    MultiQuestionFormFieldType as MultiQuestionFormFieldType,
+    MultiQuestionFormQuestionType as MultiQuestionFormQuestionType,
+    NativeMarketingSource as NativeMarketingSource,
+    NodeKind as NodeKind,
+    NonIntegratedConversionsColumnsSchemaNames as NonIntegratedConversionsColumnsSchemaNames,
+    Operator as Operator,
+    OrderBy as OrderBy,
+    OrderDirection as OrderDirection,
+    OrderDirection1 as OrderDirection1,
+    OrderDirection2 as OrderDirection2,
+    ParserMode as ParserMode,
+    PathType as PathType,
+    PersonsArgMaxVersion as PersonsArgMaxVersion,
+    PersonsJoinMode as PersonsJoinMode,
+    PersonsOnEventsMode as PersonsOnEventsMode,
+    PinterestAdsDefaultSources as PinterestAdsDefaultSources,
+    PinterestAdsTableExclusions as PinterestAdsTableExclusions,
+    PinterestAdsTableKeywords as PinterestAdsTableKeywords,
+    PlanningStepStatus as PlanningStepStatus,
+    Position as Position,
+    PrecomputationMode as PrecomputationMode,
+    Priority as Priority,
+    ProblemType as ProblemType,
+    ProductIntentContext as ProductIntentContext,
+    ProductItemCategory as ProductItemCategory,
+    ProductKey as ProductKey,
+    PropertyFilterType as PropertyFilterType,
+    PropertyGroupsMode as PropertyGroupsMode,
+    PropertyMathType as PropertyMathType,
+    PropertyOperator as PropertyOperator,
+    PropertyType as PropertyType,
+    QueryIndexUsage as QueryIndexUsage,
+    QuickFilterContext as QuickFilterContext,
+    QuickFilterType as QuickFilterType,
+    RecordingOrder as RecordingOrder,
+    RecordingOrderDirection as RecordingOrderDirection,
+    RedditAdsDefaultSources as RedditAdsDefaultSources,
+    RedditAdsTableExclusions as RedditAdsTableExclusions,
+    RedditAdsTableKeywords as RedditAdsTableKeywords,
+    RefreshType as RefreshType,
+    ReleaseStatus as ReleaseStatus,
+    ResultCustomizationBy as ResultCustomizationBy,
+    RetentionDashboardDisplayType as RetentionDashboardDisplayType,
+    RetentionEntityKind as RetentionEntityKind,
+    RetentionPeriod as RetentionPeriod,
+    RetentionReference as RetentionReference,
+    RetentionType as RetentionType,
+    RevenueAnalyticsOverviewItemKey as RevenueAnalyticsOverviewItemKey,
+    RevenueAnalyticsTopCustomersGroupBy as RevenueAnalyticsTopCustomersGroupBy,
+    Scale as Scale,
+    SessionAttributionGroupBy as SessionAttributionGroupBy,
+    SessionsV2JoinMode as SessionsV2JoinMode,
+    SessionTableVersion as SessionTableVersion,
+    Severity as Severity,
+    SignalSourceProduct as SignalSourceProduct,
+    SignalSourceType as SignalSourceType,
+    SimpleIntervalType as SimpleIntervalType,
+    SlackIntegrationScope as SlackIntegrationScope,
+    SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
+    SlashCommandName as SlashCommandName,
+    SnapchatAdsConversionFields as SnapchatAdsConversionFields,
+    SnapchatAdsConversionValueFields as SnapchatAdsConversionValueFields,
+    SnapchatAdsDefaultSources as SnapchatAdsDefaultSources,
+    SnapchatAdsTableExclusions as SnapchatAdsTableExclusions,
+    SnapchatAdsTableKeywords as SnapchatAdsTableKeywords,
+    SnapshotSource as SnapshotSource,
+    SourceFieldInputConfigType as SourceFieldInputConfigType,
+    SourceFieldSelectConfigConverter as SourceFieldSelectConfigConverter,
+    SourceType as SourceType,
+    SpanPropertyFilterType as SpanPropertyFilterType,
+    StartHandling as StartHandling,
+    Status as Status,
+    StepOrderValue as StepOrderValue,
+    StickinessComputationMode as StickinessComputationMode,
+    StickinessOperator as StickinessOperator,
+    Style as Style,
+    SubscriptionDropoffMode as SubscriptionDropoffMode,
+    SurveyMatchType as SurveyMatchType,
+    SurveyPosition as SurveyPosition,
+    SurveyQuestionBranchingType as SurveyQuestionBranchingType,
+    SurveyQuestionDescriptionContentType as SurveyQuestionDescriptionContentType,
+    SurveyQuestionType as SurveyQuestionType,
+    SurveyTabPosition as SurveyTabPosition,
+    SurveyType as SurveyType,
+    SurveyWidgetType as SurveyWidgetType,
+    SymbolStatsGranularity as SymbolStatsGranularity,
+    Tag as Tag,
+    TaskExecutionStatus as TaskExecutionStatus,
+    TaxonomicFilterGroupType as TaxonomicFilterGroupType,
+    TextMatching as TextMatching,
+    Theme as Theme,
+    ThresholdOperator as ThresholdOperator,
+    TikTokAdsDefaultSources as TikTokAdsDefaultSources,
+    TikTokAdsTableExclusions as TikTokAdsTableExclusions,
+    TikTokAdsTableKeywords as TikTokAdsTableKeywords,
+    TimeWindowMode as TimeWindowMode,
+    TraceOrderColumn as TraceOrderColumn,
+    TraceSpanBreakdownOrderBy as TraceSpanBreakdownOrderBy,
+    TraceSpanBreakdownType as TraceSpanBreakdownType,
+    UrlMatching as UrlMatching,
+    UsageMetricDisplay as UsageMetricDisplay,
+    UsageMetricFormat as UsageMetricFormat,
+    UserProductListReason as UserProductListReason,
+    WebAnalyticsItemKind as WebAnalyticsItemKind,
+    WebAnalyticsOrderByDirection as WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields as WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy as WebAnalyticsPreComputeStrategy,
+    WebsiteBrowsingHistoryProdInterest as WebsiteBrowsingHistoryProdInterest,
+    WebStatsBreakdown as WebStatsBreakdown,
+    WebVitalsMetric as WebVitalsMetric,
+    WebVitalsMetricBand as WebVitalsMetricBand,
+    WebVitalsPercentile as WebVitalsPercentile,
+    YAxisPosition as YAxisPosition,
+    YAxisScaleType as YAxisScaleType,
+)
+
 
 class SchemaRoot(RootModel[Any]):
     root: Any
-
-
-class AIEventType(StrEnum):
-    FIELD_AI_GENERATION = "$ai_generation"
-    FIELD_AI_EMBEDDING = "$ai_embedding"
-    FIELD_AI_SPAN = "$ai_span"
-    FIELD_AI_TRACE = "$ai_trace"
-    FIELD_AI_METRIC = "$ai_metric"
-    FIELD_AI_FEEDBACK = "$ai_feedback"
-    FIELD_AI_EVALUATION = "$ai_evaluation"
-    FIELD_AI_TAG = "$ai_tag"
-    FIELD_AI_TRACE_SUMMARY = "$ai_trace_summary"
-    FIELD_AI_GENERATION_SUMMARY = "$ai_generation_summary"
-    FIELD_AI_TRACE_CLUSTERS = "$ai_trace_clusters"
-    FIELD_AI_GENERATION_CLUSTERS = "$ai_generation_clusters"
-
-
-class MathGroupTypeIndex(float, Enum):
-    NUMBER_0 = 0
-    NUMBER_1 = 1
-    NUMBER_2 = 2
-    NUMBER_3 = 3
-    NUMBER_4 = 4
-
-
-class AgentMode(StrEnum):
-    PRODUCT_ANALYTICS = "product_analytics"
-    SQL = "sql"
-    SESSION_REPLAY = "session_replay"
-    ERROR_TRACKING = "error_tracking"
-    PLAN = "plan"
-    EXECUTION = "execution"
-    SURVEY = "survey"
-    RESEARCH = "research"
-    FLAGS = "flags"
-    LLM_ANALYTICS = "llm_analytics"
-    SANDBOX = "sandbox"
-    USER_INTERVIEW = "user_interview"
-
-
-class AggregationAxisFormat(StrEnum):
-    NUMERIC = "numeric"
-    DURATION = "duration"
-    DURATION_MS = "duration_ms"
-    PERCENTAGE = "percentage"
-    PERCENTAGE_SCALED = "percentage_scaled"
-    CURRENCY = "currency"
-    SHORT = "short"
-
-
-class AlertCalculationInterval(StrEnum):
-    EVERY_15_MINUTES = "every_15_minutes"
-    HOURLY = "hourly"
-    DAILY = "daily"
-    WEEKLY = "weekly"
-    MONTHLY = "monthly"
-
-
-class AlertConditionType(StrEnum):
-    ABSOLUTE_VALUE = "absolute_value"
-    RELATIVE_INCREASE = "relative_increase"
-    RELATIVE_DECREASE = "relative_decrease"
 
 
 class AlertScheduleRestrictionWindow(BaseModel):
@@ -83,25 +303,6 @@ class AlertScheduleRestrictionWindow(BaseModel):
     )
     end: str
     start: str
-
-
-class AlertState(StrEnum):
-    FIRING = "Firing"
-    NOT_FIRING = "Not firing"
-    ERRORED = "Errored"
-    SNOOZED = "Snoozed"
-
-
-class ApprovalDecisionStatus(StrEnum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    AUTO_REJECTED = "auto_rejected"
-
-
-class Action(StrEnum):
-    APPROVE = "approve"
-    REJECT = "reject"
 
 
 class ApprovalResumePayload(BaseModel):
@@ -114,44 +315,11 @@ class ApprovalResumePayload(BaseModel):
     proposal_id: str
 
 
-class ArtifactContentType(StrEnum):
-    VISUALIZATION = "visualization"
-    NOTEBOOK = "notebook"
-
-
-class ArtifactSource(StrEnum):
-    ARTIFACT = "artifact"
-    INSIGHT = "insight"
-    STATE = "state"
-
-
-class AssistantArrayPropertyFilterOperator(StrEnum):
-    EXACT = "exact"
-    IS_NOT = "is_not"
-
-
 class AssistantBaseMultipleBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     property: str = Field(..., description="Property name from the plan to break down by.")
-
-
-class Operator(StrEnum):
-    IN_ = "in"
-    NOT_IN = "not_in"
-
-
-class DisplayType(StrEnum):
-    AUTO = "auto"
-    LINE = "line"
-    BAR = "bar"
-    AREA = "area"
-
-
-class YAxisPosition(StrEnum):
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
@@ -185,13 +353,6 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     )
 
 
-class Style(StrEnum):
-    NONE = "none"
-    NUMBER = "number"
-    SHORT = "short"
-    PERCENT = "percent"
-
-
 class AssistantDataVisualizationAxisFormatting(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -223,27 +384,12 @@ class AssistantDataVisualizationAxisSettings(BaseModel):
     )
 
 
-class AssistantDataVisualizationDisplayType(StrEnum):
-    ACTIONS_TABLE = "ActionsTable"
-    BOLD_NUMBER = "BoldNumber"
-    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
-    ACTIONS_BAR = "ActionsBar"
-    ACTIONS_STACKED_BAR = "ActionsStackedBar"
-    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
-    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
-
-
 class AssistantDataVisualizationGoalLine(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     label: str = Field(..., description="Label rendered next to the goal line.")
     value: float = Field(..., description="Y-axis value at which the goal line is drawn.")
-
-
-class Scale(StrEnum):
-    LINEAR = "linear"
-    LOGARITHMIC = "logarithmic"
 
 
 class AssistantDataVisualizationYAxisSettings(BaseModel):
@@ -265,12 +411,6 @@ class AssistantDateRange(BaseModel):
     date_to: str | None = Field(default=None, description="ISO8601 date string.")
 
 
-class AssistantDateTimePropertyFilterOperator(StrEnum):
-    IS_DATE_EXACT = "is_date_exact"
-    IS_DATE_BEFORE = "is_date_before"
-    IS_DATE_AFTER = "is_date_after"
-
-
 class AssistantDurationRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -285,13 +425,6 @@ class AssistantDurationRange(BaseModel):
             " `-1dStart` yesterday's start."
         ),
     )
-
-
-class Key(StrEnum):
-    TAG_NAME = "tag_name"
-    TEXT = "text"
-    HREF = "href"
-    SELECTOR = "selector"
 
 
 class AssistantElementPropertyFilter3(BaseModel):
@@ -354,33 +487,6 @@ class AssistantElementPropertyFilter4(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class OrderDirection(StrEnum):
-    ASC = "ASC"
-    DESC = "DESC"
-
-
-class AssistantEventMultipleBreakdownFilterType(StrEnum):
-    PERSON = "person"
-    EVENT = "event"
-    EVENT_METADATA = "event_metadata"
-    SESSION = "session"
-    HOGQL = "hogql"
-    COHORT = "cohort"
-    REVENUE_ANALYTICS = "revenue_analytics"
-    DATA_WAREHOUSE = "data_warehouse"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
-
-
-class AssistantEventType(StrEnum):
-    STATUS = "status"
-    MESSAGE = "message"
-    CONVERSATION = "conversation"
-    NOTEBOOK = "notebook"
-    UPDATE = "update"
-    APPROVAL = "approval"
-    SANDBOX = "sandbox"
-
-
 class AssistantFlagPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -421,41 +527,12 @@ class AssistantFormOption(BaseModel):
     )
 
 
-class AssistantFunnelsBreakdownType(StrEnum):
-    PERSON = "person"
-    EVENT = "event"
-    GROUP = "group"
-    SESSION = "session"
-
-
-class FunnelAggregateByHogQL(Enum):
-    PROPERTIES__SESSION_ID = "properties.$session_id"
-    NONE_TYPE_NONE = None
-
-
-class AssistantFunnelsMath(StrEnum):
-    FIRST_TIME_FOR_USER = "first_time_for_user"
-    FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
-
-
-class AssistantGenerationStatusType(StrEnum):
-    ACK = "ack"
-    GENERATION_ERROR = "generation_error"
-
-
 class AssistantGenericMultipleBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     property: str = Field(..., description="Property name from the plan to break down by.")
     type: AssistantEventMultipleBreakdownFilterType
-
-
-class AssistantGenericPropertyFilterType(StrEnum):
-    EVENT = "event"
-    PERSON = "person"
-    SESSION = "session"
-    FEATURE = "feature"
 
 
 class AssistantHogQLPropertyFilter(BaseModel):
@@ -509,73 +586,6 @@ class AssistantInsightVizNode(BaseModel):
     )
 
 
-class AssistantLifecycleStatus(StrEnum):
-    NEW = "new"
-    RETURNING = "returning"
-    RESURRECTING = "resurrecting"
-    DORMANT = "dormant"
-
-
-class AssistantMessageType(StrEnum):
-    HUMAN = "human"
-    TOOL = "tool"
-    CONTEXT = "context"
-    AI = "ai"
-    AI_REASONING = "ai/reasoning"
-    AI_VIZ = "ai/viz"
-    AI_MULTI_VIZ = "ai/multi_viz"
-    AI_ARTIFACT = "ai/artifact"
-    AI_FAILURE = "ai/failure"
-    AI_NOTEBOOK = "ai/notebook"
-    AI_PLANNING = "ai/planning"
-    AI_TASK_EXECUTION = "ai/task_execution"
-
-
-class AssistantNavigateUrl(StrEnum):
-    ACTIONS = "actions"
-    ACTIVITY = "activity"
-    ALERTS = "alerts"
-    ANNOTATIONS = "annotations"
-    CREATE_ACTION = "createAction"
-    COHORTS = "cohorts"
-    DASHBOARDS = "dashboards"
-    DATABASE = "database"
-    EARLY_ACCESS_FEATURES = "earlyAccessFeatures"
-    EVENT_DEFINITIONS = "eventDefinitions"
-    ERROR_TRACKING = "errorTracking"
-    EXPERIMENTS = "experiments"
-    FEATURE_FLAGS = "featureFlags"
-    GAME368HEDGEHOGS = "game368hedgehogs"
-    HEATMAPS = "heatmaps"
-    INGESTION_WARNINGS = "ingestionWarnings"
-    INSIGHTS = "insights"
-    INSIGHT_NEW = "insightNew"
-    PIPELINE = "pipeline"
-    PROJECT_HOMEPAGE = "projectHomepage"
-    PROPERTY_DEFINITIONS = "propertyDefinitions"
-    MAX = "max"
-    NOTEBOOKS = "notebooks"
-    REPLAY = "replay"
-    REPLAY_SETTINGS = "replaySettings"
-    REVENUE_ANALYTICS = "revenueAnalytics"
-    SAVED_INSIGHTS = "savedInsights"
-    SETTINGS = "settings"
-    SQL_EDITOR = "sqlEditor"
-    SURVEYS = "surveys"
-    TOOLBAR_LAUNCH = "toolbarLaunch"
-    WEB_ANALYTICS = "webAnalytics"
-    WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
-    WEB_ANALYTICS_HEALTH = "webAnalyticsHealth"
-    WEB_ANALYTICS_LIVE = "webAnalyticsLive"
-    PERSONS = "persons"
-
-
-class AssistantNumericValuePropertyFilterOperator(StrEnum):
-    EXACT = "exact"
-    GT = "gt"
-    LT = "lt"
-
-
 class AssistantPathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -597,20 +607,6 @@ class AssistantPathCleaningFilter(BaseModel):
             " to match any user profile URL."
         ),
     )
-
-
-class Key5(StrEnum):
-    DURATION = "duration"
-    ACTIVE_SECONDS = "active_seconds"
-    INACTIVE_SECONDS = "inactive_seconds"
-    CONSOLE_ERROR_COUNT = "console_error_count"
-    CONSOLE_LOG_COUNT = "console_log_count"
-    CONSOLE_WARN_COUNT = "console_warn_count"
-    CLICK_COUNT = "click_count"
-    KEYPRESS_COUNT = "keypress_count"
-    ACTIVITY_SCORE = "activity_score"
-    VISITED_PAGE = "visited_page"
-    SNAPSHOT_SOURCE = "snapshot_source"
 
 
 class AssistantRecordingPropertyFilter2(BaseModel):
@@ -695,121 +691,6 @@ class AssistantRecordingPropertyFilter4(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
-class AggregationPropertyType(StrEnum):
-    EVENT = "event"
-    PERSON = "person"
-    DATA_WAREHOUSE = "data_warehouse"
-
-
-class AggregationType(StrEnum):
-    COUNT = "count"
-    SUM = "sum"
-    AVG = "avg"
-
-
-class MeanRetentionCalculation(StrEnum):
-    SIMPLE = "simple"
-    WEIGHTED = "weighted"
-    NONE = "none"
-
-
-class RetentionReference(StrEnum):
-    TOTAL = "total"
-    PREVIOUS = "previous"
-
-
-class TimeWindowMode(StrEnum):
-    STRICT_CALENDAR_DATES = "strict_calendar_dates"
-    FIELD_24_HOUR_WINDOWS = "24_hour_windows"
-
-
-class AssistantSetPropertyFilterOperator(StrEnum):
-    IS_SET = "is_set"
-    IS_NOT_SET = "is_not_set"
-
-
-class AssistantStickinessDisplayType(StrEnum):
-    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
-    ACTIONS_BAR = "ActionsBar"
-    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
-
-
-class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
-    EXACT = "exact"
-    IS_NOT = "is_not"
-    ICONTAINS = "icontains"
-    NOT_ICONTAINS = "not_icontains"
-    REGEX = "regex"
-    NOT_REGEX = "not_regex"
-
-
-class AssistantTool(StrEnum):
-    SEARCH_SESSION_RECORDINGS = "search_session_recordings"
-    FIX_HOGQL_QUERY = "fix_hogql_query"
-    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
-    CREATE_USER_INTERVIEW_TOPIC = "create_user_interview_topic"
-    CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
-    CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
-    CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
-    CREATE_MESSAGE_TEMPLATE = "create_message_template"
-    FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
-    SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
-    FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
-    EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
-    EXPERIMENT_SESSION_REPLAYS_SUMMARY = "experiment_session_replays_summary"
-    CREATE_SURVEY = "create_survey"
-    EDIT_SURVEY = "edit_survey"
-    ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
-    READ_TAXONOMY = "read_taxonomy"
-    SEARCH = "search"
-    READ_DATA = "read_data"
-    TODO_WRITE = "todo_write"
-    FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
-    FILTER_WEB_ANALYTICS = "filter_web_analytics"
-    CREATE_FEATURE_FLAG = "create_feature_flag"
-    CREATE_EXPERIMENT = "create_experiment"
-    CREATE_TASK = "create_task"
-    RUN_TASK = "run_task"
-    GET_TASK_RUN = "get_task_run"
-    GET_TASK_RUN_LOGS = "get_task_run_logs"
-    LIST_TASKS = "list_tasks"
-    LIST_TASK_RUNS = "list_task_runs"
-    LIST_REPOSITORIES = "list_repositories"
-    WEB_SEARCH = "web_search"
-    EXECUTE_SQL = "execute_sql"
-    SWITCH_MODE = "switch_mode"
-    SUMMARIZE_SESSIONS = "summarize_sessions"
-    FILTER_SESSION_RECORDINGS = "filter_session_recordings"
-    CREATE_INSIGHT = "create_insight"
-    CREATE_FORM = "create_form"
-    TASK = "task"
-    UPSERT_DASHBOARD = "upsert_dashboard"
-    MANAGE_MEMORIES = "manage_memories"
-    CREATE_NOTEBOOK = "create_notebook"
-    LIST_DATA = "list_data"
-    UPSERT_ALERT = "upsert_alert"
-    FINALIZE_PLAN = "finalize_plan"
-    CALL_MCP_SERVER = "call_mcp_server"
-    SEARCH_LLM_TRACES = "search_llm_traces"
-    RUN_HOG_EVAL_TEST = "run_hog_eval_test"
-    LIST_LLM_SKILLS = "list_llm_skills"
-    GET_LLM_SKILL = "get_llm_skill"
-    GET_LLM_SKILL_FILE = "get_llm_skill_file"
-    CREATE_LLM_SKILL = "create_llm_skill"
-    UPDATE_LLM_SKILL = "update_llm_skill"
-    ARCHIVE_LLM_SKILL = "archive_llm_skill"
-    DIAGNOSE_PROXY = "diagnose_proxy"
-    WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
-    MARKETING_DIAGNOSE_SETUP = "marketing_diagnose_setup"
-    MARKETING_EXPLAIN_CONVERSION_GOAL = "marketing_explain_conversion_goal"
-    MARKETING_LIST_CONVERSION_GOALS = "marketing_list_conversion_goals"
-    MARKETING_LIST_DATA_SOURCES = "marketing_list_data_sources"
-    MARKETING_AUDIT_UTM = "marketing_audit_utm"
-    MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
-    MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
-    SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
-
-
 class AssistantToolCall(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -842,35 +723,8 @@ class AssistantToolCallMessage(BaseModel):
     )
 
 
-class Compare(StrEnum):
-    CURRENT = "current"
-    PREVIOUS = "previous"
-
-
 class AssistantTrendsDisplayType(RootModel[str | Any]):
     root: str | Any
-
-
-class Display(StrEnum):
-    AUTO = "Auto"
-    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
-    ACTIONS_BAR = "ActionsBar"
-    ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
-    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
-    ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
-    BOLD_NUMBER = "BoldNumber"
-    ACTIONS_PIE = "ActionsPie"
-    ACTIONS_BAR_VALUE = "ActionsBarValue"
-    ACTIONS_TABLE = "ActionsTable"
-    WORLD_MAP = "WorldMap"
-    CALENDAR_HEATMAP = "CalendarHeatmap"
-    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
-    BOX_PLOT = "BoxPlot"
-
-
-class YAxisScaleType(StrEnum):
-    LOG10 = "log10"
-    LINEAR = "linear"
 
 
 class AssistantUpdateEvent(BaseModel):
@@ -882,61 +736,12 @@ class AssistantUpdateEvent(BaseModel):
     tool_call_id: str
 
 
-class AttributionMode(StrEnum):
-    FIRST_TOUCH = "first_touch"
-    LAST_TOUCH = "last_touch"
-    LINEAR = "linear"
-    TIME_DECAY = "time_decay"
-    POSITION_BASED = "position_based"
-
-
-class AutocompleteCompletionItemKind(StrEnum):
-    METHOD = "Method"
-    FUNCTION = "Function"
-    CONSTRUCTOR = "Constructor"
-    FIELD = "Field"
-    VARIABLE = "Variable"
-    CLASS_ = "Class"
-    STRUCT = "Struct"
-    INTERFACE = "Interface"
-    MODULE = "Module"
-    PROPERTY = "Property"
-    EVENT = "Event"
-    OPERATOR = "Operator"
-    UNIT = "Unit"
-    VALUE = "Value"
-    CONSTANT = "Constant"
-    ENUM = "Enum"
-    ENUM_MEMBER = "EnumMember"
-    KEYWORD = "Keyword"
-    TEXT = "Text"
-    COLOR = "Color"
-    FILE = "File"
-    REFERENCE = "Reference"
-    CUSTOMCOLOR = "Customcolor"
-    FOLDER = "Folder"
-    TYPE_PARAMETER = "TypeParameter"
-    USER = "User"
-    ISSUE = "Issue"
-    SNIPPET = "Snippet"
-
-
 class BaseAssistantMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     id: str | None = None
     parent_tool_call_id: str | None = None
-
-
-class BaseMathType(StrEnum):
-    TOTAL = "total"
-    DAU = "dau"
-    WEEKLY_ACTIVE = "weekly_active"
-    MONTHLY_ACTIVE = "monthly_active"
-    UNIQUE_SESSION = "unique_session"
-    FIRST_TIME_FOR_USER = "first_time_for_user"
-    FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
 class BiasRisk(BaseModel):
@@ -947,51 +752,6 @@ class BiasRisk(BaseModel):
         ...,
         description=("Observed share of users assigned to `$multiple`, as a percentage (0-100)."),
     )
-
-
-class BillingSpendResponseBreakdownType(StrEnum):
-    TYPE = "type"
-    TEAM = "team"
-    MULTIPLE = "multiple"
-
-
-class BillingUsageResponseBreakdownType(StrEnum):
-    TYPE = "type"
-    TEAM = "team"
-    MULTIPLE = "multiple"
-
-
-class BingAdsDefaultSources(StrEnum):
-    BING = "bing"
-    MICROSOFT = "microsoft"
-
-
-class BingAdsTableExclusions(StrEnum):
-    PERFORMANCE = "performance"
-
-
-class BingAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
-
-
-class BreakdownAttributionType(StrEnum):
-    FIRST_TOUCH = "first_touch"
-    LAST_TOUCH = "last_touch"
-    ALL_EVENTS = "all_events"
-    STEP = "step"
-
-
-class BreakdownType(StrEnum):
-    COHORT = "cohort"
-    PERSON = "person"
-    EVENT = "event"
-    EVENT_METADATA = "event_metadata"
-    GROUP = "group"
-    SESSION = "session"
-    HOGQL = "hogql"
-    DATA_WAREHOUSE = "data_warehouse"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
-    REVENUE_ANALYTICS = "revenue_analytics"
 
 
 class BreakdownValue(BaseModel):
@@ -1042,35 +802,6 @@ class CalendarHeatmapFilter(BaseModel):
     )
 
 
-class CalendarHeatmapMathType(StrEnum):
-    TOTAL = "total"
-    DAU = "dau"
-
-
-class ChartDisplayCategory(StrEnum):
-    TIME_SERIES = "TimeSeries"
-    CUMULATIVE_TIME_SERIES = "CumulativeTimeSeries"
-    TOTAL_VALUE = "TotalValue"
-
-
-class ChartDisplayType(StrEnum):
-    AUTO = "Auto"
-    ACTIONS_LINE_GRAPH = "ActionsLineGraph"
-    ACTIONS_BAR = "ActionsBar"
-    ACTIONS_UNSTACKED_BAR = "ActionsUnstackedBar"
-    ACTIONS_STACKED_BAR = "ActionsStackedBar"
-    ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
-    ACTIONS_LINE_GRAPH_CUMULATIVE = "ActionsLineGraphCumulative"
-    BOLD_NUMBER = "BoldNumber"
-    ACTIONS_PIE = "ActionsPie"
-    ACTIONS_BAR_VALUE = "ActionsBarValue"
-    ACTIONS_TABLE = "ActionsTable"
-    WORLD_MAP = "WorldMap"
-    CALENDAR_HEATMAP = "CalendarHeatmap"
-    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
-    BOX_PLOT = "BoxPlot"
-
-
 class ChartSettingsDisplay(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1092,6 +823,21 @@ class ChartSettingsFormatting(BaseModel):
     suffix: str | None = None
 
 
+class ClientToolResultPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Literal["client_tool_result"] = "client_tool_result"
+    result: dict[str, Any] = Field(
+        ...,
+        description=("Result produced by the tool's client-side handler, returned verbatim to the tool awaiting it"),
+    )
+    tool_call_id: str | None = Field(
+        default=None,
+        description=("Tool call id this result answers — echoed back so misdelivery fails loudly instead of silently"),
+    )
+
+
 class CompareFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1109,11 +855,6 @@ class CompareFilter(BaseModel):
             " ago."
         ),
     )
-
-
-class ColorMode(StrEnum):
-    LIGHT = "light"
-    DARK = "dark"
 
 
 class ConditionalFormattingRule(BaseModel):
@@ -1142,216 +883,6 @@ class ConversationsTicketSignalExtra(BaseModel):
     ticket_number: float
 
 
-class ConversationsTicketSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: ConversationsTicketSignalExtra
-    source_id: str
-    source_product: Literal["conversations"] = "conversations"
-    source_type: Literal["ticket"] = "ticket"
-    weight: float
-
-
-class CoreEventCategory(StrEnum):
-    ACQUISITION = "acquisition"
-    ACTIVATION = "activation"
-    MONETIZATION = "monetization"
-    EXPANSION = "expansion"
-    REFERRAL = "referral"
-    RETENTION = "retention"
-    CHURN = "churn"
-    REACTIVATION = "reactivation"
-
-
-class CountPerActorMathType(StrEnum):
-    AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
-    MIN_COUNT_PER_ACTOR = "min_count_per_actor"
-    MAX_COUNT_PER_ACTOR = "max_count_per_actor"
-    MEDIAN_COUNT_PER_ACTOR = "median_count_per_actor"
-    P75_COUNT_PER_ACTOR = "p75_count_per_actor"
-    P90_COUNT_PER_ACTOR = "p90_count_per_actor"
-    P95_COUNT_PER_ACTOR = "p95_count_per_actor"
-    P99_COUNT_PER_ACTOR = "p99_count_per_actor"
-
-
-class CurrencyCode(StrEnum):
-    AED = "AED"
-    AFN = "AFN"
-    ALL = "ALL"
-    AMD = "AMD"
-    ANG = "ANG"
-    AOA = "AOA"
-    ARS = "ARS"
-    AUD = "AUD"
-    AWG = "AWG"
-    AZN = "AZN"
-    BAM = "BAM"
-    BBD = "BBD"
-    BDT = "BDT"
-    BGN = "BGN"
-    BHD = "BHD"
-    BIF = "BIF"
-    BMD = "BMD"
-    BND = "BND"
-    BOB = "BOB"
-    BRL = "BRL"
-    BSD = "BSD"
-    BTC = "BTC"
-    BTN = "BTN"
-    BWP = "BWP"
-    BYN = "BYN"
-    BZD = "BZD"
-    CAD = "CAD"
-    CDF = "CDF"
-    CHF = "CHF"
-    CLP = "CLP"
-    CNY = "CNY"
-    COP = "COP"
-    CRC = "CRC"
-    CVE = "CVE"
-    CZK = "CZK"
-    DJF = "DJF"
-    DKK = "DKK"
-    DOP = "DOP"
-    DZD = "DZD"
-    EGP = "EGP"
-    ERN = "ERN"
-    ETB = "ETB"
-    EUR = "EUR"
-    FJD = "FJD"
-    GBP = "GBP"
-    GEL = "GEL"
-    GHS = "GHS"
-    GIP = "GIP"
-    GMD = "GMD"
-    GNF = "GNF"
-    GTQ = "GTQ"
-    GYD = "GYD"
-    HKD = "HKD"
-    HNL = "HNL"
-    HRK = "HRK"
-    HTG = "HTG"
-    HUF = "HUF"
-    IDR = "IDR"
-    ILS = "ILS"
-    INR = "INR"
-    IQD = "IQD"
-    IRR = "IRR"
-    ISK = "ISK"
-    JMD = "JMD"
-    JOD = "JOD"
-    JPY = "JPY"
-    KES = "KES"
-    KGS = "KGS"
-    KHR = "KHR"
-    KMF = "KMF"
-    KRW = "KRW"
-    KWD = "KWD"
-    KYD = "KYD"
-    KZT = "KZT"
-    LAK = "LAK"
-    LBP = "LBP"
-    LKR = "LKR"
-    LRD = "LRD"
-    LTL = "LTL"
-    LVL = "LVL"
-    LSL = "LSL"
-    LYD = "LYD"
-    MAD = "MAD"
-    MDL = "MDL"
-    MGA = "MGA"
-    MKD = "MKD"
-    MMK = "MMK"
-    MNT = "MNT"
-    MOP = "MOP"
-    MRU = "MRU"
-    MTL = "MTL"
-    MUR = "MUR"
-    MVR = "MVR"
-    MWK = "MWK"
-    MXN = "MXN"
-    MYR = "MYR"
-    MZN = "MZN"
-    NAD = "NAD"
-    NGN = "NGN"
-    NIO = "NIO"
-    NOK = "NOK"
-    NPR = "NPR"
-    NZD = "NZD"
-    OMR = "OMR"
-    PAB = "PAB"
-    PEN = "PEN"
-    PGK = "PGK"
-    PHP = "PHP"
-    PKR = "PKR"
-    PLN = "PLN"
-    PYG = "PYG"
-    QAR = "QAR"
-    RON = "RON"
-    RSD = "RSD"
-    RUB = "RUB"
-    RWF = "RWF"
-    SAR = "SAR"
-    SBD = "SBD"
-    SCR = "SCR"
-    SDG = "SDG"
-    SEK = "SEK"
-    SGD = "SGD"
-    SRD = "SRD"
-    SSP = "SSP"
-    STN = "STN"
-    SYP = "SYP"
-    SZL = "SZL"
-    THB = "THB"
-    TJS = "TJS"
-    TMT = "TMT"
-    TND = "TND"
-    TOP = "TOP"
-    TRY_ = "TRY"
-    TTD = "TTD"
-    TWD = "TWD"
-    TZS = "TZS"
-    UAH = "UAH"
-    UGX = "UGX"
-    USD = "USD"
-    UYU = "UYU"
-    UZS = "UZS"
-    VES = "VES"
-    VND = "VND"
-    VUV = "VUV"
-    WST = "WST"
-    XAF = "XAF"
-    XCD = "XCD"
-    XOF = "XOF"
-    XPF = "XPF"
-    YER = "YER"
-    ZAR = "ZAR"
-    ZMW = "ZMW"
-
-
-class CustomChannelField(StrEnum):
-    UTM_SOURCE = "utm_source"
-    UTM_MEDIUM = "utm_medium"
-    UTM_CAMPAIGN = "utm_campaign"
-    REFERRING_DOMAIN = "referring_domain"
-    URL = "url"
-    PATHNAME = "pathname"
-    HOSTNAME = "hostname"
-
-
-class CustomChannelOperator(StrEnum):
-    EXACT = "exact"
-    IS_NOT = "is_not"
-    IS_SET = "is_set"
-    IS_NOT_SET = "is_not_set"
-    ICONTAINS = "icontains"
-    NOT_ICONTAINS = "not_icontains"
-    REGEX = "regex"
-    NOT_REGEX = "not_regex"
-
-
 class CustomEventConversionGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1374,29 +905,6 @@ class DashboardAutoRefreshInterval(RootModel[Literal[1800]]):
     root: Literal[1800] = 1800
 
 
-class DataColorToken(StrEnum):
-    PRESET_1 = "preset-1"
-    PRESET_2 = "preset-2"
-    PRESET_3 = "preset-3"
-    PRESET_4 = "preset-4"
-    PRESET_5 = "preset-5"
-    PRESET_6 = "preset-6"
-    PRESET_7 = "preset-7"
-    PRESET_8 = "preset-8"
-    PRESET_9 = "preset-9"
-    PRESET_10 = "preset-10"
-    PRESET_11 = "preset-11"
-    PRESET_12 = "preset-12"
-    PRESET_13 = "preset-13"
-    PRESET_14 = "preset-14"
-    PRESET_15 = "preset-15"
-
-
-class DataTableNodeViewPropsContextType(StrEnum):
-    EVENT_DEFINITION = "event_definition"
-    TEAM_COLUMNS = "team_columns"
-
-
 class DataWarehouseEventsModifier(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1409,12 +917,6 @@ class DataWarehouseEventsModifier(BaseModel):
 
 class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
     root: Literal["revenue_analytics"] = "revenue_analytics"
-
-
-class DataWarehouseSavedQueryOrigin(StrEnum):
-    DATA_WAREHOUSE = "data_warehouse"
-    ENDPOINT = "endpoint"
-    MANAGED_VIEWSET = "managed_viewset"
 
 
 class DataWarehouseSyncWarning(BaseModel):
@@ -1440,15 +942,6 @@ class DataWarehouseSyncWarning(BaseModel):
     table_name: str = Field(..., description="Name of the warehouse table the warning refers to")
 
 
-class DatabaseSchemaManagedViewTableKind(StrEnum):
-    REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
-    REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
-    REVENUE_ANALYTICS_MRR = "revenue_analytics_mrr"
-    REVENUE_ANALYTICS_PRODUCT = "revenue_analytics_product"
-    REVENUE_ANALYTICS_REVENUE_ITEM = "revenue_analytics_revenue_item"
-    REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
-
-
 class DatabaseSchemaSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1471,36 +964,6 @@ class DatabaseSchemaSource(BaseModel):
     prefix: str
     source_type: str
     status: str
-
-
-class DatabaseSchemaTableType(StrEnum):
-    POSTHOG = "posthog"
-    SYSTEM = "system"
-    DATA_WAREHOUSE = "data_warehouse"
-    VIEW = "view"
-    BATCH_EXPORT = "batch_export"
-    MATERIALIZED_VIEW = "materialized_view"
-    MANAGED_VIEW = "managed_view"
-    ENDPOINT = "endpoint"
-
-
-class DatabaseSerializedFieldType(StrEnum):
-    INTEGER = "integer"
-    FLOAT = "float"
-    DECIMAL = "decimal"
-    STRING = "string"
-    DATETIME = "datetime"
-    DATE = "date"
-    BOOLEAN = "boolean"
-    ARRAY = "array"
-    JSON = "json"
-    LAZY_TABLE = "lazy_table"
-    VIRTUAL_TABLE = "virtual_table"
-    FIELD_TRAVERSER = "field_traverser"
-    EXPRESSION = "expression"
-    VIEW = "view"
-    MATERIALIZED_VIEW = "materialized_view"
-    UNKNOWN = "unknown"
 
 
 class DateRange(BaseModel):
@@ -1533,81 +996,6 @@ class DatetimeDay(RootModel[AwareDatetime]):
     root: AwareDatetime
 
 
-class DeepResearchType(StrEnum):
-    PLANNING = "planning"
-    REPORT = "report"
-
-
-class DefaultChannelTypes(StrEnum):
-    CROSS_NETWORK = "Cross Network"
-    PAID_SEARCH = "Paid Search"
-    PAID_SOCIAL = "Paid Social"
-    PAID_VIDEO = "Paid Video"
-    PAID_SHOPPING = "Paid Shopping"
-    PAID_UNKNOWN = "Paid Unknown"
-    DIRECT = "Direct"
-    ORGANIC_SEARCH = "Organic Search"
-    ORGANIC_SOCIAL = "Organic Social"
-    ORGANIC_VIDEO = "Organic Video"
-    ORGANIC_SHOPPING = "Organic Shopping"
-    PUSH = "Push"
-    SMS = "SMS"
-    AUDIO = "Audio"
-    EMAIL = "Email"
-    REFERRAL = "Referral"
-    AFFILIATE = "Affiliate"
-    UNKNOWN = "Unknown"
-
-
-class DetectorType(StrEnum):
-    ZSCORE = "zscore"
-    MAD = "mad"
-    THRESHOLD = "threshold"
-    IQR = "iqr"
-    COPOD = "copod"
-    ECOD = "ecod"
-    ISOLATION_FOREST = "isolation_forest"
-    KNN = "knn"
-    HBOS = "hbos"
-    LOF = "lof"
-    OCSVM = "ocsvm"
-    PCA = "pca"
-
-
-class DistanceFunc(StrEnum):
-    L1_DISTANCE = "L1Distance"
-    L2_DISTANCE = "L2Distance"
-    COSINE_DISTANCE = "cosineDistance"
-
-
-class OrderBy(StrEnum):
-    DISTANCE = "distance"
-    TIMESTAMP = "timestamp"
-
-
-class OrderDirection1(StrEnum):
-    ASC = "asc"
-    DESC = "desc"
-
-
-class DomainConnectProviderName(StrEnum):
-    CLOUDFLARE = "Cloudflare"
-    VERCEL = "Vercel"
-
-
-class DurationType(StrEnum):
-    DURATION = "duration"
-    ACTIVE_SECONDS = "active_seconds"
-    INACTIVE_SECONDS = "inactive_seconds"
-
-
-class Key10(StrEnum):
-    TAG_NAME = "tag_name"
-    TEXT = "text"
-    HREF = "href"
-    SELECTOR = "selector"
-
-
 class ElementType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1633,11 +1021,6 @@ class EmbeddedDocument(BaseModel):
     timestamp: AwareDatetime
 
 
-class EmbeddingModelName(StrEnum):
-    TEXT_EMBEDDING_3_SMALL_1536 = "text-embedding-3-small-1536"
-    TEXT_EMBEDDING_3_LARGE_3072 = "text-embedding-3-large-3072"
-
-
 class EmbeddingRecord(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1657,6 +1040,14 @@ class EmptyPropertyFilter(BaseModel):
     type: Literal["empty"] = "empty"
 
 
+class EndpointBreakdownLimitExceededSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: float
+    endpoint_name: str
+
+
 class EndpointExecutionFailedSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1669,87 +1060,11 @@ class EndpointExecutionFailedSignalExtra(BaseModel):
     saved_query_id: str | None = None
 
 
-class EndpointExecutionFailedSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: EndpointExecutionFailedSignalExtra
-    source_id: str
-    source_product: Literal["endpoints"] = "endpoints"
-    source_type: Literal["endpoint_execution_failed"] = "endpoint_execution_failed"
-    weight: float
-
-
 class EndpointLastExecutionTimesRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     names: list[str]
-
-
-class EndpointRefreshMode(StrEnum):
-    CACHE = "cache"
-    FORCE = "force"
-    DIRECT = "direct"
-
-
-class EndpointsUsageBreakdown(StrEnum):
-    ENDPOINT = "Endpoint"
-    MATERIALIZATION_TYPE = "MaterializationType"
-    API_KEY = "ApiKey"
-    STATUS = "Status"
-
-
-class EndpointsUsageOrderByDirection(StrEnum):
-    ASC = "ASC"
-    DESC = "DESC"
-
-
-class EndpointsUsageOrderByField(StrEnum):
-    REQUESTS = "requests"
-    BYTES_READ = "bytes_read"
-    CPU_SECONDS = "cpu_seconds"
-    AVG_QUERY_DURATION_MS = "avg_query_duration_ms"
-    ERROR_RATE = "error_rate"
-
-
-class EndpointsUsageOverviewItemKey(StrEnum):
-    TOTAL_REQUESTS = "total_requests"
-    TOTAL_BYTES_READ = "total_bytes_read"
-    TOTAL_CPU_SECONDS = "total_cpu_seconds"
-    AVG_QUERY_DURATION_MS = "avg_query_duration_ms"
-    P95_QUERY_DURATION_MS = "p95_query_duration_ms"
-    ERROR_RATE = "error_rate"
-    MATERIALIZED_REQUESTS = "materialized_requests"
-    INLINE_REQUESTS = "inline_requests"
-
-
-class MaterializationType(Enum):
-    MATERIALIZED = "materialized"
-    INLINE = "inline"
-    NONE_TYPE_NONE = None
-
-
-class Metric(StrEnum):
-    BYTES_READ = "bytes_read"
-    CPU_SECONDS = "cpu_seconds"
-    REQUESTS = "requests"
-    QUERY_DURATION = "query_duration"
-    ERROR_RATE = "error_rate"
-
-
-class EnsembleOperator(StrEnum):
-    AND_ = "and"
-    OR_ = "or"
-
-
-class EntityType(StrEnum):
-    ACTIONS = "actions"
-    EVENTS = "events"
-    DATA_WAREHOUSE = "data_warehouse"
-    NEW_ENTITY = "new_entity"
-    GROUPS = "groups"
 
 
 class ErrorBlock(BaseModel):
@@ -1813,22 +1128,12 @@ class ErrorTrackingIssueAggregations(BaseModel):
     volume_buckets: list[VolumeBucket]
 
 
-class ErrorTrackingIssueAssigneeType(StrEnum):
-    USER = "user"
-    ROLE = "role"
-
-
 class ErrorTrackingIssueCohort(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     id: float
     name: str
-
-
-class OrderDirection2(StrEnum):
-    ASC = "ASC"
-    DESC = "DESC"
 
 
 class ErrorTrackingIssueImpactToolOutput(BaseModel):
@@ -1838,45 +1143,11 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
     events: list[str]
 
 
-class ErrorTrackingIssueStatus(StrEnum):
-    ARCHIVED = "archived"
-    ACTIVE = "active"
-    RESOLVED = "resolved"
-    PENDING_RELEASE = "pending_release"
-    SUPPRESSED = "suppressed"
-
-
-class ErrorTrackingOrderBy(StrEnum):
-    LAST_SEEN = "last_seen"
-    FIRST_SEEN = "first_seen"
-    OCCURRENCES = "occurrences"
-    USERS = "users"
-    SESSIONS = "sessions"
-
-
 class ErrorTrackingSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     fingerprint: str
-
-
-class SourceType(StrEnum):
-    ISSUE_CREATED = "issue_created"
-    ISSUE_REOPENED = "issue_reopened"
-    ISSUE_SPIKING = "issue_spiking"
-
-
-class ErrorTrackingSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: ErrorTrackingSignalExtra
-    source_id: str
-    source_product: Literal["error_tracking"] = "error_tracking"
-    source_type: SourceType
-    weight: float
 
 
 class EventDefinition(BaseModel):
@@ -1886,11 +1157,6 @@ class EventDefinition(BaseModel):
     elements: list
     event: str
     properties: dict[str, Any]
-
-
-class CorrelationType(StrEnum):
-    SUCCESS = "success"
-    FAILURE = "failure"
 
 
 class Person(BaseModel):
@@ -1919,27 +1185,6 @@ class EventType(BaseModel):
     uuid: str | None = None
 
 
-class HrefMatching(Enum):
-    CONTAINS = "contains"
-    EXACT = "exact"
-    REGEX = "regex"
-    NONE_TYPE_NONE = None
-
-
-class TextMatching(Enum):
-    CONTAINS = "contains"
-    EXACT = "exact"
-    REGEX = "regex"
-    NONE_TYPE_NONE = None
-
-
-class UrlMatching(Enum):
-    CONTAINS = "contains"
-    EXACT = "exact"
-    REGEX = "regex"
-    NONE_TYPE_NONE = None
-
-
 class Properties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1958,19 +1203,32 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
-class MultipleVariantHandling(StrEnum):
-    EXCLUDE = "exclude"
-    FIRST_SEEN = "first_seen"
-
-
-class Kind(StrEnum):
-    EVENTS_NODE = "EventsNode"
-    ACTIONS_NODE = "ActionsNode"
-
-
-class StartHandling(StrEnum):
-    FIRST_SEEN = "first_seen"
-    LAST_SEEN = "last_seen"
+class ExperimentExposureEstimateConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversionRateInputType: ConversionRateInputType = Field(
+        ...,
+        description=(
+            "'manual' when the baseline value and exposure rate were entered by hand,"
+            " 'automatic' when derived from live experiment data."
+        ),
+    )
+    manualBaselineValue: float | None = Field(
+        default=None,
+        description=(
+            "Manually entered baseline metric value (a conversion percentage for funnel"
+            " metrics). Only used in manual mode."
+        ),
+    )
+    manualExposureRate: float | None = Field(
+        default=None,
+        description=("Manually entered estimate of users exposed to the experiment per day. Only used in manual mode."),
+    )
+    manualMetricType: ManualMetricType | None = Field(
+        default=None,
+        description=("Metric type the manual baseline value refers to. Only used in manual mode."),
+    )
 
 
 class ExperimentExposureTimeSeries(BaseModel):
@@ -2002,23 +1260,6 @@ class ExperimentMaxFrequentistContext(BaseModel):
     significant: bool
 
 
-class ExperimentMetricGoal(StrEnum):
-    INCREASE = "increase"
-    DECREASE = "decrease"
-
-
-class ExperimentMetricMathType(StrEnum):
-    TOTAL = "total"
-    SUM = "sum"
-    UNIQUE_SESSION = "unique_session"
-    MIN = "min"
-    MAX = "max"
-    AVG = "avg"
-    DAU = "dau"
-    UNIQUE_GROUP = "unique_group"
-    HOGQL = "hogql"
-
-
 class ExperimentMetricOutlierHandling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2038,42 +1279,31 @@ class ExperimentMetricOutlierHandling(BaseModel):
     )
 
 
-class Status(StrEnum):
-    PENDING = "pending"
-    COMPLETED = "completed"
-    PARTIAL = "partial"
-    FAILED = "failed"
-
-
-class ExperimentMetricType(StrEnum):
-    FUNNEL = "funnel"
-    MEAN = "mean"
-    RATIO = "ratio"
-    RETENTION = "retention"
-
-
-class PrecomputationMode(StrEnum):
-    PRECOMPUTED = "precomputed"
-    DIRECT = "direct"
-
-
-class ExperimentSignificanceCode(StrEnum):
-    SIGNIFICANT = "significant"
-    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
-    LOW_WIN_PROBABILITY = "low_win_probability"
-    HIGH_LOSS = "high_loss"
-    HIGH_P_VALUE = "high_p_value"
-
-
-class ExperimentStatsMethod(StrEnum):
-    BAYESIAN = "bayesian"
-    FREQUENTIST = "frequentist"
-
-
-class ExperimentStatsValidationFailure(StrEnum):
-    NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
-    BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
-    NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
+class ExperimentRunningTimeCalculation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_estimate_config: ExperimentExposureEstimateConfig | None = Field(
+        default=None,
+        description=(
+            "How the exposure estimate is configured: manual user-entered values or"
+            " automatic from live experiment data."
+        ),
+    )
+    minimum_detectable_effect: float | None = Field(
+        default=None,
+        description=(
+            "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes."
+        ),
+    )
+    recommended_running_time: float | None = Field(
+        default=None,
+        description=("Estimated number of days needed to reach the recommended sample size."),
+    )
+    recommended_sample_size: float | None = Field(
+        default=None,
+        description=("Recommended number of exposed users needed for statistical significance."),
+    )
 
 
 class ExperimentVariant(BaseModel):
@@ -2121,166 +1351,6 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
     key: str
 
 
-class ExternalDataSourceType(StrEnum):
-    ASHBY = "Ashby"
-    SUPABASE = "Supabase"
-    CUSTOMER_IO = "CustomerIO"
-    GITHUB = "Github"
-    STRIPE = "Stripe"
-    HUBSPOT = "Hubspot"
-    POSTGRES = "Postgres"
-    MY_SQL = "MySQL"
-    MSSQL = "MSSQL"
-    ZENDESK = "Zendesk"
-    SNOWFLAKE = "Snowflake"
-    SALESFORCE = "Salesforce"
-    VITALLY = "Vitally"
-    BIG_QUERY = "BigQuery"
-    CHARGEBEE = "Chargebee"
-    CLERK = "Clerk"
-    REVENUE_CAT = "RevenueCat"
-    POLAR = "Polar"
-    GOOGLE_ADS = "GoogleAds"
-    META_ADS = "MetaAds"
-    KLAVIYO = "Klaviyo"
-    MAILCHIMP = "Mailchimp"
-    BRAZE = "Braze"
-    MAILJET = "Mailjet"
-    REDSHIFT = "Redshift"
-    GOOGLE_SHEETS = "GoogleSheets"
-    MONGO_DB = "MongoDB"
-    TEMPORAL_IO = "TemporalIO"
-    DO_IT = "DoIt"
-    LINKEDIN_ADS = "LinkedinAds"
-    REDDIT_ADS = "RedditAds"
-    TIK_TOK_ADS = "TikTokAds"
-    BING_ADS = "BingAds"
-    SHOPIFY = "Shopify"
-    ATTIO = "Attio"
-    SNAPCHAT_ADS = "SnapchatAds"
-    LINEAR = "Linear"
-    INTERCOM = "Intercom"
-    AMPLITUDE = "Amplitude"
-    MIXPANEL = "Mixpanel"
-    JIRA = "Jira"
-    ACTIVE_CAMPAIGN = "ActiveCampaign"
-    MARKETO = "Marketo"
-    ADJUST = "Adjust"
-    APPS_FLYER = "AppsFlyer"
-    FRESHDESK = "Freshdesk"
-    GOOGLE_ANALYTICS = "GoogleAnalytics"
-    PIPEDRIVE = "Pipedrive"
-    SEND_GRID = "SendGrid"
-    SLACK = "Slack"
-    PAGER_DUTY = "PagerDuty"
-    ASANA = "Asana"
-    NOTION = "Notion"
-    AIRTABLE = "Airtable"
-    GREENHOUSE = "Greenhouse"
-    BAMBOO_HR = "BambooHR"
-    LEVER = "Lever"
-    GIT_LAB = "GitLab"
-    DATADOG = "Datadog"
-    SENTRY = "Sentry"
-    PENDO = "Pendo"
-    FULL_STORY = "FullStory"
-    AMAZON_ADS = "AmazonAds"
-    PINTEREST_ADS = "PinterestAds"
-    APPLE_SEARCH_ADS = "AppleSearchAds"
-    QUICK_BOOKS = "QuickBooks"
-    XERO = "Xero"
-    NET_SUITE = "NetSuite"
-    WOO_COMMERCE = "WooCommerce"
-    BIG_COMMERCE = "BigCommerce"
-    PAY_PAL = "PayPal"
-    SQUARE = "Square"
-    ZOOM = "Zoom"
-    TRELLO = "Trello"
-    MONDAY = "Monday"
-    CLICK_UP = "ClickUp"
-    CONFLUENCE = "Confluence"
-    RECURLY = "Recurly"
-    SALES_LOFT = "SalesLoft"
-    OUTREACH = "Outreach"
-    GONG = "Gong"
-    CALENDLY = "Calendly"
-    TYPEFORM = "Typeform"
-    ITERABLE = "Iterable"
-    ZOHO_CRM = "ZohoCRM"
-    CLOSE = "Close"
-    ORACLE = "Oracle"
-    DYNAMO_DB = "DynamoDB"
-    ELASTICSEARCH = "Elasticsearch"
-    KAFKA = "Kafka"
-    LAUNCH_DARKLY = "LaunchDarkly"
-    BRAINTREE = "Braintree"
-    RECHARGE = "Recharge"
-    HELP_SCOUT = "HelpScout"
-    GORGIAS = "Gorgias"
-    INSTAGRAM = "Instagram"
-    YOU_TUBE_ANALYTICS = "YouTubeAnalytics"
-    FACEBOOK_PAGES = "FacebookPages"
-    TWITTER_ADS = "TwitterAds"
-    WORKDAY = "Workday"
-    SERVICE_NOW = "ServiceNow"
-    PARDOT = "Pardot"
-    COPPER = "Copper"
-    FRONT = "Front"
-    CHART_MOGUL = "ChartMogul"
-    ZUORA = "Zuora"
-    PADDLE = "Paddle"
-    CIRCLE_CI = "CircleCI"
-    COCKROACH_DB = "CockroachDB"
-    FIREBASE = "Firebase"
-    AZURE_BLOB = "AzureBlob"
-    GOOGLE_DRIVE = "GoogleDrive"
-    ONE_DRIVE = "OneDrive"
-    SHARE_POINT = "SharePoint"
-    BOX = "Box"
-    SFTP = "SFTP"
-    MICROSOFT_TEAMS = "MicrosoftTeams"
-    AIRCALL = "Aircall"
-    WEBFLOW = "Webflow"
-    OKTA = "Okta"
-    AUTH0 = "Auth0"
-    PRODUCTBOARD = "Productboard"
-    SMARTSHEET = "Smartsheet"
-    WRIKE = "Wrike"
-    PLAID = "Plaid"
-    SURVEY_MONKEY = "SurveyMonkey"
-    EVENTBRITE = "Eventbrite"
-    RING_CENTRAL = "RingCentral"
-    TWILIO = "Twilio"
-    FRESHSALES = "Freshsales"
-    SHORTCUT = "Shortcut"
-    CONVERT_KIT = "ConvertKit"
-    DRIP = "Drip"
-    CAMPAIGN_MONITOR = "CampaignMonitor"
-    MAILER_LITE = "MailerLite"
-    OMNISEND = "Omnisend"
-    BREVO = "Brevo"
-    POSTMARK = "Postmark"
-    GRANOLA = "Granola"
-    BUILD_BETTER = "BuildBetter"
-    CONVEX = "Convex"
-    CLICK_HOUSE = "ClickHouse"
-    PLAIN = "Plain"
-    RESEND = "Resend"
-    PG_ANALYZE = "PgAnalyze"
-    WORK_OS = "WorkOS"
-    CUSTOM = "Custom"
-
-
-class ExternalQueryErrorCode(StrEnum):
-    PLATFORM_ACCESS_REQUIRED = "platform_access_required"
-    QUERY_EXECUTION_FAILED = "query_execution_failed"
-
-
-class ExternalQueryStatus(StrEnum):
-    SUCCESS = "success"
-    ERROR = "error"
-
-
 class FailureMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2289,11 +1359,6 @@ class FailureMessage(BaseModel):
     id: str | None = None
     parent_tool_call_id: str | None = None
     type: Literal["ai/failure"] = "ai/failure"
-
-
-class Tag(StrEnum):
-    ALPHA = "alpha"
-    BETA = "beta"
 
 
 class FileSystemEntry(BaseModel):
@@ -2324,87 +1389,6 @@ class FileSystemEntry(BaseModel):
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
-class FileSystemIconType(StrEnum):
-    DEFAULT_ICON_TYPE = "default_icon_type"
-    DASHBOARD = "dashboard"
-    LLM_ANALYTICS = "llm_analytics"
-    PRODUCT_ANALYTICS = "product_analytics"
-    REVENUE_ANALYTICS = "revenue_analytics"
-    REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
-    MARKETING_SETTINGS = "marketing_settings"
-    MARKETING_ANALYTICS = "marketing_analytics"
-    MANAGED_VIEWSETS = "managed_viewsets"
-    ENDPOINTS = "endpoints"
-    SQL_EDITOR = "sql_editor"
-    WEB_ANALYTICS = "web_analytics"
-    ERROR_TRACKING = "error_tracking"
-    HEATMAP = "heatmap"
-    SESSION_REPLAY = "session_replay"
-    REPLAY_VISION = "replay_vision"
-    SESSION_PROFILE = "session_profile"
-    SURVEY = "survey"
-    PRODUCT_TOUR = "product_tour"
-    USER_INTERVIEW = "user_interview"
-    EARLY_ACCESS_FEATURE = "early_access_feature"
-    EXPERIMENT = "experiment"
-    FEATURE_FLAG = "feature_flag"
-    FEATURE_FLAG_OFF = "feature_flag_off"
-    DATA_PIPELINE = "data_pipeline"
-    DATA_PIPELINE_METADATA = "data_pipeline_metadata"
-    DATA_WAREHOUSE = "data_warehouse"
-    TASK = "task"
-    LINK = "link"
-    LIVE_DEBUGGER = "live_debugger"
-    LOGS = "logs"
-    TRACING = "tracing"
-    METRICS = "metrics"
-    WORKFLOWS = "workflows"
-    NOTEBOOK = "notebook"
-    ACTION = "action"
-    ACTIVITY = "activity"
-    COMMENT = "comment"
-    ANNOTATION = "annotation"
-    EVENT = "event"
-    EVENT_DEFINITION = "event_definition"
-    PROPERTY_DEFINITION = "property_definition"
-    INGESTION_WARNING = "ingestion_warning"
-    PERSONS = "persons"
-    USER = "user"
-    COHORT = "cohort"
-    GROUP = "group"
-    INSIGHT_FUNNELS = "insight/funnels"
-    INSIGHT_TRENDS = "insight/trends"
-    INSIGHT_RETENTION = "insight/retention"
-    INSIGHT_PATHS = "insight/paths"
-    INSIGHT_LIFECYCLE = "insight/lifecycle"
-    INSIGHT_STICKINESS = "insight/stickiness"
-    INSIGHT_HOG = "insight/hog"
-    TEAM_ACTIVITY = "team_activity"
-    HOME = "home"
-    APPS = "apps"
-    LIVE = "live"
-    CHAT = "chat"
-    SEARCH = "search"
-    FOLDER = "folder"
-    FOLDER_OPEN = "folder_open"
-    CONVERSATIONS = "conversations"
-    TOOLBAR = "toolbar"
-    VISUAL_REVIEW = "visual_review"
-    SETTINGS = "settings"
-    HEALTH = "health"
-    INBOX = "inbox"
-    SDK_DOCTOR = "sdk_doctor"
-    PIPELINE_STATUS = "pipeline_status"
-    LLM_EVALUATIONS = "llm_evaluations"
-    LLM_TAGS = "llm_tags"
-    LLM_DATASETS = "llm_datasets"
-    LLM_PLAYGROUND = "llm_playground"
-    LLM_PROMPTS = "llm_prompts"
-    LLM_CLUSTERS = "llm_clusters"
-    EXPORTS = "exports"
-    DEPLOYMENTS = "deployments"
-
-
 class FileSystemViewLogEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2412,11 +1396,6 @@ class FileSystemViewLogEntry(BaseModel):
     ref: str
     type: str
     viewed_at: str
-
-
-class FilterLogicalOperator(StrEnum):
-    AND_ = "AND"
-    OR_ = "OR"
 
 
 class FlagPropertyFilter(BaseModel):
@@ -2440,21 +1419,6 @@ class FormDismissPayload(BaseModel):
     action: Literal["dismiss_form"] = "dismiss_form"
 
 
-class FunnelConversionWindowTimeUnit(StrEnum):
-    SECOND = "second"
-    MINUTE = "minute"
-    HOUR = "hour"
-    DAY = "day"
-    WEEK = "week"
-    MONTH = "month"
-
-
-class FunnelCorrelationResultsType(StrEnum):
-    EVENTS = "events"
-    PROPERTIES = "properties"
-    EVENT_WITH_PROPERTIES = "event_with_properties"
-
-
 class FunnelExclusionLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2468,28 +1432,6 @@ class FunnelExclusionLegacy(BaseModel):
     optionalInFunnel: bool | None = None
     order: float | None = None
     type: EntityType | None = None
-
-
-class FunnelLayout(StrEnum):
-    HORIZONTAL = "horizontal"
-    VERTICAL = "vertical"
-
-
-class FunnelMathType(StrEnum):
-    TOTAL = "total"
-    FIRST_TIME_FOR_USER = "first_time_for_user"
-    FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
-
-
-class FunnelPathType(StrEnum):
-    FUNNEL_PATH_BEFORE_STEP = "funnel_path_before_step"
-    FUNNEL_PATH_BETWEEN_STEPS = "funnel_path_between_steps"
-    FUNNEL_PATH_AFTER_STEP = "funnel_path_after_step"
-
-
-class FunnelStepReference(StrEnum):
-    TOTAL = "total"
-    PREVIOUS = "previous"
 
 
 class FunnelStepsBreakdownResults(RootModel[list[list[dict[str, Any]]]]):
@@ -2512,13 +1454,6 @@ class FunnelTrendsResults(RootModel[list[dict[str, Any]]]):
     root: list[dict[str, Any]]
 
 
-class FunnelVizType(StrEnum):
-    STEPS = "steps"
-    TIME_TO_CONVERT = "time_to_convert"
-    TRENDS = "trends"
-    FLOW = "flow"
-
-
 class GithubIssueSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2530,23 +1465,6 @@ class GithubIssueSignalExtra(BaseModel):
     number: float
     state: str
     updated_at: str
-
-
-class GithubIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: GithubIssueSignalExtra
-    source_id: str
-    source_product: Literal["github"] = "github"
-    source_type: Literal["issue"] = "issue"
-    weight: float
-
-
-class Position(StrEnum):
-    START = "start"
-    END = "end"
 
 
 class GoalLine(BaseModel):
@@ -2561,25 +1479,18 @@ class GoalLine(BaseModel):
     value: float
 
 
-class GoogleAdsDefaultSources(StrEnum):
-    GOOGLE = "google"
-    ADWORDS = "adwords"
-    YOUTUBE = "youtube"
-    DISPLAY = "display"
-    GMAIL = "gmail"
-    GOOGLE_MAPS = "google_maps"
-    GOOGLE_PLAY = "google_play"
-    GOOGLE_DISCOVER = "google_discover"
-    ADMOB = "admob"
-    WAZE = "waze"
-
-
-class GoogleAdsTableExclusions(StrEnum):
-    STATS = "stats"
-
-
-class GoogleAdsTableKeywords(StrEnum):
-    CAMPAIGN = "campaign"
+class HealthCheckSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    issue_id: str
+    kind: str
+    link: str = Field(..., description="Relative in-app path to the resource, e.g. '/web'.")
+    payload: dict[str, Any]
+    severity: HealthCheckSeverity
+    summary: str
+    title: str
+    url: str = Field(..., description="Absolute URL ({project.url} + link).")
 
 
 class HeatmapGradientStop(BaseModel):
@@ -2590,148 +1501,12 @@ class HeatmapGradientStop(BaseModel):
     value: float
 
 
-class GradientScaleMode(StrEnum):
-    ABSOLUTE = "absolute"
-    RELATIVE = "relative"
-
-
-class HeatmapSortOrder(StrEnum):
-    ASC = "asc"
-    DESC = "desc"
-
-
-class HedgehogActorAccessoryOption(StrEnum):
-    BERET = "beret"
-    CAP = "cap"
-    CHEF = "chef"
-    COWBOY = "cowboy"
-    EYEPATCH = "eyepatch"
-    FLAG = "flag"
-    GLASSES = "glasses"
-    GRADUATION = "graduation"
-    PARROT = "parrot"
-    PARTY = "party"
-    PINEAPPLE = "pineapple"
-    SUNGLASSES = "sunglasses"
-    TOPHAT = "tophat"
-    XMAS_HAT = "xmas-hat"
-    XMAS_ANTLERS = "xmas-antlers"
-    XMAS_SCARF = "xmas-scarf"
-
-
-class HedgehogActorColorOption(StrEnum):
-    GREEN = "green"
-    RED = "red"
-    BLUE = "blue"
-    PURPLE = "purple"
-    DARK = "dark"
-    LIGHT = "light"
-    GREYSCALE = "greyscale"
-    SEPIA = "sepia"
-    INVERT = "invert"
-    RAINBOW = "rainbow"
-
-
-class HedgehogActorSkinOption(StrEnum):
-    DEFAULT = "default"
-    SPIDERHOG = "spiderhog"
-    ROBOHOG = "robohog"
-    HOGZILLA = "hogzilla"
-    GHOST = "ghost"
-
-
 class HogCompileResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     bytecode: list
     locals: list
-
-
-class HogLanguage(StrEnum):
-    HOG = "hog"
-    HOG_JSON = "hogJson"
-    HOG_QL = "hogQL"
-    HOG_QL_EXPR = "hogQLExpr"
-    HOG_TEMPLATE = "hogTemplate"
-    LIQUID = "liquid"
-
-
-class BounceRatePageViewMode(StrEnum):
-    COUNT_PAGEVIEWS = "count_pageviews"
-    UNIQ_URLS = "uniq_urls"
-    UNIQ_PAGE_SCREEN_AUTOCAPTURES = "uniq_page_screen_autocaptures"
-
-
-class InCohortVia(StrEnum):
-    AUTO = "auto"
-    LEFTJOIN = "leftjoin"
-    SUBQUERY = "subquery"
-    LEFTJOIN_CONJOINED = "leftjoin_conjoined"
-
-
-class InlineCohortCalculation(StrEnum):
-    OFF = "off"
-    AUTO = "auto"
-    ALWAYS = "always"
-
-
-class MaterializationMode(StrEnum):
-    AUTO = "auto"
-    LEGACY_NULL_AS_STRING = "legacy_null_as_string"
-    LEGACY_NULL_AS_NULL = "legacy_null_as_null"
-    DISABLED = "disabled"
-
-
-class MaterializedColumnsOptimizationMode(StrEnum):
-    DISABLED = "disabled"
-    OPTIMIZED = "optimized"
-
-
-class ParserMode(StrEnum):
-    CPP_ONLY = "cpp_only"
-    CPP_WITH_RUST_SHADOW = "cpp_with_rust_shadow"
-    CPP_WITH_RUST_PY_SHADOW = "cpp_with_rust_py_shadow"
-    RUST_WITH_CPP_SHADOW = "rust_with_cpp_shadow"
-    RUST_ONLY = "rust_only"
-    RUST_PY_ONLY = "rust_py_only"
-    RUST_PY_WITH_CPP_SHADOW = "rust_py_with_cpp_shadow"
-
-
-class PersonsArgMaxVersion(StrEnum):
-    AUTO = "auto"
-    V1 = "v1"
-    V2 = "v2"
-
-
-class PersonsJoinMode(StrEnum):
-    INNER = "inner"
-    LEFT = "left"
-
-
-class PersonsOnEventsMode(StrEnum):
-    DISABLED = "disabled"
-    PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_no_override_properties_on_events"
-    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS = "person_id_override_properties_on_events"
-    PERSON_ID_OVERRIDE_PROPERTIES_JOINED = "person_id_override_properties_joined"
-
-
-class PropertyGroupsMode(StrEnum):
-    ENABLED = "enabled"
-    DISABLED = "disabled"
-    OPTIMIZED = "optimized"
-
-
-class SessionTableVersion(StrEnum):
-    AUTO = "auto"
-    V1 = "v1"
-    V2 = "v2"
-    V3 = "v3"
-
-
-class SessionsV2JoinMode(StrEnum):
-    STRING = "string"
-    UUID = "uuid"
 
 
 class HogQLVariable(BaseModel):
@@ -2754,38 +1529,6 @@ class HogQueryResponse(BaseModel):
     stdout: str | None = None
 
 
-class InfinityValue(float, Enum):
-    NUMBER_999999 = 999999
-    NUMBER__999999 = -999999
-
-
-class InsightFilterProperty(StrEnum):
-    TRENDS_FILTER = "trendsFilter"
-    FUNNELS_FILTER = "funnelsFilter"
-    RETENTION_FILTER = "retentionFilter"
-    PATHS_FILTER = "pathsFilter"
-    STICKINESS_FILTER = "stickinessFilter"
-    CALENDAR_HEATMAP_FILTER = "calendarHeatmapFilter"
-    LIFECYCLE_FILTER = "lifecycleFilter"
-    PROPERTIES = "properties"
-
-
-class InsightNodeKind(StrEnum):
-    TRENDS_QUERY = "TrendsQuery"
-    FUNNELS_QUERY = "FunnelsQuery"
-    RETENTION_QUERY = "RetentionQuery"
-    PATHS_QUERY = "PathsQuery"
-    STICKINESS_QUERY = "StickinessQuery"
-    LIFECYCLE_QUERY = "LifecycleQuery"
-    WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
-    WEB_OVERVIEW_QUERY = "WebOverviewQuery"
-
-
-class InsightThresholdType(StrEnum):
-    ABSOLUTE = "absolute"
-    PERCENTAGE = "percentage"
-
-
 class InsightsThresholdBounds(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2802,56 +1545,6 @@ class IntegrationFilter(BaseModel):
         default=None,
         description=("Selected integration source IDs to filter by (e.g., table IDs or source map IDs)"),
     )
-
-
-class IntegrationKind(StrEnum):
-    SLACK = "slack"
-    SLACK_POSTHOG_CODE = "slack-posthog-code"
-    SALESFORCE = "salesforce"
-    HUBSPOT = "hubspot"
-    GOOGLE_PUBSUB = "google-pubsub"
-    GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
-    GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
-    GOOGLE_ADS = "google-ads"
-    GOOGLE_SHEETS = "google-sheets"
-    LINKEDIN_ADS = "linkedin-ads"
-    SNAPCHAT = "snapchat"
-    STRIPE = "stripe"
-    INTERCOM = "intercom"
-    EMAIL = "email"
-    TWILIO = "twilio"
-    LINEAR = "linear"
-    GITHUB = "github"
-    GITLAB = "gitlab"
-    META_ADS = "meta-ads"
-    CLICKUP = "clickup"
-    REDDIT_ADS = "reddit-ads"
-    DATABRICKS = "databricks"
-    TIKTOK_ADS = "tiktok-ads"
-    BING_ADS = "bing-ads"
-    VERCEL = "vercel"
-    AZURE_BLOB = "azure-blob"
-    FIREBASE = "firebase"
-    JIRA = "jira"
-    PINTEREST_ADS = "pinterest-ads"
-    CUSTOMERIO_APP = "customerio-app"
-    CUSTOMERIO_WEBHOOK = "customerio-webhook"
-    CUSTOMERIO_TRACK = "customerio-track"
-
-
-class IntervalType(StrEnum):
-    SECOND = "second"
-    MINUTE = "minute"
-    HOUR = "hour"
-    DAY = "day"
-    WEEK = "week"
-    MONTH = "month"
-
-
-class Method(StrEnum):
-    LARGEST = "largest"
-    MEAN = "mean"
-    MEDIAN = "median"
 
 
 class LLMTraceEvent(BaseModel):
@@ -2874,13 +1567,6 @@ class LLMTracePerson(BaseModel):
     uuid: str
 
 
-class LifecycleToggle(StrEnum):
-    NEW = "new"
-    RESURRECTING = "resurrecting"
-    RETURNING = "returning"
-    DORMANT = "dormant"
-
-
 class LinearIssueSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2896,31 +1582,6 @@ class LinearIssueSignalExtra(BaseModel):
     team_name: str | None = None
     updated_at: str
     url: str
-
-
-class LinearIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LinearIssueSignalExtra
-    source_id: str
-    source_product: Literal["linear"] = "linear"
-    source_type: Literal["issue"] = "issue"
-    weight: float
-
-
-class LinkedinAdsDefaultSources(StrEnum):
-    LINKEDIN = "linkedin"
-    LI = "li"
-
-
-class LinkedinAdsTableExclusions(StrEnum):
-    STATS = "stats"
-
-
-class LinkedinAdsTableKeywords(StrEnum):
-    CAMPAIGN_GROUPS = "campaign_groups"
 
 
 class LlmEvalReportSignalExtra(BaseModel):
@@ -2948,41 +1609,12 @@ class LlmEvalSignalExtra(BaseModel):
     trace_id: str
 
 
-class LlmEvaluationReportSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LlmEvalReportSignalExtra
-    source_id: str
-    source_product: Literal["llm_analytics"] = "llm_analytics"
-    source_type: Literal["evaluation_report"] = "evaluation_report"
-    weight: float
-
-
-class LlmEvaluationSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LlmEvalSignalExtra
-    source_id: str
-    source_product: Literal["llm_analytics"] = "llm_analytics"
-    source_type: Literal["evaluation"] = "evaluation"
-    weight: float
-
-
 class LoadingBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     artifact_id: str = Field(..., description="The artifact ID that is being loaded")
     type: Literal["loading"] = "loading"
-
-
-class MatchedOn(StrEnum):
-    KEY = "key"
-    VALUE = "value"
 
 
 class LogAttributeResult(BaseModel):
@@ -3001,37 +1633,12 @@ class LogAttributeResult(BaseModel):
     propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
 
 
-class LogPropertyFilterType(StrEnum):
-    LOG = "log"
-    LOG_ATTRIBUTE = "log_attribute"
-    LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
-
-
-class LogSeverityLevel(StrEnum):
-    TRACE = "trace"
-    DEBUG = "debug"
-    INFO = "info"
-    WARN = "warn"
-    ERROR = "error"
-    FATAL = "fatal"
-
-
 class LogValueResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     id: str
     name: str
-
-
-class Action1(StrEnum):
-    FIRING = "firing"
-    BROKEN = "broken"
-
-
-class ThresholdOperator(StrEnum):
-    ABOVE = "above"
-    BELOW = "below"
 
 
 class LogsAlertStateChangeSignalExtra(BaseModel):
@@ -3050,76 +1657,12 @@ class LogsAlertStateChangeSignalExtra(BaseModel):
     window_minutes: float
 
 
-class LogsAlertStateChangeSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: LogsAlertStateChangeSignalExtra
-    source_id: str
-    source_product: Literal["logs"] = "logs"
-    source_type: Literal["alert_state_change"] = "alert_state_change"
-    weight: float
-
-
-class LogsOrderBy(StrEnum):
-    LATEST = "latest"
-    EARLIEST = "earliest"
-
-
-class LogsSparklineBreakdownBy(StrEnum):
-    SEVERITY = "severity"
-    SERVICE = "service"
-
-
 class MarkdownBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     content: str
     type: Literal["markdown"] = "markdown"
-
-
-class MarketingAnalyticsBaseColumns(StrEnum):
-    ID = "ID"
-    CAMPAIGN = "Campaign"
-    SOURCE = "Source"
-    AD_GROUP = "Ad group"
-    AD_GROUP_ID = "Ad group ID"
-    AD = "Ad"
-    AD_ID = "Ad ID"
-    COST = "Cost"
-    CLICKS = "Clicks"
-    IMPRESSIONS = "Impressions"
-    CPC = "CPC"
-    CTR = "CTR"
-    REPORTED_CONVERSIONS = "Reported Conversions"
-    REPORTED_CONVERSION_VALUE = "Reported Conversion Value"
-    REPORTED_ROAS = "Reported ROAS"
-    COST_PER_REPORTED_CONVERSIONS = "Cost per Reported Conversions"
-
-
-class MarketingAnalyticsColumnsSchemaNames(StrEnum):
-    ID = "id"
-    CAMPAIGN = "campaign"
-    CLICKS = "clicks"
-    COST = "cost"
-    CURRENCY = "currency"
-    DATE = "date"
-    IMPRESSIONS = "impressions"
-    SOURCE = "source"
-    REPORTED_CONVERSION = "reported_conversion"
-    REPORTED_CONVERSION_VALUE = "reported_conversion_value"
-    AD_GROUP_ID = "ad_group_id"
-    AD_GROUP_NAME = "ad_group_name"
-    AD_ID = "ad_id"
-    AD_NAME = "ad_name"
-
-
-class MarketingAnalyticsConstants(StrEnum):
-    GOAL = "Goal"
-    COST_PER = "Cost per"
-    CONST_ = "const:"
 
 
 class MarketingAnalyticsDrillDownConfig(BaseModel):
@@ -3129,32 +1672,6 @@ class MarketingAnalyticsDrillDownConfig(BaseModel):
     columnAlias: str
     excludedBaseColumns: list[MarketingAnalyticsBaseColumns]
     excludesConversionGoals: bool | None = None
-
-
-class MarketingAnalyticsDrillDownLevel(StrEnum):
-    CHANNEL = "channel"
-    SOURCE = "source"
-    CAMPAIGN = "campaign"
-    AD_GROUP = "ad_group"
-    AD = "ad"
-    MEDIUM = "medium"
-    CONTENT = "content"
-    TERM = "term"
-
-
-class MarketingAnalyticsOrderByEnum(StrEnum):
-    ASC = "ASC"
-    DESC = "DESC"
-
-
-class MarketingAnalyticsSchemaFieldTypes(StrEnum):
-    STRING = "string"
-    INTEGER = "integer"
-    NUMBER = "number"
-    FLOAT = "float"
-    DATETIME = "datetime"
-    DATE = "date"
-    BOOLEAN = "boolean"
 
 
 class MarketingIntegrationConfig1(BaseModel):
@@ -3271,7 +1788,7 @@ class MarketingIntegrationConfig6(BaseModel):
     adsetStatsTableName: Literal["ad_group_performance_report"] = "ad_group_performance_report"
     adsetTableName: Literal["ad_group_performance_report"] = "ad_group_performance_report"
     campaignTableName: Literal["campaigns"] = "campaigns"
-    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    defaultSources: list[str] = Field(..., max_length=4, min_length=4)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["bing"] = "bing"
@@ -3345,11 +1862,6 @@ class MarketingIntegrationConfig(
     )
 
 
-class MatchField(StrEnum):
-    CAMPAIGN_NAME = "campaign_name"
-    CAMPAIGN_ID = "campaign_id"
-
-
 class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3406,23 +1918,12 @@ class UsageHistoryItem(BaseModel):
     label: str
 
 
-class MaxBillingContextBillingPeriodInterval(StrEnum):
-    MONTH = "month"
-    YEAR = "year"
-
-
 class MaxBillingContextSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     active_destinations: float
     autocapture_on: bool
-
-
-class MaxBillingContextSubscriptionLevel(StrEnum):
-    FREE = "free"
-    PAID = "paid"
-    CUSTOM = "custom"
 
 
 class MaxBillingContextTrial(BaseModel):
@@ -3477,17 +1978,12 @@ class MaxErrorTrackingSearchResponse(BaseModel):
     status: str | None = Field(default=None, description="Issue status filter (active, resolved, etc.)")
 
 
-class EvaluationType(StrEnum):
-    HOG = "hog"
-    LLM_JUDGE = "llm_judge"
-
-
 class MaxEvaluationContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     description: str | None = None
-    evaluation_type: EvaluationType
+    evaluation_type: EvaluationRuntime
     hog_source: str | None = None
     id: str
     name: str | None = None
@@ -3502,12 +1998,6 @@ class MaxEventContext(BaseModel):
     id: str
     name: str | None = None
     type: Literal["event"] = "event"
-
-
-class Goal(Enum):
-    INCREASE = "increase"
-    DECREASE = "decrease"
-    NONE_TYPE_NONE = None
 
 
 class MaxExperimentVariantResultBayesian(BaseModel):
@@ -3537,6 +2027,9 @@ class MaxNotebookContext(BaseModel):
         extra="forbid",
     )
     id: str
+    insertion_placeholder_block_id: str | None = None
+    insertion_placeholder_marker: str | None = None
+    markdown_with_insertion_placeholder: str | None = None
     name: str | None = None
     type: Literal["notebook"] = "notebook"
 
@@ -3561,54 +2054,6 @@ class MaxProductInfo(BaseModel):
     usage_limit: float | None = None
 
 
-class MetaAdsConversionFallbackActionTypes(StrEnum):
-    PURCHASE = "purchase"
-    LEAD = "lead"
-    COMPLETE_REGISTRATION = "complete_registration"
-    APP_INSTALL = "app_install"
-    SUBSCRIBE = "subscribe"
-
-
-class MetaAdsConversionOmniActionTypes(StrEnum):
-    OMNI_PURCHASE = "omni_purchase"
-    OMNI_LEAD = "omni_lead"
-    OMNI_COMPLETE_REGISTRATION = "omni_complete_registration"
-    OMNI_APP_INSTALL = "omni_app_install"
-    OMNI_SUBSCRIBE = "omni_subscribe"
-
-
-class MetaAdsConversionSpecificActionTypes(StrEnum):
-    OFFSITE_CONVERSION_FB_PIXEL_PURCHASE = "offsite_conversion.fb_pixel_purchase"
-    APP_CUSTOM_EVENT_FB_MOBILE_PURCHASE = "app_custom_event.fb_mobile_purchase"
-    OFFSITE_CONVERSION_FB_PIXEL_LEAD = "offsite_conversion.fb_pixel_lead"
-    ONSITE_CONVERSION_LEAD_GROUPED = "onsite_conversion.lead_grouped"
-    OFFSITE_CONVERSION_FB_PIXEL_COMPLETE_REGISTRATION = "offsite_conversion.fb_pixel_complete_registration"
-    APP_CUSTOM_EVENT_FB_MOBILE_COMPLETE_REGISTRATION = "app_custom_event.fb_mobile_complete_registration"
-    OFFSITE_COMPLETE_REGISTRATION_ADD_META_LEADS = "offsite_complete_registration_add_meta_leads"
-    MOBILE_APP_INSTALL = "mobile_app_install"
-    OFFSITE_CONVERSION_FB_PIXEL_SUBSCRIBE = "offsite_conversion.fb_pixel_subscribe"
-
-
-class MetaAdsDefaultSources(StrEnum):
-    META = "meta"
-    FACEBOOK = "facebook"
-    INSTAGRAM = "instagram"
-    MESSENGER = "messenger"
-    FB = "fb"
-    WHATSAPP = "whatsapp"
-    AUDIENCE_NETWORK = "audience_network"
-    FACEBOOK_MARKETPLACE = "facebook_marketplace"
-    THREADS = "threads"
-
-
-class MetaAdsTableExclusions(StrEnum):
-    STATS = "stats"
-
-
-class MetaAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
-
-
 class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3627,14 +2072,6 @@ class ModeContext(BaseModel):
     type: Literal["mode"] = "mode"
 
 
-class MultiQuestionFormFieldType(StrEnum):
-    TEXT = "text"
-    NUMBER = "number"
-    SLIDER = "slider"
-    DROPDOWN = "dropdown"
-    TOGGLE = "toggle"
-
-
 class MultiQuestionFormQuestionOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3647,134 +2084,6 @@ class MultiQuestionFormQuestionOption(BaseModel):
         ...,
         description="A short value to use when this option is selected, in a few words",
     )
-
-
-class MultiQuestionFormQuestionType(StrEnum):
-    SELECT = "select"
-    MULTI_SELECT = "multi_select"
-    MULTI_FIELD = "multi_field"
-
-
-class MultipleBreakdownType(StrEnum):
-    PERSON = "person"
-    EVENT = "event"
-    EVENT_METADATA = "event_metadata"
-    GROUP = "group"
-    SESSION = "session"
-    HOGQL = "hogql"
-    COHORT = "cohort"
-    REVENUE_ANALYTICS = "revenue_analytics"
-    DATA_WAREHOUSE = "data_warehouse"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
-
-
-class NativeMarketingSource(StrEnum):
-    GOOGLE_ADS = "GoogleAds"
-    LINKEDIN_ADS = "LinkedinAds"
-    META_ADS = "MetaAds"
-    TIK_TOK_ADS = "TikTokAds"
-    REDDIT_ADS = "RedditAds"
-    BING_ADS = "BingAds"
-    SNAPCHAT_ADS = "SnapchatAds"
-    PINTEREST_ADS = "PinterestAds"
-
-
-class NodeKind(StrEnum):
-    EVENTS_NODE = "EventsNode"
-    GROUP_NODE = "GroupNode"
-    ACTIONS_NODE = "ActionsNode"
-    DATA_WAREHOUSE_NODE = "DataWarehouseNode"
-    FUNNELS_DATA_WAREHOUSE_NODE = "FunnelsDataWarehouseNode"
-    LIFECYCLE_DATA_WAREHOUSE_NODE = "LifecycleDataWarehouseNode"
-    EVENTS_QUERY = "EventsQuery"
-    SESSIONS_QUERY = "SessionsQuery"
-    PERSONS_NODE = "PersonsNode"
-    HOG_QUERY = "HogQuery"
-    HOG_QL_QUERY = "HogQLQuery"
-    HOG_QL_METADATA = "HogQLMetadata"
-    HOG_QL_AUTOCOMPLETE = "HogQLAutocomplete"
-    ACTORS_QUERY = "ActorsQuery"
-    GROUPS_QUERY = "GroupsQuery"
-    FUNNELS_ACTORS_QUERY = "FunnelsActorsQuery"
-    FUNNEL_CORRELATION_ACTORS_QUERY = "FunnelCorrelationActorsQuery"
-    SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
-    RECORDINGS_QUERY = "RecordingsQuery"
-    SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
-    REVENUE_EXAMPLE_EVENTS_QUERY = "RevenueExampleEventsQuery"
-    REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY = "RevenueExampleDataWarehouseTablesQuery"
-    ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
-    ERROR_TRACKING_SIMILAR_ISSUES_QUERY = "ErrorTrackingSimilarIssuesQuery"
-    ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
-    ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
-    LOGS_QUERY = "LogsQuery"
-    LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
-    LOG_VALUES_QUERY = "LogValuesQuery"
-    TRACE_SPANS_QUERY = "TraceSpansQuery"
-    TRACE_SPANS_AGGREGATION_QUERY = "TraceSpansAggregationQuery"
-    TRACE_SPANS_TREE_QUERY = "TraceSpansTreeQuery"
-    SESSION_BATCH_EVENTS_QUERY = "SessionBatchEventsQuery"
-    DATA_TABLE_NODE = "DataTableNode"
-    DATA_VISUALIZATION_NODE = "DataVisualizationNode"
-    SAVED_INSIGHT_NODE = "SavedInsightNode"
-    INSIGHT_VIZ_NODE = "InsightVizNode"
-    TRENDS_QUERY = "TrendsQuery"
-    CALENDAR_HEATMAP_QUERY = "CalendarHeatmapQuery"
-    FUNNELS_QUERY = "FunnelsQuery"
-    RETENTION_QUERY = "RetentionQuery"
-    PATHS_QUERY = "PathsQuery"
-    STICKINESS_QUERY = "StickinessQuery"
-    STICKINESS_ACTORS_QUERY = "StickinessActorsQuery"
-    LIFECYCLE_QUERY = "LifecycleQuery"
-    INSIGHT_ACTORS_QUERY = "InsightActorsQuery"
-    INSIGHT_ACTORS_QUERY_OPTIONS = "InsightActorsQueryOptions"
-    FUNNEL_CORRELATION_QUERY = "FunnelCorrelationQuery"
-    WEB_OVERVIEW_QUERY = "WebOverviewQuery"
-    WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
-    WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
-    WEB_GOALS_QUERY = "WebGoalsQuery"
-    WEB_VITALS_QUERY = "WebVitalsQuery"
-    WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
-    WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
-    WEB_TRENDS_QUERY = "WebTrendsQuery"
-    WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
-    WEB_NOTABLE_CHANGES_QUERY = "WebNotableChangesQuery"
-    REVENUE_ANALYTICS_GROSS_REVENUE_QUERY = "RevenueAnalyticsGrossRevenueQuery"
-    REVENUE_ANALYTICS_METRICS_QUERY = "RevenueAnalyticsMetricsQuery"
-    REVENUE_ANALYTICS_MRR_QUERY = "RevenueAnalyticsMRRQuery"
-    REVENUE_ANALYTICS_OVERVIEW_QUERY = "RevenueAnalyticsOverviewQuery"
-    REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY = "RevenueAnalyticsTopCustomersQuery"
-    MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
-    MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
-    NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
-    EXPERIMENT_METRIC = "ExperimentMetric"
-    EXPERIMENT_QUERY = "ExperimentQuery"
-    EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
-    EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
-    EXPERIMENT_ACTORS_QUERY = "ExperimentActorsQuery"
-    EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
-    EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
-    EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
-    DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
-    SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
-    TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
-    EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
-    ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
-    TRACES_QUERY = "TracesQuery"
-    TRACE_QUERY = "TraceQuery"
-    TRACE_NEIGHBORS_QUERY = "TraceNeighborsQuery"
-    VECTOR_SEARCH_QUERY = "VectorSearchQuery"
-    DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
-    USAGE_METRICS_QUERY = "UsageMetricsQuery"
-    ACCOUNTS_QUERY = "AccountsQuery"
-    ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
-    ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
-    ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
-    PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
-
-
-class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
-    SOURCE = "Source"
-    CAMPAIGN = "Campaign"
 
 
 class PageURL(BaseModel):
@@ -3791,13 +2100,6 @@ class PathCleaningFilter(BaseModel):
     alias: str | None = None
     order: float | None = None
     regex: str | None = None
-
-
-class PathType(StrEnum):
-    FIELD_PAGEVIEW = "$pageview"
-    FIELD_SCREEN = "$screen"
-    CUSTOM_EVENT = "custom_event"
-    HOGQL = "hogql"
 
 
 class PathsFilterLegacy(BaseModel):
@@ -3879,282 +2181,6 @@ class PgAnalyzeIssueSignalExtra(BaseModel):
     synced_at: str
 
 
-class PgAnalyzeIssueSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: PgAnalyzeIssueSignalExtra
-    source_id: str
-    source_product: Literal["pganalyze"] = "pganalyze"
-    source_type: Literal["issue"] = "issue"
-    weight: float
-
-
-class PinterestAdsDefaultSources(StrEnum):
-    PINTEREST = "pinterest"
-
-
-class PinterestAdsTableExclusions(StrEnum):
-    ANALYTICS = "analytics"
-
-
-class PinterestAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
-
-
-class PlanningStepStatus(StrEnum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-
-
-class ProductIntentContext(StrEnum):
-    ONBOARDING_PRODUCT_SELECTED___PRIMARY = "onboarding product selected - primary"
-    ONBOARDING_PRODUCT_SELECTED___SECONDARY = "onboarding product selected - secondary"
-    QUICK_START_PRODUCT_SELECTED = "quick start product selected"
-    SELECTED_CONNECTOR = "selected connector"
-    SQL_EDITOR_EMPTY_STATE = "sql editor empty state"
-    DATA_WAREHOUSE_SOURCES_TABLE = "data warehouse sources table"
-    EXPERIMENT_CREATED = "experiment created"
-    EXPERIMENT_ANALYZED = "experiment analyzed"
-    FEATURE_FLAG_CREATED = "feature flag created"
-    SESSION_REPLAY_SET_FILTERS = "session_replay_set_filters"
-    ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = "error_tracking_exception_autocapture_enabled"
-    ERROR_TRACKING_ISSUE_SORTING = "error_tracking_issue_sorting"
-    ERROR_TRACKING_DOCS_VIEWED = "error_tracking_docs_viewed"
-    ERROR_TRACKING_ISSUE_EXPLAINED = "error_tracking_issue_explained"
-    LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
-    LLM_ANALYTICS_TRACE_VIEWED = "llm_analytics_trace_viewed"
-    LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
-    LLM_CLUSTER_EXPLORED = "llm_cluster_explored"
-    LLM_DATASET_CREATED = "llm_dataset_created"
-    LLM_EVALUATION_CREATED = "llm_evaluation_created"
-    LLM_PROMPT_CREATED = "llm_prompt_created"
-    LOGS_DOCS_VIEWED = "logs_docs_viewed"
-    LOGS_SET_FILTERS = "logs_set_filters"
-    LOGS_SETTINGS_OPENED = "logs_settings_opened"
-    METRICS_DOCS_VIEWED = "metrics_docs_viewed"
-    TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
-    CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
-    WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
-    WEB_VITALS_INSIGHT = "web_vitals_insight"
-    WEB_ANALYTICS_RECORDINGS = "web_analytics_recordings"
-    WEB_ANALYTICS_ERROR_TRACKING = "web_analytics_error_tracking"
-    WEB_ANALYTICS_ERRORS = "web_analytics_errors"
-    WEB_ANALYTICS_FRUSTRATING_PAGES = "web_analytics_frustrating_pages"
-    ACTION_VIEW_RECORDINGS = "action_view_recordings"
-    PERSON_VIEW_RECORDINGS = "person_view_recordings"
-    FEATURE_FLAG_CREATE_INSIGHT = "feature_flag_create_insight"
-    FEATURE_FLAG_VIEW_RECORDINGS = "feature_flag_view_recordings"
-    EARLY_ACCESS_FEATURE_VIEW_RECORDINGS = "early_access_feature_view_recordings"
-    DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = "data_warehouse_stripe_source_created"
-    SURVEYS_VIEWED = "surveys_viewed"
-    SURVEY_ADD_NEW = "survey_add_new"
-    SURVEY_CREATED = "survey_created"
-    SURVEY_LAUNCHED = "survey_launched"
-    SURVEY_VIEWED = "survey_viewed"
-    SURVEY_COMPLETED = "survey_completed"
-    SURVEY_RESUMED = "survey_resumed"
-    SURVEY_ARCHIVED = "survey_archived"
-    SURVEY_UNARCHIVED = "survey_unarchived"
-    SURVEY_DELETED = "survey_deleted"
-    SURVEY_DUPLICATED = "survey_duplicated"
-    SURVEY_BULK_DUPLICATED = "survey_bulk_duplicated"
-    SURVEY_EDITED = "survey_edited"
-    SURVEY_ANALYZED = "survey_analyzed"
-    QUICK_SURVEY_STARTED = "quick_survey_started"
-    REVENUE_ANALYTICS_VIEWED = "revenue_analytics_viewed"
-    REVENUE_ANALYTICS_ONBOARDING_COMPLETED = "revenue_analytics_onboarding_completed"
-    REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
-    REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = "revenue_analytics_data_source_connected"
-    MARKETING_ANALYTICS_SOURCE_CONFIGURED = "marketing_analytics_source_configured"
-    MARKETING_ANALYTICS_SETTINGS_UPDATED = "marketing_analytics_settings_updated"
-    MARKETING_ANALYTICS_DASHBOARD_INTERACTION = "marketing_analytics_dashboard_interaction"
-    MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED = "marketing_analytics_ads_integration_visited"
-    MARKETING_ANALYTICS_DATA_SOURCE_CONNECTED = "marketing_analytics_data_source_connected"
-    MARKETING_ANALYTICS_ONBOARDING_COMPLETED = "marketing_analytics_onboarding_completed"
-    CUSTOMER_ANALYTICS_DASHBOARD_BUSINESS_MODE_CHANGED = "customer_analytics_dashboard_business_mode_changed"
-    CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED = (
-        "customer_analytics_dashboard_configuration_button_clicked"
-    )
-    CUSTOMER_ANALYTICS_DASHBOARD_FILTERS_CHANGED = "customer_analytics_dashboard_filters_changed"
-    CUSTOMER_ANALYTICS_DASHBOARD_EVENTS_SAVED = "customer_analytics_dashboard_events_saved"
-    CUSTOMER_ANALYTICS_VIEWED = "customer_analytics_viewed"
-    CUSTOMER_ANALYTICS_USAGE_METRIC_CREATED = "customer_analytics_usage_metric_created"
-    NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
-    FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
-    WORKFLOW_CREATED = "workflow_created"
-    DATA_PIPELINE_CREATED = "data_pipeline_created"
-    BATCH_EXPORT_CREATED = "batch_export_created"
-    BATCH_EXPORT_UPDATED = "batch_export_updated"
-    BATCH_EXPORT_BACKFILL_CREATED = "batch_export_backfill_created"
-    NOTEBOOK_CREATED = "notebook_created"
-    PRODUCT_TOUR_CREATED = "product_tour_created"
-    TASK_CREATED = "task_created"
-    TOOLBAR_LAUNCHED = "toolbar_launched"
-    VERCEL_INTEGRATION = "vercel_integration"
-    ENDPOINT_CREATED = "endpoint_created"
-    ENDPOINT_CREATED_FROM_INSIGHT = "endpoint_created_from_insight"
-    ENDPOINT_CREATED_FROM_SQL_EDITOR = "endpoint_created_from_sql_editor"
-    TRACING_DOCS_VIEWED = "tracing_docs_viewed"
-
-
-class ProductItemCategory(StrEnum):
-    ANALYTICS = "Analytics"
-    AI_ENGINEERING = "AI engineering"
-    BEHAVIOR = "Behavior"
-    APP_MONITORING = "App monitoring"
-    FEATURES = "Features"
-    TOOLS = "Tools"
-    SCHEMA = "Schema"
-    PIPELINE = "Pipeline"
-    METADATA = "Metadata"
-    UNRELEASED = "Unreleased"
-
-
-class ProductKey(StrEnum):
-    ACTIONS = "actions"
-    LLM_ANALYTICS = "llm_analytics"
-    ALERTS = "alerts"
-    ANNOTATIONS = "annotations"
-    AUTORESEARCH = "autoresearch"
-    COHORTS = "cohorts"
-    COMMENTS = "comments"
-    CONVERSATIONS = "conversations"
-    CUSTOMER_ANALYTICS = "customer_analytics"
-    DATA_WAREHOUSE = "data_warehouse"
-    DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
-    DEPLOYMENTS = "deployments"
-    EARLY_ACCESS_FEATURES = "early_access_features"
-    ENDPOINTS = "endpoints"
-    ERROR_TRACKING = "error_tracking"
-    EXPERIMENTS = "experiments"
-    FEATURE_FLAGS = "feature_flags"
-    GROUP_ANALYTICS = "group_analytics"
-    HEATMAPS = "heatmaps"
-    HISTORY = "history"
-    INGESTION_WARNINGS = "ingestion_warnings"
-    INTEGRATIONS = "integrations"
-    LINKS = "links"
-    LIVE_DEBUGGER = "live_debugger"
-    LLM_CLUSTERS = "llm_clusters"
-    LLM_DATASETS = "llm_datasets"
-    LLM_EVALUATIONS = "llm_evaluations"
-    LLM_PROMPTS = "llm_prompts"
-    LOGS = "logs"
-    MARKETING_ANALYTICS = "marketing_analytics"
-    MAX = "max"
-    MOBILE_REPLAY = "mobile_replay"
-    NOTEBOOKS = "notebooks"
-    PERSONS = "persons"
-    PIPELINE_BATCH_EXPORTS = "pipeline_batch_exports"
-    PIPELINE_DESTINATIONS = "pipeline_destinations"
-    PIPELINE_TRANSFORMATIONS = "pipeline_transformations"
-    PLATFORM_AND_SUPPORT = "platform_and_support"
-    PRODUCT_ANALYTICS = "product_analytics"
-    PRODUCT_TOURS = "product_tours"
-    REVENUE_ANALYTICS = "revenue_analytics"
-    SESSION_REPLAY = "session_replay"
-    REPLAY_VISION = "replay_vision"
-    SITE_APPS = "site_apps"
-    SUBSCRIPTIONS = "subscriptions"
-    STREAMLIT_APPS = "streamlit_apps"
-    SURVEYS = "surveys"
-    TASKS = "tasks"
-    TEAMS = "teams"
-    TOOLBAR = "toolbar"
-    TRACING = "tracing"
-    METRICS = "metrics"
-    USER_INTERVIEWS = "user_interviews"
-    VISUAL_REVIEW = "visual_review"
-    WEB_ANALYTICS = "web_analytics"
-    WORKFLOWS = "workflows"
-
-
-class PropertyFilterType(StrEnum):
-    META = "meta"
-    EVENT = "event"
-    INTERNAL_EVENT = "internal_event"
-    EVENT_METADATA = "event_metadata"
-    PERSON = "person"
-    ELEMENT = "element"
-    FEATURE = "feature"
-    SESSION = "session"
-    COHORT = "cohort"
-    RECORDING = "recording"
-    LOG_ENTRY = "log_entry"
-    GROUP = "group"
-    HOGQL = "hogql"
-    DATA_WAREHOUSE = "data_warehouse"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
-    ERROR_TRACKING_ISSUE = "error_tracking_issue"
-    REVENUE_ANALYTICS = "revenue_analytics"
-    FLAG = "flag"
-    LOG = "log"
-    LOG_ATTRIBUTE = "log_attribute"
-    LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
-    SPAN = "span"
-    SPAN_ATTRIBUTE = "span_attribute"
-    SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
-    WORKFLOW_VARIABLE = "workflow_variable"
-    EMPTY = "empty"
-
-
-class PropertyMathType(StrEnum):
-    AVG = "avg"
-    SUM = "sum"
-    MIN = "min"
-    MAX = "max"
-    MEDIAN = "median"
-    P75 = "p75"
-    P90 = "p90"
-    P95 = "p95"
-    P99 = "p99"
-
-
-class PropertyOperator(StrEnum):
-    EXACT = "exact"
-    IS_NOT = "is_not"
-    ICONTAINS = "icontains"
-    NOT_ICONTAINS = "not_icontains"
-    REGEX = "regex"
-    NOT_REGEX = "not_regex"
-    GT = "gt"
-    GTE = "gte"
-    LT = "lt"
-    LTE = "lte"
-    IS_SET = "is_set"
-    IS_NOT_SET = "is_not_set"
-    IS_DATE_EXACT = "is_date_exact"
-    IS_DATE_BEFORE = "is_date_before"
-    IS_DATE_AFTER = "is_date_after"
-    BETWEEN = "between"
-    NOT_BETWEEN = "not_between"
-    MIN = "min"
-    MAX = "max"
-    IN_ = "in"
-    NOT_IN = "not_in"
-    IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
-    FLAG_EVALUATES_TO = "flag_evaluates_to"
-    SEMVER_EQ = "semver_eq"
-    SEMVER_NEQ = "semver_neq"
-    SEMVER_GT = "semver_gt"
-    SEMVER_GTE = "semver_gte"
-    SEMVER_LT = "semver_lt"
-    SEMVER_LTE = "semver_lte"
-    SEMVER_TILDE = "semver_tilde"
-    SEMVER_CARET = "semver_caret"
-    SEMVER_WILDCARD = "semver_wildcard"
-    ICONTAINS_MULTI = "icontains_multi"
-    NOT_ICONTAINS_MULTI = "not_icontains_multi"
-
-
-class PropertyType(StrEnum):
-    EVENT = "event"
-    PERSON = "person"
-
-
 class Mark(BaseModel):
     attrs: dict[str, Any] | None = None
     type: str
@@ -4166,13 +2192,6 @@ class ProsemirrorJSONContent(BaseModel):
     marks: list[Mark] | None = None
     text: str | None = None
     type: str | None = None
-
-
-class QueryIndexUsage(StrEnum):
-    UNDECISIVE = "undecisive"
-    NO = "no"
-    PARTIAL = "partial"
-    YES = "yes"
 
 
 class QueryLogTags(BaseModel):
@@ -4199,11 +2218,6 @@ class QueryLogTags(BaseModel):
     )
 
 
-class LimitContext(Enum):
-    POSTHOG_AI = "posthog_ai"
-    NONE_TYPE_NONE = None
-
-
 class QueryResponseAlternative7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4214,7 +2228,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4231,17 +2245,6 @@ class QueryTiming(BaseModel):
     )
     k: str = Field(..., description="Key. Shortened to 'k' to save on data.")
     t: float = Field(..., description="Time in seconds. Shortened to 't' to save on data.")
-
-
-class QuickFilterContext(StrEnum):
-    DASHBOARDS = "dashboards"
-    ERROR_TRACKING_ISSUE_FILTERS = "error-tracking-issue-filters"
-    LOGS_FILTERS = "logs-filters"
-
-
-class QuickFilterType(StrEnum):
-    MANUAL_OPTIONS = "manual-options"
-    AUTO_DISCOVERY = "auto-discovery"
 
 
 class ReasoningMessage(BaseModel):
@@ -4266,25 +2269,6 @@ class RecordingDurationFilter(BaseModel):
     value: float
 
 
-class RecordingOrder(StrEnum):
-    DURATION = "duration"
-    RECORDING_DURATION = "recording_duration"
-    INACTIVE_SECONDS = "inactive_seconds"
-    ACTIVE_SECONDS = "active_seconds"
-    START_TIME = "start_time"
-    CONSOLE_ERROR_COUNT = "console_error_count"
-    CLICK_COUNT = "click_count"
-    KEYPRESS_COUNT = "keypress_count"
-    MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
-    ACTIVITY_SCORE = "activity_score"
-    RECORDING_TTL = "recording_ttl"
-
-
-class RecordingOrderDirection(StrEnum):
-    ASC = "ASC"
-    DESC = "DESC"
-
-
 class RecordingPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4294,34 +2278,6 @@ class RecordingPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["recording"] = "recording"
     value: list[str | float | bool] | str | float | bool | None = None
-
-
-class HideViewedRecordings(Enum):
-    CURRENT_USER = "current-user"
-    ANY_USER = "any-user"
-    NONE_TYPE_NONE = None
-
-
-class RedditAdsDefaultSources(StrEnum):
-    REDDIT = "reddit"
-
-
-class RedditAdsTableExclusions(StrEnum):
-    REPORT = "report"
-
-
-class RedditAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
-
-
-class RefreshType(StrEnum):
-    ASYNC_ = "async"
-    ASYNC_EXCEPT_ON_CACHE_MISS = "async_except_on_cache_miss"
-    BLOCKING = "blocking"
-    FORCE_ASYNC = "force_async"
-    FORCE_BLOCKING = "force_blocking"
-    FORCE_CACHE = "force_cache"
-    LAZY_ASYNC = "lazy_async"
 
 
 class RelevantCommit(BaseModel):
@@ -4344,6 +2300,28 @@ class ReplayInactivityPeriod(BaseModel):
     ts_to_s: float | None = None
 
 
+class ReplayVisionScannerFindingSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence: float = Field(
+        ...,
+        description=("The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`."),
+    )
+    observation_id: str
+    scanner_id: str
+    scanner_name: str
+    scanner_type: str = Field(
+        ...,
+        description=(
+            "Replay Vision scanner type, e.g. 'monitor' / 'classifier' / 'scorer' /"
+            " 'summarizer'. Kept open so new scanner types don't fail signal"
+            " validation."
+        ),
+    )
+    session_id: str
+
+
 class ResolvedDateRangeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4358,11 +2336,6 @@ class ResultCustomizationBase(BaseModel):
     )
     color: DataColorToken | None = None
     hidden: bool | None = None
-
-
-class ResultCustomizationBy(StrEnum):
-    VALUE = "value"
-    POSITION = "position"
 
 
 class ResultCustomizationByPosition(BaseModel):
@@ -4383,30 +2356,6 @@ class ResultCustomizationByValue(BaseModel):
     hidden: bool | None = None
 
 
-class RetentionDashboardDisplayType(StrEnum):
-    TABLE_ONLY = "table_only"
-    GRAPH_ONLY = "graph_only"
-    ALL = "all"
-
-
-class RetentionEntityKind(StrEnum):
-    ACTIONS_NODE = "ActionsNode"
-    EVENTS_NODE = "EventsNode"
-
-
-class RetentionPeriod(StrEnum):
-    HOUR = "Hour"
-    DAY = "Day"
-    WEEK = "Week"
-    MONTH = "Month"
-
-
-class RetentionType(StrEnum):
-    RETENTION_RECURRING = "retention_recurring"
-    RETENTION_FIRST_TIME = "retention_first_time"
-    RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
-
-
 class RetentionValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4422,11 +2371,6 @@ class RevenueAnalyticsBreakdown(BaseModel):
     )
     property: str
     type: Literal["revenue_analytics"] = "revenue_analytics"
-
-
-class MrrOrGross(StrEnum):
-    MRR = "mrr"
-    GROSS = "gross"
 
 
 class RevenueAnalyticsGoal(BaseModel):
@@ -4450,12 +2394,6 @@ class RevenueAnalyticsMRRQueryResultItem(BaseModel):
     total: Any
 
 
-class RevenueAnalyticsOverviewItemKey(StrEnum):
-    REVENUE = "revenue"
-    PAYING_CUSTOMER_COUNT = "paying_customer_count"
-    AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
-
-
 class RevenueAnalyticsPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4465,11 +2403,6 @@ class RevenueAnalyticsPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["revenue_analytics"] = "revenue_analytics"
     value: list[str | float | bool] | str | float | bool | None = None
-
-
-class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
-    MONTH = "month"
-    ALL = "all"
 
 
 class RevenueCurrencyPropertyConfig(BaseModel):
@@ -4494,16 +2427,6 @@ class SamplingRate(BaseModel):
     )
     denominator: float | None = None
     numerator: float
-
-
-class SessionAttributionGroupBy(StrEnum):
-    CHANNEL_TYPE = "ChannelType"
-    MEDIUM = "Medium"
-    SOURCE = "Source"
-    CAMPAIGN = "Campaign"
-    AD_IDS = "AdIds"
-    REFERRING_DOMAIN = "ReferringDomain"
-    INITIAL_URL = "InitialURL"
 
 
 class SessionData(BaseModel):
@@ -4540,14 +2463,6 @@ class SessionProblemEventEntry(BaseModel):
     timestamp: str
 
 
-class ProblemType(StrEnum):
-    CONFUSION = "confusion"
-    ABANDONMENT = "abandonment"
-    BLOCKING_EXCEPTION = "blocking_exception"
-    NON_BLOCKING_EXCEPTION = "non_blocking_exception"
-    FAILURE = "failure"
-
-
 class SessionProblemSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4564,18 +2479,6 @@ class SessionProblemSignalExtra(BaseModel):
     session_id: str
     session_start_time: str | None = None
     start_time: str
-
-
-class SessionProblemSignalInput(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str
-    extra: SessionProblemSignalExtra
-    source_id: str
-    source_product: Literal["session_replay"] = "session_replay"
-    source_type: Literal["session_problem"] = "session_problem"
-    weight: float
 
 
 class SessionPropertyFilter(BaseModel):
@@ -4608,12 +2511,6 @@ class SessionRecordingExternalReference(BaseModel):
     issue_id: str
     metadata: dict[str, str] | None = None
     title: str
-
-
-class SnapshotSource(StrEnum):
-    WEB = "web"
-    MOBILE = "mobile"
-    UNKNOWN = "unknown"
 
 
 class SummaryOutcome(BaseModel):
@@ -4676,12 +2573,6 @@ class SessionSegmentClusterSignalInput(BaseModel):
     weight: float
 
 
-class Theme(StrEnum):
-    LIGHT = "light"
-    DARK = "dark"
-    SYSTEM = "system"
-
-
 class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4695,6 +2586,38 @@ class SharingConfigurationSettings(BaseModel):
     whitelabel: bool | None = None
 
 
+class SignalExtraBase(BaseModel):
+    pass
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class SignalRemediation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    agent: str = Field(
+        ...,
+        description=(
+            "Agent-facing guidance: how to investigate (which MCP tools to call) and,"
+            " where the fix lives in the user's codebase, how to apply it. The research"
+            " agent treats this as authoritative — it still investigates and produces"
+            " findings, but follows this instead of starting cold."
+        ),
+    )
+    human: str = Field(
+        ...,
+        description=(
+            "Human-facing fix steps (PostHog UI / alert destinations). Surfaced in the report for the reader."
+        ),
+    )
+    priority: Priority | None = Field(
+        default=None,
+        description=("Suggested report priority; advisory, the research agent may override."),
+    )
+
+
 class SignalReviewerUserInfo(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4704,35 +2627,6 @@ class SignalReviewerUserInfo(BaseModel):
     id: float
     last_name: str
     uuid: str
-
-
-class SignalSourceProduct(StrEnum):
-    SESSION_REPLAY = "session_replay"
-    LLM_ANALYTICS = "llm_analytics"
-    GITHUB = "github"
-    LINEAR = "linear"
-    ZENDESK = "zendesk"
-    CONVERSATIONS = "conversations"
-    ERROR_TRACKING = "error_tracking"
-    ENDPOINTS = "endpoints"
-    PGANALYZE = "pganalyze"
-    SIGNALS_SCOUT = "signals_scout"
-    LOGS = "logs"
-
-
-class SignalSourceType(StrEnum):
-    SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster"
-    SESSION_PROBLEM = "session_problem"
-    EVALUATION = "evaluation"
-    EVALUATION_REPORT = "evaluation_report"
-    ISSUE = "issue"
-    TICKET = "ticket"
-    ISSUE_CREATED = "issue_created"
-    ISSUE_REOPENED = "issue_reopened"
-    ISSUE_SPIKING = "issue_spiking"
-    ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
-    CROSS_SOURCE_ISSUE = "cross_source_issue"
-    ALERT_STATE_CHANGE = "alert_state_change"
 
 
 class SignalsScoutEvidenceEntry(BaseModel):
@@ -4748,14 +2642,6 @@ class SignalsScoutEvidenceEntry(BaseModel):
         description=("The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'."),
     )
     summary: str = Field(..., description="One-line summary of the evidence the scout used.")
-
-
-class Severity(StrEnum):
-    P0 = "P0"
-    P1 = "P1"
-    P2 = "P2"
-    P3 = "P3"
-    P4 = "P4"
 
 
 class TimeRange(BaseModel):
@@ -4789,6 +2675,30 @@ class SignalsScoutSignalExtra(BaseModel):
     severity: Severity | None = None
     skill_name: str
     skill_version: float
+    tags: list[str] | None = Field(
+        default=None,
+        description=(
+            "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the"
+            " finding. Each scout maintains and evolves its own vocabulary over time;"
+            " the harness normalizes and caps these at emit."
+        ),
+    )
+    task_id: str | None = Field(
+        default=None,
+        description=(
+            "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the"
+            " inbox card to the run in the Tasks UI. Absent on emissions made before"
+            " this linkage was captured."
+        ),
+    )
+    task_run_id: str = Field(
+        ...,
+        description=(
+            "The `tasks.TaskRun` id the scout span ran inside. Join key into the"
+            " `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id`"
+            " (the `scout_run_id` bridge row is not)."
+        ),
+    )
     time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
 
 
@@ -4798,6 +2708,7 @@ class SignalsScoutSignalInput(BaseModel):
     )
     description: str
     extra: SignalsScoutSignalExtra
+    remediation: SignalRemediation | None = None
     source_id: str
     source_product: Literal["signals_scout"] = "signals_scout"
     source_type: Literal["cross_source_issue"] = "cross_source_issue"
@@ -4817,66 +2728,12 @@ class SimilarIssue(BaseModel):
     status: str
 
 
-class SimpleIntervalType(StrEnum):
-    DAY = "day"
-    MONTH = "month"
-
-
-class SlashCommandName(StrEnum):
-    FIELD_INIT = "/init"
-    FIELD_REMEMBER = "/remember"
-    FIELD_USAGE = "/usage"
-    FIELD_FEEDBACK = "/feedback"
-    FIELD_TICKET = "/ticket"
-
-
-class SnapchatAdsConversionFields(StrEnum):
-    CONVERSION_PURCHASES = "conversion_purchases"
-    CONVERSION_SIGN_UPS = "conversion_sign_ups"
-    CONVERSION_SUBSCRIBE = "conversion_subscribe"
-
-
-class SnapchatAdsConversionValueFields(StrEnum):
-    CONVERSION_PURCHASES_VALUE = "conversion_purchases_value"
-    CONVERSION_SIGN_UPS_VALUE = "conversion_sign_ups_value"
-    CONVERSION_SUBSCRIBE_VALUE = "conversion_subscribe_value"
-
-
-class SnapchatAdsDefaultSources(StrEnum):
-    SNAPCHAT = "snapchat"
-
-
-class SnapchatAdsTableExclusions(StrEnum):
-    STATS_DAILY = "stats_daily"
-
-
-class SnapchatAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
-
-
-class ReleaseStatus(StrEnum):
-    ALPHA = "alpha"
-    BETA = "beta"
-    GA = "ga"
-
-
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     format: Literal[".json"] = ".json"
     keys: str | list[str]
-
-
-class SourceFieldInputConfigType(StrEnum):
-    TEXT = "text"
-    EMAIL = "email"
-    SEARCH = "search"
-    URL = "url"
-    PASSWORD = "password"
-    TIME = "time"
-    NUMBER = "number"
-    TEXTAREA = "textarea"
 
 
 class SourceFieldOauthConfig(BaseModel):
@@ -4900,12 +2757,6 @@ class SourceFieldSSHTunnelConfig(BaseModel):
     type: Literal["ssh-tunnel"] = "ssh-tunnel"
 
 
-class SourceFieldSelectConfigConverter(StrEnum):
-    STR_TO_INT = "str_to_int"
-    STR_TO_BOOL = "str_to_bool"
-    STR_TO_OPTIONAL_INT = "str_to_optional_int"
-
-
 class SourceMap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4926,23 +2777,6 @@ class SourceMap(BaseModel):
     source: str | None = None
 
 
-class SpanPropertyFilterType(StrEnum):
-    SPAN = "span"
-    SPAN_ATTRIBUTE = "span_attribute"
-    SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
-
-
-class StepOrderValue(StrEnum):
-    STRICT = "strict"
-    UNORDERED = "unordered"
-    ORDERED = "ordered"
-
-
-class StickinessComputationMode(StrEnum):
-    NON_CUMULATIVE = "non_cumulative"
-    CUMULATIVE = "cumulative"
-
-
 class StickinessFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4956,12 +2790,6 @@ class StickinessFilterLegacy(BaseModel):
     show_values_on_series: bool | None = None
 
 
-class StickinessOperator(StrEnum):
-    GTE = "gte"
-    LTE = "lte"
-    EXACT = "exact"
-
-
 class SubagentUpdateEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4971,9 +2799,8 @@ class SubagentUpdateEvent(BaseModel):
     tool_call_id: str
 
 
-class SubscriptionDropoffMode(StrEnum):
-    LAST_EVENT = "last_event"
-    AFTER_DROPOFF_PERIOD = "after_dropoff_period"
+class SubscriptionAIPromptMaxLength(RootModel[Literal[4000]]):
+    root: Literal[4000] = Field(4000, description="Maximum length, in characters, of an AI subscription prompt.")
 
 
 class SubscriptionFreeTierLimit(RootModel[Literal[5]]):
@@ -5023,40 +2850,6 @@ class Actions(BaseModel):
     values: list[Value]
 
 
-class SurveyMatchType(StrEnum):
-    EXACT = "exact"
-    IS_NOT = "is_not"
-    ICONTAINS = "icontains"
-    NOT_ICONTAINS = "not_icontains"
-    REGEX = "regex"
-    NOT_REGEX = "not_regex"
-
-
-class SurveyPosition(StrEnum):
-    TOP_LEFT = "top_left"
-    TOP_CENTER = "top_center"
-    TOP_RIGHT = "top_right"
-    MIDDLE_LEFT = "middle_left"
-    MIDDLE_CENTER = "middle_center"
-    MIDDLE_RIGHT = "middle_right"
-    LEFT = "left"
-    CENTER = "center"
-    RIGHT = "right"
-    NEXT_TO_TRIGGER = "next_to_trigger"
-
-
-class SurveyQuestionBranchingType(StrEnum):
-    NEXT_QUESTION = "next_question"
-    END = "end"
-    RESPONSE_BASED = "response_based"
-    SPECIFIC_QUESTION = "specific_question"
-
-
-class SurveyQuestionDescriptionContentType(StrEnum):
-    HTML = "html"
-    TEXT = "text"
-
-
 class Branching(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5064,117 +2857,6 @@ class Branching(BaseModel):
     index: float | None = None
     responseValues: dict[str, str | float] | None = None
     type: SurveyQuestionBranchingType
-
-
-class Display1(StrEnum):
-    NUMBER = "number"
-    EMOJI = "emoji"
-
-
-class SurveyQuestionType(StrEnum):
-    OPEN = "open"
-    MULTIPLE_CHOICE = "multiple_choice"
-    SINGLE_CHOICE = "single_choice"
-    RATING = "rating"
-    LINK = "link"
-
-
-class SurveyTabPosition(StrEnum):
-    TOP = "top"
-    LEFT = "left"
-    RIGHT = "right"
-    BOTTOM = "bottom"
-
-
-class SurveyType(StrEnum):
-    POPOVER = "popover"
-    WIDGET = "widget"
-    FULL_SCREEN = "full_screen"
-    API = "api"
-    EXTERNAL_SURVEY = "external_survey"
-
-
-class SurveyWidgetType(StrEnum):
-    BUTTON = "button"
-    TAB = "tab"
-    SELECTOR = "selector"
-
-
-class TaskExecutionStatus(StrEnum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
-class TaxonomicFilterGroupType(StrEnum):
-    METADATA = "metadata"
-    ACTIONS = "actions"
-    COHORTS = "cohorts"
-    COHORTS_WITH_ALL = "cohorts_with_all"
-    DATA_WAREHOUSE = "data_warehouse"
-    DATA_WAREHOUSE_PROPERTIES = "data_warehouse_properties"
-    DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
-    ELEMENTS = "elements"
-    EVENTS = "events"
-    INTERNAL_EVENTS = "internal_events"
-    INTERNAL_EVENT_PROPERTIES = "internal_event_properties"
-    EVENT_PROPERTIES = "event_properties"
-    EVENT_FEATURE_FLAGS = "event_feature_flags"
-    EVENT_METADATA = "event_metadata"
-    NUMERICAL_EVENT_PROPERTIES = "numerical_event_properties"
-    PERSON_PROPERTIES = "person_properties"
-    PAGEVIEW_URLS = "pageview_urls"
-    PAGEVIEW_EVENTS = "pageview_events"
-    SCREENS = "screens"
-    SCREEN_EVENTS = "screen_events"
-    EMAIL_ADDRESSES = "email_addresses"
-    AUTOCAPTURE_EVENTS = "autocapture_events"
-    CUSTOM_EVENTS = "custom_events"
-    WILDCARD = "wildcard"
-    GROUPS = "groups"
-    PERSONS = "persons"
-    FEATURE_FLAGS = "feature_flags"
-    INSIGHTS = "insights"
-    EXPERIMENTS = "experiments"
-    PLUGINS = "plugins"
-    DASHBOARDS = "dashboards"
-    NAME_GROUPS = "name_groups"
-    SESSION_PROPERTIES = "session_properties"
-    HOGQL_EXPRESSION = "hogql_expression"
-    NOTEBOOKS = "notebooks"
-    LOG_ENTRIES = "log_entries"
-    ERROR_TRACKING_ISSUES = "error_tracking_issues"
-    LOGS = "logs"
-    LOG_ATTRIBUTES = "log_attributes"
-    LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
-    SPANS = "spans"
-    SPAN_ATTRIBUTES = "span_attributes"
-    SPAN_RESOURCE_ATTRIBUTES = "span_resource_attributes"
-    REPLAY = "replay"
-    REPLAY_SAVED_FILTERS = "replay_saved_filters"
-    REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
-    RESOURCES = "resources"
-    ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
-    ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
-    MAX_AI_CONTEXT = "max_ai_context"
-    WORKFLOW_VARIABLES = "workflow_variables"
-    SUGGESTED_FILTERS = "suggested_filters"
-    RECENT_FILTERS = "recent_filters"
-    PINNED_FILTERS = "pinned_filters"
-    EMPTY = "empty"
-
-
-class TikTokAdsDefaultSources(StrEnum):
-    TIKTOK = "tiktok"
-
-
-class TikTokAdsTableExclusions(StrEnum):
-    REPORT = "report"
-
-
-class TikTokAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
 
 
 class TimelineEntry(BaseModel):
@@ -5208,12 +2890,6 @@ class TraceNeighborsQueryResponse(BaseModel):
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
-
-
-class DetailedResultsAggregationType(StrEnum):
-    TOTAL = "total"
-    AVERAGE = "average"
-    MEDIAN = "median"
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -5251,16 +2927,6 @@ class TrendsFormulaNode(BaseModel):
     formula: str
 
 
-class UsageMetricDisplay(StrEnum):
-    NUMBER = "number"
-    SPARKLINE = "sparkline"
-
-
-class UsageMetricFormat(StrEnum):
-    NUMERIC = "numeric"
-    CURRENCY = "currency"
-
-
 class UserBasicType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5274,17 +2940,6 @@ class UserBasicType(BaseModel):
     last_name: str | None = None
     role_at_organization: str | None = None
     uuid: str
-
-
-class UserProductListReason(StrEnum):
-    ONBOARDING = "onboarding"
-    PRODUCT_INTENT = "product_intent"
-    USED_BY_COLLEAGUES = "used_by_colleagues"
-    USED_SIMILAR_PRODUCTS = "used_similar_products"
-    USED_ON_SEPARATE_TEAM = "used_on_separate_team"
-    NEW_PRODUCT = "new_product"
-    SALES_LED = "sales_led"
-    ONBOARDING_DELEGATED = "onboarding_delegated"
 
 
 class VectorSearchResponseItem(BaseModel):
@@ -5329,35 +2984,6 @@ class WebAnalyticsExternalSummaryRequest(BaseModel):
     explicit_date: bool | None = None
 
 
-class WebAnalyticsItemKind(StrEnum):
-    UNIT = "unit"
-    DURATION_S = "duration_s"
-    PERCENTAGE = "percentage"
-    CURRENCY = "currency"
-
-
-class WebAnalyticsOrderByDirection(StrEnum):
-    ASC = "ASC"
-    DESC = "DESC"
-
-
-class WebAnalyticsOrderByFields(StrEnum):
-    VISITORS = "Visitors"
-    VIEWS = "Views"
-    AVG_TIME_ON_PAGE = "AvgTimeOnPage"
-    CLICKS = "Clicks"
-    BOUNCE_RATE = "BounceRate"
-    AVERAGE_SCROLL_PERCENTAGE = "AverageScrollPercentage"
-    SCROLL_GT80_PERCENTAGE = "ScrollGt80Percentage"
-    TOTAL_CONVERSIONS = "TotalConversions"
-    UNIQUE_CONVERSIONS = "UniqueConversions"
-    CONVERSION_RATE = "ConversionRate"
-    CONVERTING_USERS = "ConvertingUsers"
-    RAGE_CLICKS = "RageClicks"
-    DEAD_CLICKS = "DeadClicks"
-    ERRORS = "Errors"
-
-
 class WebAnalyticsSampling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5388,78 +3014,7 @@ class WebOverviewItem(BaseModel):
     key: str
     kind: WebAnalyticsItemKind
     previous: float | None = None
-    usedPreAggregatedTables: bool | None = None
     value: float | None = None
-
-
-class WebStatsBreakdown(StrEnum):
-    PAGE = "Page"
-    INITIAL_PAGE = "InitialPage"
-    EXIT_PAGE = "ExitPage"
-    EXIT_CLICK = "ExitClick"
-    PREVIOUS_PAGE = "PreviousPage"
-    SCREEN_NAME = "ScreenName"
-    INITIAL_CHANNEL_TYPE = "InitialChannelType"
-    INITIAL_REFERRING_DOMAIN = "InitialReferringDomain"
-    INITIAL_REFERRING_URL = "InitialReferringURL"
-    INITIAL_UTM_SOURCE = "InitialUTMSource"
-    INITIAL_UTM_CAMPAIGN = "InitialUTMCampaign"
-    INITIAL_UTM_MEDIUM = "InitialUTMMedium"
-    INITIAL_UTM_TERM = "InitialUTMTerm"
-    INITIAL_UTM_CONTENT = "InitialUTMContent"
-    INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN = "InitialUTMSourceMediumCampaign"
-    BROWSER = "Browser"
-    OS = "OS"
-    VIEWPORT = "Viewport"
-    DEVICE_TYPE = "DeviceType"
-    COUNTRY = "Country"
-    REGION = "Region"
-    CITY = "City"
-    TIMEZONE = "Timezone"
-    LANGUAGE = "Language"
-    FRUSTRATION_METRICS = "FrustrationMetrics"
-
-
-class Metrics(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    Bounces: float | None = None
-    PageViews: float | None = None
-    SessionDuration: float | None = None
-    Sessions: float | None = None
-    TotalSessions: float | None = None
-    UniqueUsers: float | None = None
-
-
-class WebTrendsItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bucket: str
-    metrics: Metrics
-
-
-class WebTrendsMetric(StrEnum):
-    UNIQUE_USERS = "UniqueUsers"
-    PAGE_VIEWS = "PageViews"
-    SESSIONS = "Sessions"
-    BOUNCES = "Bounces"
-    SESSION_DURATION = "SessionDuration"
-    TOTAL_SESSIONS = "TotalSessions"
-
-
-class WebVitalsMetric(StrEnum):
-    INP = "INP"
-    LCP = "LCP"
-    CLS = "CLS"
-    FCP = "FCP"
-
-
-class WebVitalsMetricBand(StrEnum):
-    GOOD = "good"
-    NEEDS_IMPROVEMENTS = "needs_improvements"
-    POOR = "poor"
 
 
 class WebVitalsPathBreakdownResultItem(BaseModel):
@@ -5468,28 +3023,6 @@ class WebVitalsPathBreakdownResultItem(BaseModel):
     )
     path: str
     value: float
-
-
-class WebVitalsPercentile(StrEnum):
-    P75 = "p75"
-    P90 = "p90"
-    P99 = "p99"
-
-
-class WebsiteBrowsingHistoryProdInterest(StrEnum):
-    PRODUCT_ANALYTICS = "product-analytics"
-    WEB_ANALYTICS = "web-analytics"
-    SESSION_REPLAY = "session-replay"
-    FEATURE_FLAGS = "feature-flags"
-    EXPERIMENTS = "experiments"
-    ERROR_TRACKING = "error-tracking"
-    SURVEYS = "surveys"
-    DATA_WAREHOUSE = "data-warehouse"
-    LLM_ANALYTICS = "llm-analytics"
-    REVENUE_ANALYTICS = "revenue-analytics"
-    WORKFLOWS = "workflows"
-    LOGS = "logs"
-    ENDPOINTS = "endpoints"
 
 
 class WorkflowVariablePropertyFilter(BaseModel):
@@ -5532,6 +3065,7 @@ class ZendeskTicketSignalInput(BaseModel):
     )
     description: str
     extra: ZendeskTicketSignalExtra
+    remediation: SignalRemediation | None = None
     source_id: str
     source_product: Literal["zendesk"] = "zendesk"
     source_type: Literal["ticket"] = "ticket"
@@ -6250,6 +3784,26 @@ class AssistantPathsFilter(BaseModel):
             " Filters out low-traffic paths to reduce visual noise."
         ),
     )
+    pathDropoffKey: str | None = Field(
+        default=None,
+        description=(
+            "Actors drilldown only. Restrict the returned persons to those who"
+            " **dropped off** at a specific node (reached it but did not continue)."
+            " Format is `<stepIndex>_<value>`. Mutually exclusive with `pathStartKey` /"
+            " `pathEndKey`. Ignored by non-actors paths queries."
+        ),
+    )
+    pathEndKey: str | None = Field(
+        default=None,
+        description=(
+            "Actors drilldown only. Restrict the returned persons to those who"
+            " **arrived at** a specific node in the path graph. Format is"
+            ' `<stepIndex>_<value>`, e.g. `"3_https://example.com/checkout"`. Take the'
+            " value verbatim from a `target` field of a `query-paths` result row."
+            " Combine with `pathStartKey` to pin a single edge. Leave unset to return"
+            " every actor on the path. Ignored by non-actors paths queries."
+        ),
+    )
     pathGroupings: list[str] | None = Field(
         default=[],
         description=(
@@ -6257,6 +3811,18 @@ class AssistantPathsFilter(BaseModel):
             " `*` as a wildcard. The patterns are auto-escaped, so only `*` has special"
             " meaning. For example, `/product/*` to group all product pages into one"
             " node."
+        ),
+    )
+    pathStartKey: str | None = Field(
+        default=None,
+        description=(
+            "Actors drilldown only. Restrict the returned persons to those who"
+            " **departed from** a specific node in the path graph. Format is"
+            ' `<stepIndex>_<value>`, e.g. `"2_https://example.com/pricing"`. Take the'
+            " value verbatim from a `source` field of a `query-paths` result row."
+            " Combine with `pathEndKey` to pin a single edge (source → target). Leave"
+            " unset to return every actor on the path (constrained only by `startPoint`"
+            " / `endPoint`). Ignored by non-actors paths queries."
         ),
     )
     pathsHogQLExpression: str | None = Field(
@@ -6630,7 +4196,10 @@ class AssistantTrendsFilter(BaseModel):
         default=None,
         description=(
             "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5"
-            " as `5 clicks`. You may need to add a space before postfix."
+            " as `5 clicks`. You may need to add a space before postfix. Never set a"
+            " postfix that `aggregationAxisFormat` already renders: `percentage` and"
+            " `percentage_scaled` already append the `%` sign, so a `%` postfix would"
+            " render values as `50%%`."
         ),
     )
     aggregationAxisPrefix: str | None = Field(
@@ -6657,8 +4226,11 @@ class AssistantTrendsFilter(BaseModel):
             " chart; good for cumulative metrics. `BoldNumber` - total value single"
             " large number. Use when user explicitly asks for a single output number."
             " You CANNOT use this with breakdown or if the insight has more than one"
-            " series. `ActionsBarValue` - total value (NOT time-series) bar chart; good"
-            " for categorical data. `ActionsPie` - total value pie chart; good for"
+            " series. `Metric` - single large number with a period-over-period change"
+            " pill and a sparkline. Like `BoldNumber` but trend-aware; configure it"
+            " with the `metric*` fields below. Single series, no breakdown."
+            " `ActionsBarValue` - total value (NOT time-series) bar chart; good for"
+            " categorical data. `ActionsPie` - total value pie chart; good for"
             " visualizing proportions. `ActionsTable` - total value table; good when"
             " using breakdown to list users or other entities. `WorldMap` - total value"
             " world map; use when breaking down by country name using property"
@@ -6681,6 +4253,69 @@ class AssistantTrendsFilter(BaseModel):
             " to find and use events or actions similar to `$identify` and `onboarding"
             " complete`, so the formula will be `A / B`, where `A` is `onboarding"
             " complete` (unique users) and `B` is `$identify` (unique users)."
+        ),
+    )
+    metricChangeDecreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for"
+            " the change pill when the metric went DOWN. Defaults to red (`#db3707`)."
+            ' For a "lower is better" metric (latency, error rate, cost), set this to a'
+            " green (e.g. `#388600`) so a decrease reads as good."
+        ),
+    )
+    metricChangeIncreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for"
+            " the change pill when the metric went UP. Defaults to green (`#388600`)."
+            ' For a "lower is better" metric (latency, error rate, cost), set this to a'
+            " red (e.g. `#db3707`) so an increase reads as bad."
+        ),
+    )
+    metricColorByDirection: bool | None = Field(
+        default=False,
+        description=(
+            "Only applies when `display` is `Metric`. Color the sparkline under the big"
+            " number by whether the metric increased or decreased over the period"
+            " (using the increase/decrease line colors)."
+        ),
+    )
+    metricLineDecreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric` and `metricColorByDirection` is"
+            " `true`. Hex color for the sparkline when the metric went DOWN. Defaults"
+            ' to red (`#db3707`). Flip to a green for a "lower is better" metric.'
+        ),
+    )
+    metricLineIncreaseColor: str | None = Field(
+        default=None,
+        description=(
+            "Only applies when `display` is `Metric` and `metricColorByDirection` is"
+            " `true`. Hex color for the sparkline when the metric went UP. Defaults to"
+            ' green (`#388600`). Flip to a red for a "lower is better" metric.'
+        ),
+    )
+    metricShowChange: bool | None = Field(
+        default=True,
+        description=(
+            "Only applies when `display` is `Metric`. Show the change pill next to the"
+            " big number. What it compares follows `metricSummary`: `total`/`average`"
+            ' compare against the previous period when "compare to previous" is on'
+            " (otherwise first→last of the series), and `latest` is always first→last"
+            " of the series."
+        ),
+    )
+    metricSummary: MetricSummary | None = Field(
+        default=MetricSummary.TOTAL,
+        description=(
+            "Only applies when `display` is `Metric`. Which summary the resting big"
+            " number shows: `total` (sum over the period), `average` (mean of the"
+            " points), or `latest` (last point). Hovering the sparkline always shows"
+            " the hovered point's value regardless of this setting. Also drives the"
+            " change pill: `total`/`average` compare against the previous period when"
+            ' "compare to previous" is on; `latest` compares first→last of the series.'
         ),
     )
     showAlertThresholdLines: bool | None = Field(
@@ -6706,6 +4341,17 @@ class AssistantTrendsFilter(BaseModel):
     yAxisScaleType: YAxisScaleType | None = Field(
         default=YAxisScaleType.LINEAR, description="Whether to scale the y-axis."
     )
+
+
+class AttributeBreakdownRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int
+    error_count: int
+    p50_duration_nano: float
+    p95_duration_nano: float
+    value: str
 
 
 class AutocompleteCompletionItem(BaseModel):
@@ -6844,6 +4490,19 @@ class CohortPropertyFilter(BaseModel):
     operator: PropertyOperator | None = PropertyOperator.IN_
     type: Literal["cohort"] = "cohort"
     value: int
+
+
+class ConversationsTicketSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ConversationsTicketSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["conversations"] = "conversations"
+    source_type: Literal["ticket"] = "ticket"
+    weight: float
 
 
 class CustomChannelCondition(BaseModel):
@@ -6991,6 +4650,32 @@ class EmbeddingDistance(BaseModel):
     result: EmbeddingRecord
 
 
+class EndpointBreakdownLimitExceededSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: EndpointBreakdownLimitExceededSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["endpoints"] = "endpoints"
+    source_type: Literal["endpoint_breakdown_limit_exceeded"] = "endpoint_breakdown_limit_exceeded"
+    weight: float
+
+
+class EndpointExecutionFailedSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: EndpointExecutionFailedSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["endpoints"] = "endpoints"
+    source_type: Literal["endpoint_execution_failed"] = "endpoint_execution_failed"
+    weight: float
+
+
 class EndpointsUsageOverviewItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7056,6 +4741,19 @@ class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
         ...,
         description=("Client-stamped monotonic version (`Date.now()` ms at mutation success)."),
     )
+
+
+class ErrorTrackingSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ErrorTrackingSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["error_tracking"] = "error_tracking"
+    source_type: SourceType
+    weight: float
 
 
 class EventMetadataPropertyFilter(BaseModel):
@@ -7181,8 +4879,17 @@ class ExperimentApiExposureConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    event: str = Field(..., description="Custom exposure event name.")
-    kind: Literal["ExperimentEventExposureConfig"] = "ExperimentEventExposureConfig"
+    event: str | None = Field(
+        default=None,
+        description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
+    )
+    id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
+    kind: Kind1 | None = Field(
+        default=None,
+        description=(
+            "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
+        ),
+    )
     properties: list[EventPropertyFilter] = Field(
         ...,
         description="Event property filters. Pass an empty array if no filters needed.",
@@ -7254,6 +4961,14 @@ class ExperimentApiMetric(BaseModel):
         default=None, description="For retention metrics: start event."
     )
     start_handling: StartHandling | None = None
+    threshold: float | None = Field(
+        default=None,
+        description=(
+            "For mean metrics: when set, reports the percentage of users whose per-user"
+            " summed/counted value reaches or exceeds this threshold. Only meaningful"
+            " for sum/count math types."
+        ),
+    )
     upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
         default=None,
         description=(
@@ -7476,6 +5191,12 @@ class FileSystemImport(BaseModel):
     last_viewed_at: str | None = Field(default=None, description="Timestamp when the file system entry was last viewed")
     meta: dict[str, Any] | None = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
+    pinnedByDefault: bool | None = Field(
+        default=None,
+        description=(
+            "Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row"
+        ),
+    )
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
     reason: UserProductListReason | None = Field(
         default=None,
@@ -7544,6 +5265,19 @@ class FunnelsFilterLegacy(BaseModel):
     layout: FunnelLayout | None = None
 
 
+class GithubIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: GithubIssueSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["github"] = "github"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
 class GroupPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7555,6 +5289,19 @@ class GroupPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["group"] = "group"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class HealthCheckSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: HealthCheckSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["health_checks"] = "health_checks"
+    source_type: Literal["health_issue"] = "health_issue"
+    weight: float
 
 
 class HeatmapSettings(BaseModel):
@@ -7573,6 +5320,32 @@ class HeatmapSettings(BaseModel):
     xAxisLabel: str | None = None
     yAxisColumn: str | None = None
     yAxisLabel: str | None = None
+
+
+class HogQLAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str | None = Field(
+        default=None,
+        description=(
+            "Name of the result column to evaluate. When unset, the single numeric"
+            " column is used (an error if the result has more than one numeric column)."
+        ),
+    )
+    evaluation: HogQLAlertEvaluation = Field(
+        ...,
+        description=("How to read the result rows — an explicit choice, no implicit default."),
+    )
+    label_column: str | None = Field(
+        default=None,
+        description=(
+            "In `any_row` mode, the column whose value labels each row in breach"
+            " messages. When unset, the first non-evaluated column is used, falling"
+            " back to the row number."
+        ),
+    )
+    type: Literal["HogQLAlertConfig"] = "HogQLAlertConfig"
 
 
 class HogQLAutocompleteResponse(BaseModel):
@@ -7643,6 +5416,7 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
+    pushDownPredicates: bool | None = None
     s3TableUseInvalidColumns: bool | None = None
     sessionIdPushdown: bool | None = Field(
         default=None,
@@ -7738,6 +5512,13 @@ class LifecycleFilter(BaseModel):
         extra="forbid",
     )
     showLegend: bool | None = False
+    showPercentagesOnSeries: bool | None = Field(
+        default=None,
+        description=(
+            "Append per-band percentage to each value label (e.g. `580 (42%)`)."
+            " Requires `showValuesOnSeries` — on its own it has no visible effect."
+        ),
+    )
     showValuesOnSeries: bool | None = None
     stacked: bool | None = True
     toggledLifecycles: list[LifecycleToggle] | None = None
@@ -7750,6 +5531,45 @@ class LifecycleFilterLegacy(BaseModel):
     show_legend: bool | None = None
     show_values_on_series: bool | None = None
     toggledLifecycles: list[LifecycleToggle] | None = None
+
+
+class LinearIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LinearIssueSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["linear"] = "linear"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
+class LlmEvaluationReportSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalReportSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation_report"] = "evaluation_report"
+    weight: float
+
+
+class LlmEvaluationSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LlmEvalSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["llm_analytics"] = "llm_analytics"
+    source_type: Literal["evaluation"] = "evaluation"
+    weight: float
 
 
 class LogEntryPropertyFilter(BaseModel):
@@ -7793,6 +5613,19 @@ class LogPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class LogsAlertStateChangeSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LogsAlertStateChangeSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["logs"] = "logs"
+    source_type: Literal["alert_state_change"] = "alert_state_change"
+    weight: float
 
 
 class MarketingAnalyticsItem(BaseModel):
@@ -8016,6 +5849,19 @@ class PersonPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class PgAnalyzeIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: PgAnalyzeIssueSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["pganalyze"] = "pganalyze"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
 class PlanningStep(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8121,7 +5967,7 @@ class QueryResponseAlternative29(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -8191,12 +6037,27 @@ class QueryStatusResponse(BaseModel):
     query_status: QueryStatus
 
 
+class ReplayVisionScannerFindingSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: ReplayVisionScannerFindingSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["replay_vision"] = "replay_vision"
+    source_type: Literal["scanner_finding"] = "scanner_finding"
+    weight: float
+
+
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
     root: ResultCustomizationByValue | ResultCustomizationByPosition
 
 
-class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload | FormDismissPayload]):
-    root: ApprovalResumePayload | FormResumePayload | FormDismissPayload
+class ResumePayload(
+    RootModel[ApprovalResumePayload | FormResumePayload | FormDismissPayload | ClientToolResultPayload]
+):
+    root: ApprovalResumePayload | FormResumePayload | FormDismissPayload | ClientToolResultPayload
 
 
 class RetentionResult(BaseModel):
@@ -8300,6 +6161,10 @@ class RevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -8338,6 +6203,10 @@ class RevenueAnalyticsMRRQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -8375,6 +6244,10 @@ class RevenueAnalyticsMetricsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -8421,6 +6294,10 @@ class RevenueAnalyticsOverviewQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -8458,6 +6335,10 @@ class RevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -8500,6 +6381,10 @@ class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -8541,6 +6426,10 @@ class RevenueExampleEventsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -8697,6 +6586,10 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -8740,6 +6633,10 @@ class SessionBatchEventsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -8769,6 +6666,19 @@ class SessionBatchEventsQueryResponse(BaseModel):
     )
 
 
+class SessionProblemSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SessionProblemSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["session_replay"] = "session_replay"
+    source_type: Literal["session_problem"] = "session_problem"
+    weight: float
+
+
 class SessionRecordingType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8793,6 +6703,12 @@ class SessionRecordingType(BaseModel):
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None
+    matches_filters: bool | None = Field(
+        default=None,
+        description=(
+            "False when the recording was included in list results via a direct link despite not matching the filters."
+        ),
+    )
     matching_events: list[MatchedRecording] | None = Field(default=None, description="List of matching events. *")
     mouse_activity_count: float | None = Field(
         default=None,
@@ -8842,6 +6758,10 @@ class SessionsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -8881,6 +6801,10 @@ class SessionsTimelineQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -8913,9 +6837,12 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | EndpointBreakdownLimitExceededSignalInput
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
+        | HealthCheckSignalInput
+        | ReplayVisionScannerFindingSignalInput
     ]
 ):
     root: (
@@ -8928,10 +6855,26 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | EndpointBreakdownLimitExceededSignalInput
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
+        | HealthCheckSignalInput
+        | ReplayVisionScannerFindingSignalInput
     )
+
+
+class SignalInputBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SignalExtraBase
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: str
+    source_type: str
+    weight: float
 
 
 class SourceFieldFileUploadConfig(BaseModel):
@@ -8966,6 +6909,18 @@ class SourceFieldInputConfig(BaseModel):
     type: SourceFieldInputConfigType
 
 
+class SourceSymbol(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    endLine: conint(ge=1) = Field(..., description="Last line of the symbol's range, inclusive (1-based).")
+    name: str | None = Field(
+        default=None,
+        description=("Opaque identifier (e.g. the function name) echoed back on the matching result row."),
+    )
+    startLine: conint(ge=1) = Field(..., description="First line of the symbol's range, inclusive (1-based).")
+
+
 class SpanPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8988,6 +6943,15 @@ class SpanTreeNode(BaseModel):
             "Average nanoseconds from the parent span's start to this span's start."
             " Zero for root spans. Used to order children left-to-right by typical"
             " start time in the flame graph."
+        ),
+    )
+    calls_per_parent_invocation: float | None = Field(
+        default=None,
+        description=(
+            "How many times this child runs per parent invocation (edge count / parent"
+            " span count). Separates fan-out volume from per-call cost: a child can"
+            " dominate total_duration_nano purely by running many times per parent."
+            " Null for root edges (no parent invocation to ratio against)."
         ),
     )
     count: int
@@ -9048,6 +7012,10 @@ class StickinessQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -9095,6 +7063,8 @@ class SurveyAppearanceSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    allowGoBack: bool | None = None
+    backButtonText: str | None = None
     backgroundColor: str | None = None
     borderColor: str | None = None
     buttonColor: str | None = None
@@ -9160,6 +7130,115 @@ class SurveyQuestionSchema(BaseModel):
     upperBoundLabel: str | None = None
 
 
+class SymbolStatsPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    busy_count: int = Field(
+        ...,
+        description=("Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful."),
+    )
+    count: int = Field(..., description="Number of spans attributed to this symbol in the period.")
+    error_count: int = Field(..., description="Spans whose OTel status is Error (`status_code = 2`).")
+    p50_busy_nano: float = Field(
+        ...,
+        description=("Median active (busy) time, in nanoseconds. Excludes time awaiting children."),
+    )
+    p50_duration_nano: float = Field(..., description="Median wall-clock span duration, in nanoseconds.")
+    p95_busy_nano: float = Field(..., description="95th-percentile active (busy) time, in nanoseconds.")
+    p95_duration_nano: float = Field(..., description="95th-percentile wall-clock span duration, in nanoseconds.")
+    p99_busy_nano: float = Field(..., description="99th-percentile active (busy) time, in nanoseconds.")
+    p99_duration_nano: float = Field(..., description="99th-percentile wall-clock span duration, in nanoseconds.")
+    sum_duration_nano: float = Field(
+        ...,
+        description=("Total wall-clock span duration in the period, in nanoseconds (additive across spans)."),
+    )
+
+
+class SymbolStatsRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    busy_count: int = Field(
+        ...,
+        description=("Spans in this symbol carrying an active/busy time attribute. 0 means busy_* are not meaningful."),
+    )
+    count: int = Field(..., description="Number of spans attributed to this bucket.")
+    count_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in count vs the previous period (180 = +180%). Null when"
+            " there is no baseline (previous count 0); use `previous.count`, not a null"
+            " here, to detect a brand-new symbol."
+        ),
+    )
+    end_line: int | None = Field(
+        default=None,
+        description="`endLine` of the matched symbol's range. Symbol mode only.",
+    )
+    error_count: int = Field(..., description="Spans whose OTel status is Error (`status_code = 2`).")
+    error_rate_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in error rate (`error_count / count` per window) vs the"
+            " previous period. Null when the previous error rate is 0 — i.e. the"
+            " previous window had no errors or no traffic. This includes a 0→N"
+            " new-error spike, which surfaces as null rather than a delta."
+        ),
+    )
+    line: int = Field(
+        ...,
+        description=(
+            "The bucket's anchor line: the source line in line mode, or the symbol's `startLine` in symbol mode."
+        ),
+    )
+    name: str | None = Field(
+        default=None,
+        description="Echoed `name` from the requested symbol. Symbol mode only.",
+    )
+    p50_busy_nano: float = Field(
+        ...,
+        description=("Median active (busy) time, in nanoseconds. Excludes time awaiting children."),
+    )
+    p50_duration_nano: float = Field(..., description="Median wall-clock span duration, in nanoseconds.")
+    p50_duration_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in p50 duration vs the previous period (180 = +180%)."
+            " Null when the previous p50 is 0 (no comparable baseline), which can"
+            ' happen even when previous.count > 0 — do not read null as "new".'
+        ),
+    )
+    p95_busy_nano: float = Field(..., description="95th-percentile active (busy) time, in nanoseconds.")
+    p95_duration_nano: float = Field(..., description="95th-percentile wall-clock span duration, in nanoseconds.")
+    p95_duration_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in p95 duration vs the previous period (180 = +180%)."
+            " Null when the previous p95 is 0 (no comparable baseline), which can"
+            ' happen even when previous.count > 0 — do not read null as "new".'
+        ),
+    )
+    p99_busy_nano: float = Field(..., description="99th-percentile active (busy) time, in nanoseconds.")
+    p99_duration_nano: float = Field(..., description="99th-percentile wall-clock span duration, in nanoseconds.")
+    p99_duration_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in p99 duration vs the previous period (180 = +180%)."
+            " Null when the previous p99 is 0 (no comparable baseline), which can"
+            ' happen even when previous.count > 0 — do not read null as "new".'
+        ),
+    )
+    previous: SymbolStatsPeriod = Field(
+        ...,
+        description=("The same metrics over the immediately-preceding equal-length period."),
+    )
+    sum_duration_nano: float = Field(
+        ...,
+        description=("Total wall-clock span duration in this symbol, in nanoseconds (additive across spans)."),
+    )
+
+
 class TableSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9217,6 +7296,10 @@ class TestBasicQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -9263,6 +7346,10 @@ class TestCachedBasicQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -9318,6 +7405,10 @@ class TraceQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -9359,10 +7450,59 @@ class TraceSpansAggregationQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
     results: list[AggregatedSpanRow]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class TraceSpansAttributeBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: list[AttributeBreakdownRow] | None = Field(
+        default=None,
+        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[AttributeBreakdownRow]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -9400,10 +7540,59 @@ class TraceSpansQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
     results: Any
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class TraceSpansSymbolStatsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    granularity: SymbolStatsGranularity = Field(
+        ...,
+        description=("Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise."),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[SymbolStatsRow] = Field(..., description="One row per bucket, ordered by line ascending.")
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -9440,6 +7629,10 @@ class TraceSpansTreeQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -9481,6 +7674,10 @@ class TracesQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -9581,6 +7778,44 @@ class TrendsFilter(BaseModel):
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
     hideWeekends: bool | None = False
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
+    metricChangeDecreaseColor: str | None = Field(
+        default=None,
+        description=("Metric display: change pill color when the metric decreased. Defaults to red."),
+    )
+    metricChangeIncreaseColor: str | None = Field(
+        default=None,
+        description=("Metric display: change pill color when the metric increased. Defaults to green."),
+    )
+    metricColorByDirection: bool | None = Field(
+        default=False,
+        description=("Metric display: color the sparkline by whether the metric increased or decreased."),
+    )
+    metricLineDecreaseColor: str | None = Field(
+        default=None,
+        description=("Metric display: line color when the metric decreased. Defaults to red."),
+    )
+    metricLineIncreaseColor: str | None = Field(
+        default=None,
+        description=("Metric display: line color when the metric increased. Defaults to green."),
+    )
+    metricShowChange: bool | None = Field(
+        default=True,
+        description="Show the period-over-period change pill on the Metric display.",
+    )
+    metricSummary: MetricSummary | None = Field(
+        default=MetricSummary.TOTAL,
+        description=(
+            "Metric display: which summary the resting headline shows — the period"
+            " total, the average, or the latest point. Hovering the sparkline always"
+            " shows the hovered point's value. Also drives the change pill:"
+            ' total/average compare against the previous period when "compare to'
+            ' previous" is on; latest compares first→last of the series.'
+        ),
+    )
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None
     resultCustomizationBy: ResultCustomizationBy | None = Field(
@@ -9594,6 +7829,7 @@ class TrendsFilter(BaseModel):
         )
     )
     showAlertThresholdLines: bool | None = False
+    showAnnotations: bool | None = True
     showConfidenceIntervals: bool | None = None
     showLabelsOnSeries: bool | None = None
     showLegend: bool | None = False
@@ -9632,6 +7868,10 @@ class TrendsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -9691,6 +7931,10 @@ class UsageMetricsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -9779,6 +8023,10 @@ class WebExternalClicksTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -9818,9 +8066,14 @@ class WebGoalsQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -9832,14 +8085,6 @@ class WebGoalsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = Field(
-        default=None,
-        description="Whether the response was served from the lazy precompute path.",
-    )
-    usedPreAggregatedTables: bool | None = Field(
-        default=None,
-        description="Whether the response was served from a precomputed table.",
-    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -9865,9 +8110,14 @@ class WebNotableChangesQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -9878,7 +8128,6 @@ class WebNotableChangesQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -9906,9 +8155,14 @@ class WebOverviewQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -9919,8 +8173,6 @@ class WebOverviewQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -9948,9 +8200,14 @@ class WebPageURLSearchQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -9989,9 +8246,14 @@ class WebStatsTableQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -10003,8 +8265,6 @@ class WebStatsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -10068,11 +8328,19 @@ class AccountsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -10111,6 +8379,10 @@ class ActorsPropertyTaxonomyQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -10154,6 +8426,10 @@ class ActorsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -10192,6 +8468,10 @@ class AnalyticsQueryResponseBase(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -10227,9 +8507,10 @@ class AssistantDataVisualizationNode(BaseModel):
             "Visualization type. Defaults to `ActionsTable` when"
             " omitted.\n\nGuidance:\n- Single-value result (one numeric column, one"
             " row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or"
-            " `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or"
-            " `ActionsStackedBar`.\n- Two-dimensional aggregation →"
-            " `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+            " `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n-"
+            " Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n-"
+            " Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise →"
+            " `ActionsTable`."
         ),
     )
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
@@ -10854,7 +9135,9 @@ class AssistantRetentionFilter(BaseModel):
         description="Retention period, the interval to track cohorts by.",
     )
     retentionCustomBrackets: list[float] | None = Field(
-        default=None, description="Custom brackets for retention calculations."
+        default=None,
+        description="Custom brackets for retention calculations.",
+        max_length=31,
     )
     retentionReference: RetentionReference | None = Field(
         default=None,
@@ -11468,6 +9751,10 @@ class CachedAccountsQueryResponse(BaseModel):
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     last_refresh: AwareDatetime
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int
@@ -11475,6 +9762,10 @@ class CachedAccountsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -11524,6 +9815,10 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -11578,6 +9873,10 @@ class CachedActorsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -11627,6 +9926,10 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -11679,6 +9982,10 @@ class CachedDocumentSimilarityQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -11726,6 +10033,10 @@ class CachedEndpointsUsageOverviewQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -11779,6 +10090,10 @@ class CachedEndpointsUsageTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -11828,6 +10143,10 @@ class CachedEndpointsUsageTrendsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -11875,6 +10194,10 @@ class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -11927,6 +10250,10 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -11977,6 +10304,10 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -12030,6 +10361,10 @@ class CachedEventsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -12115,6 +10450,10 @@ class CachedFunnelCorrelationResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -12163,6 +10502,10 @@ class CachedFunnelsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -12217,6 +10560,10 @@ class CachedGroupsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -12265,6 +10612,10 @@ class CachedLifecycleQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -12319,6 +10670,10 @@ class CachedLogsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -12366,6 +10721,10 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -12419,6 +10778,10 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -12474,6 +10837,10 @@ class CachedNonIntegratedConversionsTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -12524,6 +10891,10 @@ class CachedPathsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -12571,6 +10942,10 @@ class CachedPropertyValuesQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -12625,6 +11000,10 @@ class CachedRecordingsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -12672,6 +11051,10 @@ class CachedRetentionQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -12722,6 +11105,10 @@ class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -12770,6 +11157,10 @@ class CachedRevenueAnalyticsMRRQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -12820,6 +11211,10 @@ class CachedRevenueAnalyticsMetricsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -12867,6 +11262,10 @@ class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -12916,6 +11315,10 @@ class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -12968,6 +11371,10 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -13022,6 +11429,10 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -13074,6 +11485,10 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -13128,6 +11543,10 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -13189,6 +11608,10 @@ class CachedSessionsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -13239,6 +11662,10 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -13286,6 +11713,10 @@ class CachedStickinessQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -13363,6 +11794,10 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -13455,6 +11890,10 @@ class CachedTraceQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -13507,10 +11946,70 @@ class CachedTraceSpansAggregationQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
     results: list[AggregatedSpanRow]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class CachedTraceSpansAttributeBreakdownQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    compare: list[AttributeBreakdownRow] | None = Field(
+        default=None,
+        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[AttributeBreakdownRow]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -13559,10 +12058,70 @@ class CachedTraceSpansQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
     results: Any
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class CachedTraceSpansSymbolStatsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    granularity: SymbolStatsGranularity = Field(
+        ...,
+        description=("Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise."),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[SymbolStatsRow] = Field(..., description="One row per bucket, ordered by line ascending.")
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -13610,6 +12169,10 @@ class CachedTraceSpansTreeQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -13663,6 +12226,10 @@ class CachedTracesQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -13713,6 +12280,10 @@ class CachedTrendsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -13761,6 +12332,10 @@ class CachedUsageMetricsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -13808,6 +12383,10 @@ class CachedVectorSearchQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -13861,6 +12440,10 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -13910,10 +12493,15 @@ class CachedWebGoalsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -13926,14 +12514,6 @@ class CachedWebGoalsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = Field(
-        default=None,
-        description="Whether the response was served from the lazy precompute path.",
-    )
-    usedPreAggregatedTables: bool | None = Field(
-        default=None,
-        description="Whether the response was served from a precomputed table.",
-    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -13968,10 +12548,15 @@ class CachedWebNotableChangesQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -13983,7 +12568,6 @@ class CachedWebNotableChangesQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -14020,10 +12604,15 @@ class CachedWebOverviewQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14035,8 +12624,6 @@ class CachedWebOverviewQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -14073,10 +12660,15 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14125,10 +12717,15 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14141,8 +12738,6 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -14177,10 +12772,15 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14191,7 +12791,6 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -14221,6 +12820,10 @@ class CalendarHeatmapResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14606,6 +13209,10 @@ class Response(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -14648,6 +13255,10 @@ class Response1(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14692,6 +13303,10 @@ class Response2(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -14728,9 +13343,14 @@ class Response4(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14741,8 +13361,6 @@ class Response4(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -14772,9 +13390,14 @@ class Response5(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14786,8 +13409,6 @@ class Response5(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -14820,6 +13441,10 @@ class Response6(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14860,9 +13485,14 @@ class Response7(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14874,14 +13504,6 @@ class Response7(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = Field(
-        default=None,
-        description="Whether the response was served from the lazy precompute path.",
-    )
-    usedPreAggregatedTables: bool | None = Field(
-        default=None,
-        description="Whether the response was served from a precomputed table.",
-    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -14907,9 +13529,14 @@ class Response8(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14919,7 +13546,6 @@ class Response8(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -14952,6 +13578,10 @@ class Response9(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -14995,6 +13625,10 @@ class Response10(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -15034,6 +13668,10 @@ class Response11(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -15071,6 +13709,10 @@ class Response12(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -15110,6 +13752,10 @@ class Response13(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -15146,6 +13792,10 @@ class Response14(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -15184,6 +13834,10 @@ class Response15(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -15225,6 +13879,10 @@ class Response16(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -15268,6 +13926,10 @@ class Response18(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -15306,6 +13968,10 @@ class Response19(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -15348,6 +14014,10 @@ class Response20(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -15392,6 +14062,10 @@ class Response25(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -15433,6 +14107,10 @@ class Response26(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -15470,11 +14148,19 @@ class Response27(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -15637,6 +14323,10 @@ class DocumentSimilarityQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -15737,6 +14427,10 @@ class EndpointsUsageOverviewQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -15778,6 +14472,10 @@ class EndpointsUsageTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -15815,6 +14513,10 @@ class EndpointsUsageTrendsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -15935,6 +14637,10 @@ class ErrorTrackingBreakdownsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -16051,6 +14757,10 @@ class ErrorTrackingQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -16105,6 +14815,10 @@ class ErrorTrackingSimilarIssuesQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -16144,6 +14858,10 @@ class EventTaxonomyQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -16311,6 +15029,10 @@ class EventsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -16530,6 +15252,10 @@ class FunnelCorrelationResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -16829,6 +15555,10 @@ class FunnelsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -16888,6 +15618,10 @@ class GroupsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -17003,6 +15737,10 @@ class HogQLQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -17218,6 +15956,10 @@ class LifecycleQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -17256,6 +15998,10 @@ class LogAttributesQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -17292,6 +16038,10 @@ class LogValuesQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -17334,6 +16084,10 @@ class LogsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -17390,6 +16144,10 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -17444,6 +16202,10 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -17544,6 +16306,10 @@ class NonIntegratedConversionsTableQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -17621,6 +16387,10 @@ class PathsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -17768,6 +16538,10 @@ class PropertyValuesQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -17810,6 +16584,10 @@ class QueryResponseAlternative1(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -17851,6 +16629,10 @@ class QueryResponseAlternative2(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -17895,6 +16677,10 @@ class QueryResponseAlternative3(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -17937,6 +16723,10 @@ class QueryResponseAlternative4(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -17994,6 +16784,10 @@ class QueryResponseAlternative6(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -18039,6 +16833,10 @@ class QueryResponseAlternative8(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -18077,6 +16875,10 @@ class QueryResponseAlternative11(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18120,6 +16922,10 @@ class QueryResponseAlternative14(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -18160,6 +16966,10 @@ class QueryResponseAlternative15(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -18196,6 +17006,10 @@ class QueryResponseAlternative16(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18237,6 +17051,10 @@ class QueryResponseAlternative22(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -18272,9 +17090,14 @@ class QueryResponseAlternative23(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18285,8 +17108,6 @@ class QueryResponseAlternative23(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -18316,9 +17137,14 @@ class QueryResponseAlternative24(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18330,8 +17156,6 @@ class QueryResponseAlternative24(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -18364,6 +17188,10 @@ class QueryResponseAlternative25(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18404,9 +17232,14 @@ class QueryResponseAlternative26(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18418,14 +17251,6 @@ class QueryResponseAlternative26(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = Field(
-        default=None,
-        description="Whether the response was served from the lazy precompute path.",
-    )
-    usedPreAggregatedTables: bool | None = Field(
-        default=None,
-        description="Whether the response was served from a precomputed table.",
-    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -18451,9 +17276,14 @@ class QueryResponseAlternative27(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18463,7 +17293,6 @@ class QueryResponseAlternative27(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -18491,9 +17320,14 @@ class QueryResponseAlternative28(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18528,9 +17362,14 @@ class QueryResponseAlternative30(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18541,7 +17380,6 @@ class QueryResponseAlternative30(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -18571,6 +17409,10 @@ class QueryResponseAlternative31(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18610,6 +17452,10 @@ class QueryResponseAlternative32(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -18648,6 +17494,10 @@ class QueryResponseAlternative33(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -18684,6 +17534,10 @@ class QueryResponseAlternative34(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18722,6 +17576,10 @@ class QueryResponseAlternative35(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18764,6 +17622,10 @@ class QueryResponseAlternative36(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -18802,6 +17664,10 @@ class QueryResponseAlternative37(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18844,6 +17710,10 @@ class QueryResponseAlternative38(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -18889,6 +17759,10 @@ class QueryResponseAlternative39(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -18932,6 +17806,10 @@ class QueryResponseAlternative40(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -18974,6 +17852,10 @@ class QueryResponseAlternative41(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19021,6 +17903,10 @@ class QueryResponseAlternative42(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -19054,9 +17940,14 @@ class QueryResponseAlternative43(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19067,8 +17958,6 @@ class QueryResponseAlternative43(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -19098,9 +17987,14 @@ class QueryResponseAlternative44(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19112,8 +18006,6 @@ class QueryResponseAlternative44(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = None
-    usedPreAggregatedTables: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -19146,6 +18038,10 @@ class QueryResponseAlternative45(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19186,9 +18082,14 @@ class QueryResponseAlternative46(BaseModel):
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19200,14 +18101,6 @@ class QueryResponseAlternative46(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    usedLazyPrecompute: bool | None = Field(
-        default=None,
-        description="Whether the response was served from the lazy precompute path.",
-    )
-    usedPreAggregatedTables: bool | None = Field(
-        default=None,
-        description="Whether the response was served from a precomputed table.",
-    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -19233,9 +18126,14 @@ class QueryResponseAlternative47(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19245,7 +18143,6 @@ class QueryResponseAlternative47(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -19278,6 +18175,10 @@ class QueryResponseAlternative48(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19321,6 +18222,10 @@ class QueryResponseAlternative49(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -19360,6 +18265,10 @@ class QueryResponseAlternative50(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -19397,6 +18306,10 @@ class QueryResponseAlternative51(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19436,6 +18349,10 @@ class QueryResponseAlternative52(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -19472,6 +18389,10 @@ class QueryResponseAlternative53(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19510,6 +18431,10 @@ class QueryResponseAlternative54(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19551,6 +18476,10 @@ class QueryResponseAlternative55(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19594,6 +18523,10 @@ class QueryResponseAlternative57(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -19632,6 +18565,10 @@ class QueryResponseAlternative58(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19674,6 +18611,10 @@ class QueryResponseAlternative59(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19718,6 +18659,10 @@ class QueryResponseAlternative60(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -19758,6 +18703,10 @@ class QueryResponseAlternative64(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19800,6 +18749,10 @@ class QueryResponseAlternative65(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -19837,11 +18790,19 @@ class QueryResponseAlternative66(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19883,6 +18844,10 @@ class QueryResponseAlternative67(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -19919,6 +18884,10 @@ class QueryResponseAlternative68(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -19957,6 +18926,10 @@ class QueryResponseAlternative69(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -19994,6 +18967,10 @@ class QueryResponseAlternative70(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -20030,6 +19007,10 @@ class QueryResponseAlternative71(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -20071,6 +19052,10 @@ class QueryResponseAlternative73(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -20115,6 +19100,10 @@ class QueryResponseAlternative75(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -20157,6 +19146,10 @@ class QueryResponseAlternative76(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -20195,6 +19188,10 @@ class QueryResponseAlternative77(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -20231,6 +19228,10 @@ class QueryResponseAlternative78(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -20273,6 +19274,10 @@ class QueryResponseAlternative79(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -20313,6 +19318,10 @@ class QueryResponseAlternative80(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -20355,6 +19364,10 @@ class QueryResponseAlternative81(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -20376,9 +19389,13 @@ class QueryResponseAlternative81(BaseModel):
     )
 
 
-class QueryResponseAlternative83(BaseModel):
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    compare: list[AttributeBreakdownRow] | None = Field(
+        default=None,
+        description=("Result rows for the comparison period when `compareFilter.compare` is true."),
     )
     error: str | None = Field(
         default=None,
@@ -20386,19 +19403,20 @@ class QueryResponseAlternative83(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
-    hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[TeamTaxonomyItem]
+    results: list[AttributeBreakdownRow]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20435,10 +19453,14 @@ class QueryResponseAlternative84(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[EventTaxonomyItem]
+    results: list[TeamTaxonomyItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20466,11 +19488,59 @@ class QueryResponseAlternative85(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[EventTaxonomyItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class QueryResponseAlternative86(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -20493,7 +19563,7 @@ class QueryResponseAlternative85(BaseModel):
     )
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20513,47 +19583,14 @@ class QueryResponseAlternative86(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
     results: list[LLMTrace]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries."
-        ),
-    )
-
-
-class QueryResponseAlternative89(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[VectorSearchResponseItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20587,10 +19624,14 @@ class QueryResponseAlternative90(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[UsageMetric]
+    results: list[VectorSearchResponseItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20612,6 +19653,47 @@ class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[UsageMetric]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class QueryResponseAlternative92(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -20623,11 +19705,19 @@ class QueryResponseAlternative91(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -20651,7 +19741,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20666,6 +19756,10 @@ class QueryResponseAlternative92(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -20688,7 +19782,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20708,6 +19802,10 @@ class QueryResponseAlternative93(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -20717,43 +19815,6 @@ class QueryResponseAlternative93(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries."
-        ),
-    )
-
-
-class QueryResponseAlternative94(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[dict[str, Any]]
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -20782,6 +19843,51 @@ class QueryResponseAlternative95(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[dict[str, Any]]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class QueryResponseAlternative96(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -20824,6 +19930,10 @@ class RecordingsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -20981,6 +20091,10 @@ class RetentionQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -21251,6 +20365,10 @@ class TeamTaxonomyQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -21386,6 +20504,37 @@ class TraceQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class TraceSpansSymbolStatsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange
+    filePath: str = Field(
+        ...,
+        description=(
+            "Repo-relative path of the source file to aggregate (e.g."
+            " `src/flags/flag_matching.rs`). Matched as a path suffix against the"
+            " recorded `code.file.path` / `code.filepath`, so a recorded path carrying"
+            " an extra crate/workspace prefix still matches."
+        ),
+    )
+    kind: Literal["TraceSpansSymbolStatsQuery"] = "TraceSpansSymbolStatsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: TraceSpansSymbolStatsQueryResponse | None = None
+    symbols: list[SourceSymbol] | None = Field(
+        default=None,
+        description=(
+            "Optional symbol (function) ranges to aggregate spans into. When supplied,"
+            " each span is attributed to the smallest range that encloses its recorded"
+            " line (one row per symbol). When omitted (or an empty list), spans are"
+            " aggregated per source line (one row per instrumented line) — pass a"
+            " single whole-file range for a file-level total."
+        ),
+    )
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class TracesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21475,6 +20624,10 @@ class VectorSearchQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -21773,54 +20926,6 @@ class WebStatsTableQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebTrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query: str | None = Field(default=None, description="Input query string")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[WebTrendsItem]
-    samplingRate: SamplingRate | None = None
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list | None = Field(default=None, description="Types of returned columns")
-    usedPreAggregatedTables: bool | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries."
-        ),
-    )
-
-
 class WebVitalsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21842,9 +20947,14 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -21854,7 +20964,6 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
-    usedLazyPrecompute: bool | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -21884,6 +20993,10 @@ class WebVitalsQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -21909,12 +21022,34 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accountExecutive: str | int | None = None
-    accountOwner: str | int | None = None
     allRolesUnassigned: bool | None = None
-    csm: str | int | None = None
+    assignedToUserIds: list[int] | None = Field(
+        default=None,
+        description=(
+            "Match accounts where any of these user ids is the CSM or the account"
+            ' executive (OR over both roles). Drives the "My accounts" shortcut (the'
+            ' current user\'s id) and the shareable "Assigned to" filter — the ids are'
+            " explicit so a shared URL resolves identically for every viewer."
+        ),
+    )
+    filterExpression: str | None = Field(
+        default=None,
+        description=(
+            "Optional HogQL boolean expression AND-ed into the WHERE clause. Used by"
+            " the overview tile click-to-filter affordance."
+        ),
+    )
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int | None = None
+    metrics: list[str] | None = Field(
+        default=None,
+        description=(
+            "Aggregation expressions evaluated against the filtered account set; one"
+            " value per metric is returned in `metricsResults`. When `metrics` is set"
+            " without a `select`, the runner skips the regular row fetch and returns"
+            " only the aggregated values."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[str] | None = None
@@ -22056,6 +21191,7 @@ class AnyResponseType(
         | TraceSpansQueryResponse
         | TraceSpansAggregationQueryResponse
         | TraceSpansTreeQueryResponse
+        | TraceSpansAttributeBreakdownQueryResponse
     ]
 ):
     root: (
@@ -22074,6 +21210,7 @@ class AnyResponseType(
         | TraceSpansQueryResponse
         | TraceSpansAggregationQueryResponse
         | TraceSpansTreeQueryResponse
+        | TraceSpansAttributeBreakdownQueryResponse
     )
 
 
@@ -22149,6 +21286,37 @@ class AssistantLifecycleQuery(BaseModel):
     )
 
 
+class AssistantPathsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    includeRecordings: bool | None = Field(
+        default=True,
+        description="Whether to include matched session recordings for each actor.",
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    source: AssistantPathsQuery = Field(..., description="The source paths insight query whose actors we are listing.")
+
+
+class AssistantRetentionActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    interval: int | None = Field(
+        default=None,
+        description=(
+            "Which acquisition cohort to drill into, 0-based. `0` is the acquisition"
+            " interval itself (every actor who entered the cohort); `1` is the cohort"
+            " that entered one interval later, and so on. Defaults to `0` when omitted."
+        ),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    source: AssistantRetentionQuery = Field(
+        ...,
+        description=("The source retention insight query whose cohort we are drilling into."),
+    )
+
+
 class AssistantTrendsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -22214,6 +21382,10 @@ class CachedErrorTrackingQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -22269,6 +21441,10 @@ class CachedHogQLQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -22356,65 +21532,6 @@ class CachedNewExperimentQueryResponse(BaseModel):
     )
 
 
-class CachedWebTrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: AwareDatetime
-    limit: int | None = None
-    metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: AwareDatetime
-    offset: int | None = None
-    query: str | None = Field(default=None, description="Input query string")
-    query_metadata: dict[str, Any] | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[WebTrendsItem]
-    samplingRate: SamplingRate | None = None
-    timezone: str
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list | None = Field(default=None, description="Types of returned columns")
-    usedPreAggregatedTables: bool | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries."
-        ),
-    )
-
-
 class CachedWebVitalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -22440,6 +21557,10 @@ class CachedWebVitalsQueryResponse(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -22518,6 +21639,10 @@ class Response3(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -22556,6 +21681,10 @@ class Response21(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -22731,6 +21860,10 @@ class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -22840,10 +21973,30 @@ class FunnelsFilter(BaseModel):
     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | None = FunnelConversionWindowTimeUnit.DAY
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendBreakdowns: list[str] | None = None
+    hideIncompleteConversionWindowPeriods: bool | None = Field(
+        default=False,
+        description=(
+            "Trends only: hide periods whose conversion window has not fully elapsed"
+            " yet, so the recent tail of the trend isn't dragged down by entrants who"
+            " still have time to convert."
+        ),
+    )
     layout: FunnelLayout | None = FunnelLayout.VERTICAL
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
         description="Customizations for the appearance of result datasets.",
+    )
+    showAnnotations: bool | None = Field(
+        default=True,
+        description=("Whether to render annotations on the chart. Only applies to historical-trends funnels."),
+    )
+    showLegend: bool | None = Field(
+        default=False,
+        description=(
+            "Whether to show a legend describing the series. The legend only renders"
+            " when the funnel has multiple series. Only applies to historical-trends"
+            " funnels."
+        ),
     )
     showTrendLines: bool | None = Field(
         default=None,
@@ -23202,6 +22355,10 @@ class QueryResponseAlternative17(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -23469,18 +22626,72 @@ class TraceSpansAggregationQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class TraceSpansAttributeBreakdownQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdownKey: str = Field(
+        ...,
+        description=("Attribute key to group by (e.g. `http.response.status_code`, `server.address`)."),
+    )
+    breakdownType: TraceSpanBreakdownType = Field(
+        ...,
+        description=("Where the key lives: span-level attributes or resource-level attributes."),
+    )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=(
+            "Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set."
+        ),
+    )
+    dateRange: DateRange
+    filterGroup: PropertyGroupFilter | None = None
+    kind: Literal["TraceSpansAttributeBreakdownQuery"] = "TraceSpansAttributeBreakdownQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    orderBy: TraceSpanBreakdownOrderBy | None = Field(
+        default=None,
+        description=("Order rows by span count or error count, descending. Defaults to count."),
+    )
+    response: TraceSpansAttributeBreakdownQueryResponse | None = None
+    serviceNames: list[str] | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class TraceSpansQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     dateRange: DateRange
+    excludeAttributes: bool | None = Field(
+        default=None,
+        description=("Omit the per-span `attributes` map from results to keep payloads compact"),
+    )
     filterGroup: PropertyGroupFilter | None = None
+    flatSpans: bool | None = Field(
+        default=None,
+        description=(
+            "Return the matching spans themselves, one row per span (root and child),"
+            " instead of the whole-trace grouping. Streams the matches under `ORDER BY"
+            " … LIMIT` rather than grouping every matching span by trace, so a filter"
+            " on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct"
+            " from `rootSpans`, which scopes whole-trace selection. The single-trace"
+            " waterfall never sets this."
+        ),
+    )
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
-    orderBy: LogsOrderBy | None = None
+    orderBy: TraceOrderColumn | None = Field(
+        default=None,
+        description=(
+            "Column to order by. Defaults to timestamp. `timestamp` paginates via"
+            " keyset cursor (`after`); other columns via `offset`."
+        ),
+    )
+    orderDirection: OrderDirection2 | None = Field(default=None, description="Order direction. Defaults to DESC.")
     prefetchSpans: int | None = Field(
         default=None,
         description=("Prefetch up to this many spans per trace and include them in results"),
@@ -23540,45 +22751,6 @@ class VectorSearchQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: VectorSearchQueryResponse | None = None
     tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class WebTrendsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
-    interval: IntervalType = Field(
-        ...,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
-    limit: int | None = None
-    metrics: list[WebTrendsMetric]
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: WebTrendsQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -23682,6 +22854,10 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
     )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
@@ -23780,6 +22956,10 @@ class Response22(BaseModel):
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
     )
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
@@ -23934,8 +23114,8 @@ class ErrorTrackingQuery(BaseModel):
         default=None,
         description=(
             "Pending fingerprint issue state updates UNIONed into the fingerprint issue"
-            " state subquery (V3 only). The backend caps the list at 50 entries; extras"
-            " are dropped silently."
+            " state subquery. The backend caps the list at 50 entries; extras are"
+            " dropped silently."
         ),
     )
     personId: str | None = None
@@ -23950,14 +23130,8 @@ class ErrorTrackingQuery(BaseModel):
         title="ErrorTrackingQueryStatus",
     )
     tags: QueryLogTags | None = None
-    useQueryV2: bool | None = Field(
-        default=None,
-        description=("Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)"),
-    )
-    useQueryV3: bool | None = Field(
-        default=None,
-        description=("Use V3 query path (denormalized ClickHouse table, no Postgres joins)"),
-    )
+    useQueryV2: bool | None = None
+    useQueryV3: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
     withAggregations: bool | None = None
@@ -24542,6 +23716,12 @@ class LogsQuery(BaseModel):
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     dateRange: DateRange
+    excludeAttributes: bool | None = Field(
+        default=None,
+        description=(
+            "Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact"
+        ),
+    )
     filterGroup: PropertyGroupFilter
     kind: Literal["LogsQuery"] = "LogsQuery"
     limit: int | None = None
@@ -24905,6 +24085,14 @@ class ExperimentMeanMetric(BaseModel):
     response: dict[str, Any] | None = None
     sharedMetricId: float | None = None
     source: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    threshold: float | None = Field(
+        default=None,
+        description=(
+            "When set, reports the percentage of users whose per-user summed/counted"
+            " value reaches or exceeds this threshold. Only meaningful for sum/count"
+            " math types."
+        ),
+    )
     upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
         default=None,
         description=(
@@ -24928,6 +24116,14 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     )
     metric_type: Literal["mean"] = "mean"
     source: EventsNode | ActionsNode | ExperimentDataWarehouseNode = Field(..., discriminator="kind")
+    threshold: float | None = Field(
+        default=None,
+        description=(
+            "When set, reports the percentage of users whose per-user summed/counted"
+            " value reaches or exceeds this threshold. Only meaningful for sum/count"
+            " math types."
+        ),
+    )
     upper_bound_percentile: confloat(ge=0.0, le=1.0) | None = Field(
         default=None,
         description=(
@@ -24979,6 +24175,7 @@ class FunnelsQuery(BaseModel):
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
+    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -25524,7 +24721,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
-        | QueryResponseAlternative88
+        | QueryResponseAlternative87
         | QueryResponseAlternative89
         | QueryResponseAlternative90
         | QueryResponseAlternative91
@@ -25532,6 +24729,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative93
         | QueryResponseAlternative94
         | QueryResponseAlternative95
+        | QueryResponseAlternative96
     ]
 ):
     root: (
@@ -25618,7 +24816,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
-        | QueryResponseAlternative88
+        | QueryResponseAlternative87
         | QueryResponseAlternative89
         | QueryResponseAlternative90
         | QueryResponseAlternative91
@@ -25626,6 +24824,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative93
         | QueryResponseAlternative94
         | QueryResponseAlternative95
+        | QueryResponseAlternative96
     )
 
 
@@ -26641,7 +25840,6 @@ class HogQLAutocomplete(BaseModel):
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
-        | WebTrendsQuery
         | WebAnalyticsExternalSummaryQuery
         | WebNotableChangesQuery
         | SessionAttributionExplorerQuery
@@ -26657,6 +25855,7 @@ class HogQLAutocomplete(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | CalendarHeatmapQuery
@@ -26730,7 +25929,6 @@ class HogQLMetadata(BaseModel):
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
-        | WebTrendsQuery
         | WebAnalyticsExternalSummaryQuery
         | WebNotableChangesQuery
         | SessionAttributionExplorerQuery
@@ -26746,6 +25944,7 @@ class HogQLMetadata(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | CalendarHeatmapQuery
@@ -26869,6 +26068,7 @@ class MaxInsightContext(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -26989,6 +26189,7 @@ class QueryRequest(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -27101,6 +26302,7 @@ class QuerySchemaRoot(
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -27183,6 +26385,7 @@ class QuerySchemaRoot(
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -27270,6 +26473,7 @@ class QueryUpgradeRequest(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -27357,6 +26561,7 @@ class QueryUpgradeResponse(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery
@@ -27409,6 +26614,15 @@ class SourceConfig(BaseModel):
         extra="forbid",
     )
     caption: str | Any | None = None
+    category: DataWarehouseSourceCategory | None = Field(
+        default=None,
+        description=(
+            "Catalog bucket this source is grouped under in the new-source wizard."
+            " Optional at the type level so partial/in-progress sources don't break,"
+            " but every registered source must set one (enforced by a test). See"
+            " `dataWarehouseSourceCategories`."
+        ),
+    )
     disabledReason: str | None = None
     docsUrl: str | None = None
     existingSource: bool | None = None
@@ -27427,6 +26641,14 @@ class SourceConfig(BaseModel):
     ]
     iconClassName: str | None = None
     iconPath: str
+    keywords: list[str] | None = Field(
+        default=None,
+        description=(
+            "Extra search terms (alternate spellings, acronyms) for the catalog search,"
+            ' e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside'
+            " name/label/category."
+        ),
+    )
     label: str | None = None
     name: ExternalDataSourceType
     permissionsCaption: str | None = None
@@ -27604,6 +26826,7 @@ class VisualizationArtifactContent(BaseModel):
         | TraceSpansQuery
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
+        | TraceSpansAttributeBreakdownQuery
         | SuggestedQuestionsQuery
         | TeamTaxonomyQuery
         | EventTaxonomyQuery

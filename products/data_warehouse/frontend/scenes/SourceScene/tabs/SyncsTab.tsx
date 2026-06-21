@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
@@ -36,6 +37,16 @@ export const SyncsTab = ({ id }: SyncsTabProps): JSX.Element => {
     const { source, jobs, jobsLoading, canLoadMoreJobs, selectedSchemas } = useValues(logic)
     const { loadJobs, loadMoreJobs, setSelectedSchemas } = useActions(logic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
+
+    // Apply a `?schema=<name>` deep link once on mount so links from the schemas list and the
+    // schema configuration page land here pre-filtered to a single schema.
+    useEffect(() => {
+        const schemaParam = router.values.searchParams.schema
+        if (schemaParam) {
+            setSelectedSchemas(Array.isArray(schemaParam) ? schemaParam : [schemaParam])
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     useEffect(() => {
         if (!source || source.access_method === 'direct') {

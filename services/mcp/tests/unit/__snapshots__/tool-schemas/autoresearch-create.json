@@ -63,7 +63,7 @@
             "type": "object"
         },
         "target_event": {
-            "description": "PostHog event name to predict, e.g. '$pageview' or 'signed_up'.",
+            "description": "PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead).",
             "maxLength": 255,
             "type": "string"
         },
@@ -80,6 +80,6 @@
             "type": "object"
         }
     },
-    "required": ["name", "target_event"],
+    "required": ["name"],
     "type": "object"
 }

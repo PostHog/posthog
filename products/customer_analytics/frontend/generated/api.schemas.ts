@@ -8,7 +8,7 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
 export type AccountApiProperties = {
@@ -37,6 +37,10 @@ export type AccountApiProperties = {
     sfdc_id?: string | null
     /** @nullable */
     zendesk_id?: string | null
+    /** @nullable */
+    slack_channel_id?: string | null
+    /** @nullable */
+    usage_dashboard_link?: string | null
 } | null
 
 /**
@@ -50,13 +54,13 @@ export interface AccountApi {
      */
     name: string
     /**
-     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
      * @maxLength 400
      * @nullable
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     properties?: AccountApiProperties
@@ -82,13 +86,13 @@ export interface PaginatedAccountListApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -167,7 +171,7 @@ export interface PaginatedAccountNotebookListApi {
 }
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
 export type PatchedAccountApiProperties = {
@@ -196,6 +200,10 @@ export type PatchedAccountApiProperties = {
     sfdc_id?: string | null
     /** @nullable */
     zendesk_id?: string | null
+    /** @nullable */
+    slack_channel_id?: string | null
+    /** @nullable */
+    usage_dashboard_link?: string | null
 } | null
 
 /**
@@ -209,13 +217,13 @@ export interface PatchedAccountApi {
      */
     name?: string
     /**
-     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
      * @maxLength 400
      * @nullable
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     properties?: PatchedAccountApiProperties
@@ -269,11 +277,11 @@ export interface PatchedCustomerJourneyApi {
 
 /**
  * * `person` - Person
- * `group_0` - Group 0
- * `group_1` - Group 1
- * `group_2` - Group 2
- * `group_3` - Group 3
- * `group_4` - Group 4
+ * * `group_0` - Group 0
+ * * `group_1` - Group 1
+ * * `group_2` - Group 2
+ * * `group_3` - Group 3
+ * * `group_4` - Group 4
  */
 export type CustomerProfileConfigScopeEnumApi =
     (typeof CustomerProfileConfigScopeEnumApi)[keyof typeof CustomerProfileConfigScopeEnumApi]
@@ -318,7 +326,7 @@ export interface PatchedCustomerProfileConfigApi {
 
 /**
  * * `numeric` - numeric
- * `currency` - currency
+ * * `currency` - currency
  */
 export type GroupUsageMetricFormatEnumApi =
     (typeof GroupUsageMetricFormatEnumApi)[keyof typeof GroupUsageMetricFormatEnumApi]
@@ -330,7 +338,7 @@ export const GroupUsageMetricFormatEnumApi = {
 
 /**
  * * `number` - number
- * `sparkline` - sparkline
+ * * `sparkline` - sparkline
  */
 export type GroupUsageMetricDisplayEnumApi =
     (typeof GroupUsageMetricDisplayEnumApi)[keyof typeof GroupUsageMetricDisplayEnumApi]
@@ -342,7 +350,7 @@ export const GroupUsageMetricDisplayEnumApi = {
 
 /**
  * * `count` - count
- * `sum` - sum
+ * * `sum` - sum
  */
 export type MathEnumApi = (typeof MathEnumApi)[keyof typeof MathEnumApi]
 
@@ -353,10 +361,10 @@ export const MathEnumApi = {
 
 /**
  * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
-
-**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
-
-**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
+ *
+ * **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+ *
+ * **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
  */
 export type GroupUsageMetricApiFilters = { [key: string]: unknown }
 
@@ -368,27 +376,27 @@ export interface GroupUsageMetricApi {
      */
     name: string
     /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
-
-  * `numeric` - numeric
-  * `currency` - currency */
+     *
+     * * `numeric` - numeric
+     * * `currency` - currency */
     format?: GroupUsageMetricFormatEnumApi
     /** Rolling time window in days used to compute the metric. Defaults to 7. */
     interval?: number
     /** Visual representation in the UI. One of `number` or `sparkline`.
-
-  * `number` - number
-  * `sparkline` - sparkline */
+     *
+     * * `number` - number
+     * * `sparkline` - sparkline */
     display?: GroupUsageMetricDisplayEnumApi
     /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
-
-  **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
-
-  **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
+     *
+     * **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+     *
+     * **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
     filters: GroupUsageMetricApiFilters
     /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
-
-  * `count` - count
-  * `sum` - sum */
+     *
+     * * `count` - count
+     * * `sum` - sum */
     math?: MathEnumApi
     /**
      * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
@@ -409,10 +417,10 @@ export interface PaginatedGroupUsageMetricListApi {
 
 /**
  * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
-
-**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
-
-**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
+ *
+ * **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+ *
+ * **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
  */
 export type PatchedGroupUsageMetricApiFilters = { [key: string]: unknown }
 
@@ -424,27 +432,27 @@ export interface PatchedGroupUsageMetricApi {
      */
     name?: string
     /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
-
-  * `numeric` - numeric
-  * `currency` - currency */
+     *
+     * * `numeric` - numeric
+     * * `currency` - currency */
     format?: GroupUsageMetricFormatEnumApi
     /** Rolling time window in days used to compute the metric. Defaults to 7. */
     interval?: number
     /** Visual representation in the UI. One of `number` or `sparkline`.
-
-  * `number` - number
-  * `sparkline` - sparkline */
+     *
+     * * `number` - number
+     * * `sparkline` - sparkline */
     display?: GroupUsageMetricDisplayEnumApi
     /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
-
-  **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
-
-  **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
+     *
+     * **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+     *
+     * **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
     filters?: PatchedGroupUsageMetricApiFilters
     /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
-
-  * `count` - count
-  * `sum` - sum */
+     *
+     * * `count` - count
+     * * `sum` - sum */
     math?: MathEnumApi
     /**
      * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.

@@ -19,6 +19,38 @@ class TestOpenAIRecommendedModels:
         assert OpenAIAdapter.recommended_models() == set(OpenAIConfig.SUPPORTED_MODELS)
 
 
+def _api_model(model_id: str, created: int) -> MagicMock:
+    model = MagicMock()
+    model.id = model_id
+    model.created = created
+    return model
+
+
+class TestOpenAIListModels:
+    @parameterized.expand(sorted(OpenAIConfig.RESPONSES_ONLY_MODELS))
+    def test_responses_only_model_is_not_picker_eligible(self, model: str):
+        assert model not in OpenAIConfig.SUPPORTED_MODELS
+        assert model not in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
+
+    def test_list_models_without_key_returns_supported_models(self):
+        assert OpenAIAdapter.list_models() == OpenAIConfig.SUPPORTED_MODELS
+
+    def test_list_models_excludes_responses_only_models_from_api_discovery(self):
+        api_models = [
+            _api_model("o3-pro", 300),
+            _api_model("gpt-5-pro", 200),
+            _api_model("gpt-6-future", 100),
+        ]
+        mock_client = MagicMock()
+        mock_client.models.list.return_value = api_models
+
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            result = OpenAIAdapter.list_models(api_key="sk-test")
+
+        assert "gpt-6-future" in result
+        assert OpenAIConfig.RESPONSES_ONLY_MODELS.isdisjoint(result)
+
+
 class TestBuildAnalyticsKwargs:
     @parameterized.expand(
         [

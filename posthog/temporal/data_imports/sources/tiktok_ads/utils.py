@@ -18,6 +18,12 @@ from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
 
 logger = structlog.get_logger(__name__)
 
+# Prefix for the ValueError raised when TikTok returns a client error code that
+# is not in the retryable set (e.g. 40001 "advertiser doesn't exist or has been
+# deleted"). Retrying these never succeeds, so `TikTokAdsSource.get_non_retryable_errors`
+# matches on this exact prefix to fail the job fast instead of looping forever.
+TIKTOK_NON_RETRYABLE_ERROR_PREFIX = "TikTok API client error (non-retryable):"
+
 
 class TikTokAdsAPIError(Exception):
     """Custom exception for TikTok Ads API errors that should trigger retries."""
@@ -395,6 +401,7 @@ class TikTokAdsPaginator(BasePaginator):
                     40700,  # Internal service validation error
                     50000,  # System error
                     50002,  # Error processing request on TikTok side. Please see error message for details.
+                    51001,  # Internal service timeout. Transient TikTok-side error; safe to retry.
                     51305,  # Satellite service error
                     60001,  # The system is in maintenance.
                 ]
@@ -404,7 +411,7 @@ class TikTokAdsPaginator(BasePaginator):
                         f"TikTok API error: {error_message} (code: {api_code})", api_code=api_code, response=response
                     )
                 else:
-                    raise ValueError(f"TikTok API client error (non-retryable): {error_message} (code: {api_code})")
+                    raise ValueError(f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {error_message} (code: {api_code})")
         except TikTokAdsAPIError:
             raise
         except ValueError:

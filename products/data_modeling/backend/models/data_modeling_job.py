@@ -35,3 +35,7 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     class Meta:
         db_table = "posthog_datamodelingjob"
+        indexes = [
+            # serves to cut lookup times for pre-existing running jobs during the preempt stage
+            models.Index(fields=["team", "status"], name="datamodelingjob_team_status"),
+        ]

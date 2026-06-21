@@ -105,11 +105,11 @@ export const DataModelingNodesMaterializeCreateBody = /* @__PURE__ */ zod.object
 
 /**
  * Run this node and its upstream or downstream dependencies.
-
-Request body:
-    direction: "upstream" | "downstream" (required)
-        - "upstream": Run all ancestors of this node, plus this node
-        - "downstream": Run this node and all its descendants
+ *
+ * Request body:
+ *     direction: "upstream" | "downstream" (required)
+ *         - "upstream": Run all ancestors of this node, plus this node
+ *         - "downstream": Run this node and all its descendants
  */
 export const dataModelingNodesRunCreateBodyNameMax = 2048
 

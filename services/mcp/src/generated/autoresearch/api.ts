@@ -3,17 +3,17 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 28 enabled ops
+ * PostHog API - MCP 29 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const AutoresearchListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -30,10 +30,10 @@ export const AutoresearchListQueryParams = /* @__PURE__ */ zod.object({
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const AutoresearchCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -133,10 +133,10 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * List and retrieve champion/challenger models for a pipeline.
-
-Models are the persisted artifacts produced by training runs. Each model
-holds a portable recipe (feature SQL, transforms, model class, params) that
-the daily inference workflow compiles to score users.
+ *
+ * Models are the persisted artifacts produced by training runs. Each model
+ * holds a portable recipe (feature SQL, transforms, model class, params) that
+ * the daily inference workflow compiles to score users.
  */
 export const AutoresearchModelsListParams = /* @__PURE__ */ zod.object({
     pipeline_id: zod.string(),
@@ -154,10 +154,10 @@ export const AutoresearchModelsListQueryParams = /* @__PURE__ */ zod.object({
 
 /**
  * List and retrieve champion/challenger models for a pipeline.
-
-Models are the persisted artifacts produced by training runs. Each model
-holds a portable recipe (feature SQL, transforms, model class, params) that
-the daily inference workflow compiles to score users.
+ *
+ * Models are the persisted artifacts produced by training runs. Each model
+ * holds a portable recipe (feature SQL, transforms, model class, params) that
+ * the daily inference workflow compiles to score users.
  */
 export const AutoresearchModelsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this autoresearch model.'),
@@ -252,11 +252,46 @@ export const AutoresearchSuggestionsRetrieveParams = /* @__PURE__ */ zod.object(
 })
 
 /**
- * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+ * Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration.
+ * @summary Respond to a suggestion
+ */
+export const AutoresearchSuggestionsRespondCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this autoresearch suggestion.'),
+    pipeline_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
-The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
-training run directly — recording each iteration as it completes rather than via a single
-terminal sandbox output. Recipe validation and champion promotion stay server-side.
+export const autoresearchSuggestionsRespondCreateBodyAgentResponseDefault = ``
+export const autoresearchSuggestionsRespondCreateBodyAgentResponseMax = 2000
+
+export const AutoresearchSuggestionsRespondCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum(['picked_up', 'acted_on', 'dismissed'])
+            .describe('* `picked_up` - picked_up\n* `acted_on` - acted_on\n* `dismissed` - dismissed')
+            .describe(
+                "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).\n\n* `picked_up` - picked_up\n* `acted_on` - acted_on\n* `dismissed` - dismissed"
+            ),
+        agent_response: zod
+            .string()
+            .max(autoresearchSuggestionsRespondCreateBodyAgentResponseMax)
+            .default(autoresearchSuggestionsRespondCreateBodyAgentResponseDefault)
+            .describe(
+                'Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).'
+            ),
+    })
+    .describe('Input for the agent to record how it interpreted a steering suggestion.')
+
+/**
+ * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+ *
+ * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
+ * training run directly — recording each iteration as it completes rather than via a single
+ * terminal sandbox output. Recipe validation and champion promotion stay server-side.
  */
 export const AutoresearchTrainingRunsListParams = /* @__PURE__ */ zod.object({
     pipeline_id: zod.string(),
@@ -547,10 +582,10 @@ export const AutoresearchTrainingRunsHistoryRetrieveQueryParams = /* @__PURE__ *
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const AutoresearchRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this autoresearch pipeline.'),

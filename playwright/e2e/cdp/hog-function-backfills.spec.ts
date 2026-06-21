@@ -1,7 +1,7 @@
 import { Page } from '@playwright/test'
 
 import { mockFeatureFlags } from '../../utils/mockApi'
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 import { createMockBatchExport, setupBatchExportRoutes } from '../batch-exports/batch-export-helpers'
 
 const MOCK_HOG_FUNCTION_ID = 'hog-func-001'
@@ -109,6 +109,16 @@ async function setupHogFunctionBackfillRoutes(page: Page, options: { runs?: obje
 }
 
 test.describe('Hog function backfills tab', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+    })
+
     test('Renders backfills table when navigating to backfills tab on a hog function destination', async ({ page }) => {
         await setupHogFunctionBackfillRoutes(page)
 
@@ -126,11 +136,11 @@ test.describe('Hog function backfills tab', () => {
         await expect(page.getByText('Completed')).toBeVisible({ timeout: 10000 })
 
         // Verify hog function context uses "events" not "rows" in column header
-        await expect(page.getByRole('cell', { name: 'Total events' })).toBeVisible()
+        await expect(page.getByRole('columnheader', { name: 'Total events' })).toBeVisible()
 
         // Verify table structure
-        await expect(page.getByRole('cell', { name: 'Interval start' })).toBeVisible()
-        await expect(page.getByRole('cell', { name: 'Interval end' })).toBeVisible()
+        await expect(page.getByRole('columnheader', { name: 'Interval start' })).toBeVisible()
+        await expect(page.getByRole('columnheader', { name: 'Interval end' })).toBeVisible()
 
         // Verify Start backfill button is present
         await expect(page.getByRole('button', { name: 'Start backfill' })).toBeVisible()
@@ -154,7 +164,7 @@ test.describe('Hog function backfills tab', () => {
         await expect(page.getByText('Failed')).toBeVisible()
 
         // Verify hog function context uses "Events exported" not "Rows exported"
-        await expect(page.getByRole('cell', { name: 'Events exported' })).toBeVisible()
+        await expect(page.getByRole('columnheader', { name: 'Events exported' })).toBeVisible()
 
         // Verify the Show latest runs toggle is present
         await expect(page.getByText('Show latest runs')).toBeVisible()

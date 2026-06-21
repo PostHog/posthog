@@ -18,14 +18,19 @@ from asgiref.sync import sync_to_async
 from rest_framework import status
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.api.file_download import (
+from posthog.models.scoping import team_scope
+
+from products.batch_exports.backend.api.file_download import (
     _calculate_expiration_for_file_download,
     _generate_s3_pre_signed_url,
     _get_file_download_for_run,
 )
-from posthog.models import BatchExportDestination, BatchExportFileDownload, BatchExportOnDemand, BatchExportRun
-from posthog.models.scoping import team_scope
-
+from products.batch_exports.backend.models.batch_export import (
+    BatchExportDestination,
+    BatchExportFileDownload,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 
 pytestmark = [
@@ -210,6 +215,38 @@ async def test_file_download_retrieve_returns_files(
     assert data["files"] == [str(file_download.id) for file_download in file_downloads]
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_file_download_retrieve_returns_empty_when_no_data_exported(
+    async_client: AsyncClient,
+    temporal_client,
+    team,
+    user,
+    data_interval_start,
+    data_interval_end,
+):
+    destination = await BatchExportDestination.objects.acreate(
+        type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
+    )
+    with team_scope(team_id=team.pk, canonical=True):
+        batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
+    run = await BatchExportRun.objects.acreate(
+        batch_export_on_demand=batch_export,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=0,
+    )
+
+    await async_client.aforce_login(user)
+
+    status_response = await async_client.get(
+        f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}",
+    )
+    data = status_response.json()
+    assert data["status"] == "Completed", status_response.json()
+    assert data["files"] == []
+
+
 @pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_download_fails_when_not_completed(
@@ -339,7 +376,9 @@ async def test_file_download_create_rejects_when_concurrency_limit_reached(
 
     await async_client.aforce_login(user)
 
-    with unittest.mock.patch("posthog.batch_exports.api.file_download.start_file_download_batch_export") as mock_start:
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+    ) as mock_start:
         response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports",
             {
@@ -369,7 +408,9 @@ async def test_file_download_create_rejects_future_data_interval_end(
 
     await async_client.aforce_login(user)
 
-    with unittest.mock.patch("posthog.batch_exports.api.file_download.start_file_download_batch_export") as mock_start:
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+    ) as mock_start:
         data_interval_end_iso = (now + dt.timedelta(hours=1)).isoformat()
         response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports",
@@ -542,7 +583,7 @@ async def test_file_download_cancel_mocked(
     mocked_handle = unittest.mock.AsyncMock()
     mocked_client.get_workflow_handle.return_value = mocked_handle
 
-    with unittest.mock.patch("posthog.batch_exports.api.file_download.sync_connect") as mocked_connect:
+    with unittest.mock.patch("products.batch_exports.backend.api.file_download.sync_connect") as mocked_connect:
         mocked_connect.return_value = mocked_client
         status_response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}/cancel",

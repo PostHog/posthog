@@ -33,7 +33,7 @@ class Provider(Protocol):
         api_key: str | None,
         analytics: AnalyticsContext,
         base_url: str | None = None,
-    ) -> Generator[StreamChunk, None, None]:
+    ) -> Generator[StreamChunk]:
         """Streaming completion"""
         ...
 

@@ -4,6 +4,8 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.models import Team, User
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.core.context import get_node_path
 from ee.hogai.core.executable import BaseAgentExecutable
 from ee.hogai.utils.exceptions import GenerationCanceled
@@ -16,7 +18,6 @@ from ee.hogai.utils.types.base import (
     PartialStateType,
     StateType,
 )
-from ee.models import Conversation
 
 
 class BaseAssistantNode(BaseAgentExecutable[StateType, PartialStateType]):

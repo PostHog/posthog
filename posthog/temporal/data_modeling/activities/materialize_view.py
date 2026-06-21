@@ -25,7 +25,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import get_client as get_clickhouse_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -35,7 +35,7 @@ from products.data_modeling.backend.models.data_modeling_job import DataModeling
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
-from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
+from products.endpoints.backend.services.materialization import prepare_executable_query
 
 LOGGER = get_logger(__name__)
 
@@ -189,6 +189,25 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Mark every column nullable so batch schemas don't diverge across delta commits.
+
+    ClickHouse emits non-nullable columns for expressions, constants, concat()/toString(),
+    and non-Nullable source columns. When such a query spans more than one batch, the first
+    batch's overwrite pins a non-nullable delta schema and the later append routes through
+    delta-rs's DataFusion writer to reconcile schemas. DataFusion lowercases identifiers and
+    then fails to resolve case-sensitive columns, e.g. "No field named userid. ... Did you
+    mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
+    nullable keeps each batch's schema identical to the first overwrite, so the append never
+    triggers that path and camelCase column names survive.
+    """
+    nullable_schema = pa.schema(
+        [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
+        metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
+    )
+    return batch.cast(nullable_schema)
+
+
 def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     """Transform high-precision decimal columns to types supported by Delta Lake."""
     schema = batch.schema
@@ -273,9 +292,13 @@ async def get_query_row_count(
         limit_top_select=False,
     )
     context.output_format = "TabSeparated"
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    context.database = await database_sync_to_async_pool(Database.create_for)(
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+    )
 
-    prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+    prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
         context=context,
         dialect="clickhouse",
@@ -287,7 +310,7 @@ async def get_query_row_count(
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async(print_prepared_ast)(
+    printed = await database_sync_to_async_pool(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
@@ -298,7 +321,12 @@ async def get_query_row_count(
     await logger.adebug(f"Running count query: {printed}")
 
     async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
-        result = await client.read_query(printed, query_parameters=context.values)
+        async with client.apost_query(
+            query=printed,
+            query_parameters=context.values,
+            query_id=str(uuid.uuid4()),
+        ) as response:
+            result = await response.content.read()
         count = int(result.decode("utf-8").strip())
         return count
 
@@ -331,10 +359,14 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    context.database = await database_sync_to_async_pool(Database.create_for)(
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+    )
 
     factory = bounded_resolver_factory_for_view(view_name)
-    prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+    prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
         context=context,
         dialect="clickhouse",
@@ -345,7 +377,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    printed = await database_sync_to_async(print_prepared_ast)(
+    printed = await database_sync_to_async_pool(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
@@ -413,7 +445,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     context.output_format = "ArrowStream"
     settings.preferred_block_size_bytes = MB_100_IN_BYTES
 
-    arrow_prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+    arrow_prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
         context=context,
         dialect="clickhouse",
@@ -425,7 +457,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     if arrow_prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
 
-    arrow_printed = await database_sync_to_async(print_prepared_ast)(
+    arrow_printed = await database_sync_to_async_pool(print_prepared_ast)(
         arrow_prepared_hogql_query, context=context, dialect="clickhouse", stack=[], settings=settings
     )
 
@@ -467,7 +499,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
             yield (empty_batch, ch_typings_pairs)
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _get_matview_input_objects(
     inputs: MaterializeViewInputs,
 ) -> tuple[Team, Node, DataWarehouseSavedQuery, DataModelingJob]:
@@ -521,11 +553,11 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             rows_expected = await get_query_row_count(hogql_query, team, logger, view_name=saved_query.name)
             await logger.ainfo(f"Expected rows: {rows_expected}")
             job.rows_expected = rows_expected
-            await database_sync_to_async(job.save)()
+            await database_sync_to_async_pool(job.save)()
         except Exception as e:
             await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
             job.rows_expected = None
-            await database_sync_to_async(job.save)()
+            await database_sync_to_async_pool(job.save)()
 
         row_count = 0
         storage_options = _get_aws_storage_options()
@@ -545,6 +577,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         async for batch, ch_types in hogql_table(hogql_query, team, logger):
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
+            batch = _force_nullable(batch)
             if delta_table is None:
                 pa_schema = batch.schema
                 await asyncio.to_thread(
@@ -567,7 +600,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 )
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
-            await database_sync_to_async(job.save)()
+            await database_sync_to_async_pool(job.save)()
 
         await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
         # row count validation warning

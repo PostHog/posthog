@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
+from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.rbac.user_access_control import AccessControlLevel
@@ -13,6 +14,7 @@ from posthog.scopes import APIScopeObject
 
 from ee.hogai.tool import MaxTool
 
+from .invite_email import validate_invite_message, validate_invite_subject
 from .models import EmailWithDisplayNameValidator, UserInterview, UserInterviewTopic
 
 
@@ -163,6 +165,22 @@ class CreateUserInterviewTopicArgs(BaseModel):
             "call on this topic. Leave empty if no extra context is needed."
         ),
     )
+    invite_subject: str = Field(
+        default="",
+        description=(
+            "Optional subject line for the invitation email. Plain text only — must not contain URLs, "
+            "angle brackets, or line breaks. The email template handles personalization, so do not add "
+            "placeholders. Leave empty to use the default subject."
+        ),
+    )
+    invite_message: str = Field(
+        default="",
+        description=(
+            "Optional intro message shown in the invitation email body, above the interview link. Plain "
+            "prose only (line breaks allowed) — must not contain URLs or angle brackets. Leave empty to "
+            "use the default copy."
+        ),
+    )
 
 
 class CreateUserInterviewTopicTool(MaxTool):
@@ -186,6 +204,8 @@ class CreateUserInterviewTopicTool(MaxTool):
         interviewee_distinct_ids: list[str] | None = None,
         questions: list[str] | None = None,
         agent_context: str = "",
+        invite_subject: str = "",
+        invite_message: str = "",
     ) -> tuple[str, dict[str, Any]]:
         emails = [e.strip() for e in (interviewee_emails or []) if e and e.strip()]
         distinct_ids = [d.strip() for d in (interviewee_distinct_ids or []) if d and d.strip()]
@@ -243,6 +263,21 @@ class CreateUserInterviewTopicTool(MaxTool):
             )
 
         try:
+            invite_subject = validate_invite_subject(invite_subject or "") or ""
+            invite_message = validate_invite_message(invite_message or "") or ""
+        except DRFValidationError as e:
+            return (
+                "The invite subject or message contains disallowed content.",
+                {
+                    "error": "validation_failed",
+                    "error_message": (
+                        "The invite subject or message was rejected (URLs, angle brackets, and control "
+                        f"characters are not allowed): {e.detail}"
+                    ),
+                },
+            )
+
+        try:
             created_topic = await UserInterviewTopic.objects.acreate(
                 team=self._team,
                 created_by=self._user,
@@ -251,6 +286,8 @@ class CreateUserInterviewTopicTool(MaxTool):
                 interviewee_distinct_ids=distinct_ids,
                 questions=questions,
                 agent_context=agent_context or "",
+                invite_subject=invite_subject,
+                invite_message=invite_message,
             )
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})

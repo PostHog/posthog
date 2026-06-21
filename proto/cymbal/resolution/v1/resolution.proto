@@ -29,14 +29,15 @@ message ResolveItem {
   // Serialized rust/cymbal Exception before frame and exception remapping.
   bytes exception_json = 3;
   // Serialized resolution metadata. The current convention is JSON bytes with
-  // resolver-specific keys such as `apple_debug_images_json`.
+  // resolver-specific keys such as `debug_images_json`.
   bytes metadata = 4;
   // Deadline for this logical exception in milliseconds. The server may shed
   // stale items instead of starting work it cannot return in time.
   uint32 deadline_ms = 5;
 }
 
-// ResolveOutcome is the terminal server outcome for one ResolveItem id.
+// ResolveOutcome is a server outcome for one ResolveItem id. Accepted is an
+// admission signal; Done, Error, and Retry are terminal outcomes.
 message ResolveOutcome {
   uint64 id = 1;
 
@@ -44,8 +45,14 @@ message ResolveOutcome {
     Done done = 2;
     Error error = 3;
     Retry retry = 4;
+    Accepted accepted = 5;
   }
 }
+
+// Accepted means the pod admitted the item and will process it. It is emitted
+// before the terminal outcome so callers can distinguish routing acceptance
+// from full resolution completion.
+message Accepted {}
 
 // Done means the item completed and contains the resolved exception payload.
 message Done {

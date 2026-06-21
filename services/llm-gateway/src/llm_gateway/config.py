@@ -27,7 +27,7 @@ DEFAULT_USER_COST_LIMIT = UserCostLimit(
 DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
-    "posthog_code": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
+    "posthog_code": ProductCostLimit(limit_usd=5000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "signals": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
@@ -41,9 +41,9 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_window_seconds=2592000,  # 30 days
     ),
     "posthog_code": UserCostLimit(
-        burst_limit_usd=200.0,
+        burst_limit_usd=500.0,
         burst_window_seconds=86400,
-        sustained_limit_usd=1000.0,
+        sustained_limit_usd=3000.0,
         sustained_window_seconds=2592000,
     ),
     "background_agents": UserCostLimit(
@@ -61,9 +61,9 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
 }
 
 FREE_PLAN_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=50.0,
+    burst_limit_usd=75.0,
     burst_window_seconds=86400,
-    sustained_limit_usd=50.0,
+    sustained_limit_usd=75.0,
     sustained_window_seconds=2592000,
 )
 
@@ -158,6 +158,11 @@ class Settings(BaseSettings):
 
     team_rate_limit_multipliers: dict[int, int] = {}
 
+    # Additional elevated cap for PostHog staff, keyed on the authenticated
+    # user's is_staff flag rather than team id, so it survives impersonation.
+    # Combined with the team multiplier by taking the larger of the two.
+    staff_rate_limit_multiplier: int = 10
+
     product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
 
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
@@ -193,6 +198,13 @@ class Settings(BaseSettings):
     @classmethod
     def parse_user_cost_limits(cls, v: str | dict | None) -> dict[str, UserCostLimit]:
         return _parse_model_dict(v, UserCostLimit, DEFAULT_USER_COST_LIMITS, "user_cost_limits")
+
+    @field_validator("staff_rate_limit_multiplier")
+    @classmethod
+    def validate_staff_rate_limit_multiplier(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"staff_rate_limit_multiplier must be >= 1, got {v}")
+        return v
 
     @field_validator("team_rate_limit_multipliers", mode="before")
     @classmethod

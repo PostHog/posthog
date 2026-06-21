@@ -165,6 +165,7 @@ class TestCreateExperimentTool(APIBaseTest):
             "metrics_count": 0,
             "secondary_metrics_count": 0,
             "has_description": False,
+            "has_conclusion_comment": False,
             "variant_count": 2,
             "created_at": ANY,
             "creation_mode": "new",

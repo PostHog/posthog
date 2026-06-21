@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import Any, Literal
 
+from django.db import close_old_connections
+
 import s3fs
 import pyarrow as pa
 import deltalake as deltalake
@@ -16,6 +18,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     append_partition_key_to_table,
+    evolve_pyarrow_schema,
     pyarrow_schema_from_arrow_exportable,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table
@@ -31,6 +34,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
     PARQUET_READ_DURATION_SECONDS,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
+from posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock import release_v3_pipeline_lock
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.utils import get_machine_id
@@ -239,6 +243,27 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
     async_to_sync(_run)()
 
 
+def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
+    try:
+        job = ExternalDataJob.objects.only("workflow_run_id").get(
+            id=export_signal.job_id, team_id=export_signal.team_id
+        )
+        if job.workflow_run_id:
+            release_v3_pipeline_lock(
+                team_id=export_signal.team_id,
+                schema_id=export_signal.schema_id,
+                token=job.workflow_run_id,
+            )
+    except Exception as e:
+        logger.error(
+            "failed_to_release_v3_pipeline_lock",
+            job_id=export_signal.job_id,
+            schema_id=export_signal.schema_id,
+            exc_info=True,
+        )
+        capture_exception(e)
+
+
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
     update_external_job_status(
         job_id=export_signal.job_id,
@@ -256,6 +281,8 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         team_id=export_signal.team_id,
         external_data_schema_id=export_signal.schema_id,
     )
+
+    _release_pipeline_lock_for_job(export_signal)
 
 
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
@@ -290,9 +317,14 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
         error=str(error),
     )
 
+    _release_pipeline_lock_for_job(export_signal)
+
 
 def process_message(message: Any, progress_callback: Callable[[], None] | None = None) -> None:
     export_signal = ExportSignalMessage.from_dict(message)
+
+    # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
+    close_old_connections()
 
     # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
     # previously closed event loop (async_to_sync creates/destroys loops).
@@ -453,6 +485,9 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                             existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
 
                         pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+
+        if existing_delta_table is not None:
+            pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
 
         if cdc_write_mode == "scd2_append":
             logger.debug(

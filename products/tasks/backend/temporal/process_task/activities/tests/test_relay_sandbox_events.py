@@ -196,7 +196,7 @@ class TestRelaySandboxEventsCancellation:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str) -> None:
+            def __init__(self, stream_key: str, use_dedicated: bool = False) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
@@ -213,7 +213,9 @@ class TestRelaySandboxEventsCancellation:
                 return self
 
             async def aget(self, id: str) -> SimpleNamespace:
-                return SimpleNamespace(task=SimpleNamespace(created_by=SimpleNamespace(id=123)))
+                return SimpleNamespace(
+                    task=SimpleNamespace(created_by=SimpleNamespace(id=123), origin_product=None), state={}
+                )
 
         async def fake_relay_loop(**_kwargs: object) -> None:
             raise asyncio.CancelledError
@@ -510,7 +512,7 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str) -> None:
+            def __init__(self, stream_key: str, use_dedicated: bool = False) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
@@ -527,7 +529,9 @@ class TestRelaySandboxEventsErrorHandling:
                 return self
 
             async def aget(self, id: str) -> SimpleNamespace:
-                return SimpleNamespace(task=SimpleNamespace(created_by=SimpleNamespace(id=123)))
+                return SimpleNamespace(
+                    task=SimpleNamespace(created_by=SimpleNamespace(id=123), origin_product=None), state={}
+                )
 
         async def fake_relay_loop(**_kwargs: object) -> None:
             raise RuntimeError("relay error")

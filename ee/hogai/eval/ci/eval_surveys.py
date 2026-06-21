@@ -9,11 +9,11 @@ from autoevals.ragas import AnswerSimilarity
 from braintrust import EvalCase, Score
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.posthog_ai.backend.models.assistant import Conversation
 from products.surveys.backend.max_tools import CreateSurveyTool, SimpleSurveyQuestion
 from products.surveys.backend.models import Survey
 
 from ee.hogai.eval.base import MaxPublicEval
-from ee.models.assistant import Conversation
 
 
 def unique_name(base_name: str) -> str:

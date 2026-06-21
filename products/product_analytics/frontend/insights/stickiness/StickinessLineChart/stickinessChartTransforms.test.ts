@@ -1,5 +1,5 @@
-import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
-import type { TooltipConfig } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
+import type { TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
 import { ChartDisplayType } from '~/types'
 
@@ -178,17 +178,19 @@ describe('stickinessChartTransforms', () => {
 
         it('returns yAxis with percent tick formatter and a linear scale by default', () => {
             const config = buildStickinessLineTimeSeriesConfig({})
-            expect(config.yAxis).not.toBeUndefined()
-            expect(config.yAxis!.scale).toBe('linear')
-            expect(config.yAxis!.showGrid).toBe(true)
-            expect(config.yAxis!.tickFormatter).not.toBeUndefined()
-            expect(config.yAxis!.tickFormatter!(50)).toBe('50.0%')
+            const yAxis = config.yAxis as YAxisConfig
+            expect(yAxis).not.toBeUndefined()
+            expect(yAxis.scale).toBe('linear')
+            expect(yAxis.showGrid).toBe(true)
+            expect(yAxis.tickFormatter).not.toBeUndefined()
+            expect(yAxis.tickFormatter!(50)).toBe('50.0%')
         })
 
         it('switches the y-scale to log when yAxisScaleType is log10', () => {
             const config = buildStickinessLineTimeSeriesConfig({ yAxisScaleType: 'log10' })
-            expect(config.yAxis).not.toBeUndefined()
-            expect(config.yAxis!.scale).toBe('log')
+            const yAxis = config.yAxis as YAxisConfig
+            expect(yAxis).not.toBeUndefined()
+            expect(yAxis.scale).toBe('log')
         })
 
         it('omits an xAxis date config — labels are pre-formatted interval counts', () => {

@@ -6,7 +6,6 @@
 # parts produce nothing at all still emits one empty-content message (legacy parity).
 
 id: otel
-priority: 60
 
 rules:
     - on:

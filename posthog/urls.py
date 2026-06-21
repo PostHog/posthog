@@ -18,9 +18,6 @@ from posthog.api import (
     api_not_found,
     authentication,
     github,
-    hog_flow,
-    hog_flow_template,
-    hog_function_template,
     playwright_setup,
     report,
     router,
@@ -33,11 +30,11 @@ from posthog.api import (
     user,
 )
 from posthog.api.github_callback.personal_finish import github_link_complete
-from posthog.api.id_jag import IdJagViewSet
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
-from posthog.api.sdk_doctor import sdk_doctor
+from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
@@ -50,8 +47,8 @@ from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
 from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
+from products.cdp.backend.api import hog_function_template
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
-from products.deployments.backend.api.internal import InternalDeploymentTransitionsViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
@@ -68,6 +65,7 @@ from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
 )
+from products.workflows.backend.api import hog_flow, hog_flow_template
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -136,6 +134,11 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
         from products.tasks.backend.webhooks import handle_pull_request_event
 
         return handle_pull_request_event(payload)
+
+    if event_type == "installation":
+        from posthog.api.github_callback.installation_events import handle_installation_event
+
+        return handle_installation_event(payload)
 
     return HttpResponse(status=200)
 
@@ -273,14 +276,23 @@ urlpatterns = [
         csrf_exempt(user_interviews_start_call),
         name="user_interviews_start_call",
     ),
-    path("api/sdk_doctor/", sdk_doctor),
+    path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
+    path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
     ),
     path(
+        "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
+        include("products.mcp_analytics.backend.presentation.urls"),
+    ),
+    path(
         "api/environments/<int:parent_lookup_team_id>/property_access_controls/",
+        include("products.access_control.backend.presentation.urls"),
+    ),
+    path(
+        "api/projects/<int:parent_lookup_team_id>/property_access_controls/",
         include("products.access_control.backend.presentation.urls"),
     ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
@@ -342,15 +354,6 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/signals/emit",
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
     ),
-    # Deployments internal endpoints — Temporal build worker posts here.
-    path(
-        "api/internal/deployments/<uuid:deployment_id>/transitions/",
-        csrf_exempt(InternalDeploymentTransitionsViewSet.as_view({"post": "transitions"})),
-    ),
-    path(
-        "api/internal/deployments/<uuid:deployment_id>/events/",
-        csrf_exempt(InternalDeploymentTransitionsViewSet.as_view({"post": "events"})),
-    ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
     opt_slash_path(
@@ -365,6 +368,11 @@ urlpatterns = [
         WIZARD_METADATA_PATH,
         WizardClientMetadataView.as_view(),
         name="wizard-client-metadata",
+    ),
+    path(
+        RAYCAST_METADATA_PATH,
+        RaycastClientMetadataView.as_view(),
+        name="raycast-client-metadata",
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
@@ -393,7 +401,6 @@ urlpatterns = [
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
     re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
-    opt_slash_path("id-jag/token", IdJagViewSet.as_view(), name="id_jag_token"),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
@@ -498,6 +505,9 @@ frontend_unauthenticated_routes = [
     "unsubscribe",
     "verify_email",
     r"agentic/account-mismatch",
+    # OAuth redirect target when logging the local frontend into a remote cloud region;
+    # the SPA handles the code→token exchange client-side, so it must load without auth.
+    r"^oauth/callback",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

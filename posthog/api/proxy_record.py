@@ -173,7 +173,7 @@ class DiagnosticReportSerializer(serializers.Serializer):
     checks = DiagnosticCheckResultSerializer(many=True, help_text="Per-check results in execution order.")
 
 
-@extend_schema(tags=["reverse_proxy"])
+@extend_schema(tags=["reverse_proxy"], extensions={"x-product": "proxy_records"})
 class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = ProxyRecordSerializer

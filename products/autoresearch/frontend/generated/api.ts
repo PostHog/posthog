@@ -73,7 +73,7 @@ export const getAutoresearchListUrl = (projectId: string, params?: AutoresearchL
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -86,10 +86,10 @@ export const getAutoresearchListUrl = (projectId: string, params?: AutoresearchL
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const autoresearchList = async (
     projectId: string,
@@ -108,10 +108,10 @@ export const getAutoresearchCreateUrl = (projectId: string) => {
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const autoresearchCreate = async (
     projectId: string,
@@ -135,7 +135,7 @@ export const getAutoresearchModelsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -148,10 +148,10 @@ export const getAutoresearchModelsListUrl = (
 
 /**
  * List and retrieve champion/challenger models for a pipeline.
-
-Models are the persisted artifacts produced by training runs. Each model
-holds a portable recipe (feature SQL, transforms, model class, params) that
-the daily inference workflow compiles to score users.
+ *
+ * Models are the persisted artifacts produced by training runs. Each model
+ * holds a portable recipe (feature SQL, transforms, model class, params) that
+ * the daily inference workflow compiles to score users.
  */
 export const autoresearchModelsList = async (
     projectId: string,
@@ -171,10 +171,10 @@ export const getAutoresearchModelsRetrieveUrl = (projectId: string, pipelineId: 
 
 /**
  * List and retrieve champion/challenger models for a pipeline.
-
-Models are the persisted artifacts produced by training runs. Each model
-holds a portable recipe (feature SQL, transforms, model class, params) that
-the daily inference workflow compiles to score users.
+ *
+ * Models are the persisted artifacts produced by training runs. Each model
+ * holds a portable recipe (feature SQL, transforms, model class, params) that
+ * the daily inference workflow compiles to score users.
  */
 export const autoresearchModelsRetrieve = async (
     projectId: string,
@@ -197,7 +197,7 @@ export const getAutoresearchRunsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -251,7 +251,7 @@ export const getAutoresearchSuggestionsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -358,7 +358,7 @@ export const getAutoresearchTrainingRunsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -371,10 +371,10 @@ export const getAutoresearchTrainingRunsListUrl = (
 
 /**
  * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
-
-The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
-training run directly — recording each iteration as it completes rather than via a single
-terminal sandbox output. Recipe validation and champion promotion stay server-side.
+ *
+ * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
+ * training run directly — recording each iteration as it completes rather than via a single
+ * terminal sandbox output. Recipe validation and champion promotion stay server-side.
  */
 export const autoresearchTrainingRunsList = async (
     projectId: string,
@@ -419,10 +419,10 @@ export const getAutoresearchTrainingRunsRetrieveUrl = (projectId: string, pipeli
 
 /**
  * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
-
-The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
-training run directly — recording each iteration as it completes rather than via a single
-terminal sandbox output. Recipe validation and champion promotion stay server-side.
+ *
+ * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
+ * training run directly — recording each iteration as it completes rather than via a single
+ * terminal sandbox output. Recipe validation and champion promotion stay server-side.
  */
 export const autoresearchTrainingRunsRetrieve = async (
     projectId: string,
@@ -630,7 +630,7 @@ export const getAutoresearchTrainingRunsHistoryRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -666,10 +666,10 @@ export const getAutoresearchRetrieveUrl = (projectId: string, id: string) => {
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const autoresearchRetrieve = async (
     projectId: string,
@@ -688,10 +688,10 @@ export const getAutoresearchUpdateUrl = (projectId: string, id: string) => {
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const autoresearchUpdate = async (
     projectId: string,
@@ -713,10 +713,10 @@ export const getAutoresearchPartialUpdateUrl = (projectId: string, id: string) =
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const autoresearchPartialUpdate = async (
     projectId: string,
@@ -738,10 +738,10 @@ export const getAutoresearchDestroyUrl = (projectId: string, id: string) => {
 
 /**
  * Manage autoresearch prediction pipelines.
-
-A pipeline defines a target event, population, and horizon. The autoresearch
-training loop finds the best predictive recipe; the inference workflow scores
-users daily and emits autoresearch_prediction events.
+ *
+ * A pipeline defines a target event, population, and horizon. The autoresearch
+ * training loop finds the best predictive recipe; the inference workflow scores
+ * users daily and emits autoresearch_prediction events.
  */
 export const autoresearchDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getAutoresearchDestroyUrl(projectId, id), {
@@ -905,7 +905,7 @@ export const getAutoresearchTemplatesListUrl = (projectId: string, params?: Auto
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

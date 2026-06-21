@@ -9,11 +9,11 @@
  */
 /**
  * * `draft` - Draft
- * `bootstrapping` - Bootstrapping
- * `running` - Running
- * `converged` - Converged
- * `paused` - Paused
- * `archived` - Archived
+ * * `bootstrapping` - Bootstrapping
+ * * `running` - Running
+ * * `converged` - Converged
+ * * `paused` - Paused
+ * * `archived` - Archived
  */
 export type AutoresearchPipelineStatusEnumApi =
     (typeof AutoresearchPipelineStatusEnumApi)[keyof typeof AutoresearchPipelineStatusEnumApi]
@@ -29,13 +29,13 @@ export const AutoresearchPipelineStatusEnumApi = {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -161,13 +161,13 @@ export interface AutoresearchPipelineApi {
      */
     output_person_property?: string
     /** Pipeline lifecycle status: draft, bootstrapping, running, converged, paused, or archived.
-
-  * `draft` - Draft
-  * `bootstrapping` - Bootstrapping
-  * `running` - Running
-  * `converged` - Converged
-  * `paused` - Paused
-  * `archived` - Archived */
+     *
+     * * `draft` - Draft
+     * * `bootstrapping` - Bootstrapping
+     * * `running` - Running
+     * * `converged` - Converged
+     * * `paused` - Paused
+     * * `archived` - Archived */
     readonly status: AutoresearchPipelineStatusEnumApi
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -276,12 +276,13 @@ export interface AutoresearchPipelineCreateApi {
 
 /**
  * * `champion` - Champion
- * `challenger` - Challenger
- * `archived` - Archived
+ * * `challenger` - Challenger
+ * * `archived` - Archived
  */
-export type RoleEnumApi = (typeof RoleEnumApi)[keyof typeof RoleEnumApi]
+export type AutoresearchModelRoleEnumApi =
+    (typeof AutoresearchModelRoleEnumApi)[keyof typeof AutoresearchModelRoleEnumApi]
 
-export const RoleEnumApi = {
+export const AutoresearchModelRoleEnumApi = {
     Champion: 'champion',
     Challenger: 'challenger',
     Archived: 'archived',
@@ -303,11 +304,11 @@ export interface AutoresearchModelApi {
     /** Pipeline this model belongs to. */
     pipeline: string
     /** Model role: 'champion' (active scoring model), 'challenger' (shadow model), or 'archived'.
-
-  * `champion` - Champion
-  * `challenger` - Challenger
-  * `archived` - Archived */
-    role?: RoleEnumApi
+     *
+     * * `champion` - Champion
+     * * `challenger` - Challenger
+     * * `archived` - Archived */
+    role?: AutoresearchModelRoleEnumApi
     /** SHA-256 of the serialized recipe. Used to deduplicate identical recipes across runs. */
     readonly recipe_hash: string
     /** Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata. */
@@ -370,8 +371,8 @@ export interface PaginatedAutoresearchModelListApi {
 
 /**
  * * `inference` - Inference
- * `validation` - Validation
- * `notebook` - Notebook
+ * * `validation` - Validation
+ * * `notebook` - Notebook
  */
 export type RunTypeEnumApi = (typeof RunTypeEnumApi)[keyof typeof RunTypeEnumApi]
 
@@ -383,9 +384,9 @@ export const RunTypeEnumApi = {
 
 /**
  * * `pending` - Pending
- * `running` - Running
- * `completed` - Completed
- * `failed` - Failed
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
  */
 export type AutoresearchRunStatusEnumApi =
     (typeof AutoresearchRunStatusEnumApi)[keyof typeof AutoresearchRunStatusEnumApi]
@@ -408,17 +409,17 @@ export interface AutoresearchRunApi {
      */
     model?: string | null
     /** Type of run: 'inference' (daily scoring), 'validation' (outcome evaluation), or 'notebook' (report generation).
-
-  * `inference` - Inference
-  * `validation` - Validation
-  * `notebook` - Notebook */
+     *
+     * * `inference` - Inference
+     * * `validation` - Validation
+     * * `notebook` - Notebook */
     run_type: RunTypeEnumApi
     /** Run status: pending, running, completed, or failed.
-
-  * `pending` - Pending
-  * `running` - Running
-  * `completed` - Completed
-  * `failed` - Failed */
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
     status?: AutoresearchRunStatusEnumApi
     /**
      * Number of users scored in this inference run.
@@ -455,7 +456,7 @@ export interface PaginatedAutoresearchRunListApi {
 
 /**
  * * `try_next` - Try next
- * `consider` - Consider
+ * * `consider` - Consider
  */
 export type AutoresearchSuggestionPriorityEnumApi =
     (typeof AutoresearchSuggestionPriorityEnumApi)[keyof typeof AutoresearchSuggestionPriorityEnumApi]
@@ -467,9 +468,9 @@ export const AutoresearchSuggestionPriorityEnumApi = {
 
 /**
  * * `queued` - Queued
- * `picked_up` - Picked up
- * `acted_on` - Acted on
- * `dismissed` - Dismissed
+ * * `picked_up` - Picked up
+ * * `acted_on` - Acted on
+ * * `dismissed` - Dismissed
  */
 export type AutoresearchSuggestionStatusEnumApi =
     (typeof AutoresearchSuggestionStatusEnumApi)[keyof typeof AutoresearchSuggestionStatusEnumApi]
@@ -483,7 +484,7 @@ export const AutoresearchSuggestionStatusEnumApi = {
 
 /**
  * * `user` - User
- * `agent` - Agent
+ * * `agent` - Agent
  */
 export type AutoresearchSuggestionSourceEnumApi =
     (typeof AutoresearchSuggestionSourceEnumApi)[keyof typeof AutoresearchSuggestionSourceEnumApi]
@@ -501,21 +502,21 @@ export interface AutoresearchSuggestionApi {
     /** Free-text hypothesis or direction for the agent to explore. */
     prompt: string
     /** 'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory.
-
-  * `try_next` - Try next
-  * `consider` - Consider */
+     *
+     * * `try_next` - Try next
+     * * `consider` - Consider */
     priority?: AutoresearchSuggestionPriorityEnumApi
     /** Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).
-
-  * `queued` - Queued
-  * `picked_up` - Picked up
-  * `acted_on` - Acted on
-  * `dismissed` - Dismissed */
+     *
+     * * `queued` - Queued
+     * * `picked_up` - Picked up
+     * * `acted_on` - Acted on
+     * * `dismissed` - Dismissed */
     readonly status: AutoresearchSuggestionStatusEnumApi
     /** 'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses.
-
-  * `user` - User
-  * `agent` - Agent */
+     *
+     * * `user` - User
+     * * `agent` - Agent */
     readonly source: AutoresearchSuggestionSourceEnumApi
     /** Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup. */
     readonly agent_response: string
@@ -537,7 +538,7 @@ export interface PaginatedAutoresearchSuggestionListApi {
 
 /**
  * * `try_next` - try_next
- * `consider` - consider
+ * * `consider` - consider
  */
 export type CreateSuggestionPriorityEnumApi =
     (typeof CreateSuggestionPriorityEnumApi)[keyof typeof CreateSuggestionPriorityEnumApi]
@@ -554,16 +555,16 @@ export interface CreateSuggestionApi {
      */
     prompt: string
     /** 'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.
-
-  * `try_next` - try_next
-  * `consider` - consider */
+     *
+     * * `try_next` - try_next
+     * * `consider` - consider */
     priority?: CreateSuggestionPriorityEnumApi
 }
 
 /**
  * * `picked_up` - picked_up
- * `acted_on` - acted_on
- * `dismissed` - dismissed
+ * * `acted_on` - acted_on
+ * * `dismissed` - dismissed
  */
 export type RespondToSuggestionStatusEnumApi =
     (typeof RespondToSuggestionStatusEnumApi)[keyof typeof RespondToSuggestionStatusEnumApi]
@@ -579,10 +580,10 @@ export const RespondToSuggestionStatusEnumApi = {
  */
 export interface RespondToSuggestionApi {
     /** How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).
-
-  * `picked_up` - picked_up
-  * `acted_on` - acted_on
-  * `dismissed` - dismissed */
+     *
+     * * `picked_up` - picked_up
+     * * `acted_on` - acted_on
+     * * `dismissed` - dismissed */
     status: RespondToSuggestionStatusEnumApi
     /**
      * Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).
@@ -637,8 +638,8 @@ export interface TrainingRunSummaryApi {
 
 /**
  * * `kept` - Kept
- * `discarded` - Discarded
- * `crashed` - Crashed
+ * * `discarded` - Discarded
+ * * `crashed` - Crashed
  */
 export type AutoresearchIterationStatusEnumApi =
     (typeof AutoresearchIterationStatusEnumApi)[keyof typeof AutoresearchIterationStatusEnumApi]
@@ -660,10 +661,10 @@ export interface IterationTrailApi {
      */
     iteration_number: number
     /** Whether this recipe was kept (improved the best score), discarded, or crashed.
-
-  * `kept` - Kept
-  * `discarded` - Discarded
-  * `crashed` - Crashed */
+     *
+     * * `kept` - Kept
+     * * `discarded` - Discarded
+     * * `crashed` - Crashed */
     status: AutoresearchIterationStatusEnumApi
     /**
      * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
@@ -702,11 +703,11 @@ export interface AutoresearchTrainingRunApi {
      */
     readonly task_url: string | null
     /** Run status: pending, running, completed, or failed.
-
-  * `pending` - Pending
-  * `running` - Running
-  * `completed` - Completed
-  * `failed` - Failed */
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
     readonly status: AutoresearchRunStatusEnumApi
     /**
      * Maximum iterations allowed for this run.
@@ -865,8 +866,8 @@ export type RecordIterationApiModelSpec = { [key: string]: unknown }
 
 /**
  * * `kept` - kept
- * `discarded` - discarded
- * `crashed` - crashed
+ * * `discarded` - discarded
+ * * `crashed` - crashed
  */
 export type RecordIterationStatusEnumApi =
     (typeof RecordIterationStatusEnumApi)[keyof typeof RecordIterationStatusEnumApi]
@@ -891,10 +892,10 @@ export interface RecordIterationApi {
     /** model_class (must be allowlisted) and model_params tried this iteration. */
     model_spec: RecordIterationApiModelSpec
     /** 'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.
-
-  * `kept` - kept
-  * `discarded` - discarded
-  * `crashed` - crashed */
+     *
+     * * `kept` - kept
+     * * `discarded` - discarded
+     * * `crashed` - crashed */
     status: RecordIterationStatusEnumApi
     /**
      * Training-set AUC for this iteration.
@@ -1115,10 +1116,10 @@ export interface StartTrainingRequestApi {
 
 /**
  * * `likely_active_soon` - likely_active_soon
- * `at_risk_of_inactivity` - at_risk_of_inactivity
- * `return_after_first_use` - return_after_first_use
- * `feature_adoption` - feature_adoption
- * `repeat_key_behavior` - repeat_key_behavior
+ * * `at_risk_of_inactivity` - at_risk_of_inactivity
+ * * `return_after_first_use` - return_after_first_use
+ * * `feature_adoption` - feature_adoption
+ * * `repeat_key_behavior` - repeat_key_behavior
  */
 export type TemplateKeyEnumApi = (typeof TemplateKeyEnumApi)[keyof typeof TemplateKeyEnumApi]
 
@@ -1132,12 +1133,12 @@ export const TemplateKeyEnumApi = {
 
 export interface ResolveTemplateRequestApi {
     /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
-
-  * `likely_active_soon` - likely_active_soon
-  * `at_risk_of_inactivity` - at_risk_of_inactivity
-  * `return_after_first_use` - return_after_first_use
-  * `feature_adoption` - feature_adoption
-  * `repeat_key_behavior` - repeat_key_behavior */
+     *
+     * * `likely_active_soon` - likely_active_soon
+     * * `at_risk_of_inactivity` - at_risk_of_inactivity
+     * * `return_after_first_use` - return_after_first_use
+     * * `feature_adoption` - feature_adoption
+     * * `repeat_key_behavior` - repeat_key_behavior */
     template_key: TemplateKeyEnumApi
     /** Event or action name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use') — omit to use the auto-resolved event. */
     target_event?: string
@@ -1240,8 +1241,8 @@ export interface ValidatePipelineRequestApi {
 
 /**
  * * `info` - info
- * `warning` - warning
- * `error` - error
+ * * `warning` - warning
+ * * `error` - error
  */
 export type ValidationWarningSeverityEnumApi =
     (typeof ValidationWarningSeverityEnumApi)[keyof typeof ValidationWarningSeverityEnumApi]
@@ -1258,10 +1259,10 @@ export interface ValidationWarningApi {
     /** Human-readable warning description. */
     message: string
     /** Severity level. 'error' blocks creation; 'warning' requires acknowledgement.
-
-  * `info` - info
-  * `warning` - warning
-  * `error` - error */
+     *
+     * * `info` - info
+     * * `warning` - warning
+     * * `error` - error */
     severity: ValidationWarningSeverityEnumApi
 }
 
