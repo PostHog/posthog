@@ -36,12 +36,16 @@ Tunables (env):
 | `PROPDEFS_BENCH_SEED` | 42 | RNG seed (determinism) |
 | `PROPDEFS_BENCH_HOURS` | 6 | simulated hours for last_seen_at churn |
 | `PROPDEFS_BENCH_CACHE_CAP` | 1000000 | per-subcache capacity (sweep eviction effects) |
+| `PROPDEFS_BENCH_FLOOR_SECS` | 3600 | last_seen_at floor period for Phase C (3600 = historical hourly baseline; 86400 = current daily default) |
 | `PROPDEFS_BENCH_JSON` | unset | also print one `BENCH_JSON {...}` line |
 
 ### What each phase measures
 
 - **Phase A — throughput.** `serde_json::from_str` + `Event::into_updates` over every event
-  (the exact per-event producer CPU cost). Reports `events_per_sec`, `updates_per_sec`.
+  (the exact per-event producer CPU cost). The primary metric is `allocs_per_event` (heap
+  allocations during parse, measured by a counting allocator) — it is deterministic, unlike
+  wall-clock `events_per_sec` which swings up to 4x on shared CI and is reported as
+  indicative only.
 - **Phase B — dedup.** Replays every update through the producer-local compaction
   (`AHashSet`) + the real shared `Cache`. Reports `dedup_ratio`, `writes_per_1k_evt`, and
   the passed-write split by record type (`event_defs` / `event_props` / `prop_defs`).
@@ -56,7 +60,8 @@ Tunables (env):
 dedup_ratio            = 1 - passed_total / updates_seen            # ↑ better
 writes_per_1k_evt      = passed_total / (events / 1000)            # ↓ better
 wasted_timestamp_writes= real_eventdef_writes - counterfactual     # ↓ better
-events_per_sec         = events / parse_elapsed                    # ↑ better
+allocs_per_event       = parse_allocations / events                # ↓ better (deterministic)
+events_per_sec         = events / parse_elapsed                    # ↑ better (indicative only)
 ```
 
 ## The loop
@@ -89,31 +94,45 @@ Each iteration:
 
 ### Backlog (candidate optimizations, derived from the review)
 
+Status: ✅ done · 🔬 investigated · ⬜ open
+
 Dedup-focused (primary):
 
-- **D1. Drop/loosen `last_seen_at` in the event-def cache key.** Floor to a day (or remove
-  from the key and bump last_seen_at on a slower cadence). Directly removes
-  `wasted_timestamp_writes`. Gated by config.
-- **D2. Negative cache for group-type resolution.** Cache teams/groups that resolve to
-  "nothing" so we stop re-querying personhog for deleted/irrelevant teams.
-- **D3. Avoid optimistic-insert/evict churn.** Insert into the shared cache only after a
+- ✅ **D1. Loosen `last_seen_at` in the event-def cache key.** Floored to a day (was hourly),
+  gated by `EVENTDEF_LAST_SEEN_FLOOR_SECS`. Phase C `wasted_timestamp_writes` 2980 → 0 over
+  6h; ~96% fewer event-def writes over 24h. The DB still records the real timestamp.
+- ✅ **D2. Negative cache for group-type resolution.** TTL-bounded negative cache
+  (`GROUP_TYPE_NEGATIVE_TTL_SECS`, default 600s) stops re-querying personhog for
+  deleted/irrelevant teams and misused group types.
+- ⬜ **D3. Avoid optimistic-insert/evict churn.** Insert into the shared cache only after a
   successful write, or use a short-lived "pending" set, so a transient DB blip doesn't evict
-  a whole batch and cause a re-issue storm.
-- **D4. Cache sizing / weighting / hybrid (foyer).** Only after the benchmark shows
+  a whole batch and cause a re-issue storm. (Not visible in Phase A/B/C — needs the DB-backed
+  harness with failure injection.)
+- ⬜ **D4. Cache sizing / weighting / hybrid (foyer).** Only after the benchmark shows
   eviction-driven re-issues hurt at prod cardinality (sweep `PROPDEFS_BENCH_CACHE_CAP`).
 
 Throughput-focused:
 
-- **T1. Sanitize event name once per event, not once per property** (`get_props_from_object`
-  re-allocates the event name for every property). Pure CPU win.
-- **T2. Single hash-set probe in producer compaction** (`contains` + `insert` → one
-  `insert`).
-- **T3. Shard producers/caches by team** to cut shared-cache contention and improve
-  locality (the "shard workers" item).
+- ✅ **T(lowercase). Borrow already-lowercase property keys in `detect_property_type`**
+  instead of always allocating a lowercased copy. `allocs_per_event` 152.8 → 128.7.
+- ⬜ **T1. Sanitize event name once per event, not once per property.** Saves the per-property
+  null-scan; the owned `String` per EventProperty is still required, so it does not reduce
+  `allocs_per_event` (only wall-clock) — low priority until field types change.
+- 🔬 **T3 / "shard workers". Largely addressed.** `quick_cache::sync::Cache` already shards
+  internally by key hash (see the min-32-items/shard note in `tests/update_cache.rs`), and the
+  cache is split into 3 per-record-type subcaches. The original single-lock contention is gone.
+  Further per-team sharding would help locality/eviction fairness, not lock contention — gate
+  behind a contention measurement before investing.
 
 Pipelining (needs the DB-backed harness to show up, not visible in Phase A/B/C):
 
-- **P1. Pipeline batches in the consumer** so batch K+1 is assembled/resolved while batch K's
-  writes are in flight (today `process_batch` joins all writes before the next batch).
+- ⬜ **P1. Pipeline batches in the consumer** so batch K+1 is assembled/resolved while batch K's
+  writes are in flight (today `process_batch` joins all writes before the next batch). Biggest
+  real-world item, but a concurrency rewrite that must be integration-tested against Postgres
+  before shipping — do not land it on the in-memory harness alone.
+- ⬜ **P4. Dead config.** `max_concurrent_transactions` and `skip_writes` are declared but never
+  used (`skip_writes` even defaults to `true`). Wire up or remove — but `skip_writes` must be
+  reconciled with prod config first, since making a default-`true` flag actually skip writes
+  would be a breaking change.
 - **P2. Wire up `max_concurrent_transactions`** (currently dead config) or remove it; make
   write concurrency explicit instead of implicitly bounded by the PG pool.

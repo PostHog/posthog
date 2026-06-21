@@ -4,12 +4,11 @@
 //! two things we care about, on a realistic, seeded, fully in-memory workload (no Kafka,
 //! Postgres, or personhog required):
 //!
-//!   1. THROUGHPUT  — how fast we turn raw Kafka JSON events into `Update`s
-//!                    (deserialize + `Event::into_updates`), reported as events/sec.
-//!   2. DEDUP       — how few DB writes we generate per event after the producer-side
-//!                    compaction + shared `Cache` filter, i.e. how good we are at not
-//!                    issuing "not useful" requests. Reported as the dedup ratio and as
-//!                    writes-per-1k-events, split by record type.
+//! 1. THROUGHPUT — how fast we turn raw Kafka JSON events into `Update`s
+//!    (deserialize + `Event::into_updates`), reported as events/sec.
+//! 2. DEDUP — how few DB writes we generate per event after the producer-side
+//!    compaction + shared `Cache` filter, i.e. how good we are at not issuing
+//!    "not useful" requests. Reported as the dedup ratio and writes-per-1k-events.
 //!
 //! It also isolates the `last_seen_at`-in-key churn on event definitions (the "weird
 //! timestamp entries that add little value") by replaying the stream across simulated
