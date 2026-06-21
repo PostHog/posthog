@@ -3,9 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    SessionRecordingExportsCreateBody,
-    SessionRecordingExportsListQueryParams,
-    SessionRecordingExportsRetrieveParams,
     SessionRecordingPlaylistsCreateBody,
     SessionRecordingPlaylistsListQueryParams,
     SessionRecordingPlaylistsPartialUpdateBody,
@@ -33,72 +30,6 @@ const sessionRecordingDelete = (): ToolBase<typeof SessionRecordingDeleteSchema,
             path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
         })
         return result
-    },
-})
-
-const SessionRecordingExportCreateSchema = SessionRecordingExportsCreateBody
-
-const sessionRecordingExportCreate = (): ToolBase<
-    typeof SessionRecordingExportCreateSchema,
-    Schemas.ExportedRecording
-> => ({
-    name: 'session-recording-export-create',
-    schema: SessionRecordingExportCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingExportCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.session_id !== undefined) {
-            body['session_id'] = params.session_id
-        }
-        if (params.reason !== undefined) {
-            body['reason'] = params.reason
-        }
-        const result = await context.api.request<Schemas.ExportedRecording>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_exports/`,
-            body,
-        })
-        return result
-    },
-})
-
-const SessionRecordingExportGetSchema = SessionRecordingExportsRetrieveParams.omit({ project_id: true })
-
-const sessionRecordingExportGet = (): ToolBase<
-    typeof SessionRecordingExportGetSchema,
-    WithPostHogUrl<Schemas.ExportedRecording>
-> => ({
-    name: 'session-recording-export-get',
-    schema: SessionRecordingExportGetSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingExportGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExportedRecording>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_exports/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/replay/${result.id}`)
-    },
-})
-
-const SessionRecordingExportsListSchema = SessionRecordingExportsListQueryParams
-
-const sessionRecordingExportsList = (): ToolBase<
-    typeof SessionRecordingExportsListSchema,
-    WithPostHogUrl<Schemas.PaginatedExportedRecordingList>
-> => ({
-    name: 'session-recording-exports-list',
-    schema: SessionRecordingExportsListSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingExportsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedExportedRecordingList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_exports/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return await withPostHogUrl(context, result, '/replay')
     },
 })
 
@@ -733,9 +664,6 @@ const AssistantRecordingsQuery = z.object({
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'session-recording-delete': sessionRecordingDelete,
-    'session-recording-export-create': sessionRecordingExportCreate,
-    'session-recording-export-get': sessionRecordingExportGet,
-    'session-recording-exports-list': sessionRecordingExportsList,
     'session-recording-get': sessionRecordingGet,
     'session-recording-playlist-create': sessionRecordingPlaylistCreate,
     'session-recording-playlist-get': sessionRecordingPlaylistGet,
