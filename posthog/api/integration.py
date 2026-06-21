@@ -703,6 +703,9 @@ class IntegrationViewSet(
         "github_oauth_authorize",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
+        # Enumerates every Search Console property on the connected Google account — gate behind
+        # manage access so read-only members can't discover unrelated domains (info disclosure).
+        "google_search_console_sites",
     ]
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
