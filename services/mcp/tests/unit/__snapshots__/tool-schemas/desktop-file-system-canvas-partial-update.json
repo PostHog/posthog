@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "code": {
+            "description": "The complete single-file React source for the canvas. Replaces the current code wholesale.",
+            "type": "string"
+        },
+        "id": {
+            "description": "ID of the canvas (desktop \"dashboard\" item) whose code to publish.",
+            "type": "string"
+        },
+        "prompt": {
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
