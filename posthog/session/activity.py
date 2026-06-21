@@ -4,6 +4,7 @@ from typing import Optional
 
 from django.contrib.auth import BACKEND_SESSION_KEY
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import F
 from django.http import HttpRequest
 from django.utils import timezone
@@ -79,14 +80,24 @@ def sync_current_session_metadata(request: HttpRequest, force: bool = False) -> 
         return
 
     ip = get_ip_address(request)
-    Session.objects.filter(session_key=session_key).update(
-        last_activity=timezone.now(),
-        ip=ip if _is_valid_ip_address(ip) else None,
-        short_user_agent=get_short_user_agent(request) or None,
-        location=_location_from_ip(ip),
-        login_method=_login_method(request),
-    )
-    cache.set(cache_key, True, timeout=METADATA_SYNC_INTERVAL_SECONDS)
+    fields = {
+        "last_activity": timezone.now(),
+        "ip": ip if _is_valid_ip_address(ip) else None,
+        "short_user_agent": get_short_user_agent(request) or None,
+        "location": _location_from_ip(ip),
+        "login_method": _login_method(request),
+    }
+
+    # Defer the write to commit. This metadata is best-effort display data, so the write must never
+    # add a query to the caller's transaction (which would break assertNumQueries assertions across
+    # the suite) nor run against a transaction already broken by a handled IntegrityError. In
+    # autocommit (no open transaction) on_commit runs immediately; mark the throttle only once the
+    # write actually commits, so a rollback lets the next request retry.
+    def _write() -> None:
+        Session.objects.filter(session_key=session_key).update(**fields)
+        cache.set(cache_key, True, timeout=METADATA_SYNC_INTERVAL_SECONDS)
+
+    transaction.on_commit(_write)
 
 
 def revoke_other_sessions(user: User, keep_session_key: Optional[str]) -> int:

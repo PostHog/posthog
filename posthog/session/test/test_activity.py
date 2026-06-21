@@ -127,7 +127,8 @@ class TestSessionActivity(BaseTest):
         key = self._login_session(user)
         request = self._request(user, key)
 
-        sync_current_session_metadata(request, force=True)
+        with self.captureOnCommitCallbacks(execute=True):
+            sync_current_session_metadata(request, force=True)
 
         row = Session.objects.get(session_key=key)
         self.assertIsNotNone(row.last_activity)
@@ -138,7 +139,8 @@ class TestSessionActivity(BaseTest):
         key = self._login_session(user)
         request = self._request(user, key)
 
-        sync_current_session_metadata(request)  # first write sets the throttle cache key
+        with self.captureOnCommitCallbacks(execute=True):
+            sync_current_session_metadata(request)  # first write sets the throttle cache key
         marker = timezone.now() - timedelta(hours=1)
         Session.objects.filter(session_key=key).update(last_activity=marker)
 
@@ -155,3 +157,19 @@ class TestSessionActivity(BaseTest):
         sync_current_session_metadata(request, force=True)
 
         self.assertIsNone(Session.objects.get(session_key=key).short_user_agent)
+
+    def test_sync_metadata_is_deferred_to_commit(self):
+        # The write is deferred to transaction.on_commit so it never adds a query inside the caller's
+        # transaction (which would break assertNumQueries across the suite) or run against a
+        # transaction already broken by a handled IntegrityError.
+        user = self._make_user()
+        key = self._login_session(user)
+        request = self._request(user, key)
+
+        request.session.get(BACKEND_SESSION_KEY)  # warm the session cache (auth middleware loads it first)
+
+        # The write adds no query to the caller's transaction — it's deferred to on_commit. Otherwise
+        # every assertNumQueries assertion in the suite sees +1, and a transaction already broken by a
+        # handled IntegrityError raises when the write runs.
+        with self.assertNumQueries(0):
+            sync_current_session_metadata(request, force=True)
