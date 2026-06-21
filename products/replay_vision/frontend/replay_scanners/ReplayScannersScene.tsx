@@ -86,7 +86,7 @@ export function ReplayScannersScene(): JSX.Element {
                             size="small"
                             data-attr="vision-scanner-toggle-enabled"
                             data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                            data-ph-capture-attribute-action={!scanner.enabled}
+                            data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
                         />
                     </AccessControlAction>
                     <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
