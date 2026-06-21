@@ -431,4 +431,45 @@ describe('SqlLineGraph', () => {
             expect(tooltip.value('a')).toBe(expected)
         })
     })
+
+    describe('custom series label', () => {
+        const legendText = (): string =>
+            document.querySelector('[data-attr="hog-chart-timeseries-line-legend"]')?.textContent ?? ''
+
+        it('shows the custom display label in the legend, not the column name', async () => {
+            await renderChart({
+                yData: [ySeries('mrr_usd', [1, 2, 3], { display: { label: 'Monthly revenue' } })],
+                chartSettings: { showLegend: true },
+            })
+
+            await waitFor(() => expect(legendText()).toContain('Monthly revenue'))
+            expect(legendText()).not.toContain('mrr_usd')
+        })
+    })
+
+    describe('show values on series', () => {
+        const waitForValueLabels = async (): Promise<string[]> => {
+            await waitFor(() => expect(getHogChart().valueLabels().length).toBeGreaterThan(0))
+            return getHogChart()
+                .valueLabels()
+                .map((label) => label.text)
+        }
+
+        it('draws a label per point formatted with the column settings', async () => {
+            await renderChart({
+                yData: [ySeries('revenue', [1200, 1400, 1300], { formatting: { prefix: '$' } })],
+                chartSettings: { showValuesOnSeries: true },
+            })
+
+            const labels = await waitForValueLabels()
+            expect(labels).toContain('$1200')
+            expect(labels).toContain('$1400')
+        })
+
+        it('draws no value labels when showValuesOnSeries is off', async () => {
+            await renderChart({ yData: [ySeries('revenue', [1200, 1400, 1300])] })
+
+            expect(getHogChart().valueLabels()).toHaveLength(0)
+        })
+    })
 })
