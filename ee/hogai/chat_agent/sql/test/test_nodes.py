@@ -16,6 +16,9 @@ from ee.hogai.utils.types.base import ArtifactRefMessage
 
 class TestSQLGeneratorNode(NonAtomicBaseTest):
     maxDiff = None
+    # NonAtomicBaseTest truncates all tables (RESTART IDENTITY) after each test, so class-level
+    # test data created once in setUpClass is gone by the second test. Recreate it per test.
+    CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self):
         super().setUp()
