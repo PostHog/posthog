@@ -133,7 +133,7 @@ export const SqlPieGraph = ({
             {!showLegend ? (
                 <div className="flex flex-1 min-h-0">
                     <div className="flex flex-1 flex-col min-h-0">
-                        <div className="relative flex-1 min-h-[18rem]">{chart}</div>
+                        <div className="flex flex-col flex-1 min-h-[18rem]">{chart}</div>
                         {totalDisplay}
                     </div>
                 </div>
@@ -141,14 +141,14 @@ export const SqlPieGraph = ({
                 <>
                     <div className="flex flex-col gap-4 w-full xl:hidden">
                         <div className="flex flex-col">
-                            <div className="relative h-[18rem]">{chart}</div>
+                            <div className="flex flex-col h-[18rem]">{chart}</div>
                             {totalDisplay}
                         </div>
                         {legend}
                     </div>
                     <div className="hidden xl:flex flex-1 gap-4 min-h-0">
                         <div className="flex flex-1 flex-col min-h-0">
-                            <div className="relative flex-1 min-h-[18rem]">{chart}</div>
+                            <div className="flex flex-col flex-1 min-h-[18rem]">{chart}</div>
                             {totalDisplay}
                         </div>
                         {legend}
