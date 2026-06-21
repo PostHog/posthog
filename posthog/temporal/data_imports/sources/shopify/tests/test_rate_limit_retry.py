@@ -1,6 +1,6 @@
 import pytest
 
-from tenacity import Future, RetryCallState
+from tenacity import Future, RetryCallState, Retrying
 
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     _SHOPIFY_MAX_THROTTLE_WAIT_SECONDS,
@@ -28,7 +28,7 @@ def _throttled_payload(requested: float, available: float, restore_rate: float) 
 
 
 def _retry_state(exc: Exception) -> RetryCallState:
-    state = RetryCallState(retry_object=None, fn=None, args=(), kwargs={})
+    state = RetryCallState(retry_object=Retrying(), fn=None, args=(), kwargs={})
     state.outcome = Future.construct(1, exc, True)
     return state
 
@@ -80,4 +80,4 @@ def test_retry_wait_honors_throttle_refill_time():
 
 def test_retry_wait_falls_back_to_backoff_without_retry_after():
     wait = _shopify_retry_wait(_retry_state(ShopifyRetryableError("internal error")))
-    assert wait > 0
+    assert 1.0 <= wait <= 2.0  # initial=1, max=30, jitter up to 1s on attempt 1
