@@ -584,27 +584,24 @@ describe('sessionRecordingPlayerLogic', () => {
                 expectedBuffering: false,
                 expectedWaitingForIngestion: false,
             },
-        ])(
-            '$description',
-            ({ withinGracePeriod, expectedError, expectedBuffering, expectedWaitingForIngestion }) => {
-                const graceSpy = jest
-                    .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
-                    .mockReturnValue(withinGracePeriod)
-                try {
-                    seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
-                    logic.actions.setPause()
+        ])('$description', ({ withinGracePeriod, expectedError, expectedBuffering, expectedWaitingForIngestion }) => {
+            const graceSpy = jest
+                .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
+                .mockReturnValue(withinGracePeriod)
+            try {
+                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
 
-                    logic.actions.seekToTimestamp(START + 61500)
+                logic.actions.seekToTimestamp(START + 61500)
 
-                    expect(logic.values.playerError).toBe(expectedError)
-                    expect(logic.values.isBuffering).toBe(expectedBuffering)
-                    expect(logic.values.isWaitingForIngestion).toBe(expectedWaitingForIngestion)
-                    expect(logic.values.currentTimestamp).toBe(START + 61500)
-                } finally {
-                    graceSpy.mockRestore()
-                }
+                expect(logic.values.playerError).toBe(expectedError)
+                expect(logic.values.isBuffering).toBe(expectedBuffering)
+                expect(logic.values.isWaitingForIngestion).toBe(expectedWaitingForIngestion)
+                expect(logic.values.currentTimestamp).toBe(START + 61500)
+            } finally {
+                graceSpy.mockRestore()
             }
-        )
+        })
 
         it('flips a stuck still-ingesting recording to the terminal error once grace lapses', () => {
             // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS interval re-runs checkBufferingCompleted;
