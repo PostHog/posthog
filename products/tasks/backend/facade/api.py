@@ -18,6 +18,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
+from typing import Literal
 from uuid import UUID, uuid4
 
 from django.db import transaction
@@ -1951,7 +1952,7 @@ def _trigger_task_processing_workflow(
 
     full_mcp_run_sources = frozenset({None, RunSource.MANUAL})
     run_source = parse_run_state(run.state).run_source
-    posthog_mcp_scopes = "full" if run_source in full_mcp_run_sources else "read_only"
+    posthog_mcp_scopes: Literal["read_only", "full"] = "full" if run_source in full_mcp_run_sources else "read_only"
     try:
         logger.info("Attempting to trigger task processing workflow for task %s, run %s", task.id, run.id)
         execute_task_processing_workflow(
@@ -2282,7 +2283,7 @@ def list_tasks(
 
 def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
-    return list(
+    repositories = (
         Task.objects.filter(team_id=team_id, deleted=False, internal=False)
         .filter(task_visibility_q(user_id))
         .exclude(repository__isnull=True)
@@ -2291,6 +2292,7 @@ def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
         .distinct()
         .order_by("repository")
     )
+    return [repo for repo in repositories if repo is not None]
 
 
 def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
@@ -2803,6 +2805,8 @@ def beacon_task_presence(task_id: str | UUID, team_id: int, user_id: int | None,
 
     from products.tasks.backend.models import TASK_PRESENCE_TTL_SECONDS, TaskPresence  # noqa: PLC0415
 
+    if user_id is None:
+        return "not_found"
     task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
     if task is None:
         return "not_found"
@@ -2833,6 +2837,8 @@ def leave_task_presence(task_id: str | UUID, team_id: int, user_id: int | None, 
     """
     from products.tasks.backend.models import TaskPresence  # noqa: PLC0415
 
+    if user_id is None:
+        return "not_found"
     task = _visible_task_qs(team_id, user_id).filter(id=task_id).first()
     if task is None:
         return "not_found"

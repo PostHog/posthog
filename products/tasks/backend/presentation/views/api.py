@@ -391,8 +391,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         result = tasks_facade.resolve_slack_thread_context(
             self.team_id, channel=channel, thread_ts=thread_ts, url=url, build_url=request.build_absolute_uri
         )
-        if result.outcome == "no_mapping":
-            thread = result.no_mapping_thread
+        if result.outcome == "no_mapping" and (thread := result.no_mapping_thread) is not None:
             return Response(
                 {
                     "detail": "no_mapping",
@@ -809,6 +808,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if started_task_id is None:
+            raise NotFound()
         task_dto = tasks_facade.get_task_detail(started_task_id, self.team_id, self._user_id())
         if task_dto is None:
             raise NotFound()
@@ -840,6 +841,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def partial_update(self, request, *args, **kwargs):
         pk = kwargs.get("pk")
+        if pk is None:
+            raise NotFound()
         task_id = self._ensure_task_accessible()
         run = tasks_facade.update_task_run(pk, task_id, self.team_id, validated_data=dict(request.validated_data))
         if run is None:
@@ -1130,6 +1133,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Artifact content not found"}).data,
                 status=status.HTTP_404_NOT_FOUND,
             )
+        if artifact is None:
+            raise NotFound()
 
         response = HttpResponse(
             content,

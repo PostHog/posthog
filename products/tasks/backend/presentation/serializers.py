@@ -1,5 +1,6 @@
 import base64
 import binascii
+from typing import cast
 from zoneinfo import available_timezones
 
 from croniter import croniter
@@ -330,7 +331,9 @@ class TaskWriteSerializer(serializers.Serializer):
         super().__init__(*args, **kwargs)
         # SignalReport is scoped to the request team by the field; bind its queryset lazily so
         # importing this module never touches the signals model at import time.
-        self.fields["signal_report"].queryset = tasks_facade.signal_report_queryset()
+        cast(
+            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
+        ).queryset = tasks_facade.signal_report_queryset()
 
     def validate_github_integration(self, value):
         """Validate that the GitHub integration belongs to the same team"""
