@@ -59,7 +59,8 @@ export class InstructionsFormatter {
                 SCHEMA_WORKFLOW,
                 ENV_CONTEXT,
                 URL_PATTERNS,
-                ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK, POSTHOG_FEEDBACK] : []),
+                ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
+                ...(this.posthogFeedbackEnabled(ctx.featureFlags) ? [POSTHOG_FEEDBACK] : []),
                 EXAMPLES,
             ],
             ctx,
@@ -108,11 +109,18 @@ export class InstructionsFormatter {
         return this.compose(sections, renderCtx, { compact: false })
     }
 
-    /** The feedback sections are only useful when the feedback tools
-     *  (`agent-feedback`, `posthog-feedback`) are reachable, which is governed by
-     *  the `mcp-feedback-tool` flag evaluated in `resolveToolFeatureFlags`. */
+    /** The agent-feedback section is only useful when the `agent-feedback` tool
+     *  is reachable, which is governed by the `mcp-feedback-tool` flag evaluated
+     *  in `resolveToolFeatureFlags`. */
     private agentFeedbackEnabled(featureFlags: EvaluatedFlags | undefined): boolean {
         return featureFlags?.['mcp-feedback-tool'] === true
+    }
+
+    /** The posthog-feedback section is gated independently of agent-feedback so
+     *  the general product-feedback tool can roll out on its own schedule, via
+     *  the `mcp-posthog-feedback-tool` flag evaluated in `resolveToolFeatureFlags`. */
+    private posthogFeedbackEnabled(featureFlags: EvaluatedFlags | undefined): boolean {
+        return featureFlags?.['mcp-posthog-feedback-tool'] === true
     }
 
     private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {

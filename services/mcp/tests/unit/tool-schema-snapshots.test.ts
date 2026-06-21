@@ -84,10 +84,11 @@ describe('Tool schema snapshots', () => {
     it('snapshots runtime tool schemas', async () => {
         const shouldUpdateSnapshots = isSnapshotUpdateAll()
         const root = path.resolve(__dirname, '__snapshots__', 'tool-schemas')
-        // Enable flag-gated tools we snapshot here: agent-feedback, tracing (APM spans), tasks,
-        // dashboard-widgets. Other flag-gated tools (logs-alerts, visual-review, etc.) stay off to keep the surface stable.
+        // Enable flag-gated tools we snapshot here: agent-feedback, posthog-feedback, tracing (APM spans),
+        // tasks, dashboard-widgets. Other flag-gated tools (logs-alerts, visual-review, etc.) stay off to keep the surface stable.
         const featureFlags = {
             'mcp-feedback-tool': true,
+            'mcp-posthog-feedback-tool': true,
             tracing: true,
             tasks: true,
             'dashboard-widgets': true,

@@ -143,7 +143,7 @@ describe('Tool Filtering - Tools Allowlist', () => {
         it('should return only specified tools (plus always_available tools when enabled)', () => {
             const tools = getToolsForFeatures({
                 tools: ['dashboard-get', 'dashboard-create'],
-                featureFlags: { 'mcp-feedback-tool': true },
+                featureFlags: { 'mcp-feedback-tool': true, 'mcp-posthog-feedback-tool': true },
             })
             expect(tools).toContain('dashboard-get')
             expect(tools).toContain('dashboard-create')
@@ -163,7 +163,7 @@ describe('Tool Filtering - Tools Allowlist', () => {
         it('should return only always_available tools for nonexistent tool names', () => {
             const tools = getToolsForFeatures({
                 tools: ['nonexistent-tool'],
-                featureFlags: { 'mcp-feedback-tool': true },
+                featureFlags: { 'mcp-feedback-tool': true, 'mcp-posthog-feedback-tool': true },
             })
             const alwaysAvailableTools = collectAlwaysAvailableToolNames()
 
@@ -175,7 +175,7 @@ describe('Tool Filtering - Tools Allowlist', () => {
         it('should always include agent-feedback even when feature filter matches no tools', () => {
             const tools = getToolsForFeatures({
                 features: ['nonexistent-feature'],
-                featureFlags: { 'mcp-feedback-tool': true },
+                featureFlags: { 'mcp-feedback-tool': true, 'mcp-posthog-feedback-tool': true },
             })
             expect(tools).toContain('agent-feedback')
         })
@@ -188,6 +188,20 @@ describe('Tool Filtering - Tools Allowlist', () => {
             // No flags evaluated at all — also hidden (default behavior is `enable`).
             const toolsWithoutFlags = getToolsForFeatures({})
             expect(toolsWithoutFlags).not.toContain('agent-feedback')
+        })
+
+        it('should gate posthog-feedback on its own flag, independent of agent-feedback', () => {
+            // posthog-feedback rolls out separately: its flag on, agent-feedback's off.
+            const onlyPostHog = getToolsForFeatures({
+                featureFlags: { 'mcp-posthog-feedback-tool': true, 'mcp-feedback-tool': false },
+            })
+            expect(onlyPostHog).toContain('posthog-feedback')
+            expect(onlyPostHog).not.toContain('agent-feedback')
+
+            // And hidden when its own flag is off, even though it's always_available.
+            const off = getToolsForFeatures({ featureFlags: { 'mcp-posthog-feedback-tool': false } })
+            expect(off).not.toContain('posthog-feedback')
+            expect(getToolsForFeatures({})).not.toContain('posthog-feedback')
         })
 
         it('should union with features (OR) when both are provided', () => {
@@ -738,6 +752,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'tracing',
                 'visual-review',
                 'mcp-feedback-tool',
+                'mcp-posthog-feedback-tool',
                 'user-interviews',
                 'customer-analytics-csp',
                 'notebooks-collaboration',
@@ -753,7 +768,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'metrics',
             ])
         )
-        expect(flags).toHaveLength(19)
+        expect(flags).toHaveLength(20)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

@@ -92,6 +92,20 @@ describe('InstructionsFormatter', () => {
                 expect(result).not.toContain('### Sharing feedback on this MCP server')
             }
         })
+
+        it('includes the posthog-feedback section only when the mcp-posthog-feedback-tool flag is on', () => {
+            const formatter = new InstructionsFormatter()
+            const withFeedback = formatter.buildToolsInstructions({
+                ...fullCtx,
+                featureFlags: { 'mcp-posthog-feedback-tool': true },
+            })
+            expect(withFeedback).toContain('### Sharing feedback about PostHog')
+
+            for (const featureFlags of [undefined, { 'mcp-posthog-feedback-tool': false }, {}]) {
+                const result = formatter.buildToolsInstructions({ ...fullCtx, featureFlags })
+                expect(result).not.toContain('### Sharing feedback about PostHog')
+            }
+        })
     })
 
     describe('buildExecInstructions', () => {
