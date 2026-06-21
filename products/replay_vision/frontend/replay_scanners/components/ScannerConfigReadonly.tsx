@@ -163,7 +163,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                         loading={togglingEnabled}
                                         data-attr="vision-scanner-toggle-enabled"
                                         data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                                        data-ph-capture-attribute-action={!scanner.enabled}
+                                        data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
                                     />
                                 </AccessControlAction>
                                 <span className="text-muted text-xs">
