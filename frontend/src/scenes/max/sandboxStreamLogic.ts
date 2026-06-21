@@ -57,6 +57,12 @@ export interface SandboxStreamLogicProps {
     streamKey: string
     /** Optional telemetry tag — present for PostHog AI conversations, absent for a generic task viewer. */
     conversationId?: string
+    /**
+     * Read-only/replay mode for a generic run viewer: bootstrap replays the persisted `logs/` snapshot
+     * once and never opens SSE — even for an in-progress run. Folded into the logic key so a read-only
+     * instance can never share state with a live streaming instance, even for the same `streamKey`.
+     */
+    replayOnly?: boolean
 }
 
 /** Reconnect/backoff constants for the SSE drop-recovery loop. */
@@ -911,8 +917,11 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
  * so concurrent streams keep independent stream state and connections.
  */
 export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
-    props({} as SandboxStreamLogicProps),
-    key((props) => props.streamKey),
+    // `replayOnly` needs a default so selectors can depend on it as a prop (kea throws on a missing prop).
+    props({ replayOnly: false } as SandboxStreamLogicProps),
+    // A read-only viewer keys under a `replay:` namespace so it never shares an instance with a live
+    // stream of the same run — streaming can't bleed into a read-only thread.
+    key((props) => (props.replayOnly ? `replay:${props.streamKey}` : props.streamKey)),
     path((key) => ['scenes', 'max', 'sandboxStreamLogic', key]),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
@@ -928,6 +937,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         bootstrapRun: (payload: { taskId: string; runId: string; justCreatedRun?: boolean; traceId?: string }) =>
             payload,
         openSseForRun: (payload: { taskId: string; runId: string; startLatest?: boolean; traceId?: string }) => payload,
+        /** Internal: the read-only replay snapshot finished loading — clears the bootstrap spinner. */
+        bootstrapReplayComplete: true,
         closeSse: true,
         sseConnecting: true,
         sseOpened: true,
@@ -1094,6 +1105,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 appendEntries: (state, { entries }) =>
                     entries.length === 0 ? state : { entries: [...state.entries, ...entries] },
                 reset: () => ({ entries: [] }),
+            },
+        ],
+        // True while a bootstrap is in flight before the thread has anything to show. Cleared once the
+        // live stream opens, the read-only replay snapshot finishes, or an error surfaces. Drives the
+        // read-only viewer's initial spinner.
+        bootstrapLoading: [
+            false,
+            {
+                bootstrapRun: () => true,
+                sseOpened: () => false,
+                bootstrapReplayComplete: () => false,
+                handleStreamError: () => false,
+                reset: () => false,
             },
         ],
         // Whether the bootstrapped run is a resume run — drives the §6 resume-prompt filter in the
@@ -1269,8 +1293,14 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
          * the first `_posthog/run_started` frame, which `runStarted` alone misses.
          */
         isThinking: [
-            (s) => [s.runStarted, s.turnComplete, s.currentRunStatus, s.sseStatus],
-            (runStarted, turnComplete, currentRunStatus, sseStatus): boolean => {
+            // `replayOnly` always resolves (default in `props`); `!` drops the optional-prop `undefined`.
+            (s, p) => [s.runStarted, s.turnComplete, s.currentRunStatus, s.sseStatus, p.replayOnly!],
+            (runStarted, turnComplete, currentRunStatus, sseStatus, replayOnly): boolean => {
+                // A read-only snapshot is never "thinking" — it's a static replay, so the indicator
+                // must never spin (an in-progress run replayed read-only has no live turn to await).
+                if (replayOnly) {
+                    return false
+                }
                 if (sseStatus === 'error' || isTerminalRunStatus(currentRunStatus)) {
                     return false
                 }
@@ -1284,12 +1314,16 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
          * workflow is still setting up the sandbox); it holds the gerund loader off until `run_started`
          * so it can't show before a turn begins. Boot UX is surfaced by `_posthog/progress` items, not
          * a dedicated indicator. `thinking` = the agent is working a turn (mirrors `isThinking`), and is
-         * what `SandboxThread` gates the gerund loader on; `idle` otherwise (terminal, errored, or not
-         * yet connecting).
+         * what `SandboxThreadView` gates the gerund loader on; `idle` otherwise (terminal, errored, or
+         * not yet connecting). A read-only viewer is always `idle` — it never streams.
          */
         streamPhase: [
-            (s) => [s.runStarted, s.isThinking, s.currentRunStatus, s.sseStatus],
-            (runStarted, isThinking, currentRunStatus, sseStatus): 'provisioning' | 'thinking' | 'idle' => {
+            (s, p) => [s.runStarted, s.isThinking, s.currentRunStatus, s.sseStatus, p.replayOnly!],
+            (runStarted, isThinking, currentRunStatus, sseStatus, replayOnly): 'provisioning' | 'thinking' | 'idle' => {
+                // A read-only snapshot never provisions or thinks — there is no live stream behind it.
+                if (replayOnly) {
+                    return 'idle'
+                }
                 const connecting = sseStatus === 'connecting' || sseStatus === 'open' || sseStatus === 'reconnecting'
                 if (connecting && !runStarted && !isTerminalRunStatus(currentRunStatus)) {
                     return 'provisioning'
@@ -1311,6 +1345,48 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             const projectId = values.currentProjectId
             if (projectId === null) {
                 actions.handleStreamError({ errorTitle: 'No current project', retryable: false })
+                return
+            }
+
+            // Read-only viewer: replay the `logs/` snapshot once and never open SSE, regardless of run
+            // status. `breakpoint()` cancels a superseded in-flight bootstrap (a remount / StrictMode
+            // double-invoke), and the log-empty guard before folding keeps a re-bootstrap of a shared
+            // keyed instance (a second mounted viewer of the same run) from doubling the thread.
+            if (props.replayOnly) {
+                let replayRun: { status?: string; state?: unknown; output?: unknown; branch?: string | null }
+                try {
+                    replayRun = await api.tasks.runs.get(taskId, runId)
+                } catch (error) {
+                    actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
+                    return
+                }
+                breakpoint()
+                actions.markBootstrapResumeRun(isResumeRun(replayRun))
+                actions.mergeRunArtifacts(extractRunArtifacts(replayRun))
+
+                let replayEntries: unknown[]
+                try {
+                    replayEntries = await api.tasks.runs.getLogEntries(taskId, runId)
+                } catch (error) {
+                    actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
+                    return
+                }
+                breakpoint()
+                if (values.log.entries.length === 0) {
+                    replayEntries
+                        .map(normalizeNotificationEntry)
+                        .filter((entry): entry is StoredLogEntry => entry !== null)
+                        .forEach((entry) => actions.ingestAcpFrame(entry, 'replay'))
+                }
+
+                if (isTerminalRunStatus(replayRun.status ?? null)) {
+                    // Record the terminal status read-only — no SSE to close, no termination telemetry.
+                    actions.handleTerminalStatus({
+                        status: replayRun.status as SandboxRunStatus,
+                        replayedFromHistory: true,
+                    })
+                }
+                actions.bootstrapReplayComplete()
                 return
             }
 
@@ -1393,6 +1469,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             dedupeBufferedAgainstHistory(buffered, history).forEach((entry) => actions.ingestAcpFrame(entry, 'live'))
         },
         openSseForRun: ({ taskId, runId, startLatest }) => {
+            // A read-only instance must never stream — guard here too, so even a stray or connected
+            // dispatch can't open SSE into a read-only thread.
+            if (props.replayOnly) {
+                return
+            }
             const projectId = values.currentProjectId
             if (projectId === null) {
                 actions.handleStreamError({ errorTitle: 'No current project', retryable: false })
