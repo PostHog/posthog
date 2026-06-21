@@ -37,5 +37,9 @@ tokio-stream = { version = "0.1", features = ["net"] }
 metrics-util = { workspace = true }
 rstest = "0.26"
 
+[[bench]]
+name = "pipeline"
+harness = false
+
 [lints]
 workspace = true
