@@ -37,7 +37,7 @@ class PgCDCConnectionParams:
     database: str
     user: str
     password: str
-    sslmode: str = "prefer"
+    require_ssl: bool = False
     slot_name: str = ""
     publication_name: str = ""
 
@@ -90,6 +90,7 @@ class PgCDCStreamReader:
                 database=self._params.database,
                 user=self._params.user,
                 password=self._params.password,
+                require_ssl=self._params.require_ssl,
             ),
             logger,
         )
@@ -141,12 +142,21 @@ class PgCDCStreamReader:
             lsn=sql.Literal(position),
         )
 
-        advance_conn = _connect_to_postgres(
-            host=self._effective_host,
-            port=self._effective_port,
-            database=self._params.database,
-            user=self._params.user,
-            password=self._params.password,
+        # This short-lived connection reaches the source through the same SSH tunnel /
+        # connection pooler as the initial connect, either of which can drop it with a
+        # transient "server closed the connection unexpectedly". Mirror connect() and
+        # absorb those drops in-process rather than failing the whole extraction
+        # activity; permanent errors (auth, SSL-required) are re-raised immediately.
+        advance_conn = _connect_with_dropped_retry(
+            lambda: _connect_to_postgres(
+                host=self._effective_host,
+                port=self._effective_port,
+                database=self._params.database,
+                user=self._params.user,
+                password=self._params.password,
+                require_ssl=self._params.require_ssl,
+            ),
+            logger,
         )
         try:
             with advance_conn.cursor() as cur:

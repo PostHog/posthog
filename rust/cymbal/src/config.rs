@@ -12,8 +12,19 @@ pub static BATCH_APPLY_CONCURRENCY: AtomicUsize = AtomicUsize::new(64);
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    /// Which server stack the binary runs. `processing` (default) serves the
+    /// error-tracking HTTP pipeline; `resolution` serves the
+    /// `cymbal.resolution.v1` gRPC symbol-resolution service.
+    #[envconfig(from = "CYMBAL_MODE", default = "processing")]
+    pub mode: crate::modes::CymbalMode,
+
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Resolution-mode settings. Parsed unconditionally (defaults make this
+    /// harmless in processing mode); only read when `mode == Resolution`.
+    #[envconfig(nested = true)]
+    pub resolution: crate::modes::resolution::Config,
 
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,

@@ -89,6 +89,16 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly already_addressed: boolean | null
+    /**
+     * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+     * @nullable
+     */
+    readonly dismissal_reason: string | null
+    /**
+     * Free-form note captured alongside the dismissal reason (when present).
+     * @nullable
+     */
+    readonly dismissal_note: string | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -112,12 +122,30 @@ export interface PaginatedSignalReportListApi {
  * * `suppressed` - suppressed
  * * `potential` - potential
  */
-export type SignalReportStateRequestStateEnumApi =
-    (typeof SignalReportStateRequestStateEnumApi)[keyof typeof SignalReportStateRequestStateEnumApi]
+export type SignalReportStateEnumApi = (typeof SignalReportStateEnumApi)[keyof typeof SignalReportStateEnumApi]
 
-export const SignalReportStateRequestStateEnumApi = {
+export const SignalReportStateEnumApi = {
     Suppressed: 'suppressed',
     Potential: 'potential',
+} as const
+
+/**
+ * * `already_fixed` - Already fixed
+ * * `report_unclear` - Report is unclear to me
+ * * `analysis_wrong` - Agent's analysis is wrong
+ * * `wontfix_intentional` - Won't fix - intentional behavior
+ * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+ * * `other` - Something else…
+ */
+export type DismissalReasonEnumApi = (typeof DismissalReasonEnumApi)[keyof typeof DismissalReasonEnumApi]
+
+export const DismissalReasonEnumApi = {
+    AlreadyFixed: 'already_fixed',
+    ReportUnclear: 'report_unclear',
+    AnalysisWrong: 'analysis_wrong',
+    WontfixIntentional: 'wontfix_intentional',
+    WontfixIrrelevant: 'wontfix_irrelevant',
+    Other: 'other',
 } as const
 
 export interface SignalReportStateRequestApi {
@@ -125,9 +153,16 @@ export interface SignalReportStateRequestApi {
      *
      * * `suppressed` - suppressed
      * * `potential` - potential */
-    state: SignalReportStateRequestStateEnumApi
-    /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
-    dismissal_reason?: string
+    state: SignalReportStateEnumApi
+    /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+     *
+     * * `already_fixed` - Already fixed
+     * * `report_unclear` - Report is unclear to me
+     * * `analysis_wrong` - Agent's analysis is wrong
+     * * `wontfix_intentional` - Won't fix - intentional behavior
+     * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+     * * `other` - Something else… */
+    dismissal_reason?: DismissalReasonEnumApi
     /**
      * Optional free-form note explaining the dismissal. Capped at 4000 characters.
      * @maxLength 4000
@@ -139,6 +174,69 @@ export interface SignalReportStateRequestApi {
      * @maximum 100000
      */
     snooze_for?: number
+}
+
+export interface SignalReportBulkStateRequestApi {
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
+     *
+     * * `suppressed` - suppressed
+     * * `potential` - potential */
+    state: SignalReportStateEnumApi
+    /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+     *
+     * * `already_fixed` - Already fixed
+     * * `report_unclear` - Report is unclear to me
+     * * `analysis_wrong` - Agent's analysis is wrong
+     * * `wontfix_intentional` - Won't fix - intentional behavior
+     * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+     * * `other` - Something else… */
+    dismissal_reason?: DismissalReasonEnumApi
+    /**
+     * Optional free-form note explaining the dismissal. Capped at 4000 characters.
+     * @maxLength 4000
+     */
+    dismissal_note?: string
+    /**
+     * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
+     * @minimum 1
+     * @maximum 100000
+     */
+    snooze_for?: number
+    /**
+     * Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id.
+     * @maxItems 100
+     */
+    ids: string[]
+}
+
+export interface SignalReportBulkStateResultApi {
+    /** The report id this result refers to. */
+    id: string
+    /** One of: transitioned, skipped, failed, not_found. transitioned: the state change was applied. skipped: the transition was not allowed from the report's current status (a 409 on the single-report endpoint). failed: the request data was invalid for this report. not_found: no report with this id is visible to you. */
+    outcome: string
+    /**
+     * The report's status after the transition. Present only when outcome is 'transitioned'.
+     * @nullable
+     */
+    status?: string | null
+    /**
+     * Human-readable explanation for non-transitioned outcomes (skipped / failed / not_found).
+     * @nullable
+     */
+    detail?: string | null
+}
+
+export interface SignalReportBulkStateResponseApi {
+    /** One result per requested id, in request order (after de-duplication). */
+    results: SignalReportBulkStateResultApi[]
+    /** Number of reports whose state was changed. */
+    transitioned_count: number
+    /** Number of reports whose transition was not allowed. */
+    skipped_count: number
+    /** Number of reports that failed on invalid request data. */
+    failed_count: number
+    /** Number of requested ids not visible to the caller. */
+    not_found_count: number
 }
 
 export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
@@ -197,7 +295,7 @@ export interface SignalScoutConfigCreateApi {
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
     emit?: boolean
     /**
-     * Minutes between runs (10–43200). Defaults to 60 (hourly).
+     * Minutes between runs (10–43200). Defaults to 180 (every 3 hours).
      * @minimum 10
      * @maximum 43200
      */
@@ -799,6 +897,8 @@ export interface SignalScoutRunSummaryApi {
     skill_version: number
     /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
     status: string
+    /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+    created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */
     started_at: string
     /**
@@ -853,6 +953,8 @@ export interface SignalScoutRunDetailApi {
     skill_version: number
     /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
     status: string
+    /** ISO-8601 timestamp the bridge row was created — the field `date_from` / `date_to` filter and order on. Use this (not `started_at`) as the `date_to` cursor when walking past the 100-row cap, so runs created in the gap between a boundary run's TaskRun and its bridge row aren't skipped. */
+    created_at: string
     /** ISO-8601 timestamp the TaskRun was created. */
     started_at: string
     /**
@@ -1148,6 +1250,8 @@ export interface ForgetResponseApi {
  * * `signals_scout` - Signals scout
  * * `logs` - Logs
  * * `health_checks` - Health checks
+ * * `endpoints` - Endpoints
+ * * `replay_vision` - Replay Vision
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -1163,6 +1267,8 @@ export const SourceProductEnumApi = {
     SignalsScout: 'signals_scout',
     Logs: 'logs',
     HealthChecks: 'health_checks',
+    Endpoints: 'endpoints',
+    ReplayVision: 'replay_vision',
 } as const
 
 /**
@@ -1176,6 +1282,9 @@ export const SourceProductEnumApi = {
  * * `cross_source_issue` - Cross source issue
  * * `alert_state_change` - Alert state change
  * * `health_issue` - Health issue
+ * * `endpoint_execution_failed` - Endpoint execution failed
+ * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+ * * `scanner_finding` - Scanner finding
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -1191,6 +1300,9 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     CrossSourceIssue: 'cross_source_issue',
     AlertStateChange: 'alert_state_change',
     HealthIssue: 'health_issue',
+    EndpointExecutionFailed: 'endpoint_execution_failed',
+    EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+    ScannerFinding: 'scanner_finding',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -1330,7 +1442,7 @@ export type SignalsScoutRunsListParams = {
      */
     date_from?: string
     /**
-     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page).
      */
     date_to?: string
     /**

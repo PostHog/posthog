@@ -159,6 +159,9 @@ tools:
                 - display_name
                 - created_at
                 - created_by
+    integrations-request-access-create:
+        operation: integrations_request_access_create
+        enabled: false
     integrations-twilio-phone-numbers-retrieve:
         operation: integrations_twilio_phone_numbers_retrieve
         enabled: false

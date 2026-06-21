@@ -6,6 +6,7 @@ import json
 import math
 import logging
 import functools
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -37,7 +38,12 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, TeamSecretTokenAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    TeamSecretTokenAuthentication,
+)
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
@@ -53,7 +59,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission
+from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -103,6 +109,52 @@ BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
 EARLY_EXIT_FLAG = "feature-flag-early-exit"
 
+# Gates enforcement of `feature_flag:write` on cross-resource flag mutations
+# (Survey / Early Access Feature endpoints). Kept off during the migration grace
+# period so we can notify affected customers before flipping it on per-org, then
+# to 100%. Remove the gate and make enforcement unconditional once fully rolled out.
+ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG = "enforce-feature-flag-write-scope-cross-resource"
+
+
+def parse_created_by_ids(value: Any) -> list[int]:
+    """Parse a `created_by_id` filter value into a list of user IDs.
+
+    Accepts a single int/str, a comma-separated string, or a JSON-encoded list
+    (as sent by the frontend creator multi-select). Keeps the original
+    single-value query param working for existing API consumers.
+    """
+    if value is None:
+        return []
+    if isinstance(value, bool):
+        return []
+    if isinstance(value, int):
+        return [value]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                value = json.loads(text)
+            except (json.JSONDecodeError, ValueError, RecursionError):
+                # Looks like a JSON list but doesn't parse — treat as no valid IDs
+                # rather than comma-splitting, which would half-apply malformed input
+                # (e.g. "[1,2" -> ["[1", "2"] -> silently filters by user 2).
+                return []
+        else:
+            value = text.split(",")
+    if not isinstance(value, list):
+        value = [value]
+
+    ids: list[int] = []
+    for item in value:
+        try:
+            ids.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
 # Fields that Rust's FeatureFlag struct expects for historical evaluation
 RUST_FLAG_FIELDS = (
     "name",
@@ -117,34 +169,66 @@ RUST_FLAG_FIELDS = (
 )
 
 
-def warn_if_missing_feature_flag_write_scope(
+def _is_enforce_feature_flag_write_scope_enabled(request, *, team_id: int | None) -> bool:
+    # Rollout gate for the feature_flag:write enforcement below. Evaluated against the
+    # organization that owns the *target* team, not the actor's current organization —
+    # otherwise a multi-org user could dodge enforcement by switching their current org
+    # to one where the rollout is off. Fails open (returns False) on missing context or
+    # any error, so a flag-service outage degrades to warn-only rather than blocking
+    # writes; the error is logged so a persistent failure is visible rather than silent.
+    user = getattr(request, "user", None)
+    if user is None or user.is_anonymous or team_id is None:
+        return False
+    try:
+        organization_id = str(Team.objects.values_list("organization_id", flat=True).get(pk=team_id))
+        return posthoganalytics.feature_enabled(
+            ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG,
+            user.distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.warning("enforce_feature_flag_write_scope_eval_failed", exc_info=True)
+        return False
+
+
+def _scope_audit_identity(authenticator) -> tuple[list[str], str, str | None, str | None] | None:
+    # (scopes, auth_kind, auth_id, auth_label) for a scoped token, or None for session and
+    # other non-token auth. Scope extraction is single-sourced via get_authenticator_scopes
+    # so the enforcement decision can't drift from APIScopePermission; the auth_kind/id/label
+    # below are audit-log metadata only.
+    scopes = get_authenticator_scopes(authenticator)
+    if scopes is None:
+        return None
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        key = authenticator.personal_api_key
+        return scopes, "personal_api_key", key.id, key.label
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        raw_id = getattr(authenticator.access_token, "id", None)
+        return scopes, "oauth_access_token", str(raw_id) if raw_id is not None else None, None
+    if isinstance(authenticator, IDJagAccessTokenAuthentication):
+        return scopes, "id_jag_access_token", None, None
+    psak = authenticator.project_secret_api_key
+    return scopes, "project_secret_api_key", str(getattr(psak, "id", "")) or None, None
+
+
+def assert_feature_flag_write_scope(
     request,
     *,
     action: str,
+    resource_scope: str,
     team_id: int | None = None,
     feature_flag_id: int | None = None,
 ) -> None:
-    # Temporary observability for a cross-resource scope bypass: SurveyViewSet and
-    # EarlyAccessFeatureViewSet mutate FeatureFlag rows under their own scope
-    # (`survey:write` / `early_access_feature:write`). Before enforcing
-    # `feature_flag:write` on these paths we want to know which customers rely on
-    # the transitive access so we can notify them. Remove this helper and its
-    # call sites once the scope is enforced.
-    authenticator = getattr(request, "successful_authenticator", None)
-    if isinstance(authenticator, PersonalAPIKeyAuthentication):
-        scopes = list(authenticator.personal_api_key.scopes or [])
-        auth_kind = "personal_api_key"
-        auth_id: str | None = authenticator.personal_api_key.id
-        auth_label: str | None = authenticator.personal_api_key.label
-    elif isinstance(authenticator, OAuthAccessTokenAuthentication):
-        scope_string = authenticator.access_token.scope or ""
-        scopes = scope_string.split()
-        auth_kind = "oauth_access_token"
-        raw_id = getattr(authenticator.access_token, "id", None)
-        auth_id = str(raw_id) if raw_id is not None else None
-        auth_label = None
-    else:
-        return
+    # Survey and Early Access Feature endpoints write FeatureFlag rows under their own
+    # scope. Require feature_flag:write for those writes too: always audit-log when it's
+    # missing, and raise once the rollout gate is enabled for the org.
+    identity = _scope_audit_identity(getattr(request, "successful_authenticator", None))
+    if identity is None:
+        return  # session / cookie auth has no scopes; access control is handled elsewhere
+    scopes, auth_kind, auth_id, auth_label = identity
 
     if "*" in scopes or "feature_flag:write" in scopes:
         return
@@ -160,6 +244,13 @@ def warn_if_missing_feature_flag_write_scope(
         auth_label=auth_label,
         user_id=getattr(getattr(request, "user", None), "id", None),
     )
+
+    if _is_enforce_feature_flag_write_scope_enabled(request, team_id=team_id):
+        raise exceptions.PermissionDenied(
+            f"This action also modifies a feature flag, which requires the `feature_flag:write` scope "
+            f"in addition to `{resource_scope}`. Add `feature_flag:write` to your API key, or use a key "
+            f"with the `*` scope."
+        )
 
 
 def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
@@ -340,22 +431,24 @@ def find_dependent_flags_batch(
 def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker) -> dict[str, Any]:
     """Compute rollout state for a flag to include in bulk delete response.
 
-    Returns a dict with:
+    Thin adapter over ``FeatureFlagStatusChecker.get_rollout_summary`` so the
+    "fully rolled out" determination has a single source of truth. Maps the
+    summary to the bulk-delete vocabulary:
       - rollout_state: "fully_rolled_out", "not_rolled_out", or "partial"
       - active_variant: variant key if a multivariate flag is fully rolled out to one variant
     """
-    multivariate = flag.filters.get("multivariate", None)
+    summary = checker.get_rollout_summary(flag)
 
-    if multivariate:
-        is_fully_rolled_out, variant_key = checker.is_multivariate_flag_fully_rolled_out(flag)
-        if is_fully_rolled_out:
-            return {"rollout_state": "fully_rolled_out", "active_variant": variant_key}
-    elif checker.is_boolean_flag_fully_rolled_out(flag):
-        return {"rollout_state": "fully_rolled_out", "active_variant": None}
+    if summary.effectively_full_rollout:
+        active_variant = None
+        if summary.is_multivariate:
+            # summary already established full rollout; this only fetches the winning variant key.
+            # Both calls read the same in-memory flag, so they cannot disagree.
+            _, active_variant = checker.is_multivariate_flag_fully_rolled_out(flag)
+        return {"rollout_state": "fully_rolled_out", "active_variant": active_variant}
 
-    # Check if flag is effectively at 0%: all groups have rollout_percentage == 0
-    groups = flag.filters.get("groups", [])
-    if groups and all(g.get("rollout_percentage", None) == 0 for g in groups):
+    # Effectively at 0%: every release condition is at 0 (max across groups is 0).
+    if summary.max_rollout_percentage == 0:
         return {"rollout_state": "not_rolled_out", "active_variant": None}
 
     return {"rollout_state": "partial", "active_variant": None}
@@ -2067,9 +2160,48 @@ class EvaluationReasonsResponseSerializer(serializers.Serializer):
     pass
 
 
+class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
+    effectively_full_rollout = serializers.BooleanField(
+        help_text=(
+            "True if the flag is effectively rolled out to everyone, independent of recent evaluation. "
+            "For boolean flags this means at least one release condition targets 100% with no property "
+            "filters (or there are no release conditions); for multivariate flags it means a single variant "
+            "is served to 100% via a fully rolled out release condition. This is the signal for "
+            "'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation."
+        )
+    )
+    has_targeting_conditions = serializers.BooleanField(
+        help_text=(
+            "True if any release condition has property filters, i.e. the flag is conditionally targeted "
+            "rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the "
+            "targeted segment, not of the whole user base."
+        )
+    )
+    max_rollout_percentage = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Highest rollout percentage (0-100) across the flag's release conditions, treating a missing "
+            "percentage as 100. Null when the flag has no release conditions. Interpret together with "
+            "`has_targeting_conditions`."
+        ),
+    )
+    is_multivariate = serializers.BooleanField(
+        help_text="True if the flag serves multiple variants (has a multivariate variant set)."
+    )
+
+
 class FeatureFlagStatusResponseSerializer(serializers.Serializer):
-    status = serializers.CharField(help_text="Flag status: active, stale, deleted, or unknown")
+    status = serializers.CharField(
+        help_text=(
+            "Flag staleness/evaluation status: active, stale, deleted, or unknown. 'active' means the flag "
+            "was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled "
+            "out. Use the `rollout` object to determine rollout completeness."
+        )
+    )
     reason = serializers.CharField(help_text="Human-readable explanation of the status")
+    rollout = FeatureFlagRolloutSummarySerializer(
+        help_text="Summary of the flag's rollout configuration, for determining whether it is fully rolled out."
+    )
 
 
 class DependentFlagSerializer(serializers.Serializer):
@@ -2553,7 +2685,10 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="The User ID which initially created the feature flag.",
+                description=(
+                    "Filter by the user(s) who created the feature flag. Accepts a single user ID, "
+                    "or a JSON-encoded / comma-separated list of user IDs to match any of them."
+                ),
             ),
             OpenApiParameter(
                 "search",
@@ -3234,7 +3369,9 @@ class FeatureFlagViewSet(
             if key == "active":
                 queryset = filter_flags_by_active_param(queryset, value)
             elif key == "created_by_id":
-                queryset = queryset.filter(created_by_id=value)
+                user_ids = parse_created_by_ids(value)
+                if user_ids:
+                    queryset = queryset.filter(created_by_id__in=user_ids)
             elif key == "search":
                 if isinstance(value, str):
                     value = value.strip()
@@ -3457,11 +3594,14 @@ class FeatureFlagViewSet(
             feature_flag=feature_flag,
         )
         flag_status, reason = checker.get_status()
+        rollout = checker.get_rollout_summary(feature_flag)
 
-        return Response(
-            {"status": flag_status, "reason": reason},
-            status=status.HTTP_200_OK,
+        # Route through the declared serializer so it is the single source of truth for the
+        # response shape and the dataclass cannot silently drift from the OpenAPI/MCP schema.
+        response = FeatureFlagStatusResponseSerializer(
+            {"status": flag_status, "reason": reason, "rollout": asdict(rollout)}
         )
+        return Response(response.data, status=status.HTTP_200_OK)
 
     @validated_request(
         request_serializer=FeatureFlagTestEvaluationRequestSerializer,

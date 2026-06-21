@@ -15,6 +15,7 @@ from django.utils import timezone
 import psycopg
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
@@ -378,6 +379,50 @@ class TestExternalDataSource(APIBaseTest):
         assert source.created_via is None
         assert source.description == "edited"
 
+    @parameterized.expand(
+        [
+            ("omitted_defaults_true", {}, True),
+            ("explicit_true", {"direct_query_enabled": True}, True),
+            ("explicit_false", {"direct_query_enabled": False}, False),
+        ]
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_direct_query_enabled(self, _name, body, expected, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                **body,
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.direct_query_enabled is expected
+
+    def test_patch_external_data_source_toggles_direct_query_enabled(self):
+        source = self._create_external_data_source()
+        assert source.direct_query_enabled is True
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"direct_query_enabled": False},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["direct_query_enabled"] is False
+        source.refresh_from_db()
+        assert source.direct_query_enabled is False
+
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,
@@ -423,9 +468,10 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
-        return_value=False,
+        return_value=True,
     )
     def test_bulk_update_schemas_runs_deferred_temporal_updates(self, _mock_workflow_exists):
+        # Enabled schema with an existing schedule: a frequency change re-issues (updates) it.
         source = self._create_external_data_source()
         schema = ExternalDataSchema.objects.create(
             name="Customers",
@@ -451,6 +497,168 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_sync_external_data_job_workflow.call_count == 1
         assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": False, "should_sync": True}
         assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
+
+    @parameterized.expand(
+        [
+            (
+                "db_error",
+                psycopg.OperationalError("the connection is closed"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "database",
+            ),
+            (
+                "validation_error",
+                ValidationError("Table1 cannot be changed"),
+                status.HTTP_400_BAD_REQUEST,
+                "cannot be changed",
+            ),
+        ]
+    )
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_one_schema_failing_does_not_block_others(
+        self, _name, raised_exception, expected_status, expected_detail_substring, _mock_workflow_exists
+    ):
+        # Each schema commits in its own transaction. A failure on one schema — a database error
+        # mid-save, or a validation error raised inside update() — must not roll back or block the
+        # others: every schema is attempted, and the failures are reported per schema (503 for a
+        # database error, 400 when it is only validation) instead of 500ing the whole batch.
+        from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
+
+        source = self._create_external_data_source()
+        schemas = [
+            ExternalDataSchema.objects.create(
+                name=f"Table{i}",
+                team_id=self.team.pk,
+                source=source,
+                should_sync=True,
+                sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            )
+            for i in range(3)
+        ]
+        original_interval = schemas[1].sync_frequency_interval
+
+        original_update = ExternalDataSchemaSerializer.update
+        attempted = 0
+
+        def _failing_update(serializer_self, instance, validated_data):
+            nonlocal attempted
+            attempted += 1
+            if attempted == 2:
+                raise raised_exception
+            return original_update(serializer_self, instance, validated_data)
+
+        with (
+            patch.object(ExternalDataSchemaSerializer, "update", _failing_update),
+            patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(s.id), "sync_frequency": "7day"} for s in schemas]},
+                format="json",
+            )
+
+        # Every schema is attempted despite the second one failing.
+        assert attempted == 3
+        # The failure is surfaced with the right status and names only the schema that failed.
+        assert response.status_code == expected_status
+        detail = response.json()["detail"]
+        assert "Table1" in detail
+        assert expected_detail_substring in detail
+        assert "Table0" not in detail
+        assert "Table2" not in detail
+
+        for schema in schemas:
+            schema.refresh_from_db()
+        # The schemas before and after the failure are committed...
+        assert sync_frequency_interval_to_sync_frequency(schemas[0].sync_frequency_interval) == "7day"
+        assert sync_frequency_interval_to_sync_frequency(schemas[2].sync_frequency_interval) == "7day"
+        # ...and the one that failed keeps its original frequency.
+        assert schemas[1].sync_frequency_interval == original_interval
+
+    def test_bulk_update_schemas_invalid_payload_rejected_before_any_write(self):
+        # The batch is validated up front (per-schema is_valid), so an invalid payload rejects the
+        # whole request with nothing written — even the valid schema listed alongside it is not
+        # committed. With per-schema commits, this preflight is what keeps a bad batch all-or-nothing.
+        source = self._create_external_data_source()
+        valid_schema = ExternalDataSchema.objects.create(
+            name="Valid",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        invalid_schema = ExternalDataSchema.objects.create(
+            name="Invalid",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        valid_original = valid_schema.sync_frequency_interval
+        invalid_original = invalid_schema.sync_frequency_interval
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+            data={
+                "schemas": [
+                    {"id": str(valid_schema.id), "sync_frequency": "7day"},
+                    {"id": str(invalid_schema.id), "sync_frequency": "not_a_real_frequency"},
+                ]
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        valid_schema.refresh_from_db()
+        invalid_schema.refresh_from_db()
+        # Nothing was persisted — the valid schema, listed first, was not committed.
+        assert valid_schema.sync_frequency_interval == valid_original
+        assert invalid_schema.sync_frequency_interval == invalid_original
+
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_fails_when_schedule_update_fails_after_save(self, _mock_workflow_exists):
+        # When a schema's row commits but its Temporal schedule update fails in the post-commit step,
+        # the request fails — the batch did not fully apply. The committed row stands (it can't be
+        # un-committed), and the failure is logged with the schema id.
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Table0",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with (
+            patch(
+                "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow",
+                side_effect=Exception("temporal unavailable"),
+            ),
+            patch("products.data_warehouse.backend.api.external_data_source.logger") as mock_logger,
+        ):
+            try:
+                response = self.client.patch(
+                    f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                    data={"schemas": [{"id": str(schema.id), "sync_frequency": "7day"}]},
+                    format="json",
+                )
+            except Exception:
+                response = None
+
+        # The request did not succeed — it either raised or returned a server error.
+        assert response is None or response.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR
+        # The per-schema commit happened before the schedule update, so the row is still persisted...
+        schema.refresh_from_db()
+        assert sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval) == "7day"
+        # ...and the failure was logged with the schema id.
+        assert any(call.kwargs.get("schema_id") == str(schema.id) for call in mock_logger.warning.call_args_list)
 
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
@@ -996,6 +1204,82 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert len(ExternalDataSource.objects.all()) == 0
 
+    @parameterized.expand(
+        [
+            ("too_large", 5_184_001),
+            ("negative", -1),
+            ("non_integer_string", "soon"),
+            ("non_integer_float", 1.5),
+            ("boolean", True),
+        ]
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_incremental_invalid_lookback(
+        self, _name: str, lookback_value: object, _mock_validate: MagicMock
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                            "incremental_field_lookback_seconds": lookback_value,
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code == 400
+        assert len(ExternalDataSource.objects.all()) == 0
+
+    @parameterized.expand(
+        [
+            ("max_allowed", 5_184_000),
+            ("zero", 0),
+            ("whole_number_float", 3600.0),
+            ("none", None),
+        ]
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_incremental_valid_lookback(
+        self, _name: str, lookback_value: object, _mock_validate: MagicMock
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                            "incremental_field_lookback_seconds": lookback_value,
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code == 201
+
     def test_create_external_data_source_bigquery_removes_project_id_prefix(self):
         """Test we remove the `project_id` prefix of a `dataset_id`."""
         with (
@@ -1087,8 +1371,47 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(payload["results"]), 2)
 
+    def _create_searchable_source(self, source_type: str, prefix: str) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type=source_type,
+            created_by=self.user,
+            prefix=prefix,
+        )
+
+    # Sentinel resolved to a freshly-created source's opaque internal source_id at runtime,
+    # to assert that searching by it no longer matches.
+    SEARCH_BY_INTERNAL_SOURCE_ID = object()
+
+    @parameterized.expand(
+        [
+            ("by_source_type", "Stripe", ["prod_payments"]),
+            ("by_source_type_other", "Postgres", ["analytics"]),
+            ("by_prefix_partial", "prod_", ["prod_payments"]),
+            ("by_prefix_full", "analytics", ["analytics"]),
+            ("no_match", "nonexistent", []),
+            ("internal_source_id_is_not_searchable", SEARCH_BY_INTERNAL_SOURCE_ID, []),
+        ]
+    )
+    def test_list_external_data_source_search(self, _name, term, expected_prefixes):
+        sources = {
+            "prod_payments": self._create_searchable_source(source_type="Stripe", prefix="prod_payments"),
+            "analytics": self._create_searchable_source(source_type="Postgres", prefix="analytics"),
+        }
+        if term is self.SEARCH_BY_INTERNAL_SOURCE_ID:
+            term = sources["analytics"].source_id
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/?search={term}")
+
+        assert response.status_code == 200
+        returned_prefixes = sorted(r["prefix"] for r in response.json()["results"])
+        assert returned_prefixes == sorted(expected_prefixes)
+
     def test_connections_returns_lightweight_direct_connection_options(self):
-        source = ExternalDataSource.objects.create(
+        postgres_source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
@@ -1100,18 +1423,36 @@ class TestExternalDataSource(APIBaseTest):
             job_inputs={"host": "localhost", "password": "secret"},
             connection_metadata={"engine": "duckdb", "database": "ducklake", "available_functions": ["date_bin"]},
         )
+        mysql_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="MySQL",
+            created_by=self.user,
+            prefix="Reporting MySQL",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "password": "secret"},
+            connection_metadata={"engine": "mysql", "database": "warehouse", "version": "9.6.0"},
+        )
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
         self.assertEqual(response.status_code, 200)
+        payload = sorted(response.json(), key=lambda item: item["prefix"])
         self.assertEqual(
-            response.json(),
+            payload,
             [
                 {
-                    "id": str(source.pk),
+                    "id": str(postgres_source.pk),
                     "prefix": "Primary database",
                     "engine": "duckdb",
-                }
+                },
+                {
+                    "id": str(mysql_source.pk),
+                    "prefix": "Reporting MySQL",
+                    "engine": "mysql",
+                },
             ],
         )
 
@@ -1346,6 +1687,7 @@ class TestExternalDataSource(APIBaseTest):
                 "prefix",
                 "description",
                 "access_method",
+                "direct_query_enabled",
                 "engine",
                 "last_run_at",
                 "schemas",
@@ -1365,6 +1707,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental": False,
                     "incremental_field": None,
                     "incremental_field_type": None,
+                    "incremental_field_lookback_seconds": None,
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
                     "label": schema.label,
@@ -1379,6 +1722,7 @@ class TestExternalDataSource(APIBaseTest):
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
                     "enabled_columns": None,
+                    "row_filters": None,
                     "available_columns": [],
                     "source": None,
                 }
@@ -2362,6 +2706,61 @@ class TestExternalDataSource(APIBaseTest):
         )
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_postgres_rejects_row_filters(self, mock_get_source):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "access_method": "direct",
+                "prefix": "Primary database",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {
+                            "name": "accounts",
+                            "should_sync": True,
+                            "sync_type": None,
+                            "row_filters": [{"column": "id", "operator": ">", "value": 10}],
+                        },
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not supported for direct Postgres", str(response.json()))
+        self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_blank_schema_prefixes_table_names_and_preserves_physical_schema(
         self, mock_get_source
     ):
@@ -3007,7 +3406,7 @@ class TestExternalDataSource(APIBaseTest):
         assert legacy_schema.name == "public.auth_group"
         assert legacy_schema.table_id == legacy_table.id
 
-    def test_create_direct_non_postgres_is_rejected(self):
+    def test_create_direct_unsupported_source_type_is_rejected(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -3022,10 +3421,10 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres sources."},
+            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
         )
 
-    def test_source_prefix_rejects_direct_non_postgres(self):
+    def test_source_prefix_rejects_direct_unsupported_source_type(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/source_prefix/",
             data={
@@ -3038,8 +3437,20 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres sources."},
+            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
         )
+
+    def test_source_prefix_accepts_direct_mysql(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/source_prefix/",
+            data={
+                "source_type": "MySQL",
+                "access_method": "direct",
+                "prefix": "Read replica",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_database_schema_postgres_direct_allows_blank_schema(self, mock_get_source):
@@ -3080,6 +3491,57 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.json()[0]["table"], "public.accounts")
         validate.assert_called_once()
         self.assertEqual(validate.call_args.args[2], "direct")
+
+    @parameterized.expand(
+        [
+            # (test name, source_type, supports_xmin, expected_xmin_available)
+            ("postgres_capable", "Postgres", True, True),
+            ("postgres_not_capable", "Postgres", False, False),
+            ("non_postgres", "MySQL", True, None),
+        ]
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_xmin_available_gating(
+        self, _name, source_type, supports_xmin, expected_xmin_available, mock_get_source
+    ):
+        # xmin is Postgres-only: the discovery response reports `xmin_available=None` for any other
+        # source, regardless of the (erroneous) per-schema `supports_xmin` flag.
+        from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
+
+        source = PostgresSource() if source_type == "Postgres" else MySQLSource()
+        mock_get_source.return_value = source
+
+        fake_schema = SourceSchema(
+            name="public.accounts",
+            supports_incremental=False,
+            supports_append=False,
+            supports_xmin=supports_xmin,
+            columns=[("id", "integer", False)],
+            foreign_keys=[],
+        )
+
+        with (
+            patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)),
+            patch.object(source, "get_schemas", return_value=[fake_schema]),
+            patch(
+                "products.data_warehouse.backend.api.external_data_source.is_xmin_enabled_for_team", return_value=True
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": source_type,
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIs(response.json()[0]["xmin_available"], expected_xmin_available)
 
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
@@ -3376,6 +3838,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,
+                    "xmin_available": None,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -3446,6 +3909,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,
+                    "xmin_available": None,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -7485,6 +7949,7 @@ def _make_postgres_source(
     slot_name: str = "posthog_slot",
     pub_name: str = "posthog_pub",
     extra_job_inputs: dict | None = None,
+    source_type: str = "Postgres",
 ) -> ExternalDataSource:
     job_inputs: dict[str, t.Any] = {
         "host": "localhost",
@@ -7514,7 +7979,7 @@ def _make_postgres_source(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
-        source_type="Postgres",
+        source_type=source_type,
         created_by=user,
         prefix="pg_",
         job_inputs=job_inputs,
@@ -7663,6 +8128,20 @@ class TestCheckCDCPrerequisitesWizard(APIBaseTest):
         assert "Could not connect to Postgres to check prerequisites" in response.json()["message"]
         # User/upstream connection failures must not pollute error tracking.
         mock_capture.assert_not_called()
+
+    @patch.object(PostgresSource, "is_database_host_valid", return_value=(True, None))
+    @patch.object(PostgresSource, "ssh_tunnel_is_valid", return_value=(True, None))
+    @patch.object(PostgresSource, "check_cdc_prerequisites", return_value=[])
+    def test_supabase_source_type_is_accepted(self, _mock_prereqs, _mock_ssh, _mock_host) -> None:
+        # Supabase is Postgres on the wire — the prereq endpoint must not reject it by source type.
+        response = self._post(source_type="Supabase")
+        assert response.status_code == 200, response.content
+        assert response.json() == {"valid": True, "errors": []}
+
+    def test_unsupported_source_type_is_rejected(self) -> None:
+        response = self._post(source_type="Stripe")
+        assert response.status_code == 400
+        assert "only supported for" in response.json()["message"]
 
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch.object(PostgresSource, "is_database_host_valid", return_value=(True, None))
@@ -7834,6 +8313,34 @@ class TestEnableCDC(APIBaseTest):
 
         mock_sync_extraction.assert_called_once()
         mock_ensure_cleanup.assert_called_once()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_cdc_slot_cleanup_schedule")
+    def test_enable_cdc_succeeds_for_supabase(
+        self,
+        _mock_ensure_cleanup,
+        _mock_sync_extraction,
+        mock_setup_cdc_resources,
+        _check,
+        _flag,
+    ) -> None:
+        # Supabase reuses the Postgres CDC adapter, so the source-type gate must let it through.
+        source = _make_postgres_source(self.team.pk, self.user, source_type="Supabase")
+        mock_setup_cdc_resources.return_value = None
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch(
@@ -8548,6 +9055,26 @@ class TestExternalDataSourceSetup(APIBaseTest):
         synced = schemas.filter(should_sync=True)
         assert synced.exists()
         assert all(s.sync_type in ("incremental", "append", "full_refresh") for s in synced)
+
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_persists_direct_query_enabled_false(self, _mock_validate, _mock_sync_views, _mock_person_join):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={
+                "source_type": "Stripe",
+                "direct_query_enabled": False,
+                "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        assert source.direct_query_enabled is False
 
     def _create_stripe_webhook_template(self):
         from products.cdp.backend.models.hog_function_template import HogFunctionTemplate

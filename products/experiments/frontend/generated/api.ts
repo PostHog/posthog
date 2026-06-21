@@ -21,13 +21,15 @@ import type {
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsTimeseriesResultsRetrieveParams,
+    PaginatedExperimentBasicListApi,
     PaginatedExperimentHoldoutListApi,
-    PaginatedExperimentListApi,
     PaginatedExperimentSavedMetricListApi,
     PatchedExperimentApi,
     PatchedExperimentHoldoutApi,
     PatchedExperimentSavedMetricApi,
     RecalculateMetricsRequestApi,
+    RunningTimeCalculationInputApi,
+    RunningTimeCalculationResultApi,
     ShipVariantApi,
 } from './api.schemas'
 
@@ -291,8 +293,8 @@ export const experimentsList = async (
     projectId: string,
     params?: ExperimentsListParams,
     options?: RequestInit
-): Promise<PaginatedExperimentListApi> => {
-    return apiMutator<PaginatedExperimentListApi>(getExperimentsListUrl(projectId, params), {
+): Promise<PaginatedExperimentBasicListApi> => {
+    return apiMutator<PaginatedExperimentBasicListApi>(getExperimentsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -831,6 +833,30 @@ export const experimentsUnarchiveCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsUnarchiveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getExperimentsCalculateRunningTimeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/calculate_running_time/`
+}
+
+/**
+ * Estimate the recommended sample size and running time for an experiment.
+ *
+ * Pure statistical calculation — does not read or write any experiment. Pass the metric type, a
+ * minimum detectable effect, and either a baseline value or raw baseline statistics. When
+ * `exposure_rate_per_day` is provided, the response also includes the estimated running time in days.
+ */
+export const experimentsCalculateRunningTimeCreate = async (
+    projectId: string,
+    runningTimeCalculationInputApi: RunningTimeCalculationInputApi,
+    options?: RequestInit
+): Promise<RunningTimeCalculationResultApi> => {
+    return apiMutator<RunningTimeCalculationResultApi>(getExperimentsCalculateRunningTimeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(runningTimeCalculationInputApi),
     })
 }
 

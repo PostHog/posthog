@@ -272,3 +272,19 @@ def publication_exists(conn: psycopg.Connection, pub_name: str) -> bool:
     with conn.cursor() as cur:
         cur.execute(sql.SQL("SELECT 1 FROM pg_publication WHERE pubname = {}").format(sql.Literal(pub_name)))
         return cur.fetchone() is not None
+
+
+def get_publication_tables(conn: psycopg.Connection, pub_name: str) -> list[str]:
+    """List the schema-qualified tables (``schema.table``) in a publication, sorted.
+
+    Returns an empty list when the publication doesn't exist or has no tables.
+    These are exactly the tables whose changes the replication slot streams.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL(
+                "SELECT schemaname, tablename FROM pg_publication_tables "
+                "WHERE pubname = {} ORDER BY schemaname, tablename"
+            ).format(sql.Literal(pub_name))
+        )
+        return [f"{schemaname}.{tablename}" for schemaname, tablename in cur.fetchall()]

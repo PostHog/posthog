@@ -4,13 +4,13 @@ from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.api import (
-    POSTHOG_CODE_REQUIRED_SLACK_SCOPES,
     ROUTE_HANDLED_LOCALLY,
     ROUTE_NO_INTEGRATION,
     _channel_onboarding_cache_key,
@@ -43,7 +43,7 @@ class TestMemberJoinedChannelRouting(TestCase):
             team=self.team,
             kind="slack",
             integration_id=self.SLACK_TEAM_ID,
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-test"},
         )
 
