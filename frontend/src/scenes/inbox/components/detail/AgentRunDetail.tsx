@@ -1,4 +1,5 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import {
     IconArrowRight,
@@ -7,14 +8,18 @@ import {
     IconDocument,
     IconPullRequest,
     IconSearch,
+    IconTerminal,
     IconWarning,
 } from '@posthog/icons'
-import { Link, Spinner, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Link, Spinner, LemonSelect, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { SignalNode } from 'scenes/debug/signals/types'
+import { SandboxRunViewer } from 'scenes/max/sandbox/components/SandboxRunViewer'
 import { urls } from 'scenes/urls'
+
+import { Task, TaskRunStatus } from 'products/tasks/frontend/types'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
@@ -23,7 +28,7 @@ import { deriveHeadline, parsePrRepoSlug, parsePrUrlParts } from '../../utils/re
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { DetailSection, RightColumnSection } from './DetailSection'
 import { ReportDetailBadges } from './ReportDetail'
-import { ReportTasksSection } from './ReportTasksSection'
+import { RELATIONSHIP_LABEL, TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * Ready-state run output: a polished outcome card that links to the produced PR or report,
@@ -121,8 +126,8 @@ function RunOutputWidget({ report }: { report: SignalReport }): JSX.Element {
 
 /**
  * Compact run-state strip: live/finished status, the produced branch (when a PR exists), and run
- * timing. Mirrors desktop's run-state header line (status · branch · timing) without rebuilding the
- * run log – the actual log lives behind the linked runs (see `ReportTasksSection`).
+ * timing. Mirrors desktop's run-state header line (status · branch · timing); the agent transcript
+ * itself renders inline below in `TaskLogSection`.
  */
 function RunStateStrip({ report }: { report: SignalReport }): JSX.Element {
     const isLive =
@@ -158,10 +163,100 @@ function RunStateStrip({ report }: { report: SignalReport }): JSX.Element {
     )
 }
 
+/** The selected run's agent transcript, or a loading / empty placeholder. */
+function TaskLogBody({
+    loading,
+    task,
+    runId,
+}: {
+    loading: boolean
+    task: Task | null
+    runId: string | null
+}): JSX.Element {
+    if (loading) {
+        return (
+            <div className="flex flex-col gap-2">
+                <LemonSkeleton className="h-4 w-36" />
+                <LemonSkeleton className="h-28 w-full" />
+            </div>
+        )
+    }
+
+    if (task && runId) {
+        return (
+            <div className="h-[calc(100vh-22rem)] min-h-[420px] w-full overflow-y-auto rounded border border-primary bg-surface-primary">
+                <SandboxRunViewer taskId={task.id} runId={runId} />
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-2 rounded border border-primary bg-surface-primary px-4 py-3.5">
+            <span className="font-medium text-sm text-primary">
+                {task ? 'Run hasn’t started yet' : 'Waiting for the linked task'}
+            </span>
+            <span className="max-w-2xl text-xs text-secondary leading-snug">
+                {task
+                    ? 'This task is queued – its agent log will appear here once the run starts.'
+                    : 'Once the agent links this run to a task, its agent log appears here.'}
+            </span>
+        </div>
+    )
+}
+
 /**
- * Agent run detail body. Shows the run state strip + output state, the linked run(s) (which link out
- * to the task detail page – we do NOT rebuild the run-log viewer here), and contributing evidence.
- * Mirrors desktop `AgentRunDetail`'s intent with cloud's existing task-detail run log.
+ * Inline "Task log": the selected linked task's agent transcript, rendered with the shared
+ * read-only `SandboxRunViewer`. A `LemonSelect` switches between linked tasks (research /
+ * implementation) when there's more than one; "Open task" deep-links to the full Tasks UI.
+ * Mirrors desktop `AgentRunDetail`'s Task-log section.
+ */
+function TaskLogSection({ report }: { report: SignalReport }): JSX.Element {
+    const { reportTasks, reportTasksLoading, selectedTask } = useValues(
+        inboxReportDetailLogic({ reportId: report.id, report })
+    )
+    const { setSelectedTaskId } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
+
+    const task = selectedTask?.task ?? null
+    const runId = task?.latest_run?.id ?? null
+    const taskLogUrl = task ? combineUrl(urls.taskDetail(task.id), runId ? { runId } : {}).url : null
+
+    const rightSlot = task ? (
+        <div className="flex items-center gap-2">
+            {reportTasks && reportTasks.length > 1 && (
+                <LemonSelect
+                    size="small"
+                    value={task.id}
+                    onChange={(id) => setSelectedTaskId(id)}
+                    options={reportTasks.map((entry) => ({
+                        value: entry.task.id,
+                        label: (
+                            <span className="flex items-center gap-1.5">
+                                <TaskRunStatusDot status={entry.task.latest_run?.status ?? TaskRunStatus.NOT_STARTED} />
+                                {RELATIONSHIP_LABEL[entry.relationship]}
+                            </span>
+                        ),
+                    }))}
+                />
+            )}
+            {taskLogUrl && (
+                <Link to={taskLogUrl} className="text-xs">
+                    Open task
+                </Link>
+            )}
+        </div>
+    ) : null
+
+    return (
+        <DetailSection icon={<IconTerminal />} title="Task log" rightSlot={rightSlot}>
+            <TaskLogBody loading={reportTasksLoading && !reportTasks} task={task} runId={runId} />
+        </DetailSection>
+    )
+}
+
+/**
+ * Agent run detail body. Shows the run state strip + output state, the linked run's agent transcript
+ * inline (`TaskLogSection`, via the shared `SandboxRunViewer`), and contributing evidence.
+ * Mirrors desktop `AgentRunDetail`.
  */
 export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Element {
     const { reportSignals, reportSignalsLoading, isReResearch, priorityExplanation, actionabilityExplanation } =
@@ -190,7 +285,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
                 <div className="flex flex-col min-w-0 gap-5">
                     <RunStateStrip report={report} />
                     <RunOutputWidget report={report} />
-                    <ReportTasksSection report={report} />
+                    <TaskLogSection report={report} />
                 </div>
 
                 <div className="flex flex-col min-w-0 gap-5">

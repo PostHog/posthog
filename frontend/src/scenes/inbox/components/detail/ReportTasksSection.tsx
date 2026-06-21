@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
@@ -10,32 +9,9 @@ import { urls } from 'scenes/urls'
 import { Task, TaskRunStatus } from 'products/tasks/frontend/types'
 
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
-import { SignalReport, SignalReportTaskRelationship } from '../../types'
+import { SignalReport } from '../../types'
 import { RightColumnSection } from './DetailSection'
-
-const RELATIONSHIP_LABEL: Record<SignalReportTaskRelationship, string> = {
-    research: 'Research',
-    implementation: 'Implementation',
-    repo_selection: 'Repo selection',
-}
-
-const TERMINAL_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
-
-function TaskRunStatusDot({ status }: { status: TaskRunStatus }): JSX.Element {
-    const terminal = TERMINAL_STATUSES.includes(status)
-    const color =
-        status === TaskRunStatus.FAILED || status === TaskRunStatus.CANCELLED
-            ? 'bg-danger'
-            : terminal
-              ? 'bg-success'
-              : 'bg-primary'
-    return (
-        <span
-            className={clsx('inline-block size-1.5 shrink-0 rounded-full', color, !terminal && 'animate-pulse')}
-            aria-hidden
-        />
-    )
-}
+import { RELATIONSHIP_LABEL, TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * Renders the report's linked tasks inline (latest status + relationship) and links out to
