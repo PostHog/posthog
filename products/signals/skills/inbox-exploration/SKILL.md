@@ -63,14 +63,17 @@ _underlying detail_ — pair them when the user wants to dig in.
 | `inbox-reports-bulk-set-state`        | Same transition for 1–100 reports in one call (per-id result)       |
 | `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)           |
 | `inbox-source-configs-retrieve`       | Full record for a single source config                              |
+| `inbox-source-configs-partial-update` | Toggle a source's `enabled` flag (or adjust its `config`)           |
 | `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first) |
 
-The `inbox-reports-*-list` / `-retrieve` and `inbox-source-configs-*` tools are read-only. The
-exposed writes are `inbox-reports-set-state` (dismiss / snooze a single report) and
+The `inbox-reports-*-list` / `-retrieve` and `inbox-source-configs-*-list` / `-retrieve` tools are
+read-only. The exposed writes are `inbox-reports-set-state` (dismiss / snooze a single report),
 `inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call) — see
-_Workflow: dismiss or snooze a report_. Other writes (pause processing, change source configs,
-mark a report resolved, set `implementation_pr_url`) are not exposed via MCP today — those happen
-on the product surface when a PR is opened against a report.
+_Workflow: dismiss or snooze a report_ — and `inbox-source-configs-partial-update`, which flips a
+source's `enabled` flag on or off (e.g. `{enabled: false}` to stop a source feeding the inbox);
+`-create` / `-update` exist too for standing a source up or replacing it wholesale. Other writes
+(pause processing, mark a report resolved, set `implementation_pr_url`) are not exposed via MCP
+today — those happen on the product surface when a PR is opened against a report.
 
 ## Terminology
 
@@ -152,7 +155,9 @@ empty.
 **Case B — source configs exist but all are `enabled: false`**
 
 Sources have been set up at some point but are currently turned off. Tell the user no signals are
-flowing right now and point them at the project's signals settings to re-enable. Don't go fishing
+flowing right now. You can re-enable a source directly with
+`inbox-source-configs-partial-update { "id": "<source_config_uuid>", "enabled": true }` (confirm
+with the user first), or they can flip it on from the project's signals settings. Don't go fishing
 for reports — anything still there is stale.
 
 **Case C — at least one source config is `enabled: true`**
@@ -392,6 +397,16 @@ The `status` field reflects the underlying data import or workflow:
 - `running` / `completed` — feeding signals normally
 - `failed` — the source isn't currently producing signals; flag this to the user
 
+To turn a source on or off, use `inbox-source-configs-partial-update` with the config's `id` and
+`{ "enabled": true | false }` — only the fields you pass change, so this is the right tool for a
+plain toggle (`-update` replaces the whole record; `-create` stands up a new source). Confirm with
+the user before flipping a source, since enabling one drives signal processing and spend.
+
+```json
+inbox-source-configs-partial-update
+{ "id": "<source_config_uuid>", "enabled": false }
+```
+
 ## Tips
 
 - **Check setup before assuming the inbox is empty.** If `inbox-reports-list` returns `count: 0`,
@@ -405,8 +420,9 @@ The `status` field reflects the underlying data import or workflow:
   status; this is expected, not a bug — judgment hasn't run yet
 - `suppressed` reports are excluded by default; pass `status: "suppressed"` explicitly if the
   user wants to see hidden items
-- The inbox writes exposed via MCP are `inbox-reports-set-state` (dismiss / snooze one report) and
-  `inbox-reports-bulk-set-state` (the same for 1–100 reports). To _act_ on a report (implement a
+- The inbox writes exposed via MCP are `inbox-reports-set-state` (dismiss / snooze one report),
+  `inbox-reports-bulk-set-state` (the same for 1–100 reports), and `inbox-source-configs-partial-update`
+  (toggle a source's `enabled` flag). To _act_ on a report (implement a
   fix), verify the diagnosis against the code first, then open a
   PR — see _Workflow: act on an actionable report_. Marking a report resolved / setting
   `implementation_pr_url` happens on the product surface, not via MCP; always also surface the
