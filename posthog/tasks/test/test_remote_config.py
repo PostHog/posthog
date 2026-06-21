@@ -3,7 +3,11 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
-from posthog.tasks.remote_config import sync_all_remote_configs, update_team_remote_config
+from posthog.tasks.remote_config import (
+    refresh_expiring_remote_config_cache_entries,
+    sync_all_remote_configs,
+    update_team_remote_config,
+)
 
 
 class TestRemoteConfig(BaseTest):
@@ -72,3 +76,33 @@ class TestRemoteConfig(BaseTest):
         mock_sync.reset_mock()
         update_team_remote_config(self.team.id)
         mock_sync.assert_called_once_with(bypass_recordings_quota_cache=False)
+
+    @patch("posthog.tasks.remote_config.refresh_expiring_remote_config_caches")
+    @patch("posthog.tasks.remote_config.settings")
+    def test_refresh_task_delegates_to_refresh_expiring_remote_config_caches(
+        self, mock_settings: MagicMock, mock_refresh: MagicMock
+    ) -> None:
+        """
+        Regression for #65026: the hourly refresh job must call into the
+        cache-expiry manager with the 24h threshold so entries are rewritten
+        before their 30-day TTL elapses. Mocked at the import boundary so this
+        runs without Redis.
+        """
+        mock_settings.FLAGS_REDIS_URL = "redis://example/0"
+        mock_refresh.return_value = (5, 0)
+
+        refresh_expiring_remote_config_cache_entries()
+
+        mock_refresh.assert_called_once_with(ttl_threshold_hours=24)
+
+    @patch("posthog.tasks.remote_config.refresh_expiring_remote_config_caches")
+    @patch("posthog.tasks.remote_config.settings")
+    def test_refresh_task_skips_when_flags_redis_unconfigured(
+        self, mock_settings: MagicMock, mock_refresh: MagicMock
+    ) -> None:
+        """No-op when `FLAGS_REDIS_URL` is unset — matches the team-metadata refresh task."""
+        mock_settings.FLAGS_REDIS_URL = None
+
+        refresh_expiring_remote_config_cache_entries()
+
+        mock_refresh.assert_not_called()

@@ -27,7 +27,7 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
-from posthog.tasks.remote_config import sync_all_remote_configs
+from posthog.tasks.remote_config import refresh_expiring_remote_config_cache_entries, sync_all_remote_configs
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
@@ -221,6 +221,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="5"),
         refresh_expiring_llm_gateway_policy_cache_entries.s(),
         name="llm-gateway policy cache sync",
+    )
+
+    # Remote config (array/config.json) cache sync - hourly at :10 to stagger from
+    # team_metadata (:00) and llm-gateway (:05). Without this, teams whose RemoteConfig
+    # hasn't changed in 30 days see their dedicated-Redis key expire and reads fall
+    # through to S3. Fixes #65026.
+    sender.add_periodic_task(
+        crontab(hour="*", minute="10"),
+        refresh_expiring_remote_config_cache_entries.s(),
+        name="remote config cache sync",
     )
 
     # Gateway credential cache sync - hourly at :10 to stagger from the others

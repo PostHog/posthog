@@ -20,7 +20,9 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
+from posthog.storage.cache_expiry_manager import refresh_expiring_caches as refresh_generic
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import PluginConfig
@@ -42,6 +44,11 @@ REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
     "Number of times the remote config CDN purge task has been run",
     labelnames=["result"],
 )
+
+# Redis sorted set tracking per-team `array/config.json` cache expirations so the
+# hourly refresh task (`refresh_expiring_remote_config_cache_entries`) can find
+# entries about to fall off the 30-day TTL without scanning all Redis keys.
+REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET = "remote_config_cache_expiry"
 
 
 logger = structlog.get_logger(__name__)
@@ -69,7 +76,15 @@ class RemoteConfig(UUIDTModel):
 
     @classmethod
     def get_hypercache(cls):
-        def load_config(token):
+        def load_config(key):
+            # `key` may be a Team, an api_token string, or a team id. Pass Team
+            # objects through so the existing token-based query stays cheap and
+            # the refresh task (which has Team objects) doesn't pay an extra
+            # round-trip just to convert back to a token.
+            if isinstance(key, Team):
+                token = key.api_token
+            else:
+                token = key
             try:
                 return RemoteConfig.objects.select_related("team").get(team__api_token=token).build_config()
             except RemoteConfig.DoesNotExist:
@@ -85,7 +100,24 @@ class RemoteConfig(UUIDTModel):
             # Mirror to the shared Redis so the hypercache-server doesn't fall
             # through to (potentially stale) S3.
             secondary_cache_alias="default" if has_dedicated_cache else None,
+            expiry_sorted_set_key=REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
         )
+
+    @classmethod
+    def update_team_remote_config_cache(cls, team: Team, ttl: int | None = None) -> bool:
+        """
+        Refresh this team's `array/config.json` cache by directly invoking
+        `HyperCache.update_cache(team)`, bypassing the `RemoteConfig.sync()`
+        early-bail that would otherwise skip the Redis write (and the TTL
+        refresh) when the team's stored config is unchanged. Used by both the
+        scheduled `refresh_expiring_remote_config_cache_entries` task and any
+        caller that needs the cache rewritten regardless of whether the
+        underlying config diff'd.
+
+        Passing the Team object (rather than `team.api_token`) is what makes
+        `_track_expiry` fire — see `HyperCache.set_cache_value`.
+        """
+        return cls.get_hypercache().update_cache(team, ttl=ttl)
 
     def _build_session_recording_config(self, team: Team) -> dict:
         """
@@ -407,7 +439,12 @@ class RemoteConfig(UUIDTModel):
             self.save()
 
             try:
-                RemoteConfig.get_hypercache().update_cache(self.team.api_token)
+                # Pass the Team object so `_track_expiry` records this write in
+                # the per-namespace sorted set; the refresh task relies on that
+                # entry to know when to rewrite the key before its 30-day TTL
+                # expires. Passing `self.team.api_token` here used to silently
+                # skip expiry tracking (issue #65026).
+                RemoteConfig.get_hypercache().update_cache(self.team)
             except Exception as e:
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)
@@ -565,3 +602,25 @@ def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppre
 @receiver(post_save, sender="posthog.TeamJsSnippetConfig")
 def js_snippet_config_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+def _update_remote_config_cache_for_management(team: Team) -> bool:
+    """Adapter so `HyperCacheManagementConfig.update_fn` matches the (team) -> bool signature."""
+    return RemoteConfig.update_team_remote_config_cache(team)
+
+
+REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
+    hypercache=RemoteConfig.get_hypercache(),
+    update_fn=_update_remote_config_cache_for_management,
+    cache_name="remote_config",
+)
+
+
+def refresh_expiring_remote_config_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
+    """
+    Refresh `array/config.json` cache entries whose TTL falls below the
+    threshold. Mirrors `refresh_expiring_team_metadata_cache_entries` /
+    `refresh_expiring_llm_gateway_policy_cache_entries` so the cache stays
+    warm under the 30-day TTL without lazy S3 fall-through (issue #65026).
+    """
+    return refresh_generic(REMOTE_CONFIG_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
