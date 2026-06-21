@@ -81,7 +81,9 @@ Each iteration:
    `tests/batch_ingestion.rs` against a live Postgres. **If any test fails, fix it before
    continuing** — fix the code when it's a real regression, or update the test when the change
    legitimately altered an API/shape. Never delete, `#[ignore]`, or weaken a test to go green.
-7. Record the result, update `baseline.json`, repeat.
+7. **Record the result durably** — append the decision (kept/reverted) + rationale + any new
+   finding or dead-end to the "Decisions & findings log" below, update the relevant backlog status,
+   and commit/push so it survives a container reset. Then update the live baseline and repeat.
 
 ### Requirements / invariants the loop must not break
 
@@ -103,6 +105,12 @@ Each iteration:
 - **Tests green every iteration.** Run `cargo test -p property-defs-rs` each iteration and fix
   any failure (real regression → fix code; legitimate API change → update the test). Never
   delete/ignore/weaken a test to go green, and never commit a red `cargo test`.
+- **Preserve context durably.** The live state in `/tmp/propdefs_opt_loop.md` (baseline, results
+  log, in-flight notes) is **ephemeral — a container reset wipes it.** Anything a future iteration
+  needs to avoid repeating work — the kept/reverted decision *and why*, architectural findings, and
+  dead-ends — must be mirrored into this committed file (the backlog statuses below and the
+  "Decisions & findings log" section) and pushed. Treat the durable log as append-only institutional
+  memory: don't delete a past finding, only add to it or mark it superseded.
 
 ### Backlog (candidate optimizations, derived from the review)
 
@@ -172,6 +180,43 @@ Pipelining (measured against Postgres, not visible in Phase A/B/C):
   used (`skip_writes` even defaults to `true`). Wire up or remove — but `skip_writes` must be
   reconciled with prod config first, since making a default-`true` flag actually skip writes
   would be a breaking change.
+
+## Decisions & findings log (durable — append every iteration, never delete)
+
+Institutional memory so a future loop (or a fresh container after a reset) doesn't re-derive
+settled facts or retry dead-ends. The ephemeral `/tmp/propdefs_opt_loop.md` holds the live
+baseline; everything worth keeping lands here and is pushed.
+
+### Settled findings (don't re-derive)
+
+- **The service is I/O-bound, not CPU-bound.** Prod CPU profile: ~0.10 core used, ~97% in
+  `rdkafka` message receive, ~0 in business logic (parse/dedup). Sharding the CPU pipeline to
+  "use more cores" does not address the real bottleneck — the single Kafka receive path does.
+- **Per-batch writes are already concurrent.** `process_batch` spawns the (up to 6) writes per
+  batch with `tokio::spawn` + `join_all`, so they overlap; a batch costs ~1× write latency, not
+  6×. The remaining write-side lever is *cross-batch* concurrency (`writer_max_concurrency`).
+- **Write concurrency only pays at prod latency.** `writer_max_concurrency=4` gives ~+30% e2e at
+  173 ms writes, but the first attempt *regressed* ~25-35% against a 1 ms local Postgres. Always
+  measure write-path changes at `PROPDEFS_BENCH_WRITE_LATENCY_MS=173`, not local-fast writes.
+- **The local e2e bench is write-bound and cannot score reader-side gains.** At 173 ms the writes
+  dominate, so batched reads / reader-CPU work won't move `staged_c4`. Validate reader changes in a
+  read-bound regime (low/zero write latency) or accept they're prod-motivated, not bench-scored.
+- **Kafka key is `(team, rand 0-3)`.** Spreading a hot team across 4 keys trades consumer lag for
+  cross-pod write amplification: shared keys mean N pods ≈ N× the same (mostly no-op) writes.
+- **Cache contention is negligible on the read path.** `quick_cache` shards internally by key hash
+  and we split into 3 per-record-type subcaches; `contains_key` takes a read lock. Per-team
+  sharding would help locality/eviction fairness, not lock contention.
+
+### Iteration history (compact)
+
+- **iter1 — REVERTED.** `is_likely_date_string` prefix fast-path. Behaviour-preserving; pipeline
+  events/sec +2.6% (within noise, under the 5% bar). Date CPU micro-opts aren't measurable with the
+  current metrics — would need a deterministic op-count metric.
+- **iter2 — KEPT (enablement, bench-neutral by construction).** Wired the staged pipeline into
+  `src/main.rs` behind `staged_pipeline` (default off); it was benchmark-only before. main.rs isn't
+  compiled into the benches, so it can't move `staged_c4`/dedup. Tests/clippy green; pipeline and
+  e2e staged/legacy ratio (~1.33×) unchanged. Kept on zero-risk enablement grounds, not a
+  throughput delta. (`ef179605`)
 
 ## The benchmarks
 
