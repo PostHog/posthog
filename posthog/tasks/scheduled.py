@@ -80,6 +80,7 @@ from products.endpoints.backend.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
     cleanup_stale_flags_expiry_tracking_task,
+    cleanup_stale_hash_key_overrides_task,
     compute_feature_flag_metrics,
     feature_flags_local_eval_canary_task,
     refresh_expiring_flag_definitions_cache_entries,
@@ -257,6 +258,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="15"),
         cleanup_stale_flags_expiry_tracking_task.s(),
         name="flags cache expiry tracking cleanup",
+    )
+
+    # Feature flag hash key overrides cleanup - daily at 4:30 AM
+    sender.add_periodic_task(
+        crontab(hour="4", minute="30"),
+        cleanup_stale_hash_key_overrides_task.s(),
+        name="cleanup stale feature flag hash key overrides",
     )
 
     # Feature flag metrics for Grafana dashboards - hourly at minute 30

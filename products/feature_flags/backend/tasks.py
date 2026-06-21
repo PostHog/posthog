@@ -442,3 +442,51 @@ def feature_flags_local_eval_canary_task(self: PushGatewayTask) -> None:
         run_local_eval_canary(self.metrics_registry)
     finally:
         django_cache.delete(lock_key)
+
+
+@shared_task(
+    bind=True,
+    base=PushGatewayTask,
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+)
+def cleanup_stale_hash_key_overrides_task(self: PushGatewayTask) -> None:
+    """Periodic task to clean up FeatureFlagHashKeyOverride records for deleted feature flags.
+
+    Removes entries for flags that no longer exist or are soft-deleted.
+    """
+    from posthog.models.team import Team
+
+    from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+
+    entries_cleaned_gauge = Gauge(
+        "posthog_cleanup_stale_hash_key_overrides_cleaned",
+        "Number of stale feature flag hash key overrides cleaned up",
+        registry=self.metrics_registry,
+    )
+
+    total_removed = 0
+
+    for team_id in Team.objects.values_list("id", flat=True).iterator(chunk_size=1000):
+        try:
+            # Get active flag keys for the team
+            active_flag_keys = list(
+                FeatureFlag.objects.filter(team_id=team_id, deleted=False).values_list("key", flat=True)
+            )
+
+            # Delete overrides for this team that don't correspond to active flags
+            deleted_count, _ = (
+                FeatureFlagHashKeyOverride.objects.filter(team_id=team_id)
+                .exclude(feature_flag_key__in=active_flag_keys)
+                .delete()
+            )
+            total_removed += deleted_count
+        except Exception as e:
+            logger.exception(
+                "Failed to cleanup stale hash key overrides for team",
+                team_id=team_id,
+                error=str(e),
+            )
+
+    entries_cleaned_gauge.set(total_removed)
+    logger.info("Completed stale feature flag hash key overrides cleanup", total_removed_count=total_removed)
