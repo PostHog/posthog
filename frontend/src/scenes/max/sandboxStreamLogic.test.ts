@@ -1650,6 +1650,117 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
+    describe('replayOnly viewer (read-only)', () => {
+        function mountViewer(streamKey: string): ReturnType<typeof sandboxStreamLogic.build> {
+            const viewer = sandboxStreamLogic({ streamKey, replayOnly: true })
+            viewer.mount()
+            return viewer
+        }
+
+        it('replays a terminal run read-only without opening SSE and never thinks', async () => {
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/run_started', {}) as any,
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'done' } }) as any,
+            ])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            const viewer = mountViewer('run-ro-terminal')
+            viewer.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            expect(viewer.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toEqual('done')
+            expect(viewer.values.currentRunStatus).toEqual('completed')
+            expect(MockStream.connections.length).toEqual(0)
+            expect(viewer.values.isThinking).toEqual(false)
+            expect(viewer.values.bootstrapLoading).toEqual(false)
+
+            viewer.unmount()
+        })
+
+        it('replays an in-progress snapshot without opening SSE and stays idle', async () => {
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/run_started', {}) as any,
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'partial' } }) as any,
+            ])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            const viewer = mountViewer('run-ro-inprogress')
+            viewer.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-2' })
+            await flushPromises()
+
+            expect(viewer.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toEqual('partial')
+            // run_started replayed, but a read-only snapshot never streams and never spins the indicator.
+            expect(MockStream.connections.length).toEqual(0)
+            expect(viewer.values.streamPhase).toEqual('idle')
+            expect(viewer.values.isThinking).toEqual(false)
+
+            viewer.unmount()
+        })
+
+        it('folds the snapshot only once across a re-bootstrap of the shared instance', async () => {
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'once' } }) as any,
+            ])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            const viewer = mountViewer('run-ro-idempotent')
+            viewer.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-3' })
+            await flushPromises()
+            // A second mounted viewer of the same run re-bootstraps the shared keyed instance.
+            viewer.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-3' })
+            await flushPromises()
+
+            expect(viewer.values.threadItems.filter((item) => item.type === 'assistant_message')).toHaveLength(1)
+
+            viewer.unmount()
+        })
+
+        it('surfaces an error item when the snapshot fetch fails and opens no SSE', async () => {
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
+
+            const viewer = mountViewer('run-ro-error')
+            viewer.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-4' })
+            await flushPromises()
+
+            expect(viewer.values.threadItems.some((item) => item.type === 'error')).toEqual(true)
+            expect(MockStream.connections.length).toEqual(0)
+            expect(viewer.values.bootstrapLoading).toEqual(false)
+
+            viewer.unmount()
+        })
+
+        it('keys read-only instances apart from a live stream of the same run', async () => {
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                sessionUpdate({
+                    sessionUpdate: 'agent_message',
+                    messageId: 'm1',
+                    content: { text: 'replayed' },
+                }) as any,
+            ])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            const live = sandboxStreamLogic({ streamKey: 'run-shared' })
+            live.mount()
+            const viewer = mountViewer('run-shared')
+
+            // Same streamKey, but the read-only `replay:` namespace resolves a distinct instance.
+            expect(viewer).not.toBe(live)
+
+            viewer.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-5' })
+            await flushPromises()
+
+            // The replay folds into the viewer only; the live instance is untouched — streaming can't bleed in.
+            expect(viewer.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toEqual(
+                'replayed'
+            )
+            expect(live.values.threadItems).toHaveLength(0)
+
+            viewer.unmount()
+            live.unmount()
+        })
+    })
+
     describe('wire frame parsing through the SSE reader', () => {
         it('reads the snake_case error_message off task_run_state frames', async () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
