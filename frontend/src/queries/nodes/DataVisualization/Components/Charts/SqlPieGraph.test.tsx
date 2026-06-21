@@ -51,9 +51,7 @@ const baseProps = (chartSettings: ChartSettings, data: (number | null)[]): LineG
 // On-slice value labels are static overlay nodes (not pointer-driven), so they steer clear of the
 // quill PieChart's flaky hover/click interaction tests.
 function sliceLabels(): string[] {
-    return Array.from(document.querySelectorAll('[data-attr="hog-chart-pie-slice-label"]')).map(
-        (el) => el.textContent ?? ''
-    )
+    return Array.from(document.querySelectorAll('[data-attr="hog-chart-pie-slice-label"]')).map((el) => el.textContent!)
 }
 
 describe('SqlPieGraph', () => {
