@@ -589,6 +589,7 @@ export const VALID_RECORDING_ORDERS = [
     'mouse_activity_count',
     'activity_score',
     'recording_ttl',
+    'surfacing_score',
 ] as const
 
 export interface MatchingEventsResponse {
@@ -1424,6 +1425,9 @@ export type TrendsFilter = {
     display?: TrendsFilterLegacy['display']
     /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
@@ -1493,6 +1497,26 @@ export type TrendsFilter = {
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
+    /** Show the period-over-period change pill on the Metric display.
+     * @default true */
+    metricShowChange?: boolean
+    /** Metric display: change pill color when the metric increased. Defaults to green. */
+    metricChangeIncreaseColor?: string
+    /** Metric display: change pill color when the metric decreased. Defaults to red. */
+    metricChangeDecreaseColor?: string
+    /** Metric display: color the sparkline by whether the metric increased or decreased.
+     * @default false */
+    metricColorByDirection?: boolean
+    /** Metric display: line color when the metric increased. Defaults to green. */
+    metricLineIncreaseColor?: string
+    /** Metric display: line color when the metric decreased. Defaults to red. */
+    metricLineDecreaseColor?: string
+    /** Metric display: which summary the resting headline shows — the period total, the average,
+     * or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives
+     * the change pill: total/average compare against the previous period when "compare to previous"
+     * is on; latest compares first→last of the series.
+     * @default total */
+    metricSummary?: 'total' | 'average' | 'latest'
 }
 
 export type CalendarHeatmapFilter = {
@@ -1511,6 +1535,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'formula',
     'display',
     'showLegend',
+    'legendPosition',
     'breakdown_histogram_bin_count',
     'aggregationAxisFormat',
     'aggregationAxisPrefix',
@@ -1525,6 +1550,13 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'excludeBoxPlotOutliers',
     'hideWeekends',
     'showAnnotations',
+    'metricShowChange',
+    'metricChangeIncreaseColor',
+    'metricChangeDecreaseColor',
+    'metricColorByDirection',
+    'metricLineIncreaseColor',
+    'metricLineDecreaseColor',
+    'metricSummary',
 ])
 
 export interface BoxPlotDatum {
@@ -4799,6 +4831,26 @@ export interface TrendsAlertConfig {
     check_ongoing_interval?: boolean
 }
 
+/** How a SQL alert reads the query result.
+ * `last_row` = the query is ordered oldest→newest and the last row is the current value;
+ * `first_row` = the query is ordered newest→oldest and the first row is the current value
+ * (this mode bounds the fetch with a LIMIT since only the head is read);
+ * `any_row` = every row is checked and the alert fires if any value breaches (absolute conditions only). */
+export type HogQLAlertEvaluation = 'last_row' | 'first_row' | 'any_row'
+
+/** Alert config for HogQL/SQL-backed insights. The query owns its own time window. */
+export interface HogQLAlertConfig {
+    type: 'HogQLAlertConfig'
+    /** Name of the result column to evaluate. When unset, the single numeric column is used
+     * (an error if the result has more than one numeric column). */
+    column?: string | null
+    /** How to read the result rows — an explicit choice, no implicit default. */
+    evaluation: HogQLAlertEvaluation
+    /** In `any_row` mode, the column whose value labels each row in breach messages.
+     * When unset, the first non-evaluated column is used, falling back to the row number. */
+    label_column?: string | null
+}
+
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
 export interface AlertScheduleRestrictionWindow {
     start: string
@@ -6816,7 +6868,14 @@ export const externalDataSources = [
     'Streamlabs',
     'Datorama',
     'Ahrefs',
+    'Lightfield',
+    'Appstack',
+    'Razorpay',
+    'Neon',
+    'NewRelic',
     'Custom',
+    'Tile38',
+    'Chatwoot',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

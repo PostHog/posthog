@@ -1,13 +1,21 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
+    type ActivityRow,
     aggregateHarnessRows,
     type BucketRow,
+    buildBucketKeys,
+    buildDailyActivity,
     buildKPIs,
     buildKpiWindow,
     buildToolDailySeries,
@@ -15,6 +23,7 @@ import {
     deltaPct,
     type HarnessRawRow,
     mcpDashboardOverviewLogic,
+    normalizeBucket,
     pickNotableSessions,
     type SessionRow,
     type ToolDailyRow,
@@ -44,9 +53,21 @@ describe('mcpDashboardOverviewLogic', () => {
     describe('categorizeHarness', () => {
         it.each([
             ['claude-code/1.0.0', 'Claude Code'],
+            ['claude-code cli', 'Claude Code'],
+            ['claude-code claude-desktop', 'Claude Desktop'],
+            ['claude-code claude-vscode', 'Claude Code (VS Code)'],
+            ['claude-code sdk-ts', 'Claude Agent SDK'],
             ['claude-ai', 'Claude.ai'],
             ['anthropic/claudeai', 'Claude.ai'],
+            ['cowork', 'Cowork'],
+            ['claude-design', 'Claude Design'],
+            ['claude-user', 'Claude.ai'],
+            ['openai-mcp', 'OpenAI'],
+            ['openai-mcp chatgpt', 'ChatGPT'],
+            ['openai-mcp agent builder', 'OpenAI Agent Builder'],
+            ['openai-mcp responses api', 'OpenAI Responses API'],
             ['cursor/0.42', 'Cursor'],
+            ['cursor darwin arm64', 'Cursor'],
             ['codex-cli', 'OpenAI Codex'],
             ['visual studio code', 'VS Code'],
             ['something-nobody-knows', 'Other'],
@@ -129,6 +150,97 @@ describe('mcpDashboardOverviewLogic', () => {
             ])
             // Other = tool-8 (92) + tool-9 (91)
             expect(tools[8]).toEqual({ tool: 'Other', data: [183] })
+        })
+
+        it('spans the supplied bucket keys and zero-fills days without calls', () => {
+            const rows: ToolDailyRow[] = [{ day: '2024-01-02', tool: 'a', calls: 5 }]
+            const bucketKeys = ['2024-01-01', '2024-01-02', '2024-01-03']
+            expect(buildToolDailySeries(rows, bucketKeys)).toEqual({
+                labels: bucketKeys,
+                tools: [{ tool: 'a', data: [0, 5, 0] }],
+            })
+        })
+
+        it('returns empty tools with the supplied labels when there are no rows', () => {
+            expect(buildToolDailySeries([], ['2024-01-01'])).toEqual({ labels: ['2024-01-01'], tools: [] })
+        })
+    })
+
+    describe('buildBucketKeys', () => {
+        it('emits one key per day across the resolved window, including empty trailing days', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            try {
+                expect(buildBucketKeys({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')).toEqual([
+                    '2026-06-11 00:00:00',
+                    '2026-06-12 00:00:00',
+                    '2026-06-13 00:00:00',
+                    '2026-06-14 00:00:00',
+                    '2026-06-15 00:00:00',
+                    '2026-06-16 00:00:00',
+                    '2026-06-17 00:00:00',
+                    '2026-06-18 00:00:00',
+                ])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('truncates weekly buckets to ISO Monday starts (matching ClickHouse dateTrunc)', () => {
+            // 2026-06-01 is a Monday; every key should land on a Monday.
+            const keys = buildBucketKeys({ dateFrom: '2026-06-01', dateTo: '2026-06-21' }, 'UTC', 'week')
+            expect(keys).toEqual(['2026-06-01 00:00:00', '2026-06-08 00:00:00', '2026-06-15 00:00:00'])
+        })
+    })
+
+    describe('buildDailyActivity', () => {
+        it('projects rows onto the bucket keys, defaulting missing buckets to zero', () => {
+            const rows: ActivityRow[] = [
+                { day: '2024-01-01 00:00:00', successes: 10, errors: 2 },
+                { day: '2024-01-03 00:00:00', successes: 4, errors: 1 },
+            ]
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            expect(buildDailyActivity(rows, bucketKeys)).toEqual({
+                labels: bucketKeys,
+                successes: [10, 0, 4],
+                errors: [2, 0, 1],
+            })
+        })
+
+        it('returns all-zero series when there are no rows', () => {
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            expect(buildDailyActivity([], bucketKeys)).toEqual({
+                labels: bucketKeys,
+                successes: [0, 0, 0],
+                errors: [0, 0, 0],
+            })
+        })
+    })
+
+    describe('normalizeBucket', () => {
+        // The query API serializes dateTrunc buckets as ISO datetimes; they must come back in the
+        // same format buildBucketKeys emits, otherwise the zero-fill join misses every bucket.
+        it.each([
+            ['2026-06-19T00:00:00Z', 'UTC', '2026-06-19 00:00:00'],
+            ['2026-06-19T00:00:00+00:00', 'UTC', '2026-06-19 00:00:00'],
+            ['2026-06-19T11:30:00Z', 'UTC', '2026-06-19 11:30:00'],
+        ])('normalizes %s (%s) to %s', (raw, timezone, expected) => {
+            expect(normalizeBucket(raw, timezone)).toBe(expected)
+        })
+
+        it('returns empty string for missing values', () => {
+            expect(normalizeBucket(null, 'UTC')).toBe('')
+            expect(normalizeBucket('', 'UTC')).toBe('')
+        })
+
+        it('produces keys that match buildBucketKeys so the activity join lands', () => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            try {
+                const bucketKeys = buildBucketKeys({ dateFrom: '-7d', dateTo: null }, 'UTC', 'day')
+                const normalized = normalizeBucket('2026-06-18T00:00:00Z', 'UTC')
+                expect(bucketKeys).toContain(normalized)
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 
@@ -271,7 +383,7 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('date filter wiring', () => {
+    describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
@@ -302,6 +414,95 @@ describe('mcpDashboardOverviewLogic', () => {
             const kpi = reloads.find((call) => call.query.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
             expect(dayjs(kpi?.filters.dateRange.date_from).isValid()).toBe(true)
+        })
+
+        it.each([[false], [true]])('passes filterTestAccounts=%s to every tile', async (enabled) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            // enabled=false is the default mount state; enabled=true reloads after toggling.
+            const callsBefore = enabled ? mockApi.query.mock.calls.length : 0
+
+            if (enabled) {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilterTestAccounts(true)
+                }).toFinishAllListeners()
+            }
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads.length).toBe(6)
+            expect(reloads.every((call) => call.filters.filterTestAccounts === enabled)).toBe(true)
+        })
+
+        it('defaults the filter from the team test_account_filters_default_checked setting', async () => {
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // No explicit toggle, yet every tile filters internal users because the team default is on.
+            const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
+            expect(reloads.length).toBeGreaterThanOrEqual(6)
+            expect(reloads.every((call) => call.filters.filterTestAccounts === true)).toBe(true)
+        })
+
+        const EVENT_FILTER: AnyPropertyFilter = {
+            key: '$mcp_tool_name',
+            value: ['create_insight'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+        // Feature-flag filters arrive as ordinary $feature/<key> event-property filters.
+        const FLAG_FILTER: AnyPropertyFilter = {
+            key: '$feature/mcp-new-thing',
+            value: ['test'],
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+
+        it.each([
+            ['event property', EVENT_FILTER],
+            ['feature flag', FLAG_FILTER],
+        ])('passes %s filters to every tile', async (_label, filter) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([filter])
+            }).toFinishAllListeners()
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads.length).toBe(6)
+            expect(reloads.every((call) => JSON.stringify(call.filters.properties) === JSON.stringify([filter]))).toBe(
+                true
+            )
+        })
+
+        it('syncs property filters to the URL and clears the param when emptied', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([EVENT_FILTER])
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.properties).toEqual([EVENT_FILTER])
+
+            await expectLogic(logic, () => {
+                logic.actions.setPropertyFilters([])
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.properties).toBeUndefined()
+        })
+
+        it('hydrates property filters from the URL on mount', async () => {
+            router.actions.push(urls.mcpAnalyticsDashboard(), { properties: [EVENT_FILTER] })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.propertyFilters).toEqual([EVENT_FILTER])
         })
     })
 })

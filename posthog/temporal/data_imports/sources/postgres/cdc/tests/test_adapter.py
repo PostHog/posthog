@@ -202,3 +202,33 @@ class TestAlterPublicationMembership:
         source = _source(cdc_enabled=True, cdc_management_mode="posthog")
         PostgresCDCAdapter().add_table(source, "public", "orders")
         mock_add.assert_not_called()
+
+
+class TestGetStatus:
+    @patch(f"{_ADAPTER}.get_publication_tables", return_value=["public.orders", "public.users"])
+    @patch(f"{_ADAPTER}.get_slot_lag_bytes", return_value=42)
+    @patch(f"{_ADAPTER}.publication_exists", return_value=True)
+    @patch(f"{_ADAPTER}.slot_exists", return_value=True)
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_includes_published_tables(self, _conn, _slot, _pub, _lag, mock_tables) -> None:
+        source = _source(cdc_enabled=True, cdc_slot_name="slot", cdc_publication_name="pub")
+        status = PostgresCDCAdapter().get_status(source)
+        assert status == {
+            "slot_exists": True,
+            "publication_exists": True,
+            "lag_bytes": 42,
+            "published_tables": ["public.orders", "public.users"],
+        }
+        mock_tables.assert_called_once()
+        assert mock_tables.call_args.args[1] == "pub"
+
+    @patch(f"{_ADAPTER}.get_publication_tables")
+    @patch(f"{_ADAPTER}.get_slot_lag_bytes", return_value=None)
+    @patch(f"{_ADAPTER}.publication_exists", return_value=False)
+    @patch(f"{_ADAPTER}.slot_exists", return_value=False)
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_skips_table_lookup_when_publication_missing(self, _conn, _slot, _pub, _lag, mock_tables) -> None:
+        source = _source(cdc_enabled=True, cdc_slot_name="slot", cdc_publication_name="pub")
+        status = PostgresCDCAdapter().get_status(source)
+        assert status["published_tables"] == []
+        mock_tables.assert_not_called()

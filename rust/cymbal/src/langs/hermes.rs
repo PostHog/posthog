@@ -13,7 +13,7 @@ use crate::{
         CommonFrameMetadata,
     },
     sanitize_string,
-    symbol_store::{chunk_id::OrChunkId, hermesmap::ParsedHermesMap, SymbolCatalog},
+    symbolication::symbol_store::{chunk_id::OrChunkId, hermesmap::ParsedHermesMap, SymbolCatalog},
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -239,7 +239,7 @@ mod test {
         config::Config,
         frames::RawFrame,
         langs::{hermes::RawHermesFrame, CommonFrameMetadata},
-        symbol_store::{
+        symbolication::symbol_store::{
             apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
             proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
             Catalog, MockS3Client,
