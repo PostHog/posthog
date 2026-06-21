@@ -734,6 +734,30 @@ const range = getPaginationRange(pageCount, pageIndex)
 
 Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableCell`. Per-cell options on `TableHead`/`TableCell`: `sticky="left" | "right"` (frozen column), `align="left" | "center" | "right"` (horizontal), `valign="top" | "middle" | "bottom"` (vertical), `expand` (absorb leftover width). `align` also positions an inline-flex header Button. On `Table`: `stickyHeader` (or `"page"`) for a sticky header, `fullWidth` to fill the container — pair `fullWidth` with `expand` on one column to choose which one stretches.
 
+**Sticky needs an explicit background.** Cells and headers are transparent by default, so anything sticky (`stickyHeader`, `stickyHeader="page"`, or `sticky="left"/"right"`) must set its own opaque background or scrolled-under content bleeds through. Add `bg-background` (or the surrounding surface's color) to the sticky `TableHeader` and to each sticky `TableHead`/`TableCell`. Non-sticky tables need nothing — the transparency lets a `Table` sit on any surface (inside a `Card`, a tinted panel) and inherit it.
+
+**Empty state — use `TableEmpty`, not a hand-rolled cell.** Drop `TableEmpty` in where a `TableBody` would go; it renders its own `tbody > tr > td` with a full-span `colSpan` (defaults huge, browsers clamp to the real column count) and centers its content. Put `<Empty>` or plain text inside — no manual `colSpan`, no `h-full`. To make it fill the body area, give the `Table` a height (e.g. `className="h-full"` with a height-bounded container); otherwise it sizes to its content. Don't put an `<Empty>` (a `div`) as a direct child of `Table` — that's invalid table markup and the browser hoists it out of the grid.
+
+```tsx
+<Table fullWidth className="h-full">
+  <TableHeader>{/* … */}</TableHeader>
+  <TableEmpty>
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <InboxIcon />
+        </EmptyMedia>
+        <EmptyTitle>No members yet</EmptyTitle>
+        <EmptyDescription>Invite teammates to start collaborating.</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button>Invite member</Button>
+      </EmptyContent>
+    </Empty>
+  </TableEmpty>
+</Table>
+```
+
 ### Menubar
 
 ```tsx
