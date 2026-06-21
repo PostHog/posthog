@@ -1821,6 +1821,51 @@ def test_prop_filter_json_extract_nullable_materialized_is_set_uses_json(
         assert uuids == expected
 
 
+@freeze_time("2021-04-01T01:00:00.000Z")
+def test_prop_filter_json_extract_is_set_excludes_explicit_json_null(clean_up_materialised_columns, team):
+    # Regression test for #29916: a person/event property whose JSON value is explicitly `null`
+    # should be treated as "not set", consistently for both `is_set` and `is_not_set`.
+    events = [
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"email": "test@posthog.com"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"email": None},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"attr": "unrelated"},
+        ),
+    ]
+
+    cases = [
+        (Property(key="email", operator="is_set", value="is_set"), [0]),
+        (Property(key="email", operator="is_not_set", value="is_not_set"), [1, 2]),
+    ]
+
+    for property, expected_event_indexes in cases:
+        query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
+        uuids = sorted(
+            [
+                str(uuid)
+                for (uuid,) in sync_execute(
+                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                    {"team_id": team.pk, **params},
+                )
+            ]
+        )
+        expected = sorted([events[index] for index in expected_event_indexes])
+        assert uuids == expected, f"operator={property.operator}"
+
+
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
 def test_prop_filter_json_extract_person_on_events_materialized(
