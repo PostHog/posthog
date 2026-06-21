@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from textwrap import dedent
 
 from freezegun import freeze_time
+from parameterized import parameterized
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
@@ -128,17 +129,6 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             "The property nonsense does not exist in the taxonomy.",
         )
 
-        # Session properties whose taxonomy definition has examples but no explicit "type"
-        # must degrade gracefully instead of raising KeyError: 'type'.
-        self.assertEqual(
-            toolkit.retrieve_entity_property_values("session", "$last_external_click_url"),
-            '"https://example.com/interesting-article?parameter=true" and many more distinct values.',
-        )
-        self.assertEqual(
-            toolkit.retrieve_entity_property_values("session", "$vitals_lcp"),
-            "2.2 and many more distinct values.",
-        )
-
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="email", property_type=PropertyType.String
         )
@@ -207,6 +197,21 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             "6, 5, 4, 3, 2, 1, 0",
         )
         self.assertEqual(toolkit.retrieve_entity_property_values("org", "test"), '"7"')
+
+    @parameterized.expand(
+        [
+            # Session-property definitions with examples but no explicit "type" must degrade
+            # gracefully (defaulting to non-string formatting) instead of raising KeyError: 'type'.
+            (
+                "$last_external_click_url",
+                '"https://example.com/interesting-article?parameter=true" and many more distinct values.',
+            ),
+            ("$vitals_lcp", "2.2 and many more distinct values."),
+        ]
+    )
+    def test_retrieve_session_property_values_without_explicit_type(self, property_name: str, expected: str):
+        toolkit = DummyToolkit(self.team, self.user)
+        self.assertEqual(toolkit.retrieve_entity_property_values("session", property_name), expected)
 
     def test_retrieve_entity_property_values_virtual_person_property_with_examples(self):
         toolkit = DummyToolkit(self.team, self.user)
