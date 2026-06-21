@@ -107,7 +107,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                     {
                         title: 'Status',
                         key: 'status',
-                        render: (_, row) => <StatusTag status={row.status} />,
+                        render: (_, row) => <StatusTag source={row} />,
                     },
                     {
                         title: 'Pages / chunks',

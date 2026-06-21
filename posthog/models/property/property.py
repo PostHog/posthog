@@ -131,6 +131,10 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
         {"time_value", "time_interval"},
         {"explicit_datetime"},
     ],
+    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME: [
+        {"time_value", "time_interval"},
+        {"explicit_datetime"},
+    ],
 }
 
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
@@ -149,8 +153,6 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
         "key",
         "value",
         "event_type",
-        "time_value",
-        "time_interval",
     ],
     BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE: [
         "key",

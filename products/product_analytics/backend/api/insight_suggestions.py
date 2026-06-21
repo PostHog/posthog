@@ -18,9 +18,11 @@ from posthog.schema import (
 
 from posthog.hogql.ai import hit_openai
 
+from posthog.event_usage import groups
 from posthog.models import Team
 
 from products.annotations.backend.api.annotation_context import build_annotations_block, resolve_query_date_range
+from products.product_analytics.backend.api.ai_billing import billable_ai_properties
 
 logger = structlog.get_logger(__name__)
 
@@ -249,7 +251,8 @@ def get_insight_analysis(
         content, _, _ = hit_openai(
             messages,
             f"team/{team.id}/analysis",
-            posthog_properties={"ai_product": "product_analytics", "ai_feature": "insight-ai-analysis"},
+            posthog_properties=billable_ai_properties(team.id, "insight-ai-analysis"),
+            posthog_groups=groups(),
         )
         return content
 
@@ -298,7 +301,8 @@ def get_ai_suggestions(
         content, _, _ = hit_openai(
             messages,
             f"team/{team.id}/suggestions",
-            posthog_properties={"ai_product": "product_analytics", "ai_feature": "insight-ai-suggestions"},
+            posthog_properties=billable_ai_properties(team.id, "insight-ai-suggestions"),
+            posthog_groups=groups(),
         )
 
         # Parse JSON from content

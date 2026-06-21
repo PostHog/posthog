@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -33,6 +34,7 @@ class WorkOSSource(ResumableSource[WorkOSSourceConfig, WorkOSResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.WORK_OS,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="WorkOS",
             releaseStatus="alpha",
             caption="""Enter your WorkOS API key to sync your WorkOS data into the PostHog Data warehouse.
@@ -87,6 +89,10 @@ The key starts with `sk_`.
         return {
             "401 Client Error: Unauthorized for url: https://api.workos.com": "Your WorkOS API key is invalid or has been revoked. Please update the key in your WorkOS dashboard and reconnect.",
             "403 Client Error: Forbidden for url: https://api.workos.com": "Your WorkOS API key does not have permission to access this endpoint. Please check the key's scopes in your WorkOS dashboard.",
+            # WorkOS returns 422 for a syntactically valid list request it can't fulfil for this
+            # account — e.g. the Directory Sync endpoints (directory_users/directory_groups) when
+            # Directory Sync isn't provisioned. It's deterministic, so retrying never resolves it.
+            "422 Client Error: Unprocessable Entity for url: https://api.workos.com": "WorkOS could not process the request for one of the endpoints being synced. This usually means the data isn't available for your WorkOS account (for example, Directory Sync isn't configured). Please check your WorkOS configuration and the endpoints you're syncing, then reconnect.",
         }
 
     def validate_credentials(

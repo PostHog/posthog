@@ -150,6 +150,42 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
             assert snapshot.remaining == 0
 
 
+class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
+    def _make_scanner(self, *, team: Team, name: str, enabled: bool = True, estimate: int | None = None) -> None:
+        scanner = ReplayScanner.objects.create(
+            team=team,
+            name=name,
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_FLASH,
+            enabled=enabled,
+        )
+        if estimate is not None:
+            ReplayScanner.objects.filter(pk=scanner.pk).update(
+                estimated_monthly_observations=estimate, estimated_at=timezone.now()
+            )
+
+    def test_sums_enabled_scanners_across_org_teams(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="second-team")
+        self._make_scanner(team=self.team, name="a", estimate=100)
+        self._make_scanner(team=other_team, name="b", estimate=250)
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.projected_monthly_observations == 350
+
+    def test_disabled_and_unestimated_scanners_contribute_zero(self) -> None:
+        self._make_scanner(team=self.team, name="disabled", enabled=False, estimate=500)
+        self._make_scanner(team=self.team, name="unestimated", estimate=None)
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.projected_monthly_observations == 0
+
+    def test_other_orgs_scanners_not_counted(self) -> None:
+        other_org = Organization.objects.create(name="other-projection-org")
+        other_team = Team.objects.create(organization=other_org, name="other-projection-team")
+        self._make_scanner(team=other_team, name="other", estimate=999)
+        snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.projected_monthly_observations == 0
+
+
 class TestQuotaGrants(_VisionQuotaTestCase):
     def test_active_grant_adds_to_monthly_quota(self) -> None:
         ReplayQuotaGrant.objects.create(
@@ -263,8 +299,16 @@ class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
         assert body["usage_this_month"] == 0
         assert body["remaining"] == MONTHLY_OBSERVATION_QUOTA
         assert body["exhausted"] is False
+        assert body["projected_monthly_observations"] == 0
         assert "period_start" in body
         assert "period_end" in body
+
+    def test_returns_fleet_projection(self) -> None:
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(
+            estimated_monthly_observations=120, estimated_at=timezone.now()
+        )
+        resp = self.client.get(self.quota_url)
+        assert resp.json()["projected_monthly_observations"] == 120
 
     def test_reflects_recent_succeeded_observations(self) -> None:
         for _ in range(3):

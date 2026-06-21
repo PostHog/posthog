@@ -3,6 +3,7 @@ use rdkafka::ClientConfig;
 use tracing::info;
 
 use crate::kafka_config::ConsumerConfigBuilder;
+use crate::routing::RoutingStrategy;
 
 /// Configuration for the ingestion consumer.
 ///
@@ -126,18 +127,27 @@ pub struct Config {
     #[envconfig(default = "3")]
     pub max_retries: u32,
 
-    /// Maximum in-flight batches per worker. MUST match
-    /// `INGESTION_WORKER_CONCURRENT_BATCHES` on the Node.js side, which is
-    /// passed into `BatchingPipeline.concurrentBatches`. The consumer caps
-    /// itself via a per-worker `Semaphore`; the worker still responds 503
-    /// if it sees `feed()` rejection, so any divergence is observable via
-    /// `ingestion_api_batch_capacity_rejections_total`.
+    /// Soft cap on in-flight batches per worker, enforced by a per-worker
+    /// `Semaphore`. Ideally aligned with the worker's
+    /// `BatchingPipeline.concurrentBatches` (`INGESTION_WORKER_CONCURRENT_BATCHES`
+    /// on the Node.js side) so the happy path backpressures by waiting for a
+    /// permit before the worker fills up. It need not match exactly: if the
+    /// worker still responds 503, the transport treats it as retriable
+    /// backpressure and retries with a longer, jittered backoff. Divergence
+    /// remains observable via `ingestion_api_batch_capacity_rejections_total`.
+    /// (A future adaptive-concurrency controller will replace this static cap.)
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    /// How unpinned routing keys are assigned to workers: `binpack` (default,
+    /// least-loaded — accurate for the co-located sidecar) or `p2c`
+    /// (power-of-two-choices — herd-resistant for a shared worker pool).
+    #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
+    pub routing_strategy: RoutingStrategy,
 
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).
@@ -273,6 +283,10 @@ impl Config {
             info!(key = %key, value = %value, "Applying KAFKA_CONSUMER_ env override");
             builder = builder.set(key, value);
         }
+
+        // After all overrides: if KAFKA_CONSUMER_GROUP_PROTOCOL=consumer selected the
+        // KIP-848 protocol, drop the classic-only keys librdkafka would reject.
+        builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
     }

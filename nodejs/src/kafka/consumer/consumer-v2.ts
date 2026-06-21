@@ -20,7 +20,7 @@ import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
 import { promisifyCallback } from '../../utils/utils'
 import { ensureTopicExists } from '../admin'
-import { getKafkaConfigFromEnv } from '../config'
+import { getKafkaConfigFromEnv, stripClassicProtocolConfig } from '../config'
 import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
 import {
     consumedBatchBackgroundDuration,
@@ -127,7 +127,7 @@ export class KafkaConsumerV2 {
         this.loopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS || LOOP_STALL_THRESHOLD_MS_DEFAULT
         this.logStatsLevel = defaultConfig.CONSUMER_LOG_STATS_LEVEL
 
-        this.rdKafkaConfig = {
+        this.rdKafkaConfig = stripClassicProtocolConfig({
             'client.id': hostname(),
             'security.protocol': 'plaintext',
             'metadata.broker.list': 'kafka:9092',
@@ -157,7 +157,7 @@ export class KafkaConsumerV2 {
             'enable.auto.commit': this.config.autoCommit,
             rebalance_cb: this.rebalanceCallback.bind(this),
             offset_commit_cb: true,
-        }
+        })
 
         this.rdKafkaConsumer = this.createConsumer()
     }

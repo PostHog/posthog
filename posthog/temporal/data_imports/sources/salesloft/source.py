@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class SalesLoftSource(ResumableSource[SalesLoftSourceConfig, SalesloftResumeConf
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SALES_LOFT,
+            category=DataWarehouseSourceCategory.SALES,
             label="Salesloft",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Salesloft API key to pull your Salesloft data into the PostHog Data warehouse.
@@ -49,7 +51,6 @@ You can create an API key in your [Salesloft account](https://accounts.salesloft
             docsUrl="https://posthog.com/docs/cdp/sources/salesloft",
             # Kept hidden until end-to-end sync is verified against a live Salesloft account
             # (endpoint behavior was validated against API docs + the Airbyte connector, not curl).
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

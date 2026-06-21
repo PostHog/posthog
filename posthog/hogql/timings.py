@@ -1,9 +1,11 @@
 from contextlib import contextmanager, nullcontext
 from time import perf_counter
+from typing import TYPE_CHECKING
 
 from opentelemetry import trace
 
-from posthog.schema import QueryTiming
+if TYPE_CHECKING:
+    from posthog.schema import QueryTiming
 
 _tracer = trace.get_tracer(__name__)
 
@@ -53,7 +55,11 @@ class HogQLTimings:
             timings[key] = round(timings.get(key, 0.0) + (perf_counter() - start), TIMING_DECIMAL_PLACES)
         return timings
 
-    def to_list(self, back_out_stack=True) -> list[QueryTiming]:
+    def to_list(self, back_out_stack=True) -> list["QueryTiming"]:
+        # Deferred: posthog.schema stays off django.setup(); this module loads there via
+        # hogql.context.
+        from posthog.schema import QueryTiming  # noqa: PLC0415
+
         return [
             QueryTiming(k=key, t=round(time, TIMING_DECIMAL_PLACES))
             for key, time in (self.to_dict() if back_out_stack else self.timings).items()

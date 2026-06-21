@@ -165,6 +165,10 @@ impl IngestionConsumer {
         let mut accepting_new_batches = true;
 
         while accepting_new_batches || !in_flight_batches.is_empty() {
+            // Consumer-level concurrency: how many Kafka batches are being
+            // processed in parallel, bounded by `max_in_flight_batches`.
+            gauge!("ingestion_consumer_in_flight_batches").set(in_flight_batches.len() as f64);
+
             if accepting_new_batches && in_flight_batches.len() < self.max_in_flight_batches {
                 tokio::select! {
                     _ = self.handle.shutdown_recv() => {
@@ -351,12 +355,13 @@ impl IngestionConsumer {
             let bid = batch_id.clone();
             let worker_idx = sub_batch.worker_idx;
             let routing_keys = sub_batch.routing_keys.clone();
+            let message_count = sub_batch.messages.len();
 
             handles.push(tokio::spawn(async move {
                 let result = transport.send_batch(&url, &bid, sub_batch.messages).await;
                 let is_error = result.is_err();
 
-                dispatcher.on_sub_batch_resolved(worker_idx, &routing_keys);
+                dispatcher.on_sub_batch_resolved(worker_idx, message_count, &routing_keys);
                 dispatcher.record_send_outcome(worker_idx, is_error);
 
                 result

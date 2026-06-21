@@ -11,13 +11,13 @@ import {
 
 import { getByDataAttr } from '~/test/byDataAttr'
 
-import { GetLemonButtonTimePropsOpts } from './LemonCalendar'
+import { GetTimeStateOpts } from './LemonCalendar'
 
 const createClickHelpers = (
     container: HTMLElement
 ): {
     clickOnDate: (day: string) => Promise<void>
-    clickOnTime: (props: GetLemonButtonTimePropsOpts) => Promise<void>
+    clickOnTime: (props: GetTimeStateOpts) => Promise<void>
 } => ({
     clickOnDate: async (day: string): Promise<void> => {
         const element = container.querySelector('.LemonCalendar__month') as HTMLElement
@@ -26,7 +26,7 @@ const createClickHelpers = (
             await userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
         }
     },
-    clickOnTime: async (props: GetLemonButtonTimePropsOpts): Promise<void> => {
+    clickOnTime: async (props: GetTimeStateOpts): Promise<void> => {
         const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
         if (element) {
             await userEvent.click(element)
@@ -43,7 +43,7 @@ const renderLemonCalendarSelect = (
     onClose: jest.Mock
     onChange: jest.Mock
     clickOnDate: (day: string) => Promise<void>
-    clickOnTime: (props: GetLemonButtonTimePropsOpts) => Promise<void>
+    clickOnTime: (props: GetTimeStateOpts) => Promise<void>
 } => {
     const onClose = jest.fn()
     const onChange = jest.fn()
@@ -158,6 +158,53 @@ describe('LemonCalendarSelect', () => {
         await clickOnTime({ unit: 'h', value: '8' })
         // updates the hour to 8pm (later than 5pm)
         expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T20:22:00.000Z'))
+    })
+
+    test('upcoming selection uses selectionPeriodTimezone for the boundary', async () => {
+        // 17:22 UTC is 12:22 in New York, so a same-day 2pm slot is still upcoming there.
+        const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
+            granularity: 'minute',
+            selectionPeriod: 'upcoming',
+            selectionPeriodTimezone: 'America/New_York',
+        })
+
+        await clickOnDate('10')
+        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-10T12:22:00.000Z'))
+
+        await clickOnTime({ unit: 'h', value: '2' })
+        expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T14:22:00.000Z'))
+    })
+
+    test('upcoming selection resolves the day boundary in selectionPeriodTimezone', async () => {
+        // 04:00 UTC on Jan 11 is still 23:00 on Jan 10 in New York, so "today" is Jan 10 there, not Jan 11 UTC.
+        jest.setSystemTime(new Date('2023-01-11 04:00:00'))
+        const { onChange, clickOnDate } = renderLemonCalendarSelect(null, {
+            granularity: 'minute',
+            selectionPeriod: 'upcoming',
+            selectionPeriodTimezone: 'America/New_York',
+        })
+
+        // Jan 10 is today in New York, so it stays selectable (UTC-local would wrongly block it as past).
+        await clickOnDate('10')
+        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-10T23:00:00.000Z'))
+    })
+
+    test('past selection resolves the day boundary in selectionPeriodTimezone', async () => {
+        // 20:00 UTC on Jan 10 is already 05:00 on Jan 11 in Tokyo, so "today" is Jan 11 there, not Jan 10 UTC.
+        jest.setSystemTime(new Date('2023-01-10 20:00:00'))
+        const { onChange, clickOnDate } = renderLemonCalendarSelect(null, {
+            granularity: 'minute',
+            selectionPeriod: 'past',
+            selectionPeriodTimezone: 'Asia/Tokyo',
+        })
+
+        // Jan 11 is today in Tokyo, so it stays selectable in past mode (UTC-local would wrongly block it as future).
+        await clickOnDate('11')
+        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-11T05:00:00.000Z'))
+
+        // Jan 12 is genuinely in the future in Tokyo and remains disabled.
+        await clickOnDate('12')
+        expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-11T05:00:00.000Z'))
     })
 
     test('allow only upcoming selection after a limit (one day in the future)', async () => {

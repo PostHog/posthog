@@ -92,9 +92,11 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         availableTags,
         observationStats,
         scanner,
+        triggeringOnDemandObservation,
+        refreshing,
     } = useValues(logic)
     const {
-        loadObservations,
+        refreshObservations,
         setObservationsPage,
         setObservationsSort,
         setObservationStatusFilter,
@@ -192,9 +194,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
     return (
         <div className="space-y-2">
             <div className="flex items-center gap-3">
-                <p className="text-muted text-sm m-0">
-                    Past observations made by this scanner. Each row is one observation.
-                </p>
+                <h3 className="font-semibold text-base m-0">Observation history</h3>
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
@@ -245,10 +245,12 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 size="small"
                                 type="secondary"
                                 icon={<IconRefresh />}
-                                onClick={() => loadObservations()}
-                                loading={observationsLoading}
+                                onClick={() => refreshObservations()}
+                                loading={refreshing}
                                 data-attr="vision-observations-refresh"
-                            />
+                            >
+                                Refresh
+                            </LemonButton>
                         </Tooltip>
                     </div>
                     {observationStats.total > 0 && (
@@ -277,7 +279,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                loading={observationsLoading}
+                loading={
+                    refreshing || triggeringOnDemandObservation || (observationsLoading && observations.length === 0)
+                }
                 rowKey="id"
                 pagination={{
                     controlled: true,

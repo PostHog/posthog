@@ -25,6 +25,10 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.cohort_pb2 impo
     ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse,
 )
+from posthog.personhog_client.proto.generated.personhog.types.v1.feature_flag_pb2 import (
+    DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse,
+)
 from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 import (
     CountGroupTypeMappingsRequest,
     CountGroupTypeMappingsResponse,
@@ -62,6 +66,8 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.group_pb2 impor
     UpdateGroupTypeMappingResponse,
 )
 from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 import (
+    DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonlessDistinctIdsBatchForTeamResponse,
     DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse,
     DeletePersonsRequest,
@@ -80,4 +86,11 @@ from posthog.personhog_client.proto.generated.personhog.types.v1.person_pb2 impo
     Person,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
+    SetPersonDistinctIdVersionFloorRequest,
+    SetPersonDistinctIdVersionFloorResponse,
+    SetPersonVersionFloorRequest,
+    SetPersonVersionFloorResponse,
+    SplitPersonRequest,
+    SplitPersonResponse,
+    SplitResult,
 )

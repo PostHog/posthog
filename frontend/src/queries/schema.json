@@ -21,25 +21,11 @@
         "AccountsQuery": {
             "additionalProperties": false,
             "properties": {
-                "accountExecutive": {
-                    "description": "Match accounts whose account executive is any of these user ids (OR semantics).",
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "accountOwner": {
-                    "description": "Match accounts whose account owner is any of these user ids (OR semantics).",
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
                 "allRolesUnassigned": {
                     "type": "boolean"
                 },
-                "csm": {
-                    "description": "Match accounts whose CSM is any of these user ids (OR semantics).",
+                "assignedToUserIds": {
+                    "description": "Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the \"My accounts\" shortcut (the current user's id) and the shareable \"Assigned to\" filter — the ids are explicit so a shared URL resolves identically for every viewer.",
                     "items": {
                         "$ref": "#/definitions/integer"
                     },
@@ -874,6 +860,9 @@
                     "$ref": "#/definitions/TraceSpansTreeQuery"
                 },
                 {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQuery"
+                },
+                {
                     "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
@@ -1132,6 +1121,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceSpansTreeQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQueryResponse"
                 }
             ]
         },
@@ -1448,12 +1440,13 @@
             "type": "object"
         },
         "AssistantDataVisualizationDisplayType": {
-            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
+            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
             "enum": [
                 "ActionsTable",
                 "BoldNumber",
                 "ActionsLineGraph",
                 "ActionsBar",
+                "ActionsPie",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
                 "TwoDimensionalHeatmap"
@@ -1485,7 +1478,7 @@
                 },
                 "display": {
                     "$ref": "#/definitions/AssistantDataVisualizationDisplayType",
-                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
                 },
                 "kind": {
                     "const": "DataVisualizationNode",
@@ -3379,6 +3372,26 @@
             "required": ["type", "id"],
             "type": "object"
         },
+        "AssistantRetentionActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into a retention insight to list the persons in one acquisition cohort and show, for each, which subsequent intervals they came back in. Returned rows are `distinct_id`, `email`, `name`, followed by one column per retention interval (`<period>_0` … `<period>_N`, e.g. `day_0`, `day_1`, … for a daily insight). Each interval column is `1` when the actor was active in that interval and `0` otherwise; `<period>_0` is the acquisition interval and is always `1`. Rows are ordered by how many intervals each actor returned in (most-retained first).\n\nThe number and name of the interval columns are derived from the source — `retentionFilter.period` sets the prefix and `retentionFilter.totalIntervals` (or `retentionCustomBrackets.length + 1` when custom brackets are set) sets the count.\n\nRetention drilldown has no per-cell `day` / `series` / `compare` selectors and no matched-recordings column — its persons output is appearance-based.",
+            "properties": {
+                "interval": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Which acquisition cohort to drill into, 0-based. `0` is the acquisition interval itself (every actor who entered the cohort); `1` is the cohort that entered one interval later, and so on. Defaults to `0` when omitted."
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantRetentionQuery",
+                    "description": "The source retention insight query whose cohort we are drilling into."
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "AssistantRetentionEntity": {
             "anyOf": [
                 {
@@ -3461,6 +3474,7 @@
                     "items": {
                         "type": "number"
                     },
+                    "maxItems": 31,
                     "type": "array"
                 },
                 "retentionReference": {
@@ -3799,6 +3813,7 @@
         "AssistantTool": {
             "enum": [
                 "search_session_recordings",
+                "create_ai_trace_parser",
                 "fix_hogql_query",
                 "analyze_user_interviews",
                 "create_user_interview_topic",
@@ -3841,6 +3856,7 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
+                "list_feature_flags",
                 "upsert_alert",
                 "finalize_plan",
                 "call_mcp_server",
@@ -3864,6 +3880,7 @@
                 "marketing_suggest_utm_mappings",
                 "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
+                "search_replay_vision_observations",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -4167,6 +4184,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "Metric",
+                    "type": "string"
+                },
+                {
                     "const": "ActionsPie",
                     "type": "string"
                 },
@@ -4192,6 +4213,10 @@
                 },
                 {
                     "const": "BoxPlot",
+                    "type": "string"
+                },
+                {
+                    "const": "SlopeGraph",
                     "type": "string"
                 },
                 {
@@ -4263,7 +4288,7 @@
                     "description": "Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`."
                 },
                 "aggregationAxisPostfix": {
-                    "description": "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.",
+                    "description": "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix. Never set a postfix that `aggregationAxisFormat` already renders: `percentage` and `percentage_scaled` already append the `%` sign, so a `%` postfix would render values as `50%%`.",
                     "type": "string"
                 },
                 "aggregationAxisPrefix": {
@@ -4276,7 +4301,7 @@
                 },
                 "display": {
                     "default": "ActionsLineGraph",
-                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
                         "Auto",
                         "ActionsLineGraph",
@@ -4285,13 +4310,15 @@
                         "ActionsAreaGraph",
                         "ActionsLineGraphCumulative",
                         "BoldNumber",
+                        "Metric",
                         "ActionsPie",
                         "ActionsBarValue",
                         "ActionsTable",
                         "WorldMap",
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
-                        "BoxPlot"
+                        "BoxPlot",
+                        "SlopeGraph"
                     ],
                     "type": "string"
                 },
@@ -4301,6 +4328,38 @@
                         "$ref": "#/definitions/TrendsFormulaNode"
                     },
                     "type": "array"
+                },
+                "metricChangeDecreaseColor": {
+                    "description": "Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when the metric went DOWN. Defaults to red (`#db3707`). For a \"lower is better\" metric (latency, error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good.",
+                    "type": "string"
+                },
+                "metricChangeIncreaseColor": {
+                    "description": "Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when the metric went UP. Defaults to green (`#388600`). For a \"lower is better\" metric (latency, error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad.",
+                    "type": "string"
+                },
+                "metricColorByDirection": {
+                    "default": false,
+                    "description": "Only applies when `display` is `Metric`. Color the sparkline under the big number by whether the metric increased or decreased over the period (using the increase/decrease line colors).",
+                    "type": "boolean"
+                },
+                "metricLineDecreaseColor": {
+                    "description": "Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a \"lower is better\" metric.",
+                    "type": "string"
+                },
+                "metricLineIncreaseColor": {
+                    "description": "Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a \"lower is better\" metric.",
+                    "type": "string"
+                },
+                "metricShowChange": {
+                    "default": true,
+                    "description": "Only applies when `display` is `Metric`. Show the change pill next to the big number. What it compares follows `metricSummary`: `total`/`average` compare against the previous period when \"compare to previous\" is on (otherwise first→last of the series), and `latest` is always first→last of the series.",
+                    "type": "boolean"
+                },
+                "metricSummary": {
+                    "default": "total",
+                    "description": "Only applies when `display` is `Metric`. Which summary the resting big number shows: `total` (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the sparkline always shows the hovered point's value regardless of this setting. Also drives the change pill: `total`/`average` compare against the previous period when \"compare to previous\" is on; `latest` compares first→last of the series.",
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
                 },
                 "showAlertThresholdLines": {
                     "default": false,
@@ -4505,6 +4564,29 @@
                 }
             },
             "required": ["id", "tool_call_id", "content"],
+            "type": "object"
+        },
+        "AttributeBreakdownRow": {
+            "additionalProperties": false,
+            "description": "One row of a span attribute breakdown: the spans matching the filters, grouped by one attribute's value. Spans without the attribute group under `value = ''`.",
+            "properties": {
+                "count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "error_count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "p50_duration_nano": {
+                    "type": "number"
+                },
+                "p95_duration_nano": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["value", "count", "error_count", "p50_duration_nano", "p95_duration_nano"],
             "type": "object"
         },
         "AttributionMode": {
@@ -9926,6 +10008,99 @@
             ],
             "type": "object"
         },
+        "CachedTraceSpansAttributeBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedTraceSpansQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -10012,6 +10187,98 @@
             },
             "required": [
                 "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedTraceSpansSymbolStatsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "granularity": {
+                    "$ref": "#/definitions/SymbolStatsGranularity",
+                    "description": "Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise."
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "description": "One row per bucket, ordered by line ascending.",
+                    "items": {
+                        "$ref": "#/definitions/SymbolStatsRow"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "granularity",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -10634,6 +10901,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -10669,14 +10939,6 @@
                 "types": {
                     "items": {},
                     "type": "array"
-                },
-                "usedLazyPrecompute": {
-                    "description": "Whether the response was served from the lazy precompute path.",
-                    "type": "boolean"
-                },
-                "usedPreAggregatedTables": {
-                    "description": "Whether the response was served from a precomputed table.",
-                    "type": "boolean"
                 },
                 "warnings": {
                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -10733,6 +10995,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -10766,9 +11031,6 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
-                },
-                "usedPreAggregatedTables": {
-                    "type": "boolean"
                 },
                 "warnings": {
                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -10831,6 +11093,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -10864,12 +11129,6 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
-                },
-                "usedLazyPrecompute": {
-                    "type": "boolean"
-                },
-                "usedPreAggregatedTables": {
-                    "type": "boolean"
                 },
                 "warnings": {
                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -10931,6 +11190,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -11031,6 +11293,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -11066,12 +11331,6 @@
                 "types": {
                     "items": {},
                     "type": "array"
-                },
-                "usedLazyPrecompute": {
-                    "type": "boolean"
-                },
-                "usedPreAggregatedTables": {
-                    "type": "boolean"
                 },
                 "warnings": {
                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -11128,6 +11387,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -11160,9 +11422,6 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
-                },
-                "usedLazyPrecompute": {
-                    "type": "boolean"
                 },
                 "warnings": {
                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -11481,13 +11740,15 @@
                 "ActionsAreaGraph",
                 "ActionsLineGraphCumulative",
                 "BoldNumber",
+                "Metric",
                 "ActionsPie",
                 "ActionsBarValue",
                 "ActionsTable",
                 "WorldMap",
                 "CalendarHeatmap",
                 "TwoDimensionalHeatmap",
-                "BoxPlot"
+                "BoxPlot",
+                "SlopeGraph"
             ],
             "type": "string"
         },
@@ -11628,6 +11889,26 @@
                 }
             },
             "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "active_cpu_time"],
+            "type": "object"
+        },
+        "ClientToolResultPayload": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "const": "client_tool_result",
+                    "type": "string"
+                },
+                "result": {
+                    "additionalProperties": {},
+                    "description": "Result produced by the tool's client-side handler, returned verbatim to the tool awaiting it",
+                    "type": "object"
+                },
+                "tool_call_id": {
+                    "description": "Tool call id this result answers — echoed back so misdelivery fails loudly instead of silently",
+                    "type": "string"
+                }
+            },
+            "required": ["action", "result"],
             "type": "object"
         },
         "CohortPropertyFilter": {
@@ -12919,6 +13200,9 @@
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
                                 },
+                                "preComputeStrategy": {
+                                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12947,12 +13231,6 @@
                                     },
                                     "type": "array"
                                 },
-                                "usedLazyPrecompute": {
-                                    "type": "boolean"
-                                },
-                                "usedPreAggregatedTables": {
-                                    "type": "boolean"
-                                },
                                 "warnings": {
                                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
                                     "items": {
@@ -12992,80 +13270,8 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
-                                "query_status": {
-                                    "$ref": "#/definitions/QueryStatus",
-                                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                                },
-                                "resolved_compare_date_range": {
-                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                                    "description": "The resolved previous/comparison period date range, when comparing against another period"
-                                },
-                                "resolved_date_range": {
-                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                                    "description": "The date range used for the query"
-                                },
-                                "results": {
-                                    "items": {},
-                                    "type": "array"
-                                },
-                                "samplingRate": {
-                                    "$ref": "#/definitions/SamplingRate"
-                                },
-                                "timings": {
-                                    "description": "Measured timings for different parts of the query generation process",
-                                    "items": {
-                                        "$ref": "#/definitions/QueryTiming"
-                                    },
-                                    "type": "array"
-                                },
-                                "types": {
-                                    "items": {},
-                                    "type": "array"
-                                },
-                                "usedLazyPrecompute": {
-                                    "type": "boolean"
-                                },
-                                "usedPreAggregatedTables": {
-                                    "type": "boolean"
-                                },
-                                "warnings": {
-                                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
-                                    "items": {
-                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                                    },
-                                    "type": "array"
-                                }
-                            },
-                            "required": ["results"],
-                            "type": "object"
-                        },
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "columns": {
-                                    "items": {},
-                                    "type": "array"
-                                },
-                                "error": {
-                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                                    "type": "string"
-                                },
-                                "hasMore": {
-                                    "type": "boolean"
-                                },
-                                "hogql": {
-                                    "description": "Generated HogQL query.",
-                                    "type": "string"
-                                },
-                                "limit": {
-                                    "$ref": "#/definitions/integer"
-                                },
-                                "modifiers": {
-                                    "$ref": "#/definitions/HogQLQueryModifiers",
-                                    "description": "Modifiers used when performing the query"
-                                },
-                                "offset": {
-                                    "$ref": "#/definitions/integer"
+                                "preComputeStrategy": {
+                                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -13166,13 +13372,77 @@
                                     "items": {},
                                     "type": "array"
                                 },
-                                "usedLazyPrecompute": {
-                                    "description": "Whether the response was served from the lazy precompute path.",
+                                "warnings": {
+                                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                                    "items": {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
                                     "type": "boolean"
                                 },
-                                "usedPreAggregatedTables": {
-                                    "description": "Whether the response was served from a precomputed table.",
-                                    "type": "boolean"
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "preComputeStrategy": {
+                                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_compare_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
+                                "results": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "samplingRate": {
+                                    "$ref": "#/definitions/SamplingRate"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {},
+                                    "type": "array"
                                 },
                                 "warnings": {
                                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -13199,6 +13469,9 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "preComputeStrategy": {
+                                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -13226,9 +13499,6 @@
                                         "$ref": "#/definitions/QueryTiming"
                                     },
                                     "type": "array"
-                                },
-                                "usedLazyPrecompute": {
-                                    "type": "boolean"
                                 },
                                 "warnings": {
                                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -14878,6 +15148,26 @@
             "enum": ["data_warehouse", "endpoint", "managed_viewset"],
             "type": "string"
         },
+        "DataWarehouseSourceCategory": {
+            "enum": [
+                "Databases",
+                "File storage",
+                "Advertising",
+                "Marketing & email",
+                "CRM",
+                "Sales",
+                "Customer support",
+                "Payments & billing",
+                "Finance & accounting",
+                "Analytics",
+                "Engineering & monitoring",
+                "Productivity",
+                "HR & recruiting",
+                "Communication",
+                "E-commerce"
+            ],
+            "type": "string"
+        },
         "DataWarehouseSyncWarning": {
             "additionalProperties": false,
             "properties": {
@@ -15888,6 +16178,49 @@
                     "type": "string"
                 }
             },
+            "type": "object"
+        },
+        "EndpointBreakdownLimitExceededSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown_limit": {
+                    "type": "number"
+                },
+                "endpoint_name": {
+                    "type": "string"
+                }
+            },
+            "required": ["endpoint_name", "breakdown_limit"],
+            "type": "object"
+        },
+        "EndpointBreakdownLimitExceededSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/EndpointBreakdownLimitExceededSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "endpoints",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "endpoint_breakdown_limit_exceeded",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
             "type": "object"
         },
         "EndpointExecutionFailedSignalExtra": {
@@ -17302,7 +17635,7 @@
                     "type": "string"
                 },
                 "pendingFingerprintIssueStateUpdates": {
-                    "description": "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.",
+                    "description": "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery. The backend caps the list at 50 entries; extras are dropped silently.",
                     "items": {
                         "$ref": "#/definitions/ErrorTrackingPendingFingerprintIssueStateUpdate"
                     },
@@ -17326,11 +17659,11 @@
                     "$ref": "#/definitions/QueryLogTags"
                 },
                 "useQueryV2": {
-                    "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
+                    "deprecated": "Ignored — V2 query path was removed. Kept so requests from older clients still validate.",
                     "type": "boolean"
                 },
                 "useQueryV3": {
-                    "description": "Use V3 query path (denormalized ClickHouse table, no Postgres joins)",
+                    "deprecated": "Ignored — V3 is the only query path. Kept so requests from older clients still validate.",
                     "type": "boolean"
                 },
                 "version": {
@@ -17618,6 +17951,10 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "EvaluationRuntime": {
+            "enum": ["hog", "llm_judge", "sentiment"],
+            "type": "string"
         },
         "EventDefinition": {
             "additionalProperties": false,
@@ -18525,6 +18862,10 @@
                     "enum": ["first_seen", "last_seen"],
                     "type": "string"
                 },
+                "threshold": {
+                    "description": "For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.",
+                    "type": "number"
+                },
                 "upper_bound_percentile": {
                     "description": "For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.",
                     "maximum": 1,
@@ -18711,6 +19052,32 @@
                     "type": "string"
                 }
             },
+            "type": "object"
+        },
+        "ExperimentExposureEstimateConfig": {
+            "additionalProperties": false,
+            "description": "Exposure estimate settings for the experiment running-time calculator.",
+            "properties": {
+                "conversionRateInputType": {
+                    "description": "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data.",
+                    "enum": ["manual", "automatic"],
+                    "type": "string"
+                },
+                "manualBaselineValue": {
+                    "description": "Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.",
+                    "type": "number"
+                },
+                "manualExposureRate": {
+                    "description": "Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.",
+                    "type": "number"
+                },
+                "manualMetricType": {
+                    "description": "Metric type the manual baseline value refers to. Only used in manual mode.",
+                    "enum": ["funnel", "mean_count", "mean_sum_or_avg"],
+                    "type": "string"
+                }
+            },
+            "required": ["conversionRateInputType"],
             "type": "object"
         },
         "ExperimentExposureQuery": {
@@ -19184,6 +19551,10 @@
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
                 },
+                "threshold": {
+                    "description": "When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.",
+                    "type": "number"
+                },
                 "upper_bound_percentile": {
                     "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
                     "maximum": 1,
@@ -19219,6 +19590,10 @@
                 },
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
+                },
+                "threshold": {
+                    "description": "When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.",
+                    "type": "number"
                 },
                 "upper_bound_percentile": {
                     "description": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
@@ -19806,6 +20181,36 @@
                 "retention_window_unit",
                 "start_handling"
             ],
+            "type": "object"
+        },
+        "ExperimentRunningTimeCalculation": {
+            "additionalProperties": false,
+            "description": "Running-time calculator state for an experiment. Canonical home for keys that historically lived in `parameters`.",
+            "properties": {
+                "exposure_estimate_config": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentExposureEstimateConfig"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How the exposure estimate is configured: manual user-entered values or automatic from live experiment data."
+                },
+                "minimum_detectable_effect": {
+                    "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.",
+                    "type": "number"
+                },
+                "recommended_running_time": {
+                    "description": "Estimated number of days needed to reach the recommended sample size.",
+                    "type": "number"
+                },
+                "recommended_sample_size": {
+                    "description": "Recommended number of exposed users needed for statistical significance.",
+                    "type": "number"
+                }
+            },
             "type": "object"
         },
         "ExperimentSignificanceCode": {
@@ -20485,7 +20890,413 @@
                 "SapSuccessFactors",
                 "OracleEbs",
                 "OracleFusion",
-                "Custom"
+                "AmazonSNS",
+                "AmazonEventBridge",
+                "AmazonSQS",
+                "AmazonKinesis",
+                "AmazonCloudWatch",
+                "OpenAIAds",
+                "OneHundredMs",
+                "SevenShifts",
+                "AcuityScheduling",
+                "AgileCRM",
+                "Aha",
+                "Airbyte",
+                "Akeneo",
+                "Algolia",
+                "AlpacaBrokerAPI",
+                "ApifyDataset",
+                "Appcues",
+                "Appfigures",
+                "Appfollow",
+                "Apptivo",
+                "AssemblyAI",
+                "Awin",
+                "AwsCloudTrail",
+                "AzureTableStorage",
+                "Babelforce",
+                "Basecamp",
+                "Beamer",
+                "BigMailer",
+                "Bluetally",
+                "BoldSign",
+                "BreezyHR",
+                "Bugsnag",
+                "Buildkite",
+                "Bunny",
+                "Buzzsprout",
+                "CalCom",
+                "CallRail",
+                "Campayn",
+                "Canny",
+                "CapsuleCRM",
+                "CaptainData",
+                "CartCom",
+                "CastorEDC",
+                "Chameleon",
+                "Chargedesk",
+                "Chargify",
+                "Chift",
+                "Churnkey",
+                "Cin7",
+                "CiscoMeraki",
+                "Clazar",
+                "Clockify",
+                "Clockodo",
+                "Cloudbeds",
+                "Coassemble",
+                "Codefresh",
+                "Concord",
+                "ConfigCat",
+                "Couchbase",
+                "Curve",
+                "Customerly",
+                "Datascope",
+                "Dbt",
+                "Deputy",
+                "DevinAI",
+                "Docuseal",
+                "Dolibarr",
+                "Dremio",
+                "DropboxSign",
+                "Dwolla",
+                "EConomic",
+                "Easypost",
+                "Easypromos",
+                "Elasticemail",
+                "EmailOctopus",
+                "EmploymentHero",
+                "Encharge",
+                "Eventee",
+                "Eventzilla",
+                "Everhour",
+                "EZOfficeInventory",
+                "Factorial",
+                "Fastbill",
+                "Fastly",
+                "Fauna",
+                "Feishu",
+                "Fillout",
+                "Finage",
+                "Firebolt",
+                "FireHydrant",
+                "Fleetio",
+                "Flexmail",
+                "Flexport",
+                "FloatApp",
+                "Flowlu",
+                "Formbricks",
+                "FreeAgent",
+                "Freightview",
+                "Freshcaller",
+                "Freshchat",
+                "Freshservice",
+                "Fulcrum",
+                "GainsightPx",
+                "GitBook",
+                "Glassfrog",
+                "Goldcast",
+                "GoLogin",
+                "Grafana",
+                "GreytHr",
+                "Gridly",
+                "Harness",
+                "Height",
+                "Hellobaton",
+                "HighLevel",
+                "HoorayHR",
+                "Hubplanner",
+                "Humanitix",
+                "Huntr",
+                "Inflowinventory",
+                "InforNexus",
+                "Insightful",
+                "Insightly",
+                "Instatus",
+                "Intruder",
+                "Invoiced",
+                "Invoiceninja",
+                "JamfPro",
+                "JobNimbus",
+                "Jotform",
+                "JudgeMeReviews",
+                "JustCall",
+                "JustSift",
+                "K6Cloud",
+                "Katana",
+                "Keka",
+                "Kisi",
+                "Kissmetrics",
+                "Klarna",
+                "Klaus",
+                "Lago",
+                "Leadfeeder",
+                "Lemlist",
+                "LessAnnoyingCRM",
+                "LinkedinPages",
+                "Linkrunner",
+                "Linnworks",
+                "Lob",
+                "Lokalise",
+                "Looker",
+                "Luma",
+                "MailerSend",
+                "Mailosaur",
+                "Mailtrap",
+                "Mantle",
+                "Mention",
+                "MercadoAds",
+                "Merge",
+                "Metabase",
+                "Metricool",
+                "MicrosoftDataverse",
+                "MicrosoftEntraId",
+                "MicrosoftLists",
+                "Miro",
+                "Missive",
+                "MixMax",
+                "Mode",
+                "Mux",
+                "MyHours",
+                "N8n",
+                "Navan",
+                "NebiusAI",
+                "Nexiopay",
+                "NinjaOneRMM",
+                "NoCRM",
+                "NorthpassLMS",
+                "Nutshell",
+                "Nylas",
+                "Oncehub",
+                "Onepagecrm",
+                "OneSignal",
+                "Onfleet",
+                "OpinionStage",
+                "OPUSWatch",
+                "Orb",
+                "Orbit",
+                "Oura",
+                "Oveit",
+                "PabblySubscriptionsBilling",
+                "Paperform",
+                "Papersign",
+                "Partnerize",
+                "PartnerStack",
+                "PayFit",
+                "Paystack",
+                "Pennylane",
+                "Perk",
+                "PersistIq",
+                "Persona",
+                "Phyllo",
+                "Picqer",
+                "Pipeliner",
+                "PivotalTracker",
+                "Piwik",
+                "Planhat",
+                "Plausible",
+                "Poplar",
+                "PrestaShop",
+                "Pretix",
+                "Primetric",
+                "Printify",
+                "Productive",
+                "Pylon",
+                "Qonto",
+                "Qualaroo",
+                "Railz",
+                "RDStationMarketing",
+                "Recruitee",
+                "Reddit",
+                "ReferralHero",
+                "RentCast",
+                "Repairshopr",
+                "ReplyIo",
+                "RetailExpress",
+                "Retently",
+                "RevolutMerchant",
+                "RocketChat",
+                "Rocketlane",
+                "Rootly",
+                "Ruddr",
+                "SafetyCulture",
+                "SageHR",
+                "Salesflare",
+                "SAPFieldglass",
+                "SavvyCal",
+                "Secoda",
+                "Segment",
+                "Sendowl",
+                "SendPulse",
+                "Senseforce",
+                "Serpstat",
+                "Sharetribe",
+                "Shippo",
+                "ShopWired",
+                "Shortio",
+                "Shutterstock",
+                "SigmaComputing",
+                "SignNow",
+                "SimpleCast",
+                "Simplesat",
+                "Smaily",
+                "SmartEngage",
+                "Smartreach",
+                "Smartwaiver",
+                "SolarwindsServiceDesk",
+                "SonarCloud",
+                "SparkPost",
+                "SplitIo",
+                "SpotifyAds",
+                "SpotlerCRM",
+                "Squarespace",
+                "Statsig",
+                "Statuspage",
+                "Stigg",
+                "Strava",
+                "SurveySparrow",
+                "Survicate",
+                "Svix",
+                "Systeme",
+                "Tavus",
+                "Teamtailor",
+                "Teamwork",
+                "Tempo",
+                "Testrail",
+                "Thinkific",
+                "ThinkificCourses",
+                "ThriveLearning",
+                "Ticketmaster",
+                "TicketTailor",
+                "TickTick",
+                "Timely",
+                "Tinyemail",
+                "Todoist",
+                "Toggl",
+                "TrackPMS",
+                "Tremendous",
+                "TrustPilot",
+                "Twitter",
+                "TyntecSMS",
+                "Unleash",
+                "UpPromote",
+                "Uptick",
+                "Uservoice",
+                "Vantage",
+                "Veeqo",
+                "Vercel",
+                "VismaEconomic",
+                "VWO",
+                "Waiteraid",
+                "Wasabi",
+                "WhenIWork",
+                "Wordpress",
+                "Workable",
+                "Workflowmax",
+                "Workramp",
+                "Wufoo",
+                "Xsolla",
+                "YandexMetrica",
+                "Yotpo",
+                "Ynab",
+                "Younium",
+                "YouSign",
+                "YoutubeData",
+                "ZapierSupportedStorage",
+                "ZapSign",
+                "ZendeskSell",
+                "ZendeskSunshine",
+                "Zenefits",
+                "Zenloop",
+                "ZohoAnalytics",
+                "ZohoBigin",
+                "ZohoBilling",
+                "ZohoBooks",
+                "ZohoCampaign",
+                "ZohoDesk",
+                "ZohoExpense",
+                "ZohoInventory",
+                "ZohoInvoice",
+                "ZonkaFeedback",
+                "AlphaVantage",
+                "Aviationstack",
+                "Bitly",
+                "Blogger",
+                "Breezometer",
+                "CareQualityCommission",
+                "Cimis",
+                "CoinApi",
+                "CoinGecko",
+                "CoinMarketCap",
+                "DingConnect",
+                "Dockerhub",
+                "ExchangeRatesApi",
+                "FinancialModelling",
+                "Finnhub",
+                "Finnworlds",
+                "Giphy",
+                "Gmail",
+                "GNews",
+                "GoogleCalendar",
+                "GoogleClassroom",
+                "GoogleDirectory",
+                "GoogleForms",
+                "GooglePageSpeedInsights",
+                "GoogleTasks",
+                "GoogleWebfonts",
+                "GoogleWorkspaceAdminReports",
+                "HuggingFace",
+                "IlluminaBasespace",
+                "Imagga",
+                "Interzoid",
+                "IP2Whois",
+                "KYVE",
+                "Marketstack",
+                "Mendeley",
+                "Nasa",
+                "NewYorkTimes",
+                "NewsApi",
+                "NewsData",
+                "OpenDataDc",
+                "OpenExchangeRates",
+                "OpenAQ",
+                "OpenFDA",
+                "OpenWeather",
+                "Outlook",
+                "Perigon",
+                "Pexels",
+                "Pocket",
+                "Polygon",
+                "PyPI",
+                "Recreation",
+                "RKICovid",
+                "Rss",
+                "SimFin",
+                "StockData",
+                "Guardian",
+                "TMDb",
+                "TVMaze",
+                "TwelveData",
+                "Ubidots",
+                "USCensus",
+                "Watchmode",
+                "WikipediaPageviews",
+                "YahooFinance",
+                "Clarifai",
+                "Adapty",
+                "Braintrust",
+                "StreamElements",
+                "Streamlabs",
+                "Datorama",
+                "Ahrefs",
+                "Lightfield",
+                "Appstack",
+                "Razorpay",
+                "Neon",
+                "NewRelic",
+                "Custom",
+                "Tile38",
+                "Chatwoot"
             ],
             "type": "string"
         },
@@ -20825,6 +21636,10 @@
                 "path": {
                     "description": "Object's name and folder",
                     "type": "string"
+                },
+                "pinnedByDefault": {
+                    "description": "Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row",
+                    "type": "boolean"
                 },
                 "protocol": {
                     "description": "Protocol of the item, defaults to \"project://\"",
@@ -21645,6 +22460,11 @@
                     "description": "Whether to render annotations on the chart. Only applies to historical-trends funnels.",
                     "type": "boolean"
                 },
+                "showLegend": {
+                    "default": false,
+                    "description": "Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels.",
+                    "type": "boolean"
+                },
                 "showTrendLines": {
                     "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
                     "type": "boolean"
@@ -21738,6 +22558,10 @@
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -22307,6 +23131,74 @@
                 }
             ]
         },
+        "HealthCheckSeverity": {
+            "enum": ["critical", "warning", "info"],
+            "type": "string"
+        },
+        "HealthCheckSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "issue_id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "link": {
+                    "description": "Relative in-app path to the resource, e.g. '/web'.",
+                    "type": "string"
+                },
+                "payload": {
+                    "additionalProperties": {},
+                    "type": "object"
+                },
+                "severity": {
+                    "$ref": "#/definitions/HealthCheckSeverity"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "url": {
+                    "description": "Absolute URL ({project.url} + link).",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "severity", "issue_id", "title", "summary", "link", "url", "payload"],
+            "type": "object"
+        },
+        "HealthCheckSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/HealthCheckSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "health_checks",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "health_issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
+            "type": "object"
+        },
         "HeatMapQuerySource": {
             "$ref": "#/definitions/EventsNode"
         },
@@ -22419,6 +23311,35 @@
         },
         "HogLanguage": {
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
+            "type": "string"
+        },
+        "HogQLAlertConfig": {
+            "additionalProperties": false,
+            "description": "Alert config for HogQL/SQL-backed insights. The query owns its own time window.",
+            "properties": {
+                "column": {
+                    "description": "Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).",
+                    "type": ["string", "null"]
+                },
+                "evaluation": {
+                    "$ref": "#/definitions/HogQLAlertEvaluation",
+                    "description": "How to read the result rows — an explicit choice, no implicit default."
+                },
+                "label_column": {
+                    "description": "In `any_row` mode, the column whose value labels each row in breach messages. When unset, the first non-evaluated column is used, falling back to the row number.",
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "HogQLAlertConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "evaluation"],
+            "type": "object"
+        },
+        "HogQLAlertEvaluation": {
+            "description": "How a SQL alert reads the query result. `last_row` = the query is ordered oldest→newest and the last row is the current value; `first_row` = the query is ordered newest→oldest and the first row is the current value (this mode bounds the fetch with a LIMIT since only the head is read); `any_row` = every row is checked and the alert fires if any value breaches (absolute conditions only).",
+            "enum": ["last_row", "first_row", "any_row"],
             "type": "string"
         },
         "HogQLAutocomplete": {
@@ -23952,6 +24873,7 @@
                 "google-cloud-service-account",
                 "google-cloud-storage",
                 "google-ads",
+                "google-analytics",
                 "google-search-console",
                 "google-sheets",
                 "linkedin-ads",
@@ -23976,7 +24898,8 @@
                 "pinterest-ads",
                 "customerio-app",
                 "customerio-webhook",
-                "customerio-track"
+                "customerio-track",
+                "postgresql"
             ],
             "type": "string"
         },
@@ -27494,8 +28417,7 @@
                     "type": ["string", "null"]
                 },
                 "evaluation_type": {
-                    "enum": ["hog", "llm_judge"],
-                    "type": "string"
+                    "$ref": "#/definitions/EvaluationRuntime"
                 },
                 "hog_source": {
                     "type": ["string", "null"]
@@ -27737,6 +28659,15 @@
             "additionalProperties": false,
             "properties": {
                 "id": {
+                    "type": "string"
+                },
+                "insertion_placeholder_block_id": {
+                    "type": "string"
+                },
+                "insertion_placeholder_marker": {
+                    "type": "string"
+                },
+                "markdown_with_insertion_placeholder": {
                     "type": "string"
                 },
                 "name": {
@@ -28349,6 +29280,8 @@
                 "TraceSpansQuery",
                 "TraceSpansAggregationQuery",
                 "TraceSpansTreeQuery",
+                "TraceSpansAttributeBreakdownQuery",
+                "TraceSpansSymbolStatsQuery",
                 "SessionBatchEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -29526,6 +30459,7 @@
                 "data_warehouse_saved_queries",
                 "early_access_features",
                 "endpoints",
+                "engineering_analytics",
                 "error_tracking",
                 "experiments",
                 "feature_flags",
@@ -29556,6 +30490,7 @@
                 "session_replay",
                 "replay_vision",
                 "site_apps",
+                "skills",
                 "subscriptions",
                 "streamlit_apps",
                 "surveys",
@@ -31407,6 +32342,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "preComputeStrategy": {
+                            "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -31435,12 +32373,6 @@
                             },
                             "type": "array"
                         },
-                        "usedLazyPrecompute": {
-                            "type": "boolean"
-                        },
-                        "usedPreAggregatedTables": {
-                            "type": "boolean"
-                        },
                         "warnings": {
                             "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
                             "items": {
@@ -31480,80 +32412,8 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "resolved_compare_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The resolved previous/comparison period date range, when comparing against another period"
-                        },
-                        "resolved_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The date range used for the query"
-                        },
-                        "results": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "samplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        },
-                        "types": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "usedLazyPrecompute": {
-                            "type": "boolean"
-                        },
-                        "usedPreAggregatedTables": {
-                            "type": "boolean"
-                        },
-                        "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "columns": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "limit": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "offset": {
-                            "$ref": "#/definitions/integer"
+                        "preComputeStrategy": {
+                            "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -31654,13 +32514,77 @@
                             "items": {},
                             "type": "array"
                         },
-                        "usedLazyPrecompute": {
-                            "description": "Whether the response was served from the lazy precompute path.",
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
                             "type": "boolean"
                         },
-                        "usedPreAggregatedTables": {
-                            "description": "Whether the response was served from a precomputed table.",
-                            "type": "boolean"
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "preComputeStrategy": {
+                            "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
                         },
                         "warnings": {
                             "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -31687,6 +32611,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "preComputeStrategy": {
+                            "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -31715,9 +32642,6 @@
                             },
                             "type": "array"
                         },
-                        "usedLazyPrecompute": {
-                            "type": "boolean"
-                        },
                         "warnings": {
                             "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
                             "items": {
@@ -31749,6 +32673,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "preComputeStrategy": {
+                            "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -31817,6 +32744,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "preComputeStrategy": {
+                            "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -31844,9 +32774,6 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
-                        },
-                        "usedPreAggregatedTables": {
-                            "type": "boolean"
                         },
                         "warnings": {
                             "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -32667,6 +33594,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "preComputeStrategy": {
+                            "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -32695,12 +33625,6 @@
                             },
                             "type": "array"
                         },
-                        "usedLazyPrecompute": {
-                            "type": "boolean"
-                        },
-                        "usedPreAggregatedTables": {
-                            "type": "boolean"
-                        },
                         "warnings": {
                             "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
                             "items": {
@@ -32740,80 +33664,8 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "resolved_compare_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The resolved previous/comparison period date range, when comparing against another period"
-                        },
-                        "resolved_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The date range used for the query"
-                        },
-                        "results": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "samplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        },
-                        "types": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "usedLazyPrecompute": {
-                            "type": "boolean"
-                        },
-                        "usedPreAggregatedTables": {
-                            "type": "boolean"
-                        },
-                        "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "columns": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "limit": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "offset": {
-                            "$ref": "#/definitions/integer"
+                        "preComputeStrategy": {
+                            "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -32914,13 +33766,77 @@
                             "items": {},
                             "type": "array"
                         },
-                        "usedLazyPrecompute": {
-                            "description": "Whether the response was served from the lazy precompute path.",
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
                             "type": "boolean"
                         },
-                        "usedPreAggregatedTables": {
-                            "description": "Whether the response was served from a precomputed table.",
-                            "type": "boolean"
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "preComputeStrategy": {
+                            "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
                         },
                         "warnings": {
                             "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -32947,6 +33863,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "preComputeStrategy": {
+                            "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -32974,9 +33893,6 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
-                        },
-                        "usedLazyPrecompute": {
-                            "type": "boolean"
                         },
                         "warnings": {
                             "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -35014,6 +35930,64 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "compare": {
+                            "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                            "items": {
+                                "$ref": "#/definitions/AttributeBreakdownRow"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/AttributeBreakdownRow"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "questions": {
                             "items": {
                                 "type": "string"
@@ -35974,6 +36948,9 @@
                     "$ref": "#/definitions/TraceSpansTreeQuery"
                 },
                 {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQuery"
+                },
+                {
                     "$ref": "#/definitions/SuggestedQuestionsQuery"
                 },
                 {
@@ -36208,7 +37185,8 @@
                 "keypress_count",
                 "mouse_activity_count",
                 "activity_score",
-                "recording_ttl"
+                "recording_ttl",
+                "surfacing_score"
             ],
             "type": "string"
         },
@@ -36493,6 +37471,63 @@
             "required": ["ts_from_s", "active"],
             "type": "object"
         },
+        "ReplayVisionScannerFindingSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence": {
+                    "description": "The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`.",
+                    "type": "number"
+                },
+                "observation_id": {
+                    "type": "string"
+                },
+                "scanner_id": {
+                    "type": "string"
+                },
+                "scanner_name": {
+                    "type": "string"
+                },
+                "scanner_type": {
+                    "description": "Replay Vision scanner type, e.g. 'monitor' / 'classifier' / 'scorer' / 'summarizer'. Kept open so new scanner types don't fail signal validation.",
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["scanner_id", "scanner_name", "scanner_type", "observation_id", "session_id", "confidence"],
+            "type": "object"
+        },
+        "ReplayVisionScannerFindingSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/ReplayVisionScannerFindingSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "replay_vision",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "scanner_finding",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
+            "type": "object"
+        },
         "ResolvedDateRangeResponse": {
             "additionalProperties": false,
             "properties": {
@@ -36578,6 +37613,9 @@
                 },
                 {
                     "$ref": "#/definitions/FormDismissPayload"
+                },
+                {
+                    "$ref": "#/definitions/ClientToolResultPayload"
                 }
             ]
         },
@@ -38810,6 +39848,10 @@
                 "keypress_count": {
                     "type": "number"
                 },
+                "matches_filters": {
+                    "description": "False when the recording was included in list results via a direct link despite not matching the filters.",
+                    "type": "boolean"
+                },
                 "matching_events": {
                     "description": "List of matching events. *",
                     "items": {
@@ -39325,6 +40367,9 @@
                     "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
                 },
                 {
+                    "$ref": "#/definitions/EndpointBreakdownLimitExceededSignalInput"
+                },
+                {
                     "$ref": "#/definitions/PgAnalyzeIssueSignalInput"
                 },
                 {
@@ -39332,6 +40377,12 @@
                 },
                 {
                     "$ref": "#/definitions/LogsAlertStateChangeSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/HealthCheckSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/ReplayVisionScannerFindingSignalInput"
                 }
             ]
         },
@@ -39417,7 +40468,9 @@
                 "endpoints",
                 "pganalyze",
                 "signals_scout",
-                "logs"
+                "logs",
+                "health_checks",
+                "replay_vision"
             ],
             "type": "string"
         },
@@ -39433,8 +40486,11 @@
                 "issue_reopened",
                 "issue_spiking",
                 "endpoint_execution_failed",
+                "endpoint_breakdown_limit_exceeded",
                 "cross_source_issue",
-                "alert_state_change"
+                "alert_state_change",
+                "health_issue",
+                "scanner_finding"
             ],
             "type": "string"
         },
@@ -39499,6 +40555,17 @@
                 },
                 "skill_version": {
                     "type": "number"
+                },
+                "tags": {
+                    "description": "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the finding. Each scout maintains and evolves its own vocabulary over time; the harness normalizes and caps these at emit.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "task_id": {
+                    "description": "The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the inbox card to the run in the Tasks UI. Absent on emissions made before this linkage was captured.",
+                    "type": "string"
                 },
                 "task_run_id": {
                     "description": "The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not).",
@@ -39633,6 +40700,29 @@
             ],
             "description": "A single (leaf) detector config"
         },
+        "SlackIntegrationScope": {
+            "enum": [
+                "app_mentions:read",
+                "channels:history",
+                "channels:read",
+                "chat:write",
+                "chat:write.customize",
+                "groups:history",
+                "groups:read",
+                "links:read",
+                "links:write",
+                "reactions:read",
+                "reactions:write",
+                "team:read",
+                "users:read",
+                "users:read.email"
+            ],
+            "type": "string"
+        },
+        "SlackIntegrationScopeInReview": {
+            "enum": ["assistant:write", "channels:manage", "im:history", "mpim:read"],
+            "type": "string"
+        },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
@@ -39668,6 +40758,10 @@
                         {}
                     ]
                 },
+                "category": {
+                    "$ref": "#/definitions/DataWarehouseSourceCategory",
+                    "description": "Catalog bucket this source is grouped under in the new-source wizard. Optional at the type level so partial/in-progress sources don't break, but every registered source must set one (enforced by a test). See `dataWarehouseSourceCategories`."
+                },
                 "disabledReason": {
                     "type": ["string", "null"]
                 },
@@ -39696,6 +40790,13 @@
                 },
                 "iconPath": {
                     "type": "string"
+                },
+                "keywords": {
+                    "description": "Extra search terms (alternate spellings, acronyms) for the catalog search, e.g. GoogleAnalytics → [\"ga4\", \"ga\"]. Matched alongside name/label/category.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "label": {
                     "type": "string"
@@ -40021,6 +41122,26 @@
             },
             "type": "object"
         },
+        "SourceSymbol": {
+            "additionalProperties": false,
+            "description": "A source symbol (typically a function) the client wants production latency for, identified by its declaration line range. The client supplies these from its own AST/LSP — the server does not infer function boundaries (OTel `code.function.name` is frequently absent, and `code.line.number` may be a call site inside the body rather than the declaration line).",
+            "properties": {
+                "endLine": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Last line of the symbol's range, inclusive (1-based)."
+                },
+                "name": {
+                    "description": "Opaque identifier (e.g. the function name) echoed back on the matching result row.",
+                    "type": "string"
+                },
+                "startLine": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "First line of the symbol's range, inclusive (1-based)."
+                }
+            },
+            "required": ["startLine", "endLine"],
+            "type": "object"
+        },
         "SpanPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -40057,6 +41178,10 @@
                 "avg_start_offset_nano": {
                     "description": "Average nanoseconds from the parent span's start to this span's start. Zero for root spans. Used to order children left-to-right by typical start time in the flame graph.",
                     "type": "number"
+                },
+                "calls_per_parent_invocation": {
+                    "description": "How many times this child runs per parent invocation (edge count / parent span count). Separates fan-out volume from per-call cost: a child can dominate total_duration_nano purely by running many times per parent. Null for root edges (no parent invocation to ratio against).",
+                    "type": ["number", "null"]
                 },
                 "count": {
                     "$ref": "#/definitions/integer"
@@ -40541,6 +41666,12 @@
         "SurveyAppearanceSchema": {
             "additionalProperties": false,
             "properties": {
+                "allowGoBack": {
+                    "type": "boolean"
+                },
+                "backButtonText": {
+                    "type": "string"
+                },
                 "backgroundColor": {
                     "type": "string"
                 },
@@ -40853,6 +41984,172 @@
         "SurveyWidgetType": {
             "enum": ["button", "tab", "selector"],
             "type": "string"
+        },
+        "SymbolStatsGranularity": {
+            "description": "Bucketing applied to a symbol-stats result: per source line, or per requested symbol range.",
+            "enum": ["line", "symbol"],
+            "type": "string"
+        },
+        "SymbolStatsPeriod": {
+            "additionalProperties": false,
+            "description": "Aggregated metrics for a symbol over a single time period. Used for the prior-period comparison.",
+            "properties": {
+                "busy_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful."
+                },
+                "count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of spans attributed to this symbol in the period."
+                },
+                "error_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans whose OTel status is Error (`status_code = 2`)."
+                },
+                "p50_busy_nano": {
+                    "description": "Median active (busy) time, in nanoseconds. Excludes time awaiting children.",
+                    "type": "number"
+                },
+                "p50_duration_nano": {
+                    "description": "Median wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "p95_busy_nano": {
+                    "description": "95th-percentile active (busy) time, in nanoseconds.",
+                    "type": "number"
+                },
+                "p95_duration_nano": {
+                    "description": "95th-percentile wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "p99_busy_nano": {
+                    "description": "99th-percentile active (busy) time, in nanoseconds.",
+                    "type": "number"
+                },
+                "p99_duration_nano": {
+                    "description": "99th-percentile wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "sum_duration_nano": {
+                    "description": "Total wall-clock span duration in the period, in nanoseconds (additive across spans).",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "count",
+                "error_count",
+                "sum_duration_nano",
+                "p50_duration_nano",
+                "p95_duration_nano",
+                "p99_duration_nano",
+                "busy_count",
+                "p50_busy_nano",
+                "p95_busy_nano",
+                "p99_busy_nano"
+            ],
+            "type": "object"
+        },
+        "SymbolStatsRow": {
+            "additionalProperties": false,
+            "description": "Production latency for one bucket of a source file: spans carrying OpenTelemetry `code.*` location attributes, aggregated by line (no `symbols`) or into a symbol's line range (`symbols` supplied). The flat fields are the current period; `previous` is the immediately-preceding equal-length window. One row per bucket with spans in either period.",
+            "properties": {
+                "busy_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans in this symbol carrying an active/busy time attribute. 0 means busy_* are not meaningful."
+                },
+                "count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of spans attributed to this bucket."
+                },
+                "count_pct_change": {
+                    "description": "Percentage change in count vs the previous period (180 = +180%). Null when there is no baseline (previous count 0); use `previous.count`, not a null here, to detect a brand-new symbol.",
+                    "type": ["number", "null"]
+                },
+                "end_line": {
+                    "$ref": "#/definitions/integer",
+                    "description": "`endLine` of the matched symbol's range. Symbol mode only."
+                },
+                "error_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans whose OTel status is Error (`status_code = 2`)."
+                },
+                "error_rate_pct_change": {
+                    "description": "Percentage change in error rate (`error_count / count` per window) vs the previous period. Null when the previous error rate is 0 — i.e. the previous window had no errors or no traffic. This includes a 0→N new-error spike, which surfaces as null rather than a delta.",
+                    "type": ["number", "null"]
+                },
+                "line": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The bucket's anchor line: the source line in line mode, or the symbol's `startLine` in symbol mode."
+                },
+                "name": {
+                    "description": "Echoed `name` from the requested symbol. Symbol mode only.",
+                    "type": "string"
+                },
+                "p50_busy_nano": {
+                    "description": "Median active (busy) time, in nanoseconds. Excludes time awaiting children.",
+                    "type": "number"
+                },
+                "p50_duration_nano": {
+                    "description": "Median wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "p50_duration_pct_change": {
+                    "description": "Percentage change in p50 duration vs the previous period (180 = +180%). Null when the previous p50 is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as \"new\".",
+                    "type": ["number", "null"]
+                },
+                "p95_busy_nano": {
+                    "description": "95th-percentile active (busy) time, in nanoseconds.",
+                    "type": "number"
+                },
+                "p95_duration_nano": {
+                    "description": "95th-percentile wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "p95_duration_pct_change": {
+                    "description": "Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95 is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as \"new\".",
+                    "type": ["number", "null"]
+                },
+                "p99_busy_nano": {
+                    "description": "99th-percentile active (busy) time, in nanoseconds.",
+                    "type": "number"
+                },
+                "p99_duration_nano": {
+                    "description": "99th-percentile wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "p99_duration_pct_change": {
+                    "description": "Percentage change in p99 duration vs the previous period (180 = +180%). Null when the previous p99 is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as \"new\".",
+                    "type": ["number", "null"]
+                },
+                "previous": {
+                    "$ref": "#/definitions/SymbolStatsPeriod",
+                    "description": "The same metrics over the immediately-preceding equal-length period."
+                },
+                "sum_duration_nano": {
+                    "description": "Total wall-clock span duration in this symbol, in nanoseconds (additive across spans).",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "line",
+                "count",
+                "error_count",
+                "sum_duration_nano",
+                "p50_duration_nano",
+                "p95_duration_nano",
+                "p99_duration_nano",
+                "busy_count",
+                "p50_busy_nano",
+                "p95_busy_nano",
+                "p99_busy_nano",
+                "previous",
+                "count_pct_change",
+                "p50_duration_pct_change",
+                "p95_duration_pct_change",
+                "p99_duration_pct_change",
+                "error_rate_pct_change"
+            ],
+            "type": "object"
         },
         "TableSettings": {
             "additionalProperties": false,
@@ -41533,6 +42830,14 @@
             "required": ["results"],
             "type": "object"
         },
+        "TraceSpanBreakdownOrderBy": {
+            "enum": ["count", "error_count"],
+            "type": "string"
+        },
+        "TraceSpanBreakdownType": {
+            "enum": ["span_attribute", "span_resource_attribute"],
+            "type": "string"
+        },
         "TraceSpansAggregationQuery": {
             "additionalProperties": false,
             "properties": {
@@ -41632,6 +42937,117 @@
             "required": ["results"],
             "type": "object"
         },
+        "TraceSpansAttributeBreakdownQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownKey": {
+                    "description": "Attribute key to group by (e.g. `http.response.status_code`, `server.address`).",
+                    "type": "string"
+                },
+                "breakdownType": {
+                    "$ref": "#/definitions/TraceSpanBreakdownType",
+                    "description": "Where the key lives: span-level attributes or resource-level attributes."
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "kind": {
+                    "const": "TraceSpansAttributeBreakdownQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/TraceSpanBreakdownOrderBy",
+                    "description": "Order rows by span count or error count, descending. Defaults to count."
+                },
+                "response": {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQueryResponse"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["breakdownKey", "breakdownType", "dateRange", "kind"],
+            "type": "object"
+        },
+        "TraceSpansAttributeBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "TraceSpansQuery": {
             "additionalProperties": false,
             "properties": {
@@ -41648,6 +43064,10 @@
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "flatSpans": {
+                    "description": "Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "TraceSpansQuery",
@@ -41765,6 +43185,101 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TraceSpansSymbolStatsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filePath": {
+                    "description": "Repo-relative path of the source file to aggregate (e.g. `src/flags/flag_matching.rs`). Matched as a path suffix against the recorded `code.file.path` / `code.filepath`, so a recorded path carrying an extra crate/workspace prefix still matches.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "TraceSpansSymbolStatsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/TraceSpansSymbolStatsQueryResponse"
+                },
+                "symbols": {
+                    "description": "Optional symbol (function) ranges to aggregate spans into. When supplied, each span is attributed to the smallest range that encloses its recorded line (one row per symbol). When omitted (or an empty list), spans are aggregated per source line (one row per instrumented line) — pass a single whole-file range for a file-level total.",
+                    "items": {
+                        "$ref": "#/definitions/SourceSymbol"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["dateRange", "filePath", "kind"],
+            "type": "object"
+        },
+        "TraceSpansSymbolStatsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "granularity": {
+                    "$ref": "#/definitions/SymbolStatsGranularity",
+                    "description": "Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise."
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "description": "One row per bucket, ordered by line ascending.",
+                    "items": {
+                        "$ref": "#/definitions/SymbolStatsRow"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["granularity", "results"],
             "type": "object"
         },
         "TraceSpansTreeQuery": {
@@ -42096,6 +43611,44 @@
                 "hideWeekends": {
                     "default": false,
                     "type": "boolean"
+                },
+                "legendPosition": {
+                    "default": "bottom",
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
+                    "enum": ["top", "bottom", "left", "right"],
+                    "type": "string"
+                },
+                "metricChangeDecreaseColor": {
+                    "description": "Metric display: change pill color when the metric decreased. Defaults to red.",
+                    "type": "string"
+                },
+                "metricChangeIncreaseColor": {
+                    "description": "Metric display: change pill color when the metric increased. Defaults to green.",
+                    "type": "string"
+                },
+                "metricColorByDirection": {
+                    "default": false,
+                    "description": "Metric display: color the sparkline by whether the metric increased or decreased.",
+                    "type": "boolean"
+                },
+                "metricLineDecreaseColor": {
+                    "description": "Metric display: line color when the metric decreased. Defaults to red.",
+                    "type": "string"
+                },
+                "metricLineIncreaseColor": {
+                    "description": "Metric display: line color when the metric increased. Defaults to green.",
+                    "type": "string"
+                },
+                "metricShowChange": {
+                    "default": true,
+                    "description": "Show the period-over-period change pill on the Metric display.",
+                    "type": "boolean"
+                },
+                "metricSummary": {
+                    "default": "total",
+                    "description": "Metric display: which summary the resting headline shows — the period total, the average, or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives the change pill: total/average compare against the previous period when \"compare to previous\" is on; latest compares first→last of the series.",
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
                 },
                 "minDecimalPlaces": {
                     "type": "number"
@@ -43217,6 +44770,11 @@
             ],
             "type": "string"
         },
+        "WebAnalyticsPreComputeStrategy": {
+            "description": "Which read path served a web analytics response.",
+            "enum": ["pre_aggregated", "lazy_precompute", "live"],
+            "type": "string"
+        },
         "WebAnalyticsPropertyFilter": {
             "anyOf": [
                 {
@@ -43537,6 +45095,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -43566,14 +45127,6 @@
                 "types": {
                     "items": {},
                     "type": "array"
-                },
-                "usedLazyPrecompute": {
-                    "description": "Whether the response was served from the lazy precompute path.",
-                    "type": "boolean"
-                },
-                "usedPreAggregatedTables": {
-                    "description": "Whether the response was served from a precomputed table.",
-                    "type": "boolean"
                 },
                 "warnings": {
                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -43728,6 +45281,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -43755,9 +45311,6 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
-                },
-                "usedPreAggregatedTables": {
-                    "type": "boolean"
                 },
                 "warnings": {
                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -43787,9 +45340,6 @@
                 },
                 "previous": {
                     "type": "number"
-                },
-                "usedPreAggregatedTables": {
-                    "type": "boolean"
                 },
                 "value": {
                     "type": "number"
@@ -43911,6 +45461,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -43938,12 +45491,6 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
-                },
-                "usedLazyPrecompute": {
-                    "type": "boolean"
-                },
-                "usedPreAggregatedTables": {
-                    "type": "boolean"
                 },
                 "warnings": {
                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -44073,6 +45620,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -44281,6 +45831,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -44310,12 +45863,6 @@
                 "types": {
                     "items": {},
                     "type": "array"
-                },
-                "usedLazyPrecompute": {
-                    "type": "boolean"
-                },
-                "usedPreAggregatedTables": {
-                    "type": "boolean"
                 },
                 "warnings": {
                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
@@ -44492,6 +46039,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "preComputeStrategy": {
+                    "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -44518,9 +46068,6 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
-                },
-                "usedLazyPrecompute": {
-                    "type": "boolean"
                 },
                 "warnings": {
                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",

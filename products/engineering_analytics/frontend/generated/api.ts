@@ -10,16 +10,30 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CICardSummaryApi,
+    EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsWorkflowHealthParams,
+    GitHubSourceApi,
     PRLifecycleApi,
     PullRequestListApi,
     WorkflowHealthItemApi,
 } from './api.schemas'
 
-export const getEngineeringAnalyticsCiCardsUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/engineering_analytics/ci_cards/`
+export const getEngineeringAnalyticsCiCardsUrl = (projectId: string, params?: EngineeringAnalyticsCiCardsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/ci_cards/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/ci_cards/`
 }
 
 /**
@@ -27,9 +41,10 @@ export const getEngineeringAnalyticsCiCardsUrl = (projectId: string) => {
  */
 export const engineeringAnalyticsCiCards = async (
     projectId: string,
+    params?: EngineeringAnalyticsCiCardsParams,
     options?: RequestInit
 ): Promise<CICardSummaryApi> => {
-    return apiMutator<CICardSummaryApi>(getEngineeringAnalyticsCiCardsUrl(projectId), {
+    return apiMutator<CICardSummaryApi>(getEngineeringAnalyticsCiCardsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -101,6 +116,23 @@ export const engineeringAnalyticsPullRequests = async (
     })
 }
 
+export const getEngineeringAnalyticsSourcesUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/engineering_analytics/sources/`
+}
+
+/**
+ * The team's connected GitHub data warehouse sources, oldest first. Populate a source picker from this and pass a chosen `id` back as `source_id` to the other endpoints. A team can connect GitHub more than once (e.g. one source per repository); this lists them all, including any whose tables aren't fully synced yet.
+ */
+export const engineeringAnalyticsSources = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<GitHubSourceApi[]> => {
+    return apiMutator<GitHubSourceApi[]>(getEngineeringAnalyticsSourcesUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEngineeringAnalyticsWorkflowHealthUrl = (
     projectId: string,
     params?: EngineeringAnalyticsWorkflowHealthParams
@@ -121,7 +153,7 @@ export const getEngineeringAnalyticsWorkflowHealthUrl = (
 }
 
 /**
- * Per-workflow CI health over a window (default last 30 days): run count, success rate, p50/p95 duration over completed runs, and last failure time. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 30 days, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, and a zero-filled daily run history. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const engineeringAnalyticsWorkflowHealth = async (
     projectId: string,

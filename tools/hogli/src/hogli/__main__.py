@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-from .cli import cli
-
-
-def main() -> None:
-    """Execute the Click application."""
-
-    cli()
-
+# Route through cli.main (not cli directly) so `python -m hogli` marks itself
+# as the process entrypoint, matching the `hogli` console script.
+from .cli import main
 
 if __name__ == "__main__":  # pragma: no cover - module entry point
     main()

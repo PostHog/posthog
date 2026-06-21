@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import Any, Literal
 
+from django.db import close_old_connections
+
 import s3fs
 import pyarrow as pa
 import deltalake as deltalake
@@ -320,6 +322,9 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
 
 def process_message(message: Any, progress_callback: Callable[[], None] | None = None) -> None:
     export_signal = ExportSignalMessage.from_dict(message)
+
+    # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
+    close_old_connections()
 
     # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
     # previously closed event loop (async_to_sync creates/destroys loops).
