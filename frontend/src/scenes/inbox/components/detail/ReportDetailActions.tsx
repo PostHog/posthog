@@ -48,6 +48,8 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
 
     const showCreatePr = canCreateImplementationPr(report)
     const isArchived = report.status === SignalReportStatus.SUPPRESSED
+    // Resolved reports are terminal (their implementation PR merged) – nothing to archive, restore, or kick off.
+    const isResolved = report.status === SignalReportStatus.RESOLVED
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,
@@ -83,6 +85,11 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         } finally {
             setIsRestoring(false)
         }
+    }
+
+    // A resolved report is terminal – its PR already merged, so no detail actions apply.
+    if (isResolved) {
+        return <></>
     }
 
     // An already-archived report offers Restore instead of Archive (and no Create PR).
