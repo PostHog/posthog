@@ -110,6 +110,84 @@ fn rowbinary_steps_round_trip_strict_wire() {
     assert_eq!(u32::from_le_bytes(bitfield_buf), 0b111);
 }
 
+// Block header for the array (multi-property) breakdown variant. The breakdown
+// slot inside the value tuple is declared `Nullable(Array(String))` — the shape
+// CH emits when a multi-property breakdown inherits Nullable from a nullable
+// sub-expression upstream — to pin the regression below.
+fn write_array_steps_header(buf: &mut Vec<u8>) {
+    let array_string = DataTypeNode::Array(Box::new(DataTypeNode::String));
+    let nullable_array_string = DataTypeNode::Nullable(Box::new(array_string.clone()));
+    let nullable_f64 = DataTypeNode::Nullable(Box::new(DataTypeNode::Float64));
+    let cols = vec![
+        Column::new("num_steps".into(), DataTypeNode::UInt8),
+        Column::new("conversion_window_limit".into(), DataTypeNode::UInt64),
+        Column::new("breakdown_attribution_type".into(), DataTypeNode::String),
+        Column::new("funnel_order_type".into(), DataTypeNode::String),
+        Column::new(
+            "prop_vals".into(),
+            DataTypeNode::Array(Box::new(array_string.clone())),
+        ),
+        Column::new(
+            "optional_steps".into(),
+            DataTypeNode::Array(Box::new(DataTypeNode::Int8)),
+        ),
+        Column::new(
+            "value".into(),
+            DataTypeNode::Array(Box::new(DataTypeNode::Tuple(vec![
+                nullable_f64,
+                DataTypeNode::UUID,
+                nullable_array_string,
+                DataTypeNode::Array(Box::new(DataTypeNode::Int8)),
+            ]))),
+        ),
+    ];
+    write_block_header(buf, &cols).unwrap();
+}
+
+// Regression: an array breakdown whose value slot arrives `Nullable(Array(...))`
+// (and is null for an event) used to make the UDF error out and exit, which CH
+// surfaced as the opaque `CHILD_WAS_NOT_EXITED_NORMALLY`. It must now parse
+// cleanly — null array → empty breakdown bucket — and emit a result.
+#[test]
+fn rowbinary_array_breakdown_nullable_slot_does_not_crash() {
+    let uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+
+    let mut input_buf = Vec::new();
+    write_chunk_header(&mut input_buf, 1).unwrap();
+    write_array_steps_header(&mut input_buf);
+
+    input_buf.write_u8(2).unwrap(); // num_steps
+    input_buf.write_u64_le(3600).unwrap();
+    input_buf.write_bytes(b"first_touch").unwrap();
+    input_buf.write_bytes(b"ordered").unwrap();
+    // prop_vals: Array(Array(String)) = [["us", "pro"]]
+    input_buf.write_varint(1).unwrap();
+    input_buf.write_varint(2).unwrap();
+    input_buf.write_bytes(b"us").unwrap();
+    input_buf.write_bytes(b"pro").unwrap();
+    // optional_steps: []
+    input_buf.write_varint(0).unwrap();
+    // value: one event with a NULL Nullable(Array(String)) breakdown
+    input_buf.write_varint(1).unwrap();
+    input_buf.write_u8(0).unwrap(); // timestamp not-null
+    input_buf.write_f64_le(1.0).unwrap();
+    input_buf.write_uuid(uuid).unwrap();
+    input_buf.write_u8(1).unwrap(); // breakdown null marker
+    input_buf.write_varint(1).unwrap(); // steps: [1]
+    input_buf.write_i8(1).unwrap();
+
+    let mut reader = Cursor::new(input_buf);
+    let mut writer = Cursor::new(Vec::new());
+    run_rowbinary(
+        &mut reader,
+        &mut writer,
+        Mode::Steps,
+        BreakdownShape::ArrayString,
+    )
+    .expect("array-breakdown row with a Nullable(Array) slot must parse, not crash");
+    assert!(!writer.into_inner().is_empty());
+}
+
 #[test]
 fn rowbinary_empty_input_chunk_emits_header_only() {
     // n=0 still carries a block header (schema) we must consume, and we

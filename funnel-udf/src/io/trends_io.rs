@@ -3,8 +3,8 @@ use clickhouse_types::{Column, DataTypeNode};
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
 use crate::io::column::{
-    array_elem, read_bytes_col, read_float_col, read_int_array_i8, read_int_col, read_uuid_col,
-    tuple_fields,
+    array_elem, prealloc, read_bytes_col, read_float_col, read_int_array_i8, read_int_col,
+    read_uuid_col, tuple_fields,
 };
 use crate::io::propval::{read_propval, read_propval_array, shape_output_type, write_propval};
 use crate::trends::{Args, Event, ResultStruct};
@@ -47,7 +47,7 @@ pub fn read_args<R: RowBinaryRead + ?Sized>(
     let event_fields = tuple_fields(value_elem, 5, "value tuple")?;
 
     let value_len = r.read_varint()? as usize;
-    let mut value = Vec::with_capacity(value_len);
+    let mut value = prealloc(value_len);
     for _ in 0..value_len {
         value.push(read_event(r, shape, event_fields)?);
     }

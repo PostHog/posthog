@@ -2,7 +2,7 @@ use clickhouse_types::DataTypeNode;
 
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
 use crate::codec::{CodecError, CodecResult};
-use crate::io::column::{array_elem, read_bytes_col, read_int_col};
+use crate::io::column::{read_array_col, read_bytes_col, read_int_col};
 use crate::types::{BreakdownShape, Bytes, PropVal};
 
 // Reads one breakdown value. Shape is pinned at process startup by the
@@ -16,12 +16,9 @@ pub fn read_propval<R: RowBinaryRead + ?Sized>(
     match shape {
         BreakdownShape::NullableString => Ok(PropVal::String(Bytes(read_bytes_col(r, t)?))),
         BreakdownShape::ArrayString => {
-            let inner = array_elem(t, "breakdown")?;
-            let len = r.read_varint()? as usize;
-            let mut out = Vec::with_capacity(len);
-            for _ in 0..len {
-                out.push(Bytes(read_bytes_col(r, inner)?));
-            }
+            let out = read_array_col(r, t, "breakdown", |r, inner| {
+                Ok(Bytes(read_bytes_col(r, inner)?))
+            })?;
             Ok(PropVal::Vec(out))
         }
         BreakdownShape::U64 => Ok(PropVal::Int(read_int_col(r, t)? as u64)),
@@ -33,13 +30,7 @@ pub fn read_propval_array<R: RowBinaryRead + ?Sized>(
     shape: BreakdownShape,
     t: &DataTypeNode,
 ) -> CodecResult<Vec<PropVal>> {
-    let inner = array_elem(t, "prop_vals")?;
-    let len = r.read_varint()? as usize;
-    let mut out = Vec::with_capacity(len);
-    for _ in 0..len {
-        out.push(read_propval(r, shape, inner)?);
-    }
-    Ok(out)
+    read_array_col(r, t, "prop_vals", |r, inner| read_propval(r, shape, inner))
 }
 
 pub fn write_propval<W: RowBinaryWrite + ?Sized>(
@@ -108,5 +99,86 @@ mod tests {
         )
         .unwrap();
         assert_eq!(got, PropVal::String(Bytes(Vec::new())));
+    }
+
+    fn array_string() -> DataTypeNode {
+        DataTypeNode::Array(Box::new(DataTypeNode::String))
+    }
+
+    fn nullable(inner: DataTypeNode) -> DataTypeNode {
+        DataTypeNode::Nullable(Box::new(inner))
+    }
+
+    // The strict array-breakdown wire: bare `Array(String)`, two elements.
+    #[test]
+    fn array_breakdown_strict_wire() {
+        let mut buf = Vec::new();
+        buf.write_varint(2).unwrap();
+        buf.write_bytes(b"us").unwrap();
+        buf.write_bytes(b"pro").unwrap();
+        let got = read_propval(
+            &mut buf.as_slice(),
+            BreakdownShape::ArrayString,
+            &array_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            got,
+            PropVal::Vec(vec![Bytes(b"us".to_vec()), Bytes(b"pro".to_vec())])
+        );
+    }
+
+    // Regression: a multi-property breakdown can inherit `Nullable` from a
+    // nullable sub-expression upstream, so the array slot arrives as
+    // `Nullable(Array(String))`. The reader must peel it, not crash the process.
+    #[test]
+    fn array_breakdown_nullable_wrapped_non_null() {
+        let mut buf = Vec::new();
+        buf.write_u8(0).unwrap(); // not-null marker
+        buf.write_varint(2).unwrap();
+        buf.write_bytes(b"us").unwrap();
+        buf.write_bytes(b"pro").unwrap();
+        let got = read_propval(
+            &mut buf.as_slice(),
+            BreakdownShape::ArrayString,
+            &nullable(array_string()),
+        )
+        .unwrap();
+        assert_eq!(
+            got,
+            PropVal::Vec(vec![Bytes(b"us".to_vec()), Bytes(b"pro".to_vec())])
+        );
+    }
+
+    // A null array breakdown maps to an empty bucket instead of an error.
+    #[test]
+    fn array_breakdown_null_maps_to_empty_vec() {
+        let got = read_propval(
+            &mut [1u8].as_slice(),
+            BreakdownShape::ArrayString,
+            &nullable(array_string()),
+        )
+        .unwrap();
+        assert_eq!(got, PropVal::Vec(Vec::new()));
+    }
+
+    // Elements can themselves be Nullable; a null element → empty-string bucket.
+    #[test]
+    fn array_breakdown_null_element_maps_to_empty_string() {
+        let mut buf = Vec::new();
+        buf.write_varint(2).unwrap();
+        buf.write_u8(0).unwrap(); // element 0 not-null
+        buf.write_bytes(b"us").unwrap();
+        buf.write_u8(1).unwrap(); // element 1 null
+        let got = read_propval(
+            &mut buf.as_slice(),
+            BreakdownShape::ArrayString,
+            &DataTypeNode::Array(Box::new(nullable_string())),
+        )
+        .unwrap();
+        assert_eq!(
+            got,
+            PropVal::Vec(vec![Bytes(b"us".to_vec()), Bytes(Vec::new())])
+        );
     }
 }

@@ -116,6 +116,48 @@ pub fn read_bytes_col<R: RowBinaryRead + ?Sized>(
     })
 }
 
+/// Ceiling on how many elements we pre-allocate for an array before reading it.
+/// The length prefix is whatever the (possibly corrupt or desynced) wire claims,
+/// and `Vec::with_capacity(huge)` aborts the process — which ClickHouse surfaces
+/// as the opaque `CHILD_WAS_NOT_EXITED_NORMALLY` with the real error hidden.
+/// Capacity is only a hint, so legitimately longer arrays still grow on demand;
+/// capping the pre-allocation costs nothing on the happy path while removing the
+/// abort vector.
+const ARRAY_PREALLOC_CAP: usize = 1024;
+
+/// `Vec::with_capacity` clamped to `ARRAY_PREALLOC_CAP` — use whenever the
+/// capacity comes from a wire-supplied length.
+pub(crate) fn prealloc<T>(len: usize) -> Vec<T> {
+    Vec::with_capacity(len.min(ARRAY_PREALLOC_CAP))
+}
+
+/// Reads an `Array(T)` that may be `Nullable` / `LowCardinality`-wrapped at the
+/// array level, returning the elements. CH inherits `Nullable` from any nullable
+/// sub-expression upstream, so even an XML-declared `Array(...)` slot can arrive
+/// as `Nullable(Array(...))` — a null array maps to an empty vec without
+/// consuming payload. Otherwise each element is read with the peeled element type
+/// via `read_elem`. This is the array analogue of `read_or_null`, and the single
+/// place the permissive-null policy lives for arrays.
+pub fn read_array_col<R: RowBinaryRead + ?Sized, T, F>(
+    r: &mut R,
+    t: &DataTypeNode,
+    ctx: &str,
+    mut read_elem: F,
+) -> CodecResult<Vec<T>>
+where
+    F: FnMut(&mut R, &DataTypeNode) -> CodecResult<T>,
+{
+    read_or_null(r, t, Vec::new(), |r, inner| {
+        let elem_t = array_elem(inner, ctx)?;
+        let len = r.read_varint()? as usize;
+        let mut out = prealloc(len);
+        for _ in 0..len {
+            out.push(read_elem(r, elem_t)?);
+        }
+        Ok(out)
+    })
+}
+
 /// Reads an int-family array and narrows each element to `i8`. Accepts any int
 /// element width and Nullable at either the array or element level — null array
 /// → empty vec, null element → 0. (The header parser normalizes `Array(Nothing)`
@@ -124,14 +166,8 @@ pub fn read_int_array_i8<R: RowBinaryRead + ?Sized>(
     r: &mut R,
     t: &DataTypeNode,
 ) -> CodecResult<Vec<i8>> {
-    read_or_null(r, t, Vec::new(), |r, inner| {
-        let elem_t = array_elem(inner, "Array(Int8)")?;
-        let len = r.read_varint()? as usize;
-        let mut out = Vec::with_capacity(len);
-        for _ in 0..len {
-            out.push(read_or_null(r, elem_t, 0, read_int)? as i8);
-        }
-        Ok(out)
+    read_array_col(r, t, "Array(Int8)", |r, elem_t| {
+        Ok(read_or_null(r, elem_t, 0, read_int)? as i8)
     })
 }
 
