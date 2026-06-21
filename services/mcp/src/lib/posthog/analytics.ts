@@ -4,6 +4,7 @@ export enum AnalyticsEvent {
     MCP_ORGANIZATION_SWITCHED = 'mcp organization switched',
     MCP_TOOL_CALL = 'mcp_tool_call', // matching @posthog/mcp-analytics
     MCP_FEEDBACK_SUBMITTED = 'mcp feedback submitted',
+    POSTHOG_FEEDBACK_SUBMITTED = 'posthog feedback submitted',
 }
 
 // Emitted as `$mcp_version` / `mcp_version` on analytics events. The MCP server

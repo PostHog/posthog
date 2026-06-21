@@ -236,6 +236,55 @@ export const FeedbackSubmitSchema = z.object({
         ),
 })
 
+export const PostHogFeedbackSubmitSchema = z.object({
+    summary: z
+        .string()
+        .min(1)
+        .describe(
+            'A one-sentence headline capturing the feedback (e.g. "session replay player jumps to the wrong timestamp when clicking the timeline"). This is the only required free-text field — keep it specific and self-contained.'
+        ),
+    feedback_type: z
+        .enum(['bug', 'feature_request', 'confusion', 'praise', 'other'])
+        .describe(
+            'The kind of feedback. "bug" = something is broken or behaves wrong, "feature_request" = a capability the user wants that does not exist, "confusion" = something was unclear or hard to understand, "praise" = positive feedback about what worked well, "other" = anything that does not fit.'
+        ),
+    sentiment: z
+        .enum(['positive', 'neutral', 'mixed', 'negative'])
+        .describe(
+            'The overall sentiment of the feedback. Unlike agent-feedback, positive and neutral feedback is welcome here — this is a general PostHog feedback channel, not a problems-only one.'
+        ),
+    product_area: z
+        .string()
+        .optional()
+        .describe(
+            'The PostHog product or area the feedback is about, in lowercase (e.g. "product analytics", "session replay", "feature flags", "experiments", "data warehouse", "error tracking", "surveys", "web analytics", "llm analytics", "billing", "docs", "mcp"). Free text — pick the closest area if unsure.'
+        ),
+    details: z
+        .string()
+        .optional()
+        .describe(
+            'The body of the feedback as clear, concise bullet points: what happened, what the user expected, and any steps to reproduce. Quote exact UI labels, query text, or error messages where possible. Do not include user PII or sensitive customer data.'
+        ),
+    suggested_improvement: z
+        .string()
+        .optional()
+        .describe(
+            'The single most impactful, concrete change that would address this feedback, if you can name one (e.g. "let users pin a column in the persons table"). Optional — leave empty for pure praise or when no specific change is obvious.'
+        ),
+    user_request: z
+        .string()
+        .optional()
+        .describe(
+            'A short, anonymised paraphrase of what the user was trying to do when this feedback came up. Do not include PII, customer names, or sensitive query content.'
+        ),
+    task_completed: z
+        .boolean()
+        .optional()
+        .describe(
+            "Whether the user was ultimately able to accomplish what they wanted. Useful signal for prioritising — omit if it doesn't apply."
+        ),
+})
+
 export const ExperimentResultsGetSchema = z.object({
     id: z.number().describe('The ID of the experiment to get comprehensive results for'),
     refresh: z

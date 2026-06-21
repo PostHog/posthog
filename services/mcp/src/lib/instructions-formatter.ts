@@ -21,6 +21,7 @@ import COMPACT_INSTRUCTIONS from '@/templates/sections/compact-instructions.md'
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
+import POSTHOG_FEEDBACK from '@/templates/sections/posthog-feedback.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
@@ -58,7 +59,7 @@ export class InstructionsFormatter {
                 SCHEMA_WORKFLOW,
                 ENV_CONTEXT,
                 URL_PATTERNS,
-                ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
+                ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK, POSTHOG_FEEDBACK] : []),
                 EXAMPLES,
             ],
             ctx,
@@ -107,9 +108,9 @@ export class InstructionsFormatter {
         return this.compose(sections, renderCtx, { compact: false })
     }
 
-    /** The agent-feedback section is only useful when the `agent-feedback` tool
-     *  is reachable, which is governed by the `mcp-feedback-tool` flag evaluated
-     *  in `resolveToolFeatureFlags`. */
+    /** The feedback sections are only useful when the feedback tools
+     *  (`agent-feedback`, `posthog-feedback`) are reachable, which is governed by
+     *  the `mcp-feedback-tool` flag evaluated in `resolveToolFeatureFlags`. */
     private agentFeedbackEnabled(featureFlags: EvaluatedFlags | undefined): boolean {
         return featureFlags?.['mcp-feedback-tool'] === true
     }

@@ -413,6 +413,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP feedback submitted",
             "description": "Fires when a user submits feedback through the MCP server's feedback tool.",
         },
+        "posthog feedback submitted": {
+            "label": "PostHog feedback submitted",
+            "description": "Fires when general feedback about PostHog is submitted through the MCP server's posthog-feedback tool.",
+        },
         "$snapshot": {
             "label": "Session recording snapshot",
             "description": "Carries session replay data to the backend. These events do not contribute to event counts.",

@@ -11,6 +11,7 @@ import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
 // Feedback
 import submitFeedback from './feedback/submit'
+import submitPostHogFeedback from './feedback/submitPostHog'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
@@ -84,6 +85,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feedback
     'agent-feedback': submitFeedback,
+    'posthog-feedback': submitPostHogFeedback,
 
     // Agent platform (read-only playbook resolver — CRUD lives in generated/agent_platform.ts)
     'agent-resolve-resource': resolveResource,

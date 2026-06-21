@@ -5690,6 +5690,22 @@
             "readOnlyHint": true
         }
     },
+    "posthog-feedback": {
+        "description": "Optional: relay general feedback about PostHog itself — any product, feature, or workflow the user encountered (e.g. product analytics, session replay, feature flags, the data warehouse, docs). Unlike `agent-feedback` (which is strictly about this MCP server), this is a catch-all channel for product feedback, and ALL sentiment is welcome: bugs, confusion, feature requests, AND praise. Use it when the user expresses an opinion about PostHog, hits a bug, wishes a capability existed, finds something confusing, or is delighted by something — or when you observe a concrete product issue worth flagging. Keep `summary` to one sentence and write `details` as clear, concise bullet points, quoting exact UI labels, queries, or error messages where possible. Do not include user PII or sensitive customer data. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools.",
+        "category": "Feedback",
+        "feature": "feedback",
+        "summary": "Optional: relay general feedback about any part of PostHog.",
+        "title": "Submit PostHog feedback",
+        "required_scopes": [],
+        "always_available": true,
+        "feature_flag": "mcp-feedback-tool",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "pr-lifecycle": {
         "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". metric_quality is \"partial\" — it covers CI events only; review and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.",
         "category": "Engineering analytics",
