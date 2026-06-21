@@ -35,6 +35,10 @@ import { snapshotDataLogic } from './snapshotDataLogic'
 import { convertSegmentKinds } from './utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
+// While a recording is younger than this, a missing full snapshot is treated as "still ingesting"
+// rather than permanently lost — late snapshot sources may still arrive and make it playable.
+export const RECORDING_INGESTION_GRACE_PERIOD_MS = 5 * 60 * 1000
+
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
     // allows disabling polling for new sources in tests
@@ -442,8 +446,9 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         isRecentAndInvalid: [
             (s) => [s.start, s.snapshotsInvalid],
             (start, snapshotsInvalid) => {
-                const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
-                return snapshotsInvalid && lessThanFiveMinutesOld
+                const withinIngestionGracePeriod =
+                    now().diff(start, 'millisecond') <= RECORDING_INGESTION_GRACE_PERIOD_MS
+                return snapshotsInvalid && withinIngestionGracePeriod
             },
         ],
 

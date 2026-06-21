@@ -564,6 +564,44 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentTimestamp).toBe(START + 61500)
         })
 
+        // Within the ingestion grace period, a missing full snapshot may still be in
+        // flight — the player must buffer and keep polling instead of erroring terminally.
+        it('buffers instead of erroring for a recent recording with no full snapshot anywhere', () => {
+            // freeze "now" just after the recording start so it reads as recently captured
+            jest.useFakeTimers({ now: new Date(START + 60000), doNotFake: ['queueMicrotask'] })
+            try {
+                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+
+                logic.actions.seekToTimestamp(START + 61500)
+
+                expect(logic.values.playerError).toBeNull()
+                expect(logic.values.isBuffering).toBe(true)
+                expect(logic.values.isWaitingForIngestion).toBe(true)
+                expect(logic.values.currentTimestamp).toBe(START + 61500)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        // Past the grace period the data genuinely never arrived, so the terminal error stands.
+        it('errors for an old recording with no full snapshot anywhere', () => {
+            // freeze "now" well past the grace period after the recording start
+            jest.useFakeTimers({ now: new Date(START + 30 * 60 * 1000), doNotFake: ['queueMicrotask'] })
+            try {
+                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+
+                logic.actions.seekToTimestamp(START + 61500)
+
+                expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
+                expect(logic.values.isWaitingForIngestion).toBe(false)
+                expect(logic.values.currentTimestamp).toBe(START + 61500)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it.each([
             {
                 description: 'reports the leading unplayable span when the initial full snapshot is late',
