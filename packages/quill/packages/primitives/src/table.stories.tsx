@@ -674,6 +674,40 @@ export const InCardMinHeight: Story = {
 } satisfies Story
 
 
+// Sticky header inside a Card: a bounded `max-h-96` makes the body scroll, and
+// `stickyHeader` freezes the header. Because the table sits on the card surface
+// (not the app background), override `--quill-table-sticky-bg` to `var(--card)`
+// so the frozen header matches — here via a Tailwind arbitrary property.
+export const InCardStickyHeader: Story = {
+    render: () => (
+        <Card className="gap-0 pb-0">
+            <CardHeader>
+                <CardTitle>Table in Card</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+                <Table fullWidth stickyHeader className="max-h-96 [--quill-table-sticky-bg:var(--card)]">
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead expand>Name</TableHead>
+                            <TableHead>Email</TableHead>
+                            <TableHead>Role</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {manyRows.map((row) => (
+                            <TableRow key={row.id}>
+                                <TableCell className="font-medium">{row.name}</TableCell>
+                                <TableCell>{row.email}</TableCell>
+                                <TableCell>{row.role}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+    ),
+} satisfies Story
+
 // Same empty cell, dropped inside a Card. The height comes from the chain Card
 // min-h → CardContent flex-1 → Table h-full. Simplest form is just muted text.
 export const InCardEmptyText: Story = {
