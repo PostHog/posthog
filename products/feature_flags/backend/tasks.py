@@ -471,7 +471,7 @@ def cleanup_stale_hash_key_overrides_task(self: PushGatewayTask) -> None:
         try:
             # Get active flag keys for the team
             active_flag_keys = list(
-                FeatureFlag.objects.filter(team_id=team_id, deleted=False).values_list("key", flat=True)
+                FeatureFlag.objects.filter(team_id=team_id).values_list("key", flat=True)
             )
 
             # Delete overrides for this team that don't correspond to active flags
