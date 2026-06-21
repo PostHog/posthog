@@ -28,9 +28,9 @@ const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartia
         id: DesktopFileSystemCanvasPartialUpdateParams.shape['id'].describe(
             'ID of the canvas (desktop "dashboard" item) whose code to publish.'
         ),
-        code: DesktopFileSystemCanvasPartialUpdateBody.shape['code'].describe(
-            'The complete single-file React source for the canvas. Replaces the current code wholesale.'
-        ),
+        code: DesktopFileSystemCanvasPartialUpdateBody.shape['code']
+            .unwrap()
+            .describe('The complete single-file React source for the canvas. Replaces the current code wholesale.'),
     })
 
 const desktopFileSystemCanvasPartialUpdate = (): ToolBase<

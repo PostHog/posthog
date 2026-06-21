@@ -35,7 +35,7 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         row = FileSystem.objects.get(id=item_id)
-        meta = row.meta
+        meta = cast(dict, row.meta)
         self.assertEqual(meta["code"], "export default () => <div>hi</div>")
         self.assertEqual(meta["kind"], "freeform")
         # Pre-existing meta keys survive the merge.
@@ -52,7 +52,7 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         self.client.patch(self._canvas_url(item_id), {"code": "v1"})
         self.client.patch(self._canvas_url(item_id), {"code": "v2"})
 
-        meta = FileSystem.objects.get(id=item_id).meta
+        meta = cast(dict, FileSystem.objects.get(id=item_id).meta)
         self.assertEqual(meta["code"], "v2")
         self.assertEqual([v["code"] for v in meta["versions"]], ["v1", "v2"])
         self.assertEqual(meta["currentVersionId"], meta["versions"][-1]["id"])
@@ -66,3 +66,11 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
 
         bad = self.client.patch(self._canvas_url(folder_id), {"code": "x"})
         self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST, bad.json())
+
+    def test_publish_canvas_requires_code(self):
+        item_id = self._create_dashboard()
+
+        # `code` is required by the serializer; omitting it is a 400, not a silent no-op.
+        bad = self.client.patch(self._canvas_url(item_id), {"prompt": "only a prompt"})
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST, bad.json())
+        self.assertIn("code", bad.json())

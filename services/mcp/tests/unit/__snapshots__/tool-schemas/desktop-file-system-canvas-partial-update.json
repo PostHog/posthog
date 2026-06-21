@@ -13,6 +13,6 @@
             "type": "string"
         }
     },
-    "required": ["id"],
+    "required": ["id", "code"],
     "type": "object"
 }

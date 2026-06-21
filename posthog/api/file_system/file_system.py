@@ -1043,28 +1043,34 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         prompt = payload.validated_data.get("prompt")
 
         now_ms = int(time.time() * 1000)
-        meta = dict(dashboard.meta or {})
         version: dict[str, Any] = {"id": str(uuid4()), "code": code, "createdAt": now_ms}
         if prompt:
             version["prompt"] = prompt
-        # Snapshot the live author context onto the version (reverting restores it).
-        existing_context = meta.get("context")
-        if isinstance(existing_context, str):
-            version["context"] = existing_context
-        versions = list(meta.get("versions") or [])
-        versions.append(version)
 
-        meta.update(
-            {
-                "kind": "freeform",
-                "code": code,
-                "versions": versions,
-                "currentVersionId": version["id"],
-                "updatedAt": now_ms,
-            }
-        )
-        dashboard.meta = meta
-        dashboard.save(update_fields=["meta"])
+        # Lock the row for the read-modify-write so concurrent publishes can't clobber
+        # each other's appended version (each would otherwise build `versions` from the
+        # same stale snapshot and the second write would drop the first).
+        with transaction.atomic():
+            dashboard = FileSystem.objects.select_for_update().get(pk=dashboard.pk)
+            meta = dict(dashboard.meta or {})
+            # Snapshot the live author context onto the version (reverting restores it).
+            existing_context = meta.get("context")
+            if isinstance(existing_context, str):
+                version["context"] = existing_context
+            versions = list(meta.get("versions") or [])
+            versions.append(version)
+
+            meta.update(
+                {
+                    "kind": "freeform",
+                    "code": code,
+                    "versions": versions,
+                    "currentVersionId": version["id"],
+                    "updatedAt": now_ms,
+                }
+            )
+            dashboard.meta = meta
+            dashboard.save(update_fields=["meta"])
 
         return Response(self.get_serializer(dashboard).data)
 
