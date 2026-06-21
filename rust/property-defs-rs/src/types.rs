@@ -1,4 +1,4 @@
-use std::{fmt, hash::Hash, str::FromStr, sync::LazyLock};
+use std::{borrow::Cow, fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
 use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
 use regex::Regex;
@@ -403,7 +403,15 @@ impl Event {
 }
 
 pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
-    let key = key.to_lowercase();
+    // Avoid allocating a lowercased copy when the key is already lowercase (the common
+    // case on real traffic). Behaviour-preserving: we only borrow when the key contains no
+    // uppercase characters, otherwise we fall back to the same Unicode `to_lowercase`.
+    let key_lc: Cow<str> = if key.chars().any(char::is_uppercase) {
+        Cow::Owned(key.to_lowercase())
+    } else {
+        Cow::Borrowed(key)
+    };
+    let key: &str = &key_lc;
 
     // There are a whole set of special cases here, taken from the TS
     if key.starts_with("utm_") || key.starts_with("$initial_utm_") {
@@ -439,7 +447,7 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
         return Some(PropertyValueType::String);
     }
 
-    if detect_timestamp_property_by_key_and_value(&key, value) {
+    if detect_timestamp_property_by_key_and_value(key, value) {
         return Some(PropertyValueType::DateTime);
     }
 
