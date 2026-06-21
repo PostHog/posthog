@@ -126,24 +126,41 @@ Throughput-focused:
 
 Pipelining (measured against Postgres, not visible in Phase A/B/C):
 
-- ❌ **P1. Pipeline batches in the consumer — tried, measured, reverted.** Ran resolution +
-  `process_batch` in a bounded `JoinSet` so batches could overlap. A real-consumer-loop
-  throughput harness against Postgres showed overlapping writes (`max_inflight` 2/4)
-  *regressed* throughput ~25-35% vs serial (1), stable across runs: a local single-node
-  Postgres isn't write-latency-bound, so concurrency only adds WAL/lock contention with no
-  latency to hide. The hypothesised prod benefit (hiding latency to a remote/loaded PG) can't
-  be reproduced locally, so per "keep only what measurably improves" it was reverted. Only
-  worth revisiting with a prod-representative PG behind a canary.
+- ✅ **P1. Write concurrency — reverted, then re-introduced once the regime was right.** First
+  attempt regressed ~25-35% against a local Postgres (writes ~1ms, no latency to hide). Prod
+  writes are ~173ms (the `posthog_eventproperty` insert), which *is* the regime where it pays
+  off. It now lives in the staged writer (`WRITER_MAX_CONCURRENCY`); the end-to-end benchmark at
+  173ms shows staged + concurrency=4 ~30% faster than the legacy serial-write path. Lesson:
+  measure in the right regime — the first local measurement was unrepresentative.
 - ⬜ **P4. Dead config.** `max_concurrent_transactions` and `skip_writes` are declared but never
   used (`skip_writes` even defaults to `true`). Wire up or remove — but `skip_writes` must be
   reconciled with prod config first, since making a default-`true` flag actually skip writes
   would be a breaking change.
 
-## Running the DB-backed tests
+## The benchmarks
 
-Docker/compose isn't available in the web container, but a native PostgreSQL is started by the
-SessionStart hook (`.claude/hooks/setup-postgres.sh`), which also exports `DATABASE_URL` and
-`SQLX_OFFLINE`. The `#[sqlx::test]` integration tests (`batch_ingestion`, `queries`,
-`write_amplification`) then run with a plain `cargo test -p property-defs-rs`.
-- **P2. Wire up `max_concurrent_transactions`** (currently dead config) or remove it; make
-  write concurrency explicit instead of implicitly bounded by the PG pool.
+| bench | what it measures | infra |
+| --- | --- | --- |
+| `pipeline` | parse throughput (allocs/event), dedup ratio, last_seen_at churn | none (in-memory) |
+| `cache_contention` | shared vs per-thread cache scaling | none |
+| `pipeline_scaling` | CPU pipeline scaling + cross-pod write amplification by routing | none |
+| `end_to_end` | **the whole service**: real Kafka -> real pipeline -> real Postgres | Kafka + PG |
+
+`end_to_end` is the most faithful baseline — it produces realistic events to a Kafka topic and
+runs the actual reader/processor/writer (or legacy producer/consumer) loops against Postgres,
+reporting end-to-end events/sec (all N consumed AND all distinct writes persisted). Set
+`PROPDEFS_BENCH_WRITE_LATENCY_MS=173` to model the slow prod DB:
+
+```bash
+DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog SQLX_OFFLINE=true \
+  PROPDEFS_BENCH_WRITE_LATENCY_MS=173 cargo bench -p property-defs-rs --bench end_to_end
+```
+
+## Running the DB-backed tests and benchmarks
+
+A native PostgreSQL is started by the SessionStart hook (`.claude/hooks/setup-postgres.sh`),
+which also exports `DATABASE_URL` and `SQLX_OFFLINE`. The `#[sqlx::test]` integration tests
+(`batch_ingestion`, `queries`, `write_amplification`) run with a plain
+`cargo test -p property-defs-rs`. The `end_to_end` bench additionally needs a Kafka broker;
+Docker Hub's image CDN is blocked in the web container, so run Apache Kafka natively in KRaft
+mode from `downloads.apache.org` (Java is installed) on `localhost:9092`.
