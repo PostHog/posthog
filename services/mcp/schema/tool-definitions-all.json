@@ -3882,6 +3882,20 @@
         },
         "feature_flag": "heatmaps-mcp"
     },
+    "inbox-reports-bulk-set-state": {
+        "description": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing or snoozing a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool), `dismissal_note`, and `snooze_for` apply to every id. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Dismiss or snooze signal reports in bulk",
+        "title": "Dismiss or snooze signal reports in bulk",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-list": {
         "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
         "category": "Signals",
@@ -3911,7 +3925,7 @@
         }
     },
     "inbox-reports-set-state": {
-        "description": "Transition a signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze it back into the pipeline for later review. Optionally include a `dismissal_reason` (a short string code owned by the caller, e.g. 'not_a_bug', 'wont_fix', 'duplicate') and a `dismissal_note` (free-form text, up to 4000 chars) — both are persisted as a DISMISSAL artefact on the report so the rationale is preserved even if the report transitions again later. Returns 409 if the transition is not allowed from the report's current status.",
+        "description": "Transition a single signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze/restore it back into the pipeline for later review. Optionally include a `dismissal_reason` — a canonical code from the inbox UI (`already_fixed`, `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw string. `already_fixed` is a snooze, not a dismissal: pair it with state='potential'. Use `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not allowed from the report's current status. To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per report.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Dismiss or snooze a signal report",
@@ -6355,51 +6369,6 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
-    },
-    "session-recording-export-create": {
-        "description": "Trigger an export of a single session recording's data to a downloadable archive. Requires staff access. Provide the `session_id` and a `reason` (recorded for audit). Returns an export job whose `status` starts as `pending`; poll `session-recording-export-get` with the returned `id` until `status` is `complete`, then read `export_location` for the archive's storage path. The export gathers recording blocks plus related ClickHouse metadata, so completion is not instant.",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "Export session recording",
-        "title": "Export session recording",
-        "required_scopes": ["session_recording:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "replay-admin-export"
-    },
-    "session-recording-export-get": {
-        "description": "Get a single session recording export job by `id`. Requires staff access. Returns its `status` (pending/running/complete/failed), `export_location` (the archive's storage path, populated once `status` is `complete`), any `error_message`, and `is_expired` (exports older than 7 days may have been purged). Use after `session-recording-export-create` to poll for completion.",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "Get session recording export",
-        "title": "Get session recording export",
-        "required_scopes": ["session_recording:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "replay-admin-export"
-    },
-    "session-recording-exports-list": {
-        "description": "List past session recording export jobs for the project, newest first. Requires staff access. Use to find an export's `id` and `status` before reading its download location via `session-recording-export-get`.",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "List session recording exports",
-        "title": "List session recording exports",
-        "required_scopes": ["session_recording:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "replay-admin-export"
     },
     "session-recording-get": {
         "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
