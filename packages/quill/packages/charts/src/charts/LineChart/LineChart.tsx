@@ -79,7 +79,8 @@ function LineChartInner<Meta = unknown>({
         showGrid = false,
         showAxisLines = false,
         valueDomain,
-        yAxes: yAxisRenderConfigs,
+        floatBaseline = false,
+        yAxes,
     } = config ?? {}
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
@@ -128,12 +129,13 @@ function LineChartInner<Meta = unknown>({
                 scaleType: yScaleType,
                 percentStack: percentStackView,
                 valueDomain,
-                axes: yAxisRenderConfigs,
+                floatBaseline,
+                axes: yAxes,
             })
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
 
-            const yAxes = d3Scales.yAxes ? toYAxisScales(d3Scales.yAxes, yTickCount) : undefined
+            const yAxisScales = d3Scales.yAxes ? toYAxisScales(d3Scales.yAxes, yTickCount) : undefined
 
             // Stash raw d3 scales in the private slot so drawStatic can read them without
             // a side-channel ref — every render gets a self-contained ChartScales object,
@@ -147,11 +149,11 @@ function LineChartInner<Meta = unknown>({
                 x: (label: string) => d3Scales.x(label),
                 y: (value: number) => d3Scales.y(value),
                 yTicks: () => d3Scales.y.ticks?.(yTickCount) ?? [],
-                yAxes,
+                yAxes: yAxisScales,
                 _private: lineChartPrivate,
             }
         },
-        [yScaleType, percentStackView, stackedData, valueDomain, yAxisRenderConfigs]
+        [yScaleType, percentStackView, stackedData, valueDomain, floatBaseline, yAxes]
     )
 
     const drawStatic = useCallback(

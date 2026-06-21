@@ -13,6 +13,7 @@ import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
+import { captureSignalSourceConnected } from './inboxAnalytics'
 import type { signalSourcesLogicType } from './signalSourcesLogicType'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
 
@@ -433,7 +434,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 }
                 const mapped = mapping[product]
                 if (mapped) {
-                    actions.toggleSignalSource({ ...mapped, enabled: true })
+                    actions.toggleSignalSource({ ...mapped, enabled: true, viaSetupWizard: true })
                 }
                 actions.closeDataSourceSetup()
             },
@@ -461,6 +462,16 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     breakpoint()
                     actions.toggleSignalSourceSuccess(params)
+                    // Only a successful enable counts as a connection. First-time when there was no
+                    // persisted (non-placeholder) config for this product/type before the toggle.
+                    if (enabled) {
+                        captureSignalSourceConnected({
+                            sourceProduct,
+                            sourceType,
+                            isFirstConnection: !(existing && !existing.id.startsWith('new_')),
+                            viaSetupWizard: params.viaSetupWizard ?? false,
+                        })
+                    }
                     actions.loadSourceConfigs()
                 } catch (error: any) {
                     breakpoint()
@@ -473,6 +484,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             toggleErrorTracking: async (_, breakpoint) => {
                 const desiredEnabled = !values.errorTrackingIsFullyEnabled
                 const configs = values.sourceConfigs ?? []
+                // First connection when no persisted error-tracking config existed before this enable.
+                const wasConnected = configs.some(
+                    (c) => c.source_product === SignalSourceProduct.ERROR_TRACKING && !c.id.startsWith('new_')
+                )
                 try {
                     for (const sourceType of ERROR_TRACKING_SIGNAL_SOURCE_TYPES) {
                         const existing = configs.find(
@@ -492,6 +507,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     breakpoint()
                     actions.toggleErrorTrackingComplete()
+                    if (desiredEnabled) {
+                        captureSignalSourceConnected({
+                            sourceProduct: SignalSourceProduct.ERROR_TRACKING,
+                            sourceType: SignalSourceType.ISSUE_CREATED,
+                            isFirstConnection: !wasConnected,
+                            viaSetupWizard: false,
+                        })
+                    }
                     actions.loadSourceConfigs()
                 } catch (error: any) {
                     breakpoint() // re-throws if superseded, skipping the lines below
