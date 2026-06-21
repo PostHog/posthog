@@ -700,11 +700,47 @@ export interface DashboardPatchWidgetOpenApiApi {
     description?: string
 }
 
+export interface _WidgetTileLayoutBoxOpenApiApi {
+    /** Column position in the dashboard grid (0-indexed). */
+    x?: number
+    /** Row position in the dashboard grid (0-indexed). */
+    y?: number
+    /** Width in grid columns. The desktop grid is 12 columns wide. */
+    w?: number
+    /** Height in grid rows. */
+    h?: number
+}
+
+export interface _WidgetTileLayoutsOpenApiApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+    sm?: _WidgetTileLayoutBoxOpenApiApi
+    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+    xs?: _WidgetTileLayoutBoxOpenApiApi
+}
+
 export interface DashboardPatchTileOpenApiApi {
     /** Dashboard tile ID to update. */
     id?: number
     /** Nested widget row updates. */
     widget?: DashboardPatchWidgetOpenApiApi
+    /** Grid position and size per breakpoint (sm, xs). The desktop grid is 12 columns wide — e.g. a compact 3×3 metric card is sm={x, y, w: 3, h: 3}. */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /**
+     * Tile accent color, or null to clear it.
+     * @maxLength 400
+     * @nullable
+     */
+    color?: string | null
+    /**
+     * Whether the tile's description is shown on the dashboard. Set false to hide it.
+     * @nullable
+     */
+    show_description?: boolean | null
+    /**
+     * Whether the tile renders without its card background.
+     * @nullable
+     */
+    transparent_background?: boolean | null
 }
 
 /**
@@ -8035,24 +8071,6 @@ export interface UpdateTextTileRequestApi {
      * @nullable
      */
     color?: string | null
-}
-
-export interface _WidgetTileLayoutBoxOpenApiApi {
-    /** Column position in the dashboard grid (0-indexed). */
-    x?: number
-    /** Row position in the dashboard grid (0-indexed). */
-    y?: number
-    /** Width in grid columns. The desktop grid is 12 columns wide. */
-    w?: number
-    /** Height in grid rows. */
-    h?: number
-}
-
-export interface _WidgetTileLayoutsOpenApiApi {
-    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-    sm?: _WidgetTileLayoutBoxOpenApiApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-    xs?: _WidgetTileLayoutBoxOpenApiApi
 }
 
 export type ActivityEventsListWidgetAddRequestOpenApiApiWidgetType =

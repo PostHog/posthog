@@ -14178,6 +14178,24 @@ export namespace Schemas {
       id?: number;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
+      /** Grid position and size per breakpoint (sm, xs). The desktop grid is 12 columns wide — e.g. a compact 3×3 metric card is sm={x, y, w: 3, h: 3}. */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /**
+         * Tile accent color, or null to clear it.
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      /**
+         * Whether the tile's description is shown on the dashboard. Set false to hide it.
+         * @nullable
+         */
+      show_description?: boolean | null;
+      /**
+         * Whether the tile renders without its card background.
+         * @nullable
+         */
+      transparent_background?: boolean | null;
     }
 
     /**

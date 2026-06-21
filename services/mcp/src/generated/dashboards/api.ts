@@ -143,6 +143,8 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderDire
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourStatusDefault = `all`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
+export const dashboardsPartialUpdateBodyTilesItemColorMax = 400
+
 export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
@@ -558,6 +560,62 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                         })
                         .optional()
                         .describe('Nested widget row updates.'),
+                    layouts: zod
+                        .object({
+                            sm: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+                            xs: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                        })
+                        .optional()
+                        .describe(
+                            'Grid position and size per breakpoint (sm, xs). The desktop grid is 12 columns wide — e.g. a compact 3×3 metric card is sm={x, y, w: 3, h: 3}.'
+                        ),
+                    color: zod
+                        .string()
+                        .max(dashboardsPartialUpdateBodyTilesItemColorMax)
+                        .nullish()
+                        .describe('Tile accent color, or null to clear it.'),
+                    show_description: zod
+                        .boolean()
+                        .nullish()
+                        .describe("Whether the tile's description is shown on the dashboard. Set false to hide it."),
+                    transparent_background: zod
+                        .boolean()
+                        .nullish()
+                        .describe('Whether the tile renders without its card background.'),
                 })
             )
             .optional()

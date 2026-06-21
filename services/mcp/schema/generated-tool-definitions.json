@@ -1783,7 +1783,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To update widget tiles, pass `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. There is no separate PATCH .../widgets/:tile_id/ endpoint. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To resize or restyle any tile (insight, text, or widget), pass `tiles` with each tile's `id` plus the display fields to change: `layouts` (per-breakpoint grid position/size — the desktop grid is 12 columns wide, so a compact 3×3 card is `sm: {x, y, w: 3, h: 3}`), `show_description` (set false to hide the description), `color`, and `transparent_background`. Look up tile IDs and current values with dashboard-get. To update widget tiles, also pass each tile's nested `widget.id` plus the fields to change (`config`, `name`, `description`) — the same PATCH path the UI uses; there is no separate PATCH .../widgets/:tile_id/ endpoint. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
