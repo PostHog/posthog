@@ -90,20 +90,26 @@ fn gen_events(num_events: usize, num_teams: usize, seed: u64) -> Vec<(i32, Strin
 
 #[derive(Clone, Copy)]
 enum RouteBy {
+    RoundRobin, // no key affinity (current multi-pod reality): same key hits many workers
     Team,       // all of a team's updates on one worker: perfect dedup, but Zipfian imbalance
     TeamEvent,  // balanced, but splits a property's PropertyDefinition across events
 }
 
-fn route(by: RouteBy, team: i32, event: &str, n: usize) -> usize {
+fn route(by: RouteBy, idx: usize, team: i32, event: &str, n: usize) -> usize {
     if n == 1 {
         return 0;
     }
-    let mut h = DefaultHasher::new();
-    team.hash(&mut h);
-    if let RouteBy::TeamEvent = by {
-        event.hash(&mut h);
+    match by {
+        RouteBy::RoundRobin => idx % n,
+        _ => {
+            let mut h = DefaultHasher::new();
+            team.hash(&mut h);
+            if let RouteBy::TeamEvent = by {
+                event.hash(&mut h);
+            }
+            (h.finish() as usize) % n
+        }
     }
-    (h.finish() as usize) % n
 }
 
 // One worker's full CPU pipeline over its shard. Returns updates that survived its cache.
@@ -137,8 +143,8 @@ fn process_shard(shard: &[&str]) -> u64 {
 // Returns (events_per_sec, total_passed_updates).
 fn run(events: &[(i32, String, String)], by: RouteBy, n: usize) -> (f64, u64) {
     let mut shards: Vec<Vec<&str>> = vec![Vec::new(); n];
-    for (team, event, raw) in events {
-        shards[route(by, *team, event, n)].push(raw.as_str());
+    for (idx, (team, event, raw)) in events.iter().enumerate() {
+        shards[route(by, idx, *team, event, n)].push(raw.as_str());
     }
 
     let start = Instant::now();
@@ -167,11 +173,15 @@ fn main() {
     println!("\n=== pipeline scaling: N independent workers, each a full CPU pipeline ===");
     println!("(deserialize + into_updates + dedup + sort; full DB writes excluded)");
 
-    for (label, by) in [("route by team", RouteBy::Team), ("route by (team,event)", RouteBy::TeamEvent)] {
+    for (label, by) in [
+        ("round-robin (current multi-pod: NO key affinity)", RouteBy::RoundRobin),
+        ("route by team (perfect dedup)", RouteBy::Team),
+        ("route by (team,event)", RouteBy::TeamEvent),
+    ] {
         println!("\n-- {label} --");
         println!(
             "{:<9} {:>14} {:>10} {:>14} {:>16}",
-            "workers", "events/sec", "scaling", "passed", "dedup_vs_1worker"
+            "workers", "events/sec", "scaling", "passed(=writes)", "writes_vs_1pod"
         );
         let mut base = 0.0;
         let mut base_passed = 0u64;
@@ -199,5 +209,9 @@ fn main() {
             );
         }
     }
-    println!("\nscaling ~Nx => pipeline parallelizes; dedup_vs_1worker ~1.0 => routing preserves dedup.");
+    println!(
+        "\nscaling ~Nx => CPU pipeline parallelizes. writes_vs_1pod: round-robin grows to N\n\
+         (N pods with no key affinity each re-issue the same inserts => (N-1)/N are fake);\n\
+         routing by team keeps it at 1.0 (team_id is in every dedup key)."
+    );
 }
