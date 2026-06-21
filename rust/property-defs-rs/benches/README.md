@@ -76,8 +76,11 @@ Each iteration:
    - keep if it improves the primary metric (dedup) without regressing throughput >X%,
      or improves throughput without regressing dedup;
    - revert otherwise.
-6. **Validate correctness** — `cargo test -p property-defs-rs` must stay green; for changes
-   to write SQL, also run the DB-backed `tests/batch_ingestion.rs` against a live Postgres.
+6. **Validate correctness** — run the full suite `cargo test -p property-defs-rs` every
+   iteration and confirm it is green; for changes to write SQL, also run the DB-backed
+   `tests/batch_ingestion.rs` against a live Postgres. **If any test fails, fix it before
+   continuing** — fix the code when it's a real regression, or update the test when the change
+   legitimately altered an API/shape. Never delete, `#[ignore]`, or weaken a test to go green.
 7. Record the result, update `baseline.json`, repeat.
 
 ### Requirements / invariants the loop must not break
@@ -90,7 +93,9 @@ Each iteration:
 - **Behavior changes are gated.** Anything that changes what reaches Postgres (e.g.
   dropping last_seen_at precision, sharding caches) goes behind a config flag so it can be
   rolled out and reverted independently.
-- **Tests green every iteration.** Never commit a red `cargo test`.
+- **Tests green every iteration.** Run `cargo test -p property-defs-rs` each iteration and fix
+  any failure (real regression → fix code; legitimate API change → update the test). Never
+  delete/ignore/weaken a test to go green, and never commit a red `cargo test`.
 
 ### Backlog (candidate optimizations, derived from the review)
 
