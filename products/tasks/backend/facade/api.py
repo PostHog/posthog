@@ -106,6 +106,7 @@ __all__ = [
     "create_task",
     "create_task_automation",
     "create_task_run_connection_token",
+    "claim_and_fail_stale_run",
     "delete_sandbox_environment",
     "delete_task_automation",
     "fail_task_run",
@@ -643,6 +644,26 @@ def fail_task_run(run_id: str | UUID, error: str) -> bool:
     if run is None:
         return False
     run.mark_failed(error)
+    return True
+
+
+def claim_and_fail_stale_run(run_id: str | UUID, error: str) -> bool:
+    """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
+
+    Atomically flips a run still in ``QUEUED``/``IN_PROGRESS`` to ``FAILED`` via a conditional
+    update, so concurrent reapers of the same row resolve to exactly one winner (the losers match
+    zero rows). The winner finalizes via ``mark_failed`` (error message, ``completed_at``, stream +
+    analytics). Intentionally cross-team (janitor sweep).
+    """
+    claimed = TaskRun.objects.filter(
+        id=run_id,
+        status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
+    ).update(status=TaskRun.Status.FAILED)  # nosemgrep: celery-task-team-scope-audit
+    if not claimed:
+        return False
+    run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
+    if run is not None:
+        run.mark_failed(error)
     return True
 
 

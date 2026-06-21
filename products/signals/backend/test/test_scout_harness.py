@@ -537,6 +537,7 @@ async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     # An IN_PROGRESS run orphaned by a crashed worker must not block the lane forever. The
     # stale-run self-heal fails any run older than STALE_RUN_CUTOFF_S before the skip-if-running
     # guard, so a fresh dispatch proceeds and the orphan is marked FAILED.
@@ -578,6 +579,7 @@ async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerr
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_recent_in_progress_run_is_not_reaped_and_still_blocks(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     # A genuinely in-flight run (younger than the cutoff) must still single-flight — the
     # self-heal must not reap a live run out from under itself.
     config = await database_sync_to_async(SignalScoutConfig.objects.create)(
@@ -611,6 +613,7 @@ async def test_recent_in_progress_run_is_not_reaped_and_still_blocks(ateam, aerr
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     # Reaping an orphan emits `signals_scout_run_reaped` — the strand's only event (a reaped
     # run never reaches the finalize path, so it emits no `signals_scout_run_finished`). This
     # is what makes the worker-death / mass-stall shape alertable with no warehouse lag.

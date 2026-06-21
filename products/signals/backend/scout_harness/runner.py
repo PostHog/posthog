@@ -443,7 +443,7 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
         .filter(
             team_id=team_id,
             skill_name=skill_name,
-            task_run__status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
+            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
             task_run__created_at__lt=cutoff,
         )
         .select_related("task_run")
@@ -457,23 +457,22 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     for run in stale_runs:
         try:
             task_run = run.task_run
+            # Read the pre-reap status / age off the loaded bridge instance before the claim:
+            # the conditional update below doesn't refresh it, so these stay the original values.
+            status_before = task_run.status
+            age_seconds = (now - task_run.created_at).total_seconds()
             # Compare-and-set claim on the status transition. Two triggers for the same
             # `(team, skill)` can reach this self-heal concurrently and load the same stale
             # row; the conditional UPDATE lets exactly one win — the other matches zero rows
             # once the first commits `FAILED`. Only the winner falls through to emit, so a
             # single stranded run can't double-count in the worker-death / mass-stall signal.
-            claimed = TaskRun.objects.filter(
-                id=task_run.id,
-                status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
-            ).update(status=TaskRun.Status.FAILED)
+            claimed = tasks_facade.claim_and_fail_stale_run(
+                task_run.id,
+                "Scout run abandoned: no terminal status past the runtime ceiling "
+                "(worker/sandbox lost before finalize).",
+            )
             if not claimed:
                 continue
-            status_before = task_run.status
-            age_seconds = (now - task_run.created_at).total_seconds()
-            task_run.mark_failed(
-                "Scout run abandoned: no terminal status past the runtime ceiling "
-                "(worker/sandbox lost before finalize)."
-            )
             logger.warning(
                 "signals_scout: reaped stale in-progress run before dispatch",
                 extra={
