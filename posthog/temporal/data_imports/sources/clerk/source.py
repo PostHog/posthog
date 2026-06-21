@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLERK,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Clerk",
             releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Clerk secret key to automatically pull your Clerk data into the PostHog Data warehouse.

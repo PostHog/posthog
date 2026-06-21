@@ -1,8 +1,7 @@
-use std::sync::Arc;
-
-use cymbal::{app_context::AppContext, config::Config, server::start_server};
+use cymbal::config::Config;
+use cymbal::modes::{self, CymbalMode};
 use tracing::level_filters::LevelFilter;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -37,23 +36,25 @@ async fn main() {
         }
     };
 
-    match &config.posthog_api_key {
-        Some(key) => {
-            let ph_config = posthog_rs::ClientOptionsBuilder::default()
-                .api_key(key.clone())
-                .api_endpoint(config.posthog_endpoint.clone())
-                .build()
-                .unwrap();
-            posthog_rs::init_global(ph_config).await.unwrap();
-            info!("Posthog client initialized");
-        }
-        None => {
-            posthog_rs::disable_global();
-            warn!("Posthog client disabled");
+    let service_name = match config.mode {
+        CymbalMode::Processing => "cymbal",
+        CymbalMode::Resolution => "cymbal-resolution",
+    };
+    common_posthog::init(
+        service_name,
+        config.posthog_api_key.as_deref(),
+        &config.posthog_endpoint,
+    )
+    .await
+    .unwrap();
+
+    match config.mode {
+        CymbalMode::Processing => modes::processing::run(config).await,
+        CymbalMode::Resolution => {
+            if let Err(e) = modes::resolution::serve(&config).await {
+                error!("cymbal-resolution server error: {e}");
+                std::process::exit(1);
+            }
         }
     }
-
-    let context = Arc::new(AppContext::from_config(&config).await.unwrap());
-
-    start_server(config.clone(), context.clone()).await;
 }

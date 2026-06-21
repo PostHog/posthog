@@ -37,6 +37,7 @@ export type RemoteNotebookCaret = {
     position: MarkdownNotebookCaretPosition
     /** Notebook version the position was computed against, when known. */
     version?: number
+    isFading?: boolean
 }
 
 /**
@@ -265,7 +266,7 @@ export function RemoteCaretOverlay({
     }
 
     return (
-        <div className="MarkdownNotebook__remote-carets" aria-hidden="true">
+        <div className="MarkdownNotebook__remote-carets" aria-hidden={true}>
             {carets.map((caret) => {
                 const layout = layouts[caret.clientId]
                 if (!layout) {
@@ -273,37 +274,33 @@ export function RemoteCaretOverlay({
                 }
                 if (layout.width !== undefined) {
                     // Block-level presence: the user is on a component/table, not at a text offset.
+                    const style = {
+                        top: layout.top,
+                        left: layout.left,
+                        width: layout.width,
+                        height: layout.height,
+                        '--remote-presence-color': caret.color,
+                    } as React.CSSProperties
+                    const className = caret.isFading
+                        ? 'MarkdownNotebook__remote-block MarkdownNotebook__remote-block--fading'
+                        : 'MarkdownNotebook__remote-block'
                     return (
-                        <div
-                            key={caret.clientId}
-                            className="MarkdownNotebook__remote-block"
-                            style={
-                                {
-                                    top: layout.top,
-                                    left: layout.left,
-                                    width: layout.width,
-                                    height: layout.height,
-                                    '--remote-presence-color': caret.color,
-                                } as React.CSSProperties
-                            }
-                        >
+                        <div key={caret.clientId} className={className} style={style}>
                             <span className="MarkdownNotebook__remote-caret-flag">{caret.userName}</span>
                         </div>
                     )
                 }
+                const style = {
+                    top: layout.top,
+                    left: layout.left,
+                    height: layout.height,
+                    '--remote-presence-color': caret.color,
+                } as React.CSSProperties
+                const className = caret.isFading
+                    ? 'MarkdownNotebook__remote-caret MarkdownNotebook__remote-caret--fading'
+                    : 'MarkdownNotebook__remote-caret'
                 return (
-                    <div
-                        key={caret.clientId}
-                        className="MarkdownNotebook__remote-caret"
-                        style={
-                            {
-                                top: layout.top,
-                                left: layout.left,
-                                height: layout.height,
-                                '--remote-presence-color': caret.color,
-                            } as React.CSSProperties
-                        }
-                    >
+                    <div key={caret.clientId} className={className} style={style}>
                         <span className="MarkdownNotebook__remote-caret-flag">{caret.userName}</span>
                     </div>
                 )

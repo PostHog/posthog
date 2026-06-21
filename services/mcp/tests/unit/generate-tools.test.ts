@@ -394,6 +394,107 @@ describe('generateToolCode without input_schema', () => {
         expect(result.toolInputsImports).toEqual([])
     })
 
+    it('comma-joins explode:false array query params (DRF comma-separated filters)', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+        }
+        const resolved = makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters: [
+                    {
+                        in: 'query',
+                        name: 'type',
+                        style: 'form',
+                        explode: false,
+                        schema: { type: 'array', items: { type: 'string' } },
+                    },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(
+            "type: Array.isArray(params.type) ? params.type.join(',') || undefined : params.type,"
+        )
+    })
+
+    it('forwards array query params without explode:false untouched (json.loads()-style backends)', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+        }
+        const resolved = makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters: [
+                    {
+                        in: 'query',
+                        name: 'serviceNames',
+                        schema: { type: 'array', items: { type: 'string' } },
+                    },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('serviceNames: params.serviceNames,')
+        expect(result.code).not.toContain('serviceNames.join')
+    })
+
+    it('keeps explode:false params with object items on the JSON path', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+        }
+        const resolved = makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters: [
+                    {
+                        in: 'query',
+                        name: 'filters',
+                        style: 'form',
+                        explode: false,
+                        schema: { type: 'array', items: { $ref: '#/components/schemas/Filter' } },
+                    },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('filters: params.filters,')
+        expect(result.code).not.toContain('filters.join')
+    })
+
     it('collects toolInputsImports from param_overrides', () => {
         const config: ToolConfig = {
             operation: 'things_create',

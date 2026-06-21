@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class ExpensifySource(SimpleSource[ExpensifySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.EXPENSIFY,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Expensify",
             iconPath="/static/services/expensify.png",
             fields=cast(list[FieldType], []),

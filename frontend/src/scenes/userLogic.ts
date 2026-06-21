@@ -8,6 +8,7 @@ import api, { getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { clearSession, isOAuthMode } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -259,6 +260,14 @@ export const userLogic = kea<userLogicType>([
             }
             cache.loggingOut = true
             posthog.reset()
+
+            // OAuth mode: there's no local Django session to end — just drop the stored cloud
+            // token and return to the local login. (A cross-origin /logout POST would do nothing.)
+            if (isOAuthMode()) {
+                clearSession()
+                window.location.href = '/login'
+                return
+            }
 
             const form = document.createElement('form')
             form.method = 'POST'

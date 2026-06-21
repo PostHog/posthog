@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -41,6 +42,7 @@ class ClariSource(ResumableSource[ClariSourceConfig, ClariResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLARI,
+            category=DataWarehouseSourceCategory.SALES,
             label="Clari",
             caption="""Connect your Clari account to pull your revenue data into the PostHog Data warehouse.
 

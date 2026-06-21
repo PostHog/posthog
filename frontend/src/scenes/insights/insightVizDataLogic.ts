@@ -12,7 +12,7 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
+import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -68,6 +68,7 @@ import {
     getFormulas,
     getGoalLines,
     getInterval,
+    getLegendPosition,
     getResultCustomizationBy,
     getSeries,
     getShowAlertThresholdLines,
@@ -230,13 +231,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 if (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) {
                     return display !== ChartDisplayType.WorldMap && display !== ChartDisplayType.CalendarHeatmap
                 }
-                // Funnel compare ships behind a flag, and only for the TRENDS viz mode in slice 1.
-                if (
-                    isFunnelsQuery(q) &&
-                    !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] &&
-                    q.funnelsFilter?.funnelVizType === FunnelVizType.Trends
-                ) {
-                    return true
+                // Funnel compare ships behind a flag, for the STEPS, TRENDS and TIME_TO_CONVERT viz
+                // modes. FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).
+                if (isFunnelsQuery(q) && !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]) {
+                    return (q.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) !== FunnelVizType.Flow
                 }
                 return false
             },
@@ -291,6 +289,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showAlertThresholdLines: [(s) => [s.querySource], (q) => (q ? getShowAlertThresholdLines(q) : null)],
         showAnnotations: [(s) => [s.querySource], (q) => (q ? getShowAnnotations(q) : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
+        legendPosition: [(s) => [s.querySource], (q) => (q ? getLegendPosition(q) : null)],
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showPercentagesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowPercentagesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
@@ -954,6 +953,11 @@ const handleQuerySourceUpdateSideEffects = (
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+    }
+
+    // Remove breakdown filter if display type is Metric because it is single-series
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.Metric) {
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 

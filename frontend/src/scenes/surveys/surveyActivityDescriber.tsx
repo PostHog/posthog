@@ -11,7 +11,7 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
-import { truncate } from 'lib/utils'
+import { truncate } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {

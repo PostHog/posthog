@@ -294,6 +294,10 @@ function mergeWithExisting(
         category: existing.category ?? tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: existing.feature ?? tag.replace(/-/g, '_'),
         url_prefix: existing.url_prefix ?? `/${tag.replace(/_/g, '-')}`,
+        // Hand-authored category-level gate — sync must not drop it.
+        ...(existing.feature_flag ? { feature_flag: existing.feature_flag } : {}),
+        ...(existing.feature_flag_behavior ? { feature_flag_behavior: existing.feature_flag_behavior } : {}),
+        ...(existing.feature_flag_variant ? { feature_flag_variant: existing.feature_flag_variant } : {}),
         ui_apps: existing.ui_apps ?? {},
         tools: sortedTools,
     }

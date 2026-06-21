@@ -6,7 +6,7 @@ import { LemonLabel, LemonTable, LemonTableColumns, SpinnerOverlay } from '@post
 import { getColorVar } from 'lib/colors'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import {
     WORKFLOW_SUMMARY_METRICS,

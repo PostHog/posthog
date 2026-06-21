@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class MailerLiteSource(ResumableSource[MailerLiteSourceConfig, MailerLiteResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MAILER_LITE,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="MailerLite",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your MailerLite API key to pull your MailerLite data into the PostHog Data warehouse.
