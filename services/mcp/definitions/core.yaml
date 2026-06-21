@@ -79,11 +79,9 @@ tools:
             id:
                 description: ID of the canvas (desktop "dashboard" item) whose code to publish.
             code:
-                # Required by the backend CanvasPublishSerializer even though the endpoint is a
-                # PATCH (whose body fields Orval otherwise marks optional).
-                required: true
                 description: |
                     The complete single-file React source for the canvas. Replaces the current code wholesale.
+                required: true
             name:
                 description: |
                     Optional new display name for the canvas. When set, renames the canvas (the leaf of its path)
