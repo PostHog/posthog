@@ -322,6 +322,8 @@ class GoogleSearchConsoleSiteSerializer(serializers.Serializer):
 
 class GoogleSearchConsoleSitesResponseSerializer(serializers.Serializer):
     sites = GoogleSearchConsoleSiteSerializer(many=True)
+
+
 class IntegrationAccessRequestSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=Integration.IntegrationKind.choices,
