@@ -87,6 +87,13 @@ impl EventPropertiesBatch {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventDefinitionsBatch {
     batch_size: usize,
+    // Maps a row's ON CONFLICT key -> its index in the parallel vectors below, so append() can
+    // collapse duplicates within a single batch. The write does
+    //   INSERT ... ON CONFLICT (coalesce(project_id, team_id::bigint), name) DO UPDATE SET last_seen_at=...
+    // and Postgres rejects a statement that proposes two rows with the same conflict key
+    // ("ON CONFLICT DO UPDATE command cannot affect row a second time", SQLSTATE 21000), which
+    // rolls back the entire batch. Deduping on insert keeps each write to one row per key (issue #64253).
+    seen: HashMap<(i64, String), usize>,
     pub ids: Vec<Uuid>,
     pub names: Vec<String>,
     pub team_ids: Vec<i32>,
@@ -100,6 +107,7 @@ impl EventDefinitionsBatch {
     pub fn new(batch_size: usize) -> Self {
         Self {
             batch_size,
+            seen: HashMap::with_capacity(batch_size),
             ids: Vec::with_capacity(batch_size),
             names: Vec::with_capacity(batch_size),
             team_ids: Vec::with_capacity(batch_size),
@@ -110,6 +118,25 @@ impl EventDefinitionsBatch {
     }
 
     pub fn append(&mut self, ed: EventDefinition) {
+        // Collapse duplicates on the write's ON CONFLICT key so a repeated event name in one batch
+        // can't make Postgres raise a "cannot affect row a second time" cardinality error and roll
+        // back the whole batch (issue #64253). project_id is always set here, so
+        // coalesce(project_id, team_id) is just project_id.
+        let dedup_key = (ed.project_id, ed.name.clone());
+        if let Some(&idx) = self.seen.get(&dedup_key) {
+            // Keep the latest last_seen_at, mirroring the DO UPDATE that only advances it.
+            if ed.last_seen_at > self.last_seen_ats[idx] {
+                self.last_seen_ats[idx] = ed.last_seen_at;
+            }
+            // `cached` stays append-only: every appended update was marked in the shared cache by
+            // the producer, so a failed batch must uncache all of them (a superseded duplicate with
+            // a different last_seen_at carries a different cache key). Overwriting here would leak
+            // the older key, leaving it cached as if persisted and never retried.
+            self.cached.push(Update::Event(ed));
+            return;
+        }
+        self.seen.insert(dedup_key, self.ids.len());
+
         self.ids.push(Uuid::now_v7());
         self.names.push(ed.name.clone());
         self.team_ids.push(ed.team_id);
@@ -692,6 +719,63 @@ mod tests {
         let mut batch = PropertyDefinitionsBatch::new(100);
         batch.append(prop_def("revenue", None));
         batch.append(prop_def("revenue", Some(PropertyValueType::Numeric)));
+
+        assert_eq!(batch.len(), 1); // one row written
+        assert_eq!(batch.cached.len(), 2); // both updates still uncacheable on failure
+    }
+
+    fn event_def(name: &str, last_seen_at: DateTime<Utc>) -> EventDefinition {
+        EventDefinition {
+            name: name.to_string(),
+            team_id: 1,
+            project_id: 1,
+            last_seen_at,
+        }
+    }
+
+    #[test]
+    fn event_append_dedups_repeated_keys_within_batch() {
+        // A repeated event name in one batch must collapse to a single row. Otherwise the
+        // ON CONFLICT DO UPDATE write proposes two rows with the same conflict key and Postgres
+        // aborts the whole batch with SQLSTATE 21000 (issue #64253), just like property defs.
+        let ts = Utc::now();
+        let mut batch = EventDefinitionsBatch::new(100);
+        batch.append(event_def("$pageview", ts));
+        batch.append(event_def("$pageview", ts));
+        batch.append(event_def("$autocapture", ts));
+
+        assert_eq!(batch.len(), 2);
+        assert_eq!(
+            batch.names,
+            vec!["$pageview".to_string(), "$autocapture".to_string()]
+        );
+    }
+
+    #[test]
+    fn event_append_keeps_latest_last_seen_at() {
+        // The write's DO UPDATE only advances last_seen_at, so the deduped row must carry the
+        // greatest last_seen_at among the collapsed duplicates regardless of arrival order.
+        let earlier = Utc::now();
+        let later = earlier + Duration::from_secs(3600);
+        let mut batch = EventDefinitionsBatch::new(100);
+        batch.append(event_def("$pageview", later));
+        batch.append(event_def("$pageview", earlier));
+
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch.last_seen_ats, vec![later]);
+    }
+
+    #[test]
+    fn event_append_keeps_every_update_cached_for_uncaching() {
+        // Dedupe collapses the written row, but `cached` must keep every appended update so a
+        // failed batch uncaches all of them. EventDefinition hashes on last_seen_at too, so a
+        // superseded duplicate carries a different cache key and would leak if dropped.
+        let mut batch = EventDefinitionsBatch::new(100);
+        batch.append(event_def("$pageview", Utc::now()));
+        batch.append(event_def(
+            "$pageview",
+            Utc::now() + Duration::from_secs(3600),
+        ));
 
         assert_eq!(batch.len(), 1); // one row written
         assert_eq!(batch.cached.len(), 2); // both updates still uncacheable on failure
