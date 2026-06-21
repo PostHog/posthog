@@ -47,10 +47,12 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
+import { removeEmptyPropertyGroups } from '~/queries/nodes/InsightQuery/utils/cleanProperties'
 import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import {
     convertDataTableNodeToDataVisualizationNode,
     isFunnelsQuery,
+    isInsightVizNode,
     isLifecycleQuery,
     isNodeWithSource,
     isPathsQuery,
@@ -570,6 +572,17 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             const { name, description, favorited, deleted, dashboards, tags } = values.insight
 
+            let queryToSave = values.query
+            if (isInsightVizNode(queryToSave)) {
+                queryToSave = {
+                    ...queryToSave,
+                    source: {
+                        ...queryToSave.source,
+                        properties: removeEmptyPropertyGroups(queryToSave.source.properties),
+                    },
+                }
+            }
+
             let savedInsight: QueryBasedInsightModel
 
             try {
@@ -579,7 +592,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     derived_name: values.derivedName,
                     description,
                     favorited,
-                    query: values.query,
+                    query: queryToSave,
                     deleted,
                     saved: true,
                     dashboards,

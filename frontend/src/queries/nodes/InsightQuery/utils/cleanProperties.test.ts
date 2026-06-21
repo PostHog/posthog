@@ -1,4 +1,4 @@
-import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
+import { cleanEntityProperties, cleanGlobalProperties, removeEmptyPropertyGroups } from './cleanProperties'
 
 describe('cleanGlobalProperties', () => {
     it('handles empty properties', () => {
@@ -70,6 +70,41 @@ describe('cleanGlobalProperties', () => {
                     values: [{ key: 'id', type: 'cohort', value: 850, operator: null }],
                 },
             ],
+        })
+    })
+
+    it('removes empty filter groups while keeping populated ones', () => {
+        const properties = {
+            type: 'AND',
+            values: [
+                { type: 'AND', values: [] },
+                { type: 'AND', values: [] },
+                { type: 'AND', values: [{ key: 'id', type: 'cohort', value: 850, operator: null }] },
+            ],
+        }
+
+        const result = cleanGlobalProperties(properties)
+
+        expect(result).toEqual({
+            type: 'AND',
+            values: [{ type: 'AND', values: [{ key: 'id', type: 'cohort', value: 850, operator: null }] }],
+        })
+    })
+
+    it('removes nested groups that become empty after cleaning', () => {
+        const properties = {
+            type: 'AND',
+            values: [
+                { type: 'OR', values: [{ type: 'AND', values: [] }] },
+                { type: 'AND', values: [{ key: 'id', type: 'cohort', value: 850, operator: null }] },
+            ],
+        }
+
+        const result = cleanGlobalProperties(properties)
+
+        expect(result).toEqual({
+            type: 'AND',
+            values: [{ type: 'AND', values: [{ key: 'id', type: 'cohort', value: 850, operator: null }] }],
         })
     })
 })
@@ -153,5 +188,32 @@ describe('cleanEntityProperties', () => {
         properties = [{ key: 'id', type: 'cohort', value: 1, negation: true }]
         result = cleanEntityProperties(properties)
         expect(result).toEqual([{ key: 'id', type: 'cohort', value: 1, operator: 'not_in' }])
+    })
+})
+
+describe('removeEmptyPropertyGroups', () => {
+    it('drops empty groups while keeping populated ones, without touching the surviving filters', () => {
+        const properties = {
+            type: 'AND',
+            values: [
+                { type: 'AND', values: [] },
+                { type: 'OR', values: [{ type: 'AND', values: [] }] },
+                { type: 'AND', values: [{ key: 'id', type: 'cohort', value: 850, operator: null }] },
+            ],
+        } as any
+
+        expect(removeEmptyPropertyGroups(properties)).toEqual({
+            type: 'AND',
+            values: [{ type: 'AND', values: [{ key: 'id', type: 'cohort', value: 850, operator: null }] }],
+        })
+    })
+
+    it('leaves a flat property list untouched', () => {
+        const properties = [{ key: 'id', type: 'cohort', value: 850, operator: null }] as any
+        expect(removeEmptyPropertyGroups(properties)).toEqual(properties)
+    })
+
+    it('returns undefined unchanged', () => {
+        expect(removeEmptyPropertyGroups(undefined)).toBeUndefined()
     })
 })

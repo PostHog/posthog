@@ -1,3 +1,5 @@
+import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
+
 import {
     AnyPropertyFilter,
     EventPropertyFilter,
@@ -86,8 +88,27 @@ const cleanPropertyGroupFilter = (properties: Record<string, any>): PropertyGrou
 const cleanPropertyGroupFilterValues = (
     properties: (AnyPropertyFilter | PropertyGroupFilterValue)[]
 ): (AnyPropertyFilter | PropertyGroupFilterValue)[] => {
-    return properties.map(cleanPropertyGroupFilterValue)
+    return properties.map(cleanPropertyGroupFilterValue).filter((value) => !isEmptyPropertyGroup(value))
 }
+
+const isEmptyPropertyGroup = (value: AnyPropertyFilter | PropertyGroupFilterValue): boolean =>
+    isPropertyGroupFilterLike(value) && value.values.length === 0
+
+export const removeEmptyPropertyGroups = (
+    properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined
+): AnyPropertyFilter[] | PropertyGroupFilter | undefined =>
+    !Array.isArray(properties) && isPropertyGroupFilterLike(properties)
+        ? { ...properties, values: prunePropertyGroupValues(properties.values) as PropertyGroupFilterValue[] }
+        : properties
+
+const prunePropertyGroupValues = (
+    values: (AnyPropertyFilter | PropertyGroupFilterValue)[]
+): (AnyPropertyFilter | PropertyGroupFilterValue)[] =>
+    values
+        .map((value) =>
+            isPropertyGroupFilterLike(value) ? { ...value, values: prunePropertyGroupValues(value.values) } : value
+        )
+        .filter((value) => !isEmptyPropertyGroup(value))
 
 const cleanPropertyGroupFilterValue = (
     property: AnyPropertyFilter | PropertyGroupFilterValue
