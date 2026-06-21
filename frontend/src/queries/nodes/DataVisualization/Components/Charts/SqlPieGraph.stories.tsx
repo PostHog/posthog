@@ -14,7 +14,7 @@ const meta: Meta<typeof SqlPieGraph> = {
     component: SqlPieGraph,
     parameters: {
         layout: 'centered',
-        testOptions: { snapshotBrowsers: ['chromium'], waitForSelector: 'canvas' },
+        testOptions: { snapshotBrowsers: ['chromium'] },
     },
 }
 export default meta
@@ -41,10 +41,11 @@ const breakdownSeries: AxisBreakdownSeries<number | null>[] = [
     { name: 'Edge', breakdownValue: 'Edge', data: [410], settings: { display: { color: '#ea4335' } } },
 ]
 
-// SqlPieGraph fills its flex parent, so the story needs a container with real dimensions.
+// SqlPieGraph fills its flex parent, so the story needs a column container with a definite height —
+// otherwise the chart resolves to height 0 and quill paints a 0-size canvas (mirrors TrendsPieChart).
 function Stage({ children }: { children: ReactNode }): JSX.Element {
     // eslint-disable-next-line react/forbid-dom-props
-    return <div style={{ height: 420, width: 760, display: 'flex' }}>{children}</div>
+    return <div style={{ height: 420, width: 760, display: 'flex', flexDirection: 'column' }}>{children}</div>
 }
 
 const render = (props: LineGraphProps): JSX.Element => (
