@@ -124,15 +124,24 @@ Throughput-focused:
   Further per-team sharding would help locality/eviction fairness, not lock contention — gate
   behind a contention measurement before investing.
 
-Pipelining (needs the DB-backed harness to show up, not visible in Phase A/B/C):
+Pipelining (validated against Postgres, not visible in Phase A/B/C):
 
-- ⬜ **P1. Pipeline batches in the consumer** so batch K+1 is assembled/resolved while batch K's
-  writes are in flight (today `process_batch` joins all writes before the next batch). Biggest
-  real-world item, but a concurrency rewrite that must be integration-tested against Postgres
-  before shipping — do not land it on the in-memory harness alone.
+- ✅ **P1. Pipeline batches in the consumer.** Resolution + `process_batch` now run in a bounded
+  `JoinSet` so the loop acquires/resolves the next batch while previous batches write. Gated by
+  `CONSUMER_MAX_INFLIGHT_BATCHES` (default 1 = writes serialized, only acquisition overlaps;
+  raise to overlap writes). Validated by `test_concurrent_process_batch_overlapping_keys` (6
+  concurrent batches over overlapping rows, stable across 10 stress runs); cross-batch deadlocks
+  are bounded because the consumer sorts each batch into a consistent row-lock order.
 - ⬜ **P4. Dead config.** `max_concurrent_transactions` and `skip_writes` are declared but never
   used (`skip_writes` even defaults to `true`). Wire up or remove — but `skip_writes` must be
   reconciled with prod config first, since making a default-`true` flag actually skip writes
   would be a breaking change.
+
+## Running the DB-backed tests
+
+Docker/compose isn't available in the web container, but a native PostgreSQL is started by the
+SessionStart hook (`.claude/hooks/setup-postgres.sh`), which also exports `DATABASE_URL` and
+`SQLX_OFFLINE`. The `#[sqlx::test]` integration tests (`batch_ingestion`, `queries`,
+`write_amplification`) then run with a plain `cargo test -p property-defs-rs`.
 - **P2. Wire up `max_concurrent_transactions`** (currently dead config) or remove it; make
   write concurrency explicit instead of implicitly bounded by the PG pool.
