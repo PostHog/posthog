@@ -27,6 +27,8 @@ export interface LemonSwitchProps {
     sliderColorOverrideChecked?: string
     sliderColorOverrideUnchecked?: string
     loading?: boolean
+    /** Forwarded to the clickable element so autocapture can read them off the clicked switch. */
+    [captureAttribute: `data-ph-capture-attribute-${string}`]: string | boolean | undefined
 }
 
 /** Counter used for collision-less automatic switch IDs. */
@@ -52,6 +54,7 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             sliderColorOverrideChecked,
             sliderColorOverrideUnchecked,
             loading = false,
+            ...captureAttributes
         },
         ref
     ): JSX.Element {
@@ -97,6 +100,7 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                 data-attr={dataAttr}
                 disabled={isDisabled}
                 {...conditionalProps}
+                {...captureAttributes}
             >
                 <div className="LemonSwitch__handle">
                     {loading && (
