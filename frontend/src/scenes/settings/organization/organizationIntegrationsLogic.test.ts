@@ -19,6 +19,10 @@ const MOCK_INTEGRATIONS = [
 describe('organizationIntegrationsLogic', () => {
     let logic: ReturnType<typeof organizationIntegrationsLogic.build>
 
+    afterEach(() => {
+        logic?.unmount()
+    })
+
     it('loads integrations on mount', async () => {
         useMocks({
             get: {
