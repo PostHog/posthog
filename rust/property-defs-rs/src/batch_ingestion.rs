@@ -249,6 +249,20 @@ impl PropertyDefinitionsBatch {
     }
 }
 
+// Optional artificial per-write latency to model a slow production Postgres in benchmarks
+// (config.write_artificial_latency_ms; 0 in prod). Applied per write task so concurrent
+// writes overlap their latency the way they would against a real loaded DB.
+async fn with_write_latency(
+    latency_ms: u64,
+    write: impl std::future::Future<Output = Result<(), sqlx::Error>>,
+) -> Result<(), sqlx::Error> {
+    let result = write.await;
+    if result.is_ok() && latency_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(latency_ms)).await;
+    }
+    result
+}
+
 // HACK: making this public so the test suite file can live under "../tests/" dir
 pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, batch: Vec<Update>) {
     // prep reshaped, isolated data batch bufffers and async join handles
@@ -256,6 +270,7 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
     let mut event_props = EventPropertiesBatch::new(config.write_batch_size);
     let mut prop_defs = PropertyDefinitionsBatch::new(config.write_batch_size);
     let mut handles: Vec<JoinHandle<Result<(), sqlx::Error>>> = vec![];
+    let latency_ms = config.write_artificial_latency_ms;
 
     // loop over Update batch, grouping by record type into single-target-table
     // batches for async write attempts with retries
@@ -269,7 +284,11 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
                     let outbound = event_defs;
                     event_defs = EventDefinitionsBatch::new(config.write_batch_size);
                     handles.push(tokio::spawn(async move {
-                        write_event_definitions_batch(cache, outbound, &pool).await
+                        with_write_latency(
+                            latency_ms,
+                            write_event_definitions_batch(cache, outbound, &pool),
+                        )
+                        .await
                     }));
                 }
             }
@@ -281,7 +300,11 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
                     let outbound = event_props;
                     event_props = EventPropertiesBatch::new(config.write_batch_size);
                     handles.push(tokio::spawn(async move {
-                        write_event_properties_batch(cache, outbound, &pool).await
+                        with_write_latency(
+                            latency_ms,
+                            write_event_properties_batch(cache, outbound, &pool),
+                        )
+                        .await
                     }));
                 }
             }
@@ -293,7 +316,11 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
                     let outbound = prop_defs;
                     prop_defs = PropertyDefinitionsBatch::new(config.write_batch_size);
                     handles.push(tokio::spawn(async move {
-                        write_property_definitions_batch(cache, outbound, &pool).await
+                        with_write_latency(
+                            latency_ms,
+                            write_property_definitions_batch(cache, outbound, &pool),
+                        )
+                        .await
                     }));
                 }
             }
@@ -305,21 +332,33 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
         let pool = pool.clone();
         let cache = cache.clone();
         handles.push(tokio::spawn(async move {
-            write_event_definitions_batch(cache, event_defs, &pool).await
+            with_write_latency(
+                latency_ms,
+                write_event_definitions_batch(cache, event_defs, &pool),
+            )
+            .await
         }));
     }
     if !prop_defs.is_empty() {
         let pool = pool.clone();
         let cache = cache.clone();
         handles.push(tokio::spawn(async move {
-            write_property_definitions_batch(cache, prop_defs, &pool).await
+            with_write_latency(
+                latency_ms,
+                write_property_definitions_batch(cache, prop_defs, &pool),
+            )
+            .await
         }));
     }
     if !event_props.is_empty() {
         let pool = pool.clone();
         let cache = cache.clone();
         handles.push(tokio::spawn(async move {
-            write_event_properties_batch(cache, event_props, &pool).await
+            with_write_latency(
+                latency_ms,
+                write_event_properties_batch(cache, event_props, &pool),
+            )
+            .await
         }));
     }
 

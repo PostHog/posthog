@@ -40,6 +40,18 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub worker_loop_count: usize,
 
+    // Opt into the staged pipeline: a dedicated Kafka reader -> a pool of `worker_loop_count`
+    // processors -> a writer with bounded write concurrency, decoupled by bounded channels.
+    // Default off keeps the original producer/consumer topology.
+    #[envconfig(default = "false")]
+    pub staged_pipeline: bool,
+
+    // Max number of batch writes in flight at once in the staged writer. >1 overlaps the slow
+    // (~170ms) Postgres writes instead of serializing them; raise it to hide write latency, at
+    // the cost of more concurrent connections. Only used when `staged_pipeline` is on.
+    #[envconfig(default = "4")]
+    pub writer_max_concurrency: usize,
+
     // Per-data-type cache capacities (event definitions, event properties, property definitions).
     // Each internal cache avoids sending the same UPSERT multiple times.
     #[envconfig(default = "1000000")]
@@ -54,6 +66,12 @@ pub struct Config {
     // cross-thread cache while it does). This is that batch size.
     #[envconfig(default = "10000")]
     pub compaction_batch_size: usize,
+
+    // A producer flushes its compaction batch at least this often, even during a lull. Without
+    // this the batch only drained when a new event arrived, so the tail of a low-traffic stream
+    // could sit unwritten indefinitely.
+    #[envconfig(default = "10")]
+    pub producer_drain_interval_secs: u64,
 
     // Workers send updates back to the main thread over a channel,
     // which has a depth of this many slots. If the main thread slows,
@@ -72,6 +90,12 @@ pub struct Config {
     // Default 1 day; set 3600 to restore the previous hourly cadence.
     #[envconfig(from = "EVENTDEF_LAST_SEEN_FLOOR_SECS", default = "86400")]
     pub eventdef_last_seen_floor_secs: i64,
+
+    // Benchmark/testing aid: sleep this many ms after each batch write to model a slow
+    // production Postgres (~170ms). 0 in prod. Lets the end-to-end benchmark exercise the
+    // write-latency regime where write concurrency matters, on a fast local DB.
+    #[envconfig(default = "0")]
+    pub write_artificial_latency_ms: u64,
 
     // Do everything except actually write to the DB
     #[envconfig(default = "true")]
