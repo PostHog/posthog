@@ -2705,6 +2705,7 @@ dependencies = [
 name = "cymbal"
 version = "0.1.0"
 dependencies = [
+ "async-stream",
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
@@ -2721,7 +2722,6 @@ dependencies = [
  "common-redis",
  "common-types",
  "cymbal-proto",
- "cymbal-resolution",
  "envconfig",
  "futures",
  "health",
@@ -2731,6 +2731,7 @@ dependencies = [
  "metrics",
  "mockall",
  "moka",
+ "personhog-common",
  "posthog-rs 0.12.0",
  "posthog-symbol-data",
  "proguard",
@@ -2744,6 +2745,7 @@ dependencies = [
  "sha2",
  "sourcemap",
  "sqlx",
+ "subtle",
  "symbolic",
  "thiserror 2.0.18",
  "tiktoken-rs",
@@ -2764,32 +2766,6 @@ dependencies = [
  "prost 0.13.5",
  "tonic 0.12.3",
  "tonic-build 0.12.3",
-]
-
-[[package]]
-name = "cymbal-resolution"
-version = "0.1.0"
-dependencies = [
- "async-stream",
- "async-trait",
- "axum 0.7.9",
- "common-alloc",
- "common-metrics",
- "common-posthog",
- "cymbal",
- "cymbal-proto",
- "envconfig",
- "futures",
- "metrics",
- "personhog-common",
- "serde_json",
- "subtle",
- "tokio",
- "tokio-stream",
- "tonic 0.12.3",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -4382,7 +4358,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.92"
+version = "1.3.96"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -11815,9 +11791,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.7"
+version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f31141ce3fc3e300ae89b78c0dd67f9708061d1d2eda54b8209346fd6be9a92c"
+checksum = "0d46a5a140e6f7afeccd8eae97eff335163939eac8b929834875168b29b3d267"
 dependencies = [
  "rustls-pki-types",
 ]

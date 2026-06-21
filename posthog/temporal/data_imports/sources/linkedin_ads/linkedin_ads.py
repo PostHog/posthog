@@ -18,7 +18,7 @@ from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsS
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
-from .client import LinkedinAdsClient, LinkedinAdsResource
+from .client import LinkedinAdsClient, LinkedinAdsDailyRateLimitError, LinkedinAdsResource
 from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
 
 module_logger = structlog.get_logger(__name__)
@@ -193,21 +193,30 @@ def linkedin_ads_source(
         batcher = Batcher(logger=logger)
         pending_next_page_token: str | None = None
 
-        for page, next_page_token in data_pages:
-            # None signals an unflattenable PK (malformed creative URN) — drop the row.
-            flattened_records = [
-                flat for record in page if (flat := _flatten_linkedin_record(record, schema)) is not None
-            ]
-            for record in flattened_records:
-                batcher.batch(record)
-                if batcher.should_yield():
-                    yield batcher.get_table()
-                    if pending_next_page_token is not None:
-                        resumable_source_manager.save_state(LinkedInAdsResumeConfig(page_token=pending_next_page_token))
-                        pending_next_page_token = None
+        try:
+            for page, next_page_token in data_pages:
+                # None signals an unflattenable PK (malformed creative URN) — drop the row.
+                flattened_records = [
+                    flat for record in page if (flat := _flatten_linkedin_record(record, schema)) is not None
+                ]
+                for record in flattened_records:
+                    batcher.batch(record)
+                    if batcher.should_yield():
+                        yield batcher.get_table()
+                        if pending_next_page_token is not None:
+                            resumable_source_manager.save_state(
+                                LinkedInAdsResumeConfig(page_token=pending_next_page_token)
+                            )
+                            pending_next_page_token = None
 
-            if next_page_token is not None:
-                pending_next_page_token = next_page_token
+                if next_page_token is not None:
+                    pending_next_page_token = next_page_token
+        except LinkedinAdsDailyRateLimitError:
+            # The per-member/app daily call budget only resets at midnight UTC, so there's no more
+            # data to fetch today. Stop here rather than failing the job: progress so far is durable
+            # (resume token for entity finders, incremental field value for analytics) and the next
+            # scheduled sync continues from where we left off.
+            logger.info(f"LinkedInAds: daily rate limit reached, stopping {resource_name} early for this run")
 
         if batcher.should_yield(include_incomplete_chunk=True):
             yield batcher.get_table()

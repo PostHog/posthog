@@ -31,7 +31,10 @@ from products.warehouse_sources.backend.models.table import (
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
     DataWarehouseTable,
 )
-from products.warehouse_sources.backend.models.util import validate_warehouse_table_url_pattern
+from products.warehouse_sources.backend.models.util import (
+    get_view_or_table_by_name,
+    validate_warehouse_table_url_pattern,
+)
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -87,7 +90,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
         if not database:
-            database = Database.create_for(team_id=self.context["team_id"])
+            database = Database.create_for(
+                team_id=self.context["team_id"],
+                user=cast(User, self.context["request"].user),
+            )
 
         if database.has_table(table.name):
             fields = database.get_table(table.name).fields
@@ -183,8 +189,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
 
     def validate_name(self, name):
         if not self.instance or self.instance.name != name:
-            name_exists_in_hogql_database = self.context["database"].has_table(name)
-            if name_exists_in_hogql_database:
+            # has_table covers system/posthog tables and warehouse objects the requesting user can see;
+            # it's user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
+            # Otherwise a user with denied table could create another one with colliding name.
+            if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
                 raise serializers.ValidationError("A table with this name already exists.")
 
         return name
@@ -212,7 +220,11 @@ class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelS
         team_id = self.context.get("team_id", None)
 
         if not database:
-            database = Database.create_for(team_id=self.context["team_id"])
+            request = self.context.get("request")
+            database = Database.create_for(
+                team_id=self.context["team_id"],
+                user=cast(User, request.user) if request else None,
+            )
 
         fields = serialize_fields(
             table.hogql_definition().fields,
@@ -248,7 +260,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         context["team_id"] = self.team_id
         return context
 

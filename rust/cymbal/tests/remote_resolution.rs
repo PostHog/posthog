@@ -21,10 +21,10 @@ use common::{
 use cymbal::error::{ResolveError, UnhandledError};
 use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
-use cymbal::stages::resolution::symbol::SymbolResolver;
 use cymbal::stages::resolution::ResolutionStage;
-use cymbal::symbol_store::chunk_id::OrChunkId;
-use cymbal::symbol_store::proguard::ProguardRef;
+use cymbal::symbolication::symbol::SymbolResolver;
+use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
+use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::batch::Batch;
 use cymbal::types::exception_properties::ExceptionProperties;
 use cymbal::types::operator::TeamId;

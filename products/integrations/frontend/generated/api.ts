@@ -14,6 +14,8 @@ import type {
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
     GoogleSearchConsoleSitesResponseApi,
+    IntegrationAccessRequestApi,
+    IntegrationAccessRequestResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
@@ -720,5 +722,25 @@ export const integrationsGithubOauthAuthorizeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(integrationConfigApi),
+    })
+}
+
+export const getIntegrationsRequestAccessCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/request_access/`
+}
+
+/**
+ * Notify project admins that a member is requesting an integration be connected.
+ */
+export const integrationsRequestAccessCreate = async (
+    projectId: string,
+    integrationAccessRequestApi: IntegrationAccessRequestApi,
+    options?: RequestInit
+): Promise<IntegrationAccessRequestResponseApi> => {
+    return apiMutator<IntegrationAccessRequestResponseApi>(getIntegrationsRequestAccessCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationAccessRequestApi),
     })
 }

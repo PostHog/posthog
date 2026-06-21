@@ -6,6 +6,7 @@ import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -37,6 +38,7 @@ const SortingKeyToLabel = {
     keypress_count: 'Keystrokes',
     mouse_activity_count: 'Mouse activity',
     recording_ttl: 'Expiration',
+    surfacing_score: 'Relevant',
 }
 
 function getLabel(filters: RecordingUniversalFilters): string {
@@ -57,11 +59,21 @@ function SortedBy({
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     disabledReason?: string
 }): JSX.Element {
+    const surfacingScoreEnabled = useFeatureFlag('REPLAY_PLAYLIST_SURFACING_SCORE')
     return (
         <SettingsMenu
             highlightWhenActive={false}
             disabledReason={disabledReason}
             items={[
+                ...(surfacingScoreEnabled
+                    ? [
+                          {
+                              label: SortingKeyToLabel['surfacing_score'],
+                              onClick: () => setFilters({ order: 'surfacing_score', order_direction: 'DESC' }),
+                              active: filters.order === 'surfacing_score',
+                          },
+                      ]
+                    : []),
                 {
                     label: 'Start time',
                     items: [

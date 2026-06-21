@@ -1,10 +1,13 @@
 import json
+import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -989,13 +992,12 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 None,
                 "free-form note",
             ),
-            # The caller (PostHog Code) owns the set of valid reason codes; the API persists whatever it gets.
             (
-                "suppress_accepts_arbitrary_reason",
-                {"state": "suppressed", "dismissal_reason": "some_brand_new_code"},
+                "suppress_with_other_reason",
+                {"state": "suppressed", "dismissal_reason": "other", "dismissal_note": "edge case"},
                 SignalReport.Status.SUPPRESSED,
-                "some_brand_new_code",
-                None,
+                "other",
+                "edge case",
             ),
             (
                 "snooze_with_reason_and_note",
@@ -1080,6 +1082,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "oversized_dismissal_note",
                 {"state": "suppressed", "dismissal_reason": "other", "dismissal_note": "x" * 4001},
             ),
+            # Reason codes are now constrained to the canonical inbox set, so invented codes are rejected.
+            (
+                "non_canonical_dismissal_reason",
+                {"state": "suppressed", "dismissal_reason": "some_brand_new_code"},
+            ),
         ]
     )
     def test_state_transition_rejects_invalid_dismissal(self, _name, body):
@@ -1162,3 +1169,265 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == SignalReport.Status.POTENTIAL
+
+    @parameterized.expand(
+        [
+            # prior status before archiving, expected status after restore
+            ("ready", SignalReport.Status.READY, SignalReport.Status.READY),
+            ("pending_input", SignalReport.Status.PENDING_INPUT, SignalReport.Status.PENDING_INPUT),
+            ("resolved", SignalReport.Status.RESOLVED, SignalReport.Status.RESOLVED),
+            ("failed", SignalReport.Status.FAILED, SignalReport.Status.FAILED),
+            # In-flight / pre-research states have no live workflow, so restore re-enters the pipeline.
+            ("potential", SignalReport.Status.POTENTIAL, SignalReport.Status.POTENTIAL),
+            ("candidate", SignalReport.Status.CANDIDATE, SignalReport.Status.POTENTIAL),
+            ("in_progress", SignalReport.Status.IN_PROGRESS, SignalReport.Status.POTENTIAL),
+        ]
+    )
+    def test_restore_returns_report_to_pre_suppression_status(self, _name, prior_status, expected_restored_status):
+        report = SignalReport.objects.create(team=self.team, status=prior_status, title="t", summary="s")
+
+        suppress = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
+        )
+        assert suppress.status_code == status.HTTP_200_OK, suppress.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert report.status_before_suppression == prior_status
+
+        restore = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+        assert restore.status_code == status.HTTP_200_OK, restore.json()
+        report.refresh_from_db()
+        assert report.status == expected_restored_status
+        assert report.status_before_suppression is None
+
+    def test_restore_preserves_title_and_summary(self):
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="Original title", summary="Original summary"
+        )
+        self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "suppressed"}), content_type="application/json"
+        )
+        self.client.post(
+            self._state_url(str(report.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        assert report.title == "Original title"
+        assert report.summary == "Original summary"
+
+
+class TestAvailableReviewersAPI(APIBaseTest):
+    """GET signals/reports/available_reviewers/: returns every eligible org member (no cap), with server-side search."""
+
+    def setUp(self):
+        super().setUp()
+        # The over-threshold report is throttled via the cache; clear it so each test starts fresh.
+        cache.clear()
+
+    def _url(self, **query) -> str:
+        base = f"/api/projects/{self.team.id}/signals/reports/available_reviewers/"
+        if not query:
+            return base
+        return f"{base}?{urlencode(query)}"
+
+    def _fake_user(self, n: int) -> SimpleNamespace:
+        return SimpleNamespace(
+            uuid=uuid.UUID(int=n),
+            first_name=f"User{n:04d}",
+            last_name="Tester",
+            email=f"user{n:04d}@example.com",
+        )
+
+    def _login_map(self, count: int) -> dict[str, SimpleNamespace]:
+        return {f"gh{n}": self._fake_user(n) for n in range(count)}
+
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_returns_all_members_without_cap(self, mock_map):
+        # 250 > the old hard cap of 100: every member must come back now.
+        mock_map.return_value = self._login_map(250)
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == 250
+
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_search_query_filters_server_side(self, mock_map):
+        mock_map.return_value = self._login_map(250)
+        response = self.client.get(self._url(query="User0123"))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert len(body) == 1
+        assert next(iter(body.values()))["email"] == "user0123@example.com"
+
+    @patch("products.signals.backend.views.capture_exception")
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_no_exception_captured_under_threshold(self, mock_map, mock_capture):
+        mock_map.return_value = self._login_map(50)
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        mock_capture.assert_not_called()
+
+    @patch("products.signals.backend.views.capture_exception")
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_exception_captured_over_threshold(self, mock_map, mock_capture):
+        mock_map.return_value = self._login_map(1201)
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == 1201
+        mock_capture.assert_called_once()
+
+    @patch("products.signals.backend.views.capture_exception")
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_threshold_capture_deduplicated_across_requests(self, mock_map, mock_capture):
+        # Repeated popover opens for the same over-threshold org must report at most once.
+        mock_map.return_value = self._login_map(1201)
+        for _ in range(3):
+            assert self.client.get(self._url()).status_code == status.HTTP_200_OK
+        mock_capture.assert_called_once()
+
+    @patch("products.signals.backend.views.capture_exception")
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_threshold_not_triggered_by_search_requests(self, mock_map, mock_capture):
+        # A search-as-you-type request must not spam the threshold capture.
+        mock_map.return_value = self._login_map(1201)
+        response = self.client.get(self._url(query="User0001"))
+        assert response.status_code == status.HTTP_200_OK
+        mock_capture.assert_not_called()
+
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_empty_org_returns_empty(self, mock_map):
+        mock_map.return_value = {}
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {}
+
+    @patch("products.signals.backend.views.get_org_member_github_login_to_user_map")
+    def test_missing_team_map_returns_empty(self, mock_map):
+        # The helper returns None for an unknown team; the view coalesces it to an empty result.
+        mock_map.return_value = None
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {}
+
+
+class TestSignalReportBulkStateAPI(APIBaseTest):
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/bulk-state/"
+
+    def _create_report(self, team=None, report_status=SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=report_status,
+            title="Test report",
+            summary="Test summary",
+        )
+
+    def _post(self, body: dict):
+        return self.client.post(self._bulk_url(), data=json.dumps(body), content_type="application/json")
+
+    def test_bulk_suppress_transitions_all_reports(self):
+        reports = [self._create_report() for _ in range(3)]
+        ids = [str(r.id) for r in reports]
+
+        response = self._post({"ids": ids, "state": "suppressed", "dismissal_reason": "wontfix_intentional"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["transitioned_count"] == 3
+        assert body["skipped_count"] == 0
+        assert body["failed_count"] == 0
+        assert body["not_found_count"] == 0
+        # Results are in request order, each carrying the post-transition status.
+        assert [row["id"] for row in body["results"]] == ids
+        assert all(row["outcome"] == "transitioned" for row in body["results"])
+        assert all(row["status"] == SignalReport.Status.SUPPRESSED for row in body["results"])
+
+        for report in reports:
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.SUPPRESSED
+            artefacts = SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+            )
+            assert artefacts.count() == 1
+            assert json.loads(artefacts.get().content)["reason"] == "wontfix_intentional"
+
+    def test_bulk_skips_disallowed_transitions_but_processes_the_rest(self):
+        ready = self._create_report(report_status=SignalReport.Status.READY)
+        # POTENTIAL -> POTENTIAL is not an allowed transition, so it comes back as `skipped`.
+        already_potential = self._create_report(report_status=SignalReport.Status.POTENTIAL)
+
+        response = self._post({"ids": [str(ready.id), str(already_potential.id)], "state": "potential"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["transitioned_count"] == 1
+        assert body["skipped_count"] == 1
+        outcomes = {row["id"]: row["outcome"] for row in body["results"]}
+        assert outcomes[str(ready.id)] == "transitioned"
+        assert outcomes[str(already_potential.id)] == "skipped"
+
+        ready.refresh_from_db()
+        assert ready.status == SignalReport.Status.POTENTIAL
+
+    def test_bulk_reports_not_found_for_unknown_and_other_team_ids(self):
+        mine = self._create_report()
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_teams_report = self._create_report(team=other_team)
+        missing_id = "00000000-0000-0000-0000-000000000000"
+
+        response = self._post({"ids": [str(mine.id), str(other_teams_report.id), missing_id], "state": "suppressed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["transitioned_count"] == 1
+        assert body["not_found_count"] == 2
+        outcomes = {row["id"]: row["outcome"] for row in body["results"]}
+        assert outcomes[str(mine.id)] == "transitioned"
+        # Another team's report is invisible (IDOR boundary) — reported as not_found, never touched.
+        assert outcomes[str(other_teams_report.id)] == "not_found"
+        assert outcomes[missing_id] == "not_found"
+
+        other_teams_report.refresh_from_db()
+        assert other_teams_report.status == SignalReport.Status.READY
+
+    def test_bulk_deduplicates_ids_preserving_order(self):
+        first = self._create_report()
+        second = self._create_report()
+        ids = [str(first.id), str(second.id), str(first.id)]
+
+        response = self._post({"ids": ids, "state": "suppressed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [row["id"] for row in body["results"]] == [str(first.id), str(second.id)]
+        assert body["transitioned_count"] == 2
+
+    def test_bulk_restore_reaches_suppressed_reports(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        report.status_before_suppression = SignalReport.Status.READY
+        report.save(update_fields=["status_before_suppression"])
+
+        response = self._post({"ids": [str(report.id)], "state": "potential"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["transitioned_count"] == 1
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+    @parameterized.expand(
+        [
+            ("empty_ids", {"ids": [], "state": "suppressed"}),
+            ("missing_ids", {"state": "suppressed"}),
+            ("too_many_ids", {"ids": [f"00000000-0000-0000-0000-{i:012d}" for i in range(101)], "state": "suppressed"}),
+            (
+                "invalid_reason",
+                {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "suppressed", "dismissal_reason": "made_up"},
+            ),
+            ("invalid_state", {"ids": ["00000000-0000-0000-0000-000000000001"], "state": "ready"}),
+            ("non_uuid_id", {"ids": ["not-a-uuid"], "state": "suppressed"}),
+        ]
+    )
+    def test_bulk_rejects_invalid_requests(self, _name, body):
+        response = self._post(body)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

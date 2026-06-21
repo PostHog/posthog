@@ -31,10 +31,6 @@
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck
 
-- image: cymbal-resolution
-  dockerfile: ./rust/Dockerfile
-  project: 8dq0xkk0ck
-
 - image: embedding-worker
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck

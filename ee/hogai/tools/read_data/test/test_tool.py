@@ -1,9 +1,11 @@
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.apps import apps
 
 from parameterized import parameterized
 
@@ -22,7 +24,6 @@ from products.ai_observability.backend.summarization.llm.schema import (
     SummarizationResponse,
     SummaryBullet,
 )
-from products.customer_analytics.backend.models import Account
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -38,6 +39,11 @@ from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, Ma
 from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
+
+if TYPE_CHECKING:
+    from products.customer_analytics.backend.models import Account
+else:
+    Account = apps.get_model("customer_analytics", "Account")
 
 
 def _make_trace_data(

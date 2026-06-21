@@ -379,6 +379,50 @@ class TestExternalDataSource(APIBaseTest):
         assert source.created_via is None
         assert source.description == "edited"
 
+    @parameterized.expand(
+        [
+            ("omitted_defaults_true", {}, True),
+            ("explicit_true", {"direct_query_enabled": True}, True),
+            ("explicit_false", {"direct_query_enabled": False}, False),
+        ]
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_direct_query_enabled(self, _name, body, expected, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                **body,
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        assert source.direct_query_enabled is expected
+
+    def test_patch_external_data_source_toggles_direct_query_enabled(self):
+        source = self._create_external_data_source()
+        assert source.direct_query_enabled is True
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"direct_query_enabled": False},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["direct_query_enabled"] is False
+        source.refresh_from_db()
+        assert source.direct_query_enabled is False
+
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,
@@ -1160,6 +1204,82 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 400
         assert len(ExternalDataSource.objects.all()) == 0
 
+    @parameterized.expand(
+        [
+            ("too_large", 5_184_001),
+            ("negative", -1),
+            ("non_integer_string", "soon"),
+            ("non_integer_float", 1.5),
+            ("boolean", True),
+        ]
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_incremental_invalid_lookback(
+        self, _name: str, lookback_value: object, _mock_validate: MagicMock
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                            "incremental_field_lookback_seconds": lookback_value,
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code == 400
+        assert len(ExternalDataSource.objects.all()) == 0
+
+    @parameterized.expand(
+        [
+            ("max_allowed", 5_184_000),
+            ("zero", 0),
+            ("whole_number_float", 3600.0),
+            ("none", None),
+        ]
+    )
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_external_data_source_incremental_valid_lookback(
+        self, _name: str, lookback_value: object, _mock_validate: MagicMock
+    ):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {
+                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "created",
+                            "incremental_field_type": "integer",
+                            "incremental_field_lookback_seconds": lookback_value,
+                        },
+                    ],
+                },
+            },
+        )
+        assert response.status_code == 201
+
     def test_create_external_data_source_bigquery_removes_project_id_prefix(self):
         """Test we remove the `project_id` prefix of a `dataset_id`."""
         with (
@@ -1567,6 +1687,7 @@ class TestExternalDataSource(APIBaseTest):
                 "prefix",
                 "description",
                 "access_method",
+                "direct_query_enabled",
                 "engine",
                 "last_run_at",
                 "schemas",
@@ -1586,6 +1707,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental": False,
                     "incremental_field": None,
                     "incremental_field_type": None,
+                    "incremental_field_lookback_seconds": None,
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
                     "label": schema.label,
@@ -3370,6 +3492,57 @@ class TestExternalDataSource(APIBaseTest):
         validate.assert_called_once()
         self.assertEqual(validate.call_args.args[2], "direct")
 
+    @parameterized.expand(
+        [
+            # (test name, source_type, supports_xmin, expected_xmin_available)
+            ("postgres_capable", "Postgres", True, True),
+            ("postgres_not_capable", "Postgres", False, False),
+            ("non_postgres", "MySQL", True, None),
+        ]
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_xmin_available_gating(
+        self, _name, source_type, supports_xmin, expected_xmin_available, mock_get_source
+    ):
+        # xmin is Postgres-only: the discovery response reports `xmin_available=None` for any other
+        # source, regardless of the (erroneous) per-schema `supports_xmin` flag.
+        from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
+
+        source = PostgresSource() if source_type == "Postgres" else MySQLSource()
+        mock_get_source.return_value = source
+
+        fake_schema = SourceSchema(
+            name="public.accounts",
+            supports_incremental=False,
+            supports_append=False,
+            supports_xmin=supports_xmin,
+            columns=[("id", "integer", False)],
+            foreign_keys=[],
+        )
+
+        with (
+            patch.object(source, "validate_credentials_for_access_method", return_value=(True, None)),
+            patch.object(source, "get_schemas", return_value=[fake_schema]),
+            patch(
+                "products.data_warehouse.backend.api.external_data_source.is_xmin_enabled_for_team", return_value=True
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={
+                    "source_type": source_type,
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIs(response.json()[0]["xmin_available"], expected_xmin_available)
+
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
             host=settings.PG_HOST,
@@ -3665,6 +3838,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,
+                    "xmin_available": None,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -3735,6 +3909,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_available": True,
                     "append_available": True,
                     "cdc_available": None,
+                    "xmin_available": None,
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
@@ -8880,6 +9055,26 @@ class TestExternalDataSourceSetup(APIBaseTest):
         synced = schemas.filter(should_sync=True)
         assert synced.exists()
         assert all(s.sync_type in ("incremental", "append", "full_refresh") for s in synced)
+
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_persists_direct_query_enabled_false(self, _mock_validate, _mock_sync_views, _mock_person_join):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={
+                "source_type": "Stripe",
+                "direct_query_enabled": False,
+                "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        assert source.direct_query_enabled is False
 
     def _create_stripe_webhook_template(self):
         from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
