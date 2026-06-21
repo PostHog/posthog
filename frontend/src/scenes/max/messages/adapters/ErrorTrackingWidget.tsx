@@ -1,6 +1,6 @@
-import { SandboxToolActivity } from '../../components/Activity'
-import type { McpToolRendererProps } from '../../mcpToolRegistry'
-import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
+import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
+import { SandboxDataToolRow } from '../../sandbox/components/tool/SandboxDataToolRow'
+import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
 import { ErrorTrackingFiltersWidget } from '../UIPayloadAnswer'
 import { extractErrorTrackingResponse } from './extractors'
 
@@ -10,17 +10,17 @@ import { extractErrorTrackingResponse } from './extractors'
  * pushes filters into the error-tracking scene when it is active). Pre-completion or missing output
  * falls back to the generic card.
  */
-export function ErrorTrackingWidget(props: McpToolRendererProps): JSX.Element {
+export function ErrorTrackingWidget(props: SandboxToolRendererProps): JSX.Element {
     const { message } = props
     const filters = message.status === 'completed' ? extractErrorTrackingResponse(message) : null
 
     if (!filters) {
-        return <FallbackMcpToolRenderer {...props} />
+        return <GenericMcpToolRenderer {...props} />
     }
 
     return (
-        <SandboxToolActivity {...props}>
+        <SandboxDataToolRow {...props}>
             <ErrorTrackingFiltersWidget toolCallId={message.id} filters={filters} embedded />
-        </SandboxToolActivity>
+        </SandboxDataToolRow>
     )
 }

@@ -244,10 +244,10 @@ export function isAgentMode(mode: unknown): mode is AgentMode {
 }
 
 /**
- * The shape `mcpToolRegistry` renderers receive — raw `ToolInvocation` stream state plus
+ * The shape `sandboxToolRegistry` renderers receive — raw `ToolInvocation` stream state plus
  * renderer-facing fields resolved at render time.
  */
-export interface McpToolCallMessage {
+export interface SandboxToolCallMessage {
     /** Stable id — the tool call id. */
     id: string
     /** Registry lookup key — the inner tool name for single-exec calls, otherwise the wire tool name. */
@@ -267,6 +267,8 @@ export interface McpToolCallMessage {
     status: 'pending' | 'in_progress' | 'completed' | 'failed'
     title?: string
     kind?: string
+    /** ACP `toolCall.locations` — file paths (with optional line) the tool touched. */
+    locations?: { path: string; line?: number }[]
     error?: { message?: string } | null
 }
 

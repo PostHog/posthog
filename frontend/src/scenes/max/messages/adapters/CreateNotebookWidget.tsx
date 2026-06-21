@@ -4,9 +4,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { SandboxToolActivity } from '../../components/Activity'
-import type { McpToolRendererProps } from '../../mcpToolRegistry'
-import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
+import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
+import { SandboxDataToolRow } from '../../sandbox/components/tool/SandboxDataToolRow'
+import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
 
 /** The notebook fields the widget renders, pulled from the REST payload. */
 export interface NotebookExtraction {
@@ -21,7 +21,7 @@ export interface NotebookExtraction {
  * `short_id` is required: outputs without it aren't a notebook payload and fall back to the
  * generic card.
  */
-export function extractNotebook(message: McpToolRendererProps['message']): NotebookExtraction | null {
+export function extractNotebook(message: SandboxToolRendererProps['message']): NotebookExtraction | null {
     const output = message.rawOutput
     if (!output || typeof output !== 'object' || Array.isArray(output)) {
         return null
@@ -46,16 +46,16 @@ export function extractNotebook(message: McpToolRendererProps['message']): Noteb
  * ProseMirror document, not the assistant block format `NotebookArtifactAnswer` renders.
  * Pre-completion or malformed output falls back to the generic card.
  */
-export function CreateNotebookWidget(props: McpToolRendererProps): JSX.Element {
+export function CreateNotebookWidget(props: SandboxToolRendererProps): JSX.Element {
     const { message } = props
     const notebook = message.status === 'completed' ? extractNotebook(message) : null
 
     if (!notebook) {
-        return <FallbackMcpToolRenderer {...props} />
+        return <GenericMcpToolRenderer {...props} />
     }
 
     return (
-        <SandboxToolActivity {...props}>
+        <SandboxDataToolRow {...props}>
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                     <IconNotebook className="text-base" />
@@ -71,6 +71,6 @@ export function CreateNotebookWidget(props: McpToolRendererProps): JSX.Element {
                     Open notebook
                 </LemonButton>
             </div>
-        </SandboxToolActivity>
+        </SandboxDataToolRow>
     )
 }

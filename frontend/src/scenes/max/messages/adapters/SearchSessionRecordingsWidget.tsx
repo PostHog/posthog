@@ -1,6 +1,6 @@
-import { SandboxToolActivity } from '../../components/Activity'
-import type { McpToolRendererProps } from '../../mcpToolRegistry'
-import { FallbackMcpToolRenderer } from '../FallbackMcpToolRenderer'
+import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
+import { SandboxDataToolRow } from '../../sandbox/components/tool/SandboxDataToolRow'
+import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
 import { RecordingsWidget } from '../UIPayloadAnswer'
 import { extractRecordingFilters } from './extractors'
 
@@ -9,17 +9,17 @@ import { extractRecordingFilters } from './extractors'
  * in `rawOutput.filters`; `RecordingsWidget` renders the live playlist inline. Pre-completion or a
  * missing filter object falls back to the generic card.
  */
-export function SearchSessionRecordingsWidget(props: McpToolRendererProps): JSX.Element {
+export function SearchSessionRecordingsWidget(props: SandboxToolRendererProps): JSX.Element {
     const { message } = props
     const filters = message.status === 'completed' ? extractRecordingFilters(message) : null
 
     if (!filters) {
-        return <FallbackMcpToolRenderer {...props} />
+        return <GenericMcpToolRenderer {...props} />
     }
 
     return (
-        <SandboxToolActivity {...props}>
+        <SandboxDataToolRow {...props}>
             <RecordingsWidget toolCallId={message.id} filters={filters} embedded />
-        </SandboxToolActivity>
+        </SandboxDataToolRow>
     )
 }

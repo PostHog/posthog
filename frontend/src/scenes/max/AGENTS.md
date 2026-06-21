@@ -19,7 +19,7 @@ Per-concern mapping, `langgraph` (LEGACY, frozen) → `sandbox` (NEW, build here
 - **Thread renderer**: `Thread.tsx` (default path) → `Thread.tsx` → `SandboxThread()`
 - **Context shape**: rich `MaxUIContext` (full objects) → flat `AttachedContext` (typed refs, agent fetches)
 - **Approvals**: `DangerousOperationApprovalCard.tsx` / `approvalOperationUtils.ts` → `SandboxPermissionInput` / `SandboxQuestionInput`
-- **Tool widgets**: `messages/` + `messages/adapters/` → `mcpToolRegistry` / `mcpToolMessageResolver`
+- **Tool widgets**: `messages/` + `messages/adapters/` → `sandboxToolRegistry` / `sandboxToolResolver`
 
 ### Rule: do not extend the LangGraph path unless explicitly asked
 
@@ -45,7 +45,7 @@ If a task genuinely needs the LangGraph path extended, confirm that intent expli
 
 **Permissions:** parse (`parsePermissionRequestFrame`) → route (`sandboxToolPolicy.defaultPermissionDecision` auto-approves built-ins + read-only PostHog `exec`, else surfaces a card) → answer (`respondToPermission`) → resolve (clears the card, pins the id so a reconnect replay can't re-surface it).
 
-**Supporting modules:** `sandboxToolPolicy`, `sandboxPermissionUtils`, `sandboxPermissionDisplayUtils`, `sandboxQuestionUtils`, `mcpToolMessageResolver`; types in `types/sandboxStreamTypes.ts` (folded thread shapes) + `types/sandboxWireTypes.ts` (ACP wire shapes + discriminant guards).
+**Supporting modules:** `sandboxToolPolicy`, `sandboxPermissionUtils`, `sandboxPermissionDisplayUtils`, `sandboxQuestionUtils`, `sandboxToolResolver`; types in `types/sandboxStreamTypes.ts` (folded thread shapes) + `types/sandboxWireTypes.ts` (ACP wire shapes + discriminant guards).
 
 **Wire types are loosely typed** (`notification.params` is `Record<string, unknown>`) — guard at the parse boundary with runtime `typeof`/shape checks; never assume a field is present because the type says so.
 

@@ -1,4 +1,4 @@
-const POSTHOG_EXEC_TOOL_RE = /^mcp__(?:plugin_)?posthog(?:_[^_]+)*__exec$/
+import { POSTHOG_EXEC_TOOL_RE } from './posthogExecDisplay'
 
 export interface ResolvedToolKey {
     resolvedKey: string
