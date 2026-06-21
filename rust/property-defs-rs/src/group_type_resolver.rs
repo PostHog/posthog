@@ -6,7 +6,7 @@ use quick_cache::sync::Cache;
 use rand::Rng;
 use std::collections::HashMap;
 use std::future::Future;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tonic::transport::Channel;
 use tonic::{Code, Status};
@@ -108,6 +108,11 @@ where
 
 pub struct GroupTypeResolver {
     cache: Cache<String, i32>,
+    // (team_id:group_name) -> when we last confirmed personhog has no mapping for it. Lets us
+    // skip re-querying personhog for deleted/irrelevant teams and misused group types, while
+    // the TTL bounds how long a newly-created group type stays suppressed.
+    negative_cache: Cache<String, Instant>,
+    negative_ttl: Duration,
     personhog_client: Option<PersonHogServiceClient<Channel>>,
     max_retries: u32,
     initial_backoff_ms: u64,
@@ -117,6 +122,7 @@ pub struct GroupTypeResolver {
 impl GroupTypeResolver {
     pub fn new(config: &Config) -> Self {
         let cache = Cache::new(config.group_type_cache_size);
+        let negative_cache = Cache::new(config.group_type_cache_size);
 
         let personhog_client = if !config.personhog_addr.is_empty() {
             let timeout = std::time::Duration::from_millis(config.personhog_timeout_ms);
@@ -152,10 +158,28 @@ impl GroupTypeResolver {
 
         Self {
             cache,
+            negative_cache,
+            negative_ttl: Duration::from_secs(config.group_type_negative_ttl_secs),
             personhog_client,
             max_retries: config.personhog_max_retries,
             initial_backoff_ms: config.personhog_initial_backoff_ms,
             max_backoff_ms: config.personhog_max_backoff_ms,
+        }
+    }
+
+    // True if we recently confirmed personhog has no mapping for this key and that record is
+    // still fresh. Stale records are evicted so the next sighting re-queries personhog.
+    fn is_negatively_cached(&self, key: &str) -> bool {
+        if self.negative_ttl.is_zero() {
+            return false;
+        }
+        match self.negative_cache.get(key) {
+            Some(inserted) if inserted.elapsed() < self.negative_ttl => true,
+            Some(_) => {
+                self.negative_cache.remove(key);
+                false
+            }
+            None => false,
         }
     }
 
@@ -178,6 +202,10 @@ impl GroupTypeResolver {
                 metrics::counter!(GROUP_TYPE_CACHE, &[("action", "hit")]).increment(1);
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
+            } else if self.is_negatively_cached(&cache_key) {
+                // Recently confirmed absent: drop the group type without re-querying personhog.
+                metrics::counter!(GROUP_TYPE_CACHE, &[("action", "negative_hit")]).increment(1);
+                update.group_type_index = None;
             } else {
                 to_resolve.push((idx, group_name.clone(), update.team_id));
             }
@@ -212,6 +240,9 @@ impl GroupTypeResolver {
                     }
                 } else {
                     metrics::counter!(GROUP_TYPE_CACHE, &[("action", "fail")]).increment(1);
+                    // personhog answered but has no mapping for this (team, group): remember
+                    // that so we don't re-query for it on every subsequent batch.
+                    self.negative_cache.insert(cache_key, Instant::now());
                     warn!(
                         "Failed to resolve group type index for group name: {group_name} and team id: {team_id}"
                     );

@@ -88,6 +88,13 @@ pub struct Config {
     #[envconfig(default = "100000")]
     pub group_type_cache_size: usize,
 
+    // Group types personhog reports no mapping for (deleted/irrelevant teams, or misused
+    // group types) are negatively cached for this long so we stop re-querying personhog for
+    // them on every batch. Bounded so a newly-created group type is still picked up within
+    // the TTL. Set 0 to disable negative caching.
+    #[envconfig(default = "600")]
+    pub group_type_negative_ttl_secs: u64,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 

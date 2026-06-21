@@ -529,6 +529,63 @@ async fn test_personhog_unresolved_group_type_cleared() {
 }
 
 #[tokio::test]
+async fn test_personhog_negatively_caches_absent_group_types() {
+    // Team 1 exists in personhog but has no group type mappings (deleted/irrelevant, or a
+    // misused group type). The first resolve queries personhog and clears the group type;
+    // the second must be served from the negative cache without contacting personhog again.
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::with_mappings_counted(
+        vec![GroupTypeMappingsByKey {
+            key: 1,
+            mappings: vec![],
+        }],
+        call_count.clone(),
+    );
+
+    let addr = start_mock_server(mock).await;
+    let config = make_config(&format!("http://{addr}"));
+    let resolver = GroupTypeResolver::new(&config);
+
+    let mut updates = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates).await.unwrap();
+    assert!(matches!(&updates[0], Update::Property(p) if p.group_type_index.is_none()));
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    // Second resolve within the TTL must NOT contact personhog again
+    let mut updates2 = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates2).await.unwrap();
+    assert!(matches!(&updates2[0], Update::Property(p) if p.group_type_index.is_none()));
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn test_negative_cache_disabled_requeries_personhog() {
+    // With the TTL set to 0 the negative cache is disabled, so an absent group type is
+    // re-queried on every resolve (the pre-existing behaviour).
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::with_mappings_counted(
+        vec![GroupTypeMappingsByKey {
+            key: 1,
+            mappings: vec![],
+        }],
+        call_count.clone(),
+    );
+
+    let addr = start_mock_server(mock).await;
+    let mut config = make_config(&format!("http://{addr}"));
+    config.group_type_negative_ttl_secs = 0;
+    let resolver = GroupTypeResolver::new(&config);
+
+    let mut updates = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates).await.unwrap();
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+    let mut updates2 = vec![make_group_update(1, "nonexistent")];
+    resolver.resolve(&mut updates2).await.unwrap();
+    assert_eq!(call_count.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
 async fn test_personhog_failure_returns_error() {
     let mock = MockPersonHogService::failing();
     let addr = start_mock_server(mock).await;
