@@ -2,9 +2,10 @@ from datetime import UTC, datetime
 from textwrap import dedent
 
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
 
