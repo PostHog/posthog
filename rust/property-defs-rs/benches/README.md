@@ -124,14 +124,16 @@ Throughput-focused:
   Further per-team sharding would help locality/eviction fairness, not lock contention — gate
   behind a contention measurement before investing.
 
-Pipelining (validated against Postgres, not visible in Phase A/B/C):
+Pipelining (measured against Postgres, not visible in Phase A/B/C):
 
-- ✅ **P1. Pipeline batches in the consumer.** Resolution + `process_batch` now run in a bounded
-  `JoinSet` so the loop acquires/resolves the next batch while previous batches write. Gated by
-  `CONSUMER_MAX_INFLIGHT_BATCHES` (default 1 = writes serialized, only acquisition overlaps;
-  raise to overlap writes). Validated by `test_concurrent_process_batch_overlapping_keys` (6
-  concurrent batches over overlapping rows, stable across 10 stress runs); cross-batch deadlocks
-  are bounded because the consumer sorts each batch into a consistent row-lock order.
+- ❌ **P1. Pipeline batches in the consumer — tried, measured, reverted.** Ran resolution +
+  `process_batch` in a bounded `JoinSet` so batches could overlap. A real-consumer-loop
+  throughput harness against Postgres showed overlapping writes (`max_inflight` 2/4)
+  *regressed* throughput ~25-35% vs serial (1), stable across runs: a local single-node
+  Postgres isn't write-latency-bound, so concurrency only adds WAL/lock contention with no
+  latency to hide. The hypothesised prod benefit (hiding latency to a remote/loaded PG) can't
+  be reproduced locally, so per "keep only what measurably improves" it was reverted. Only
+  worth revisiting with a prod-representative PG behind a canary.
 - ⬜ **P4. Dead config.** `max_concurrent_transactions` and `skip_writes` are declared but never
   used (`skip_writes` even defaults to `true`). Wire up or remove — but `skip_writes` must be
   reconciled with prod config first, since making a default-`true` flag actually skip writes

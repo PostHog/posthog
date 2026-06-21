@@ -9,10 +9,7 @@ use sqlx::PgPool;
 use property_defs_rs::{
     batch_ingestion::process_batch,
     config::Config,
-    types::{
-        Event, EventDefinition, EventProperty, GroupType, PropertyDefinition, PropertyParentType,
-        PropertyValueType, Update,
-    },
+    types::{Event, GroupType, PropertyParentType, Update},
     update_cache::Cache,
 };
 
@@ -155,98 +152,6 @@ async fn test_person_batch_write(db: PgPool) {
             .await
             .unwrap();
     assert_eq!(Some(0), event_props_count);
-}
-
-// Builds a batch that shares `num_shared` keys with every other task (to force concurrent
-// ON CONFLICT contention on the same rows) plus `num_unique` keys unique to this task.
-fn build_overlapping_batch(task: usize, num_shared: usize, num_unique: usize) -> Vec<Update> {
-    let mut updates = vec![Update::Event(EventDefinition {
-        name: "shared_event".to_string(),
-        team_id: 111,
-        project_id: 111,
-        last_seen_at: Utc::now(),
-    })];
-
-    let mut push_prop = |updates: &mut Vec<Update>, name: String| {
-        updates.push(Update::EventProperty(EventProperty {
-            team_id: 111,
-            project_id: 111,
-            event: "shared_event".to_string(),
-            property: name.clone(),
-        }));
-        updates.push(Update::Property(PropertyDefinition {
-            team_id: 111,
-            project_id: 111,
-            name,
-            is_numerical: false,
-            property_type: Some(PropertyValueType::String),
-            event_type: PropertyParentType::Event,
-            group_type_index: None,
-            property_type_format: None,
-            volume_30_day: None,
-            query_usage_30_day: None,
-        }));
-    };
-
-    for i in 0..num_shared {
-        push_prop(&mut updates, format!("shared_prop_{i}"));
-    }
-    for i in 0..num_unique {
-        push_prop(&mut updates, format!("uniq_{task}_{i}"));
-    }
-    updates
-}
-
-// Multiple process_batch calls writing overlapping rows concurrently is exactly what the
-// consumer's max_inflight_batches > 1 path does. All writes must land correctly (shared rows
-// deduped by ON CONFLICT, unique rows all present) with no lost or errored writes.
-#[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_concurrent_process_batch_overlapping_keys(db: PgPool) {
-    let config = Config::init_with_defaults().unwrap();
-    let cache: Arc<Cache> = Arc::new(Cache::new(
-        config.eventdefs_cache_capacity,
-        config.eventprops_cache_capacity,
-        config.propdefs_cache_capacity,
-    ));
-
-    let num_tasks = 6;
-    let num_shared = 50;
-    let num_unique = 20;
-
-    let mut handles = Vec::new();
-    for task in 0..num_tasks {
-        let updates = build_overlapping_batch(task, num_shared, num_unique);
-        let config = config.clone();
-        let cache = cache.clone();
-        let pool = db.clone();
-        handles.push(tokio::spawn(async move {
-            process_batch(&config, cache, &pool, updates).await;
-        }));
-    }
-    for h in handles {
-        h.await.unwrap();
-    }
-
-    let expected = (num_shared + num_tasks * num_unique) as i64;
-
-    // Runtime-checked queries (not the query! macro) so the test needs no .sqlx cache entry.
-    let evt_defs: i64 = sqlx::query_scalar("SELECT count(*) FROM posthog_eventdefinition")
-        .fetch_one(&db)
-        .await
-        .unwrap();
-    assert_eq!(evt_defs, 1, "shared event def must collapse to one row");
-
-    let event_props: i64 = sqlx::query_scalar("SELECT count(*) FROM posthog_eventproperty")
-        .fetch_one(&db)
-        .await
-        .unwrap();
-    assert_eq!(event_props, expected, "no event-property writes lost");
-
-    let prop_defs: i64 = sqlx::query_scalar("SELECT count(*) FROM posthog_propertydefinition")
-        .fetch_one(&db)
-        .await
-        .unwrap();
-    assert_eq!(prop_defs, expected, "no property-definition writes lost");
 }
 
 fn gen_test_event_updates(
