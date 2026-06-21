@@ -9,4 +9,4 @@ export {
 } from './ActivityPrimitives'
 export type { ActivityStatus } from './ActivityPrimitives'
 export { LangGraphActivity } from './LangGraphActivity'
-export { SandboxActivity, SandboxToolActivity, contentBlockText, renderContentBlocks } from './SandboxActivity'
+export { SandboxActivity } from './SandboxActivity'

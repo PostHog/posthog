@@ -9,7 +9,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { getClaudeCodeMeta, resolveToolCall } from './mcpToolMessageResolver'
+import { getClaudeCodeMeta, resolveToolCall } from './sandbox/sandboxToolResolver'
 import { parseSandboxQuestions } from './sandboxQuestionUtils'
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
 import { defaultPermissionDecision, findAllowOptionId } from './sandboxToolPolicy'
@@ -301,6 +301,16 @@ async function fetchRunStatus(
     } catch (error) {
         return { error: mapHttpStatusToStreamError((error as { status?: number })?.status) }
     }
+}
+
+/**
+ * The id of the parent Task tool call when this frame belongs to a subagent's inner work
+ * (`_meta.claudeCode.parentToolCallId`), else undefined. Inner calls are rolled into their parent
+ * Task card rather than surfaced as top-level thread items.
+ */
+export function subagentParentToolCallId(meta: unknown): string | undefined {
+    const parent = getClaudeCodeMeta(meta)?.parentToolCallId
+    return typeof parent === 'string' && parent ? parent : undefined
 }
 
 /**
@@ -693,7 +703,9 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 meta: update._meta,
                 ...(errorMessage !== undefined ? { error: { message: errorMessage } } : {}),
             })
-            upsertInvocationItem(toolCallId)
+            if (!subagentParentToolCallId(update._meta)) {
+                upsertInvocationItem(toolCallId)
+            }
             return
         }
 
@@ -868,7 +880,11 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                     contentBlocks: Array.isArray(update.content) ? update.content : [],
                     meta: update._meta,
                 })
-                upsertInvocationItem(toolCallId)
+                // A subagent's inner tool calls carry the parent Task's id; they belong inside that
+                // card, not as top-level siblings, so keep them out of the thread.
+                if (!subagentParentToolCallId(update._meta)) {
+                    upsertInvocationItem(toolCallId)
+                }
                 break
             }
             case 'tool_call_update':

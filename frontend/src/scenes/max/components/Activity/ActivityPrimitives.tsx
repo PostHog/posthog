@@ -77,6 +77,7 @@ export function ActivityStatusIcon({
 
 export function ActivityHeader({
     title,
+    children,
     status,
     icon,
     animate = true,
@@ -88,6 +89,7 @@ export function ActivityHeader({
     failedIcon,
 }: {
     title: React.ReactNode
+    children?: React.ReactNode
     status: ActivityStatus
     icon?: React.ReactNode
     animate?: boolean
@@ -102,13 +104,30 @@ export function ActivityHeader({
     const isInProgress = status === 'in_progress'
     const isFailed = status === 'failed'
 
+    const titleNode =
+        isInProgress && animate ? (
+            <ShimmeringContent>{title}</ShimmeringContent>
+        ) : (
+            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
+        )
+    const statusIcon = (
+        <ActivityStatusIcon
+            status={status}
+            showCompletionIcon={showCompletionIcon}
+            showProgressIcon={showProgressIcon}
+            failedIcon={failedIcon}
+        />
+    )
+
     return (
         <div
             className={clsx(
                 'transition-all duration-500 flex select-none min-w-0',
                 (isPending || isFailed) && 'text-muted',
                 !isInProgress && !isPending && !isFailed && 'text-default',
-                hasDetails ? 'cursor-pointer' : 'cursor-default'
+                hasDetails ? 'cursor-pointer' : 'cursor-default',
+                hasDetails && 'rounded px-1 -mx-1 hover:bg-fill-button-tertiary-hover',
+                hasDetails && isDetailsExpanded && 'bg-fill-button-tertiary-active'
             )}
             onClick={hasDetails ? onToggleDetails : undefined}
             aria-label={hasDetails ? (isDetailsExpanded ? 'Collapse history' : 'Expand history') : undefined}
@@ -123,13 +142,20 @@ export function ActivityHeader({
                 </div>
             )}
             <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
-                <div className="min-w-0">
-                    {isInProgress && animate ? (
-                        <ShimmeringContent>{title}</ShimmeringContent>
-                    ) : (
-                        <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
-                    )}
-                </div>
+                {children ? (
+                    // The title/subtitle column grows to fill the row, so the subtitle (second line) gets the
+                    // full available width before it truncates and the chevron stays pinned to the right.
+                    <div className="flex flex-col flex-1 min-w-0">
+                        {/* Status icon rides the first line with the title; the second line is the subtitle. */}
+                        <div className="flex items-center gap-1 min-w-0">
+                            <div className="min-w-0">{titleNode}</div>
+                            {statusIcon}
+                        </div>
+                        <div className="text-muted truncate min-w-0">{children}</div>
+                    </div>
+                ) : (
+                    <div className="min-w-0">{titleNode}</div>
+                )}
                 {hasDetails && (
                     <div className="relative shrink-0 flex flex-col items-start justify-center h-full">
                         <button className="inline-flex items-center hover:opacity-70 transition-opacity shrink-0 cursor-pointer">
@@ -139,12 +165,7 @@ export function ActivityHeader({
                         </button>
                     </div>
                 )}
-                <ActivityStatusIcon
-                    status={status}
-                    showCompletionIcon={showCompletionIcon}
-                    showProgressIcon={showProgressIcon}
-                    failedIcon={failedIcon}
-                />
+                {!children && statusIcon}
             </div>
         </div>
     )
@@ -237,6 +258,7 @@ export function ActivityToggleSection({
 export function Activity({
     id,
     title,
+    subtitle,
     status,
     icon,
     animate = true,
@@ -249,6 +271,7 @@ export function Activity({
 }: {
     id: string
     title: React.ReactNode
+    subtitle?: React.ReactNode
     status: ActivityStatus
     icon?: React.ReactNode
     animate?: boolean
@@ -280,7 +303,9 @@ export function Activity({
                 showCompletionIcon={showCompletionIcon}
                 showProgressIcon={showProgressIcon}
                 failedIcon={failedIcon}
-            />
+            >
+                {subtitle}
+            </ActivityHeader>
             {isDetailsExpanded && hasDetails && (
                 <ActivityDetails hasIcon={!!icon}>
                     {substeps.length > 0 && <ActivitySubsteps id={id} substeps={substeps} status={status} />}

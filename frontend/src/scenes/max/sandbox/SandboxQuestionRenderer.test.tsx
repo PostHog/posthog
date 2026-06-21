@@ -1,11 +1,11 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import type { McpToolCallMessage } from '../maxTypes'
+import type { SandboxToolCallMessage } from '../maxTypes'
 import { SandboxQuestionRenderer } from './SandboxQuestionRenderer'
 
-function makeMessage(overrides: Partial<McpToolCallMessage> = {}): McpToolCallMessage {
+function makeMessage(overrides: Partial<SandboxToolCallMessage> = {}): SandboxToolCallMessage {
     return {
         id: 'tc-1',
         resolvedKey: 'AskUserQuestion',
@@ -28,7 +28,7 @@ function makeMessage(overrides: Partial<McpToolCallMessage> = {}): McpToolCallMe
     }
 }
 
-function renderCard(message: McpToolCallMessage): void {
+function renderCard(message: SandboxToolCallMessage): void {
     render(<SandboxQuestionRenderer message={message} isLastInGroup displayName="Question" />)
 }
 
@@ -37,22 +37,26 @@ describe('SandboxQuestionRenderer', () => {
         cleanup()
     })
 
-    it('renders the question and the chosen answer once answered, without the per-question header chip', () => {
+    it('previews the answer on the second line and shows the full Q&A on expand', () => {
         renderCard(makeMessage({ rawOutput: { answers: { 'Which goal matters most?': 'Revenue' } } }))
 
-        expect(screen.getByText('Which goal matters most?')).toBeInTheDocument()
+        // Preview on the header's second line (always visible).
         expect(screen.getByText('Revenue')).toBeInTheDocument()
-        expect(screen.getByText('Revenue')).toHaveClass('font-medium')
-        // The header label ("Goal") is dropped from the recap — the answer carries the meaning.
+        // The full question + answer live in the collapsible body.
+        expect(screen.queryByText('Which goal matters most?')).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button'))
+        expect(screen.getByText('Which goal matters most?')).toBeInTheDocument()
+        expect(screen.getAllByText('Revenue').some((el) => el.classList.contains('font-medium'))).toBe(true)
+        // The header label ("Goal") is dropped from the recap.
         expect(screen.queryByText('Goal')).not.toBeInTheDocument()
     })
 
-    it('does not render the question in place while it is still being asked', () => {
+    it('does not render a body while the question is still being asked', () => {
         renderCard(makeMessage({ status: 'in_progress', rawOutput: undefined }))
 
-        // The overlay owns the unanswered state; the recap body stays empty until an answer arrives.
         expect(screen.queryByText('Which goal matters most?')).not.toBeInTheDocument()
-        expect(screen.queryByText('Waiting for your answer…')).not.toBeInTheDocument()
+        expect(screen.queryByRole('button')).not.toBeInTheDocument()
     })
 
     it('recaps each answer for a multi-question request', () => {
@@ -68,6 +72,7 @@ describe('SandboxQuestionRenderer', () => {
             })
         )
 
+        fireEvent.click(screen.getByRole('button'))
         expect(screen.getByText('Revenue')).toBeInTheDocument()
         expect(screen.getByText('Weekly')).toBeInTheDocument()
     })
@@ -87,8 +92,8 @@ describe('SandboxQuestionRenderer', () => {
     it('falls back to the generic tool card when the input has no questions', () => {
         renderCard(makeMessage({ rawInput: {}, rawOutput: undefined }))
 
-        // The fallback card exposes an "Input" collapse panel; the question recap never mounts.
-        expect(screen.getByText('Input')).toBeInTheDocument()
+        // The generic card renders instead of the question recap.
+        expect(screen.getByText('Question')).toBeInTheDocument()
         expect(screen.queryByText('Which goal matters most?')).not.toBeInTheDocument()
     })
 })

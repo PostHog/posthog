@@ -12,8 +12,8 @@ export interface ToolCallDiffContent {
 }
 
 /**
- * Unwraps the ACP `{ type: 'content', content: {...} }` envelope, mirroring `contentBlockText` in
- * SandboxActivity — diff blocks may arrive flat or nested under that wrapper.
+ * Unwraps the ACP `{ type: 'content', content: {...} }` envelope — diff blocks may arrive flat or
+ * nested under that wrapper.
  */
 function unwrapBlock(block: unknown): unknown {
     if (!block || typeof block !== 'object') {

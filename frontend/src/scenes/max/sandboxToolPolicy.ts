@@ -1,5 +1,9 @@
-import { resolveToolCall } from './mcpToolMessageResolver'
+import { isPostHogExecTool } from './sandbox/posthogExecDisplay'
+import { resolveToolCall } from './sandbox/sandboxToolResolver'
 import type { PermissionRequestRecord } from './types/sandboxStreamTypes'
+
+// Re-exported so existing importers (and tests) keep resolving the exec-tool check from here.
+export { isPostHogExecTool } from './sandbox/posthogExecDisplay'
 
 /**
  * Default sandbox tool-permission policy, ported from Twig
@@ -12,14 +16,8 @@ import type { PermissionRequestRecord } from './types/sandboxStreamTypes'
  * default-allow contract and also prompt.
  */
 
-/** Matches the PostHog single-exec MCP tool (`mcp__posthog__exec`, plus plugin/regional variants). */
-const POSTHOG_EXEC_TOOL_RE = /^mcp__posthog(?:_[^_]+)*__exec$/
 /** A sub-tool is destructive when one of these verbs appears as a whole `-`-bounded segment. */
 const POSTHOG_DESTRUCTIVE_SUBTOOL_RE = /(^|-)(partial-update|update|delete|destroy)(-|$)/i
-
-export function isPostHogExecTool(toolName: string): boolean {
-    return POSTHOG_EXEC_TOOL_RE.test(toolName)
-}
 
 export function isPostHogDestructiveSubTool(subTool: string): boolean {
     return POSTHOG_DESTRUCTIVE_SUBTOOL_RE.test(subTool)
