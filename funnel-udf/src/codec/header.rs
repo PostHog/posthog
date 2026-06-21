@@ -3,15 +3,15 @@
 use clickhouse_types::{Column, DataTypeNode};
 
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
-use crate::codec::{CodecError, CodecResult};
+use crate::codec::{prealloc, CodecError, CodecResult};
 
 pub fn read_block_header<R: RowBinaryRead + ?Sized>(r: &mut R) -> CodecResult<Vec<Column>> {
     let n = r.read_varint()? as usize;
-    let mut names = Vec::with_capacity(n);
+    let mut names = prealloc(n);
     for _ in 0..n {
         names.push(String::from_utf8_lossy(&r.read_bytes()?).into_owned());
     }
-    let mut types = Vec::with_capacity(n);
+    let mut types = prealloc(n);
     for _ in 0..n {
         let type_str = String::from_utf8_lossy(&r.read_bytes()?).into_owned();
         // ClickHouse emits `Array(Nothing)` for a bare `[]` literal (no element

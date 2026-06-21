@@ -17,7 +17,7 @@ pub use types::{Bytes, PropVal};
 
 use crate::codec::chunk::read_chunk_header;
 use crate::codec::header::{read_block_header, write_block_header};
-use crate::codec::CodecResult;
+use crate::codec::{prealloc, CodecResult};
 use crate::types::BreakdownShape;
 
 #[derive(Clone, Copy, Debug)]
@@ -112,7 +112,7 @@ fn run_rowbinary<R: BufRead, W: Write>(
 
         match mode {
             Mode::Steps => {
-                let mut results = Vec::with_capacity(n as usize);
+                let mut results = prealloc(n as usize);
                 for _ in 0..n {
                     let args = io::steps_io::read_args(reader, shape, &columns)?;
                     results.push(steps::run(&args));
@@ -124,7 +124,7 @@ fn run_rowbinary<R: BufRead, W: Write>(
                 }
             }
             Mode::Trends => {
-                let mut results = Vec::with_capacity(n as usize);
+                let mut results = prealloc(n as usize);
                 for _ in 0..n {
                     let args = io::trends_io::read_args(reader, shape, &columns)?;
                     results.push(trends::run(&args));

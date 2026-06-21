@@ -1,10 +1,10 @@
 use clickhouse_types::{Column, DataTypeNode};
 
 use crate::codec::rowbinary::{RowBinaryRead, RowBinaryWrite};
-use crate::codec::{CodecError, CodecResult};
+use crate::codec::{prealloc, CodecError, CodecResult};
 use crate::io::column::{
-    array_elem, prealloc, read_bytes_col, read_float_col, read_int_array_i8, read_int_col,
-    read_uuid_col, tuple_fields,
+    array_elem, read_bytes_col, read_float_col, read_int_array_i8, read_int_col, read_uuid_col,
+    tuple_fields,
 };
 use crate::io::propval::{read_propval, read_propval_array, shape_output_type, write_propval};
 use crate::trends::{Args, Event, ResultStruct};

@@ -24,7 +24,7 @@
 use clickhouse_types::DataTypeNode;
 
 use crate::codec::rowbinary::RowBinaryRead;
-use crate::codec::{CodecError, CodecResult};
+use crate::codec::{prealloc, CodecError, CodecResult};
 
 /// Reads a column that may or may not be `Nullable`, peeling `LowCardinality`
 /// at either level. On null, returns `null_default` without consuming any payload
@@ -114,21 +114,6 @@ pub fn read_bytes_col<R: RowBinaryRead + ?Sized>(
             "expected String or FixedString, got {other}"
         ))),
     })
-}
-
-/// Ceiling on how many elements we pre-allocate for an array before reading it.
-/// The length prefix is whatever the (possibly corrupt or desynced) wire claims,
-/// and `Vec::with_capacity(huge)` aborts the process — which ClickHouse surfaces
-/// as the opaque `CHILD_WAS_NOT_EXITED_NORMALLY` with the real error hidden.
-/// Capacity is only a hint, so legitimately longer arrays still grow on demand;
-/// capping the pre-allocation costs nothing on the happy path while removing the
-/// abort vector.
-const ARRAY_PREALLOC_CAP: usize = 1024;
-
-/// `Vec::with_capacity` clamped to `ARRAY_PREALLOC_CAP` — use whenever the
-/// capacity comes from a wire-supplied length.
-pub(crate) fn prealloc<T>(len: usize) -> Vec<T> {
-    Vec::with_capacity(len.min(ARRAY_PREALLOC_CAP))
 }
 
 /// Reads an `Array(T)` that may be `Nullable` / `LowCardinality`-wrapped at the
@@ -316,5 +301,23 @@ mod tests {
             read_int_array_i8(&mut buf.as_slice(), &t).unwrap(),
             vec![7, 0, -3]
         );
+    }
+
+    // The pre-allocation cap is only a capacity hint — an array genuinely longer
+    // than the cap must still read every element (the Vec grows on demand). Guards
+    // against a future "optimisation" that treats the cap as a hard length bound.
+    #[test]
+    fn read_array_col_reads_beyond_prealloc_cap() {
+        let len = 2000; // > PREALLOC_CAP (1024)
+        let mut buf = Vec::new();
+        buf.write_varint(len as u64).unwrap();
+        for _ in 0..len {
+            buf.write_u8(0).unwrap(); // non-null element marker
+            buf.write_i8(7).unwrap();
+        }
+        let t = DataTypeNode::Array(Box::new(nullable(DataTypeNode::Int8)));
+        let got = read_int_array_i8(&mut buf.as_slice(), &t).unwrap();
+        assert_eq!(got.len(), len);
+        assert!(got.iter().all(|&v| v == 7));
     }
 }
