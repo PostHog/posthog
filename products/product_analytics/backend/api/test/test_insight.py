@@ -474,6 +474,44 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["name"], "Regular Insight")
 
+    def test_not_on_any_dashboard_filter(self) -> None:
+        # See #26621: let users filter the saved insights list down to insights that aren't
+        # tiled on any dashboard yet.
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        dashboard = Dashboard.objects.create(team=self.team, name="A dashboard", created_by=self.user)
+
+        insight_on_dashboard = Insight.objects.create(
+            name="On a dashboard",
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight_on_dashboard)
+
+        insight_not_on_dashboard = Insight.objects.create(
+            name="Not on a dashboard",
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Without the filter, both insights are returned
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
+
+        # With the filter, only the insight that isn't on any dashboard is returned
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&not_on_any_dashboard=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["name"], insight_not_on_dashboard.name)
+
     def test_get_insight_in_dashboard_context(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],

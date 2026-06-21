@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { IconFlag, IconHeart, IconHeartFilled } from '@posthog/icons'
+import { IconDashboard, IconFlag, IconHeart, IconHeartFilled } from '@posthog/icons'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { TagSelect } from 'lib/components/TagSelect'
@@ -13,8 +13,15 @@ import { cn } from 'lib/utils/css-classes'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
-export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags'
-const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites', 'featureFlags']
+export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'featureFlags' | 'notOnAnyDashboard'
+const ALL_QUICK_FILTERS: QuickFilterKind[] = [
+    'insightType',
+    'tags',
+    'createdBy',
+    'favorites',
+    'featureFlags',
+    'notOnAnyDashboard',
+]
 
 export function SavedInsightsFilters({
     filters,
@@ -28,7 +35,7 @@ export function SavedInsightsFilters({
     /** When true, inactive filters appear borderless. */
     borderless?: boolean
 }): JSX.Element {
-    const { search, hideFeatureFlagInsights, favorited, tags, insightType, createdBy } = filters
+    const { search, hideFeatureFlagInsights, notOnAnyDashboard, favorited, tags, insightType, createdBy } = filters
     const quickFilterSet = new Set(quickFilters)
     const hasInsightTypeSelection = !!insightType && insightType !== 'All types'
 
@@ -116,9 +123,36 @@ export function SavedInsightsFilters({
                             onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
                         />
                     )}
+                    {quickFilterSet.has('notOnAnyDashboard') && (
+                        <NotOnAnyDashboardToggle
+                            notOnAnyDashboard={notOnAnyDashboard ?? undefined}
+                            onToggle={(checked) => setFilters({ notOnAnyDashboard: checked })}
+                        />
+                    )}
                 </div>
             )}
         </div>
+    )
+}
+
+const NotOnAnyDashboardToggle = ({
+    notOnAnyDashboard,
+    onToggle,
+}: {
+    notOnAnyDashboard?: boolean
+    onToggle: (checked: boolean) => void
+}): JSX.Element => {
+    return (
+        <Tooltip title="Only show insights that aren't added to any dashboard yet." placement="top">
+            <LemonButton
+                icon={<IconDashboard />}
+                onClick={() => onToggle(!notOnAnyDashboard)}
+                type="tertiary"
+                size="small"
+            >
+                Not on any dashboard: <LemonSwitch checked={notOnAnyDashboard || false} className="ml-1" />
+            </LemonButton>
+        </Tooltip>
     )
 }
 
