@@ -175,6 +175,14 @@ export type SeekRenderability =
     // timestamp — playback there can never work
     | { kind: 'unplayable' }
 
+// Non-definitive verdicts where more data could still make the position renderable — playback
+// should buffer and keep polling rather than play or error. Centralized so the buffer-entry
+// (seekToTimestamp) and buffer-exit (checkBufferingCompleted) checks can't drift if a new
+// still-loading kind is added.
+export function isAwaitingMoreData(renderability: SeekRenderability): boolean {
+    return renderability.kind === 'waitingForData' || renderability.kind === 'waitingForIngestion'
+}
+
 // weights should add up to 1
 const smoothingWeights = [
     0.07,
@@ -1649,10 +1657,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 renderability.kind === 'clampToFullSnapshot' || renderability.kind === 'unplayable'
             const stillBuffering =
                 !hasDefinitiveVerdict &&
-                (isBufferingSegment ||
-                    values.isWaitingForPlayableFullSnapshot ||
-                    renderability.kind === 'waitingForData' ||
-                    renderability.kind === 'waitingForIngestion')
+                (isBufferingSegment || values.isWaitingForPlayableFullSnapshot || isAwaitingMoreData(renderability))
 
             if (!stillBuffering) {
                 actions.endBuffer()
@@ -1916,8 +1921,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             else if (
                 segment?.kind === 'buffer' ||
                 values.isWaitingForPlayableFullSnapshot ||
-                renderability.kind === 'waitingForData' ||
-                renderability.kind === 'waitingForIngestion'
+                isAwaitingMoreData(renderability)
             ) {
                 values.player?.replayer?.pause()
                 actions.startBuffer()
