@@ -606,6 +606,32 @@ describe('sessionRecordingPlayerLogic', () => {
             }
         )
 
+        it('flips a stuck still-ingesting recording to the terminal error once grace lapses', () => {
+            // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS interval re-runs checkBufferingCompleted;
+            // this asserts that payload directly (no timer): a recording buffering on waitingForIngestion
+            // transitions to the terminal error the next time checkBufferingCompleted runs after the grace
+            // period has elapsed — without any new snapshot data arriving.
+            const graceSpy = jest
+                .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
+                .mockReturnValue(true)
+            try {
+                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isBuffering).toBe(true)
+                expect(logic.values.playerError).toBeNull()
+
+                // grace lapses, no new data arrives — the periodic nudge re-reads the now-definitive
+                // verdict and surfaces the terminal error
+                graceSpy.mockReturnValue(false)
+                logic.actions.checkBufferingCompleted()
+
+                expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
+            } finally {
+                graceSpy.mockRestore()
+            }
+        })
+
         it.each([
             {
                 description: 'reports the leading unplayable span when the initial full snapshot is late',

@@ -163,8 +163,11 @@ const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 // verdict re-evaluation: source polling can back off, and the grace check reads wall-clock time,
 // which isn't reactive. Re-run checkBufferingCompleted on this cadence so a recording stuck
 // buffering past the ingestion grace period still transitions to the terminal error rather than
-// sitting on "Still processing…" forever. checkBufferingCompleted is a no-op when not buffering,
-// so this stays cheap.
+// sitting on "Still processing…" forever. A tick is inert unless buffering has genuinely
+// completed: checkBufferingCompleted early-returns when not buffering, and while still
+// legitimately buffering it only ends buffering on a definitive verdict — so a mid-buffer tick
+// never yanks the playhead. Cheap either way. The cadence is a deliberate safety-net interval,
+// not a tuned value: worst case is ~2 min of "Still processing…" after grace has already lapsed.
 const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
 
 export type SeekRenderability =
