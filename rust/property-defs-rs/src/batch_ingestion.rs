@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -146,6 +146,13 @@ impl EventDefinitionsBatch {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PropertyDefinitionsBatch {
     batch_size: usize,
+    // Maps a row's ON CONFLICT key -> its index in the parallel vectors below, so append() can
+    // collapse duplicates within a single batch. The write does
+    //   INSERT ... ON CONFLICT (coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1)) DO UPDATE
+    // and Postgres rejects a statement that proposes two rows with the same conflict key
+    // ("ON CONFLICT DO UPDATE command cannot affect row a second time", SQLSTATE 21000), which
+    // rolls back the entire batch. Deduping on insert keeps each write to one row per key.
+    seen: HashMap<(i64, String, i16, i16), usize>,
     pub ids: Vec<Uuid>,
     pub team_ids: Vec<i32>,
     pub project_ids: Vec<i64>,
@@ -162,6 +169,7 @@ impl PropertyDefinitionsBatch {
     pub fn new(batch_size: usize) -> Self {
         Self {
             batch_size,
+            seen: HashMap::with_capacity(batch_size),
             ids: Vec::with_capacity(batch_size),
             team_ids: Vec::with_capacity(batch_size),
             project_ids: Vec::with_capacity(batch_size),
@@ -199,6 +207,25 @@ impl PropertyDefinitionsBatch {
         }
 
         let property_type: Option<String> = pd.property_type.clone().map(|pvt| pvt.to_string());
+
+        // Collapse duplicates on the write's ON CONFLICT key so a property name that appears more
+        // than once in a batch can't make Postgres raise a "cannot affect row a second time"
+        // cardinality error and roll back the whole batch (issue #64253). project_id is always set
+        // here, so coalesce(project_id, team_id) is just project_id.
+        let dedup_key = (
+            pd.project_id,
+            pd.name.clone(),
+            pd.event_type as i16,
+            group_type_index.unwrap_or(-1),
+        );
+        if let Some(&idx) = self.seen.get(&dedup_key) {
+            // Last write wins, mirroring the DO UPDATE: refresh the columns the write can change.
+            self.are_numerical[idx] = pd.is_numerical;
+            self.property_types[idx] = property_type;
+            self.cached[idx] = Update::Property(pd);
+            return;
+        }
+        self.seen.insert(dedup_key, self.ids.len());
 
         self.ids.push(Uuid::now_v7());
         self.team_ids.push(pd.team_id);
@@ -585,5 +612,70 @@ async fn write_event_definitions_batch(
                 return Ok(());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::PropertyValueType;
+
+    fn prop_def(name: &str, property_type: Option<PropertyValueType>) -> PropertyDefinition {
+        PropertyDefinition {
+            team_id: 1,
+            project_id: 1,
+            name: name.to_string(),
+            is_numerical: false,
+            property_type,
+            event_type: PropertyParentType::Event,
+            group_type_index: None,
+            property_type_format: None,
+            volume_30_day: None,
+            query_usage_30_day: None,
+        }
+    }
+
+    #[test]
+    fn append_dedups_repeated_keys_within_batch() {
+        // A common property name appearing more than once in a batch must collapse to a single
+        // row. Otherwise the ON CONFLICT write proposes two rows with the same conflict key and
+        // Postgres aborts the whole batch with SQLSTATE 21000 (issue #64253).
+        let mut batch = PropertyDefinitionsBatch::new(100);
+        batch.append(prop_def("brand", None));
+        batch.append(prop_def("brand", None));
+        batch.append(prop_def("current_page", None));
+
+        assert_eq!(batch.len(), 2);
+        assert_eq!(
+            batch.names,
+            vec!["brand".to_string(), "current_page".to_string()]
+        );
+    }
+
+    #[test]
+    fn append_keeps_rows_that_differ_on_the_conflict_key() {
+        // Same name but a different parent type is a different unique key, so it must not collapse.
+        let mut event_prop = prop_def("name", None);
+        event_prop.event_type = PropertyParentType::Event;
+        let mut person_prop = prop_def("name", None);
+        person_prop.event_type = PropertyParentType::Person;
+
+        let mut batch = PropertyDefinitionsBatch::new(100);
+        batch.append(event_prop);
+        batch.append(person_prop);
+
+        assert_eq!(batch.len(), 2);
+    }
+
+    #[test]
+    fn append_last_write_wins_for_mutable_columns() {
+        // The write's DO UPDATE refreshes property_type/is_numerical, so the last occurrence in
+        // the batch is the one that should survive the dedup.
+        let mut batch = PropertyDefinitionsBatch::new(100);
+        batch.append(prop_def("revenue", None));
+        batch.append(prop_def("revenue", Some(PropertyValueType::Numeric)));
+
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch.property_types, vec![Some("Numeric".to_string())]);
     }
 }
