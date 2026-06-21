@@ -128,6 +128,17 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             "The property nonsense does not exist in the taxonomy.",
         )
 
+        # Session properties whose taxonomy definition has examples but no explicit "type"
+        # must degrade gracefully instead of raising KeyError: 'type'.
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("session", "$last_external_click_url"),
+            '"https://example.com/interesting-article?parameter=true" and many more distinct values.',
+        )
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("session", "$vitals_lcp"),
+            "2.2 and many more distinct values.",
+        )
+
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="email", property_type=PropertyType.String
         )

@@ -3391,11 +3391,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Last external click URL",
             "description": "The last external URL clicked in this session.",
             "examples": ["https://example.com/interesting-article?parameter=true"],
+            "type": "String",
         },
         "$vitals_lcp": {
             "label": "Web vitals LCP",
             "description": "The time it took for the Largest Contentful Paint on the page. This captures the perceived load time of the page, and measure how long it took for the main content of the page to be visible to users.",
             "examples": ["2.2"],
+            "type": "Numeric",
         },
         "$urls": {
             "label": "URLs",
