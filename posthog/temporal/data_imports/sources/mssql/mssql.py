@@ -9,10 +9,11 @@ just holds an instance and validates credentials.
 
 from __future__ import annotations
 
+import time
 import collections
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, TypeVar
 
 import pyarrow as pa
 import pymssql
@@ -64,6 +65,50 @@ _IDENTIFIER_QUOTER = BracketIdentifierQuoter()
 # Schemas every MSSQL database ships with that never hold user tables. `db_*` covers the
 # fixed database roles (db_owner, db_datareader, …), which also surface as schemas.
 SYSTEM_MSSQL_SCHEMAS = ("sys", "guest", "INFORMATION_SCHEMA")
+
+_T = TypeVar("_T")
+
+# DB-Lib error 20047 — "DBPROCESS is dead or not enabled". The TDS connection died mid-stream (an
+# idle cull, a failover, a brief network blip), leaving pymssql's dbprocess dead so the in-flight
+# fetch raises. A fresh connection recovers, so this is transient rather than a config error.
+_TRANSIENT_CONNECTION_ERROR_SUBSTRINGS = ("DBPROCESS is dead or not enabled",)
+_MAX_DISCOVERY_CONNECTION_ATTEMPTS = 5
+
+
+def _is_transient_connection_error(error: BaseException) -> bool:
+    """True for a mid-stream TDS connection death that a fresh connection recovers from."""
+    message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
+    return any(substring in message for substring in _TRANSIENT_CONNECTION_ERROR_SUBSTRINGS)
+
+
+def retry_on_transient_connection_error(
+    operation: Callable[[], _T],
+    *,
+    max_attempts: int = _MAX_DISCOVERY_CONNECTION_ATTEMPTS,
+) -> _T:
+    """Run `operation`, retrying a transient MSSQL connection death with bounded backoff.
+
+    Mirrors the in-process discovery retry the Postgres and MySQL sources use: a momentary
+    connection death recovers on a fresh connect-and-discover cycle, so retry it here instead of
+    failing schema discovery on the first blip and surfacing it as captured error-tracking noise.
+    Permanent errors re-raise immediately — `_is_transient_connection_error` only matches the
+    transient mid-stream drop.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except pymssql.Error as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_transient_connection_error(e):
+                raise
+            structlog.get_logger().warning(
+                "Transient MSSQL connection death during schema discovery; retrying",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                exc_info=e,
+            )
+            time.sleep(min(2 * attempt, 30))
 
 
 def _non_system_schema_clause(column: str) -> tuple[str, dict[str, str]]:
