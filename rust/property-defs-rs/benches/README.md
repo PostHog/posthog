@@ -126,6 +126,30 @@ Throughput-focused:
 
 Pipelining (measured against Postgres, not visible in Phase A/B/C):
 
+> **★ PRIORITY / CURRENT FOCUS — P0. Decouple read → queue → process → write.**
+> This is the loop's headline objective; pick this over the micro-opts below until it lands.
+> The service today is bound by a single Kafka loop and uses ~1 of 6 cores (prod profile:
+> 0.10 core, 97% in `rdkafka` receive). The fix is a proper pipeline in a single pod:
+>
+> 1. **Dedicated reader** continuously drains Kafka in *batches* (`json_recv_batch`, not the
+>    current one-at-a-time `json_recv`) into a **bounded channel** — the bound is the
+>    backpressure so memory stays capped while the slow 173 ms writes drain behind it.
+> 2. **Parallel parse + process** across worker tasks (`serde_json` + `Event::into_updates`
+>    + dedup), so parsing/processing uses multiple cores instead of the reader thread.
+> 3. **Write pool** drains the processed updates, **accumulating writes** and running them
+>    with bounded concurrency (the P1 `WRITER_MAX_CONCURRENCY` knob) so reads never block on
+>    the ~173 ms `posthog_eventproperty` insert.
+> 4. **Inflight offset manager** — the current staged reader stores offsets *on read*, which
+>    is lossy (a crash drops in-flight events). Instead track inflight offsets and **commit
+>    only when their write batch completes**, preserving at-least-once
+>    (`enable.auto.offset.store=false`; store via `Offset::store()` then `commit()`).
+>
+> Gate behind the existing `staged_pipeline` flag (default off). Success = e2e@173 `staged_c4`
+> events/sec up materially over the legacy loop, with dedup unchanged and tests/clippy green.
+> The current staged pipeline in `src/lib.rs` (`kafka_reader_loop`/`processor_loop`/`writer_loop`)
+> is a partial version of this — it still reads one-at-a-time and stores offsets on read; closing
+> those two gaps (batched reads + inflight offset manager) is the remaining work.
+
 - ✅ **P1. Write concurrency — reverted, then re-introduced once the regime was right.** First
   attempt regressed ~25-35% against a local Postgres (writes ~1ms, no latency to hide). Prod
   writes are ~173ms (the `posthog_eventproperty` insert), which *is* the regime where it pays
