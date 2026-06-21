@@ -159,6 +159,14 @@ const MIN_CLAMPABLE_DEAD_ZONE_MS = 1000
 // marker); below it the dead-zone clamp handles things silently and a warning would be noise
 const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 
+// While buffering on a still-ingesting recording we may receive no new events to re-trigger a
+// verdict re-evaluation: source polling can back off, and the grace check reads wall-clock time,
+// which isn't reactive. Re-run checkBufferingCompleted on this cadence so a recording stuck
+// buffering past the ingestion grace period still transitions to the terminal error rather than
+// sitting on "Still processing…" forever. checkBufferingCompleted is a no-op when not buffering,
+// so this stays cheap.
+const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
+
 export type SeekRenderability =
     // a FullSnapshot exists at or before the timestamp for its window
     | { kind: 'renderable' }
@@ -1198,7 +1206,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // change, not when the grace period elapses. That's fine: it only drives the overlay
         // message, and the buffer machinery (seekToTimestamp, checkBufferingCompleted) re-reads
         // seekRenderability fresh at event time, so the actual ERROR transition isn't gated on it.
-        // Don't "fix" this with a timer.
+        // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS nudge guarantees that re-read happens
+        // even when no events fire, so a stuck-buffering recording still flips once grace lapses.
         isWaitingForIngestion: [
             (s) => [s.seekRenderability, s.currentTimestamp],
             (
@@ -2547,6 +2556,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             document.addEventListener('fullscreenchange', fullScreenListener)
             return () => document.removeEventListener('fullscreenchange', fullScreenListener)
         }, 'fullscreenListener')
+
+        // Safety net: re-evaluate the buffering verdict at least this often. A recording stuck
+        // buffering on a still-ingesting position (waitingForIngestion) flips to the terminal
+        // error once the grace period lapses — but only on a re-read of seekRenderability, which
+        // otherwise happens solely on incoming events. Paused on hidden tabs by the plugin.
+        cache.disposables.add(() => {
+            const intervalId = setInterval(() => actions.checkBufferingCompleted(), BUFFERING_REEVALUATION_INTERVAL_MS)
+            return () => clearInterval(intervalId)
+        }, 'bufferingReevaluation')
 
         if (props.sessionRecordingId) {
             actions.loadRecordingData()
