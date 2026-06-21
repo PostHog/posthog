@@ -66,6 +66,7 @@ pub fn shape_output_type(shape: BreakdownShape) -> DataTypeNode {
 mod tests {
     use super::*;
     use crate::codec::rowbinary::RowBinaryWrite;
+    use rstest::rstest;
 
     fn nullable_string() -> DataTypeNode {
         DataTypeNode::Nullable(Box::new(DataTypeNode::String))
@@ -109,76 +110,37 @@ mod tests {
         DataTypeNode::Nullable(Box::new(inner))
     }
 
-    // The strict array-breakdown wire: bare `Array(String)`, two elements.
-    #[test]
-    fn array_breakdown_strict_wire() {
-        let mut buf = Vec::new();
-        buf.write_varint(2).unwrap();
-        buf.write_bytes(b"us").unwrap();
-        buf.write_bytes(b"pro").unwrap();
-        let got = read_propval(
-            &mut buf.as_slice(),
-            BreakdownShape::ArrayString,
-            &array_string(),
-        )
-        .unwrap();
-        assert_eq!(
-            got,
-            PropVal::Vec(vec![Bytes(b"us".to_vec()), Bytes(b"pro".to_vec())])
-        );
-    }
-
-    // Regression: a multi-property breakdown can inherit `Nullable` from a
-    // nullable sub-expression upstream, so the array slot arrives as
-    // `Nullable(Array(String))`. The reader must peel it, not crash the process.
-    #[test]
-    fn array_breakdown_nullable_wrapped_non_null() {
-        let mut buf = Vec::new();
-        buf.write_u8(0).unwrap(); // not-null marker
-        buf.write_varint(2).unwrap();
-        buf.write_bytes(b"us").unwrap();
-        buf.write_bytes(b"pro").unwrap();
-        let got = read_propval(
-            &mut buf.as_slice(),
-            BreakdownShape::ArrayString,
-            &nullable(array_string()),
-        )
-        .unwrap();
-        assert_eq!(
-            got,
-            PropVal::Vec(vec![Bytes(b"us".to_vec()), Bytes(b"pro".to_vec())])
-        );
-    }
-
-    // A null array breakdown maps to an empty bucket instead of an error.
-    #[test]
-    fn array_breakdown_null_maps_to_empty_vec() {
-        let got = read_propval(
-            &mut [1u8].as_slice(),
-            BreakdownShape::ArrayString,
-            &nullable(array_string()),
-        )
-        .unwrap();
-        assert_eq!(got, PropVal::Vec(Vec::new()));
-    }
-
-    // Elements can themselves be Nullable; a null element → empty-string bucket.
-    #[test]
-    fn array_breakdown_null_element_maps_to_empty_string() {
-        let mut buf = Vec::new();
-        buf.write_varint(2).unwrap();
-        buf.write_u8(0).unwrap(); // element 0 not-null
-        buf.write_bytes(b"us").unwrap();
-        buf.write_u8(1).unwrap(); // element 1 null
-        let got = read_propval(
-            &mut buf.as_slice(),
-            BreakdownShape::ArrayString,
-            &DataTypeNode::Array(Box::new(nullable_string())),
-        )
-        .unwrap();
-        assert_eq!(
-            got,
-            PropVal::Vec(vec![Bytes(b"us".to_vec()), Bytes(Vec::new())])
-        );
+    // The array-breakdown reader must handle every `Nullable`/`LowCardinality`
+    // shape a multi-property breakdown can inherit upstream, rather than crash
+    // the process. Each case exercises a genuinely distinct path:
+    //   - `strict_wire`: bare `Array(String)`, no null markers.
+    //   - `nullable_wrapped_non_null`: a `Nullable(Array(String))` whose value is
+    //     present — the array-level null marker must be peeled (the regression).
+    //   - `null_array`: a `Nullable(Array(String))` that is null → empty bucket.
+    //   - `null_element`: `Array(Nullable(String))` with a null element → "".
+    #[rstest]
+    #[case::strict_wire(
+        array_string(),
+        b"\x02\x02us\x03pro".to_vec(),
+        vec![Bytes(b"us".to_vec()), Bytes(b"pro".to_vec())]
+    )]
+    #[case::nullable_wrapped_non_null(
+        nullable(array_string()),
+        b"\x00\x02\x02us\x03pro".to_vec(),
+        vec![Bytes(b"us".to_vec()), Bytes(b"pro".to_vec())]
+    )]
+    #[case::null_array(nullable(array_string()), b"\x01".to_vec(), vec![])]
+    #[case::null_element(
+        DataTypeNode::Array(Box::new(nullable_string())),
+        b"\x02\x00\x02us\x01".to_vec(),
+        vec![Bytes(b"us".to_vec()), Bytes(Vec::new())]
+    )]
+    fn array_breakdown_peels_nullable(
+        #[case] t: DataTypeNode,
+        #[case] wire: Vec<u8>,
+        #[case] expected: Vec<Bytes>,
+    ) {
+        let got = read_propval(&mut wire.as_slice(), BreakdownShape::ArrayString, &t).unwrap();
+        assert_eq!(got, PropVal::Vec(expected));
     }
 }
