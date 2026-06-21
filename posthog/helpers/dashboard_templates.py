@@ -702,6 +702,39 @@ FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"
 FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = "Feature Flag calls made by unique users per variant"
 
 
+def _feature_flag_called_event_properties(feature_flag) -> list[dict]:
+    """
+    Property filters for the `$feature_flag_called` event used by a feature flag's default
+    usage insights.
+
+    For flags that target groups (i.e. `aggregation_group_type_index` is set), `$feature_flag_called`
+    events fired for requests without a resolved group end up with no `$group_<n>` property set. Those
+    events should be excluded from the default insights, otherwise rollout percentages look confusing
+    because of a large number of calls that don't actually belong to any group (see #39135).
+    """
+    properties: list[dict] = [
+        {
+            "key": "$feature_flag",
+            "operator": "exact",
+            "type": "event",
+            "value": feature_flag.key,
+        }
+    ]
+
+    group_type_index = feature_flag.aggregation_group_type_index
+    if group_type_index is not None:
+        properties.append(
+            {
+                "key": f"$group_{group_type_index}",
+                "operator": "is_set",
+                "type": "event",
+                "value": "is_set",
+            }
+        )
+
+    return properties
+
+
 def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> None:
     dashboard.filters = {"date_from": "-30d"}
     tag, _ = Tag.objects.get_or_create(
@@ -730,14 +763,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> N
                     "values": [
                         {
                             "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "operator": "exact",
-                                    "type": "event",
-                                    "value": feature_flag.key,
-                                }
-                            ],
+                            "values": _feature_flag_called_event_properties(feature_flag),
                         }
                     ],
                 },
@@ -787,14 +813,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> N
                     "values": [
                         {
                             "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "operator": "exact",
-                                    "type": "event",
-                                    "value": feature_flag.key,
-                                }
-                            ],
+                            "values": _feature_flag_called_event_properties(feature_flag),
                         }
                     ],
                 },

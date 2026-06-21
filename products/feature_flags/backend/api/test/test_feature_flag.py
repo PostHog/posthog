@@ -4297,6 +4297,55 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_create_feature_flag_usage_dashboard_for_group_targeted_flag(self, mock_report_user_action):
+        # Flags that target groups (aggregation_group_type_index set) should only count
+        # $feature_flag_called events that have the relevant $group_<n> property set, see #39135.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group targeted feature",
+                "key": "group-targeted-feature",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 50}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        instance = FeatureFlag.objects.get(id=flag_id)
+
+        dashboard = instance.usage_dashboard
+        assert dashboard is not None
+        tiles = sorted(
+            dashboard.tiles.all(),
+            key=lambda x: str(x.insight.name if x.insight is not None else ""),
+        )
+        self.assertEqual(len(tiles), 2)
+
+        for tile in tiles:
+            assert tile.insight is not None
+            properties = tile.insight.query["source"]["properties"]["values"][0]["values"]
+            self.assertEqual(
+                properties,
+                [
+                    {
+                        "key": "$feature_flag",
+                        "type": "event",
+                        "value": "group-targeted-feature",
+                        "operator": "exact",
+                    },
+                    {
+                        "key": "$group_0",
+                        "type": "event",
+                        "value": "is_set",
+                        "operator": "is_set",
+                    },
+                ],
+            )
+
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_dashboard_enrichment_fails_if_already_enriched(self, mock_report_user_action):
