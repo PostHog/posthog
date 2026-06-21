@@ -513,10 +513,21 @@ class MemoryCollectorToolsNode(AssistantNode):
             raise ValueError("Last message must be an AI message.")
         core_memory, _ = await CoreMemory.objects.aget_or_create(team=self._team)
 
+        # The memory model sees the full conversation context, so it occasionally calls a tool it
+        # saw there (e.g. execute_sql) or hallucinates one entirely. Drop unknown tool names rather
+        # than feeding them to PydanticToolsParser, which would raise an uncaught KeyError.
+        known_tool_names = {tool.__name__ for tool in memory_collector_tools}
+        known_tool_calls = [tool_call for tool_call in last_message.tool_calls if tool_call["name"] in known_tool_names]
+        new_messages: list[LangchainToolMessage] = [
+            LangchainToolMessage(content=f'Tool "{tool_call["name"]}" does not exist.', tool_call_id=tool_call["id"])
+            for tool_call in last_message.tool_calls
+            if tool_call["name"] not in known_tool_names
+        ]
+
         tools_parser = PydanticToolsParser(tools=memory_collector_tools)
         try:
             tool_calls: list[Union[core_memory_append, core_memory_replace]] = await tools_parser.ainvoke(
-                last_message, config=config
+                last_message.model_copy(update={"tool_calls": known_tool_calls}), config=config
             )
         except ValidationError as e:
             failover_messages = ChatPromptTemplate.from_messages(
@@ -526,8 +537,7 @@ class MemoryCollectorToolsNode(AssistantNode):
                 memory_collection_messages=[*node_messages, *failover_messages],
             )
 
-        new_messages: list[LangchainToolMessage] = []
-        for tool_call, schema in zip(last_message.tool_calls, tool_calls):
+        for tool_call, schema in zip(known_tool_calls, tool_calls):
             if isinstance(schema, core_memory_append):
                 try:
                     await core_memory.aappend_core_memory(schema.memory_content)

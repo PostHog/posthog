@@ -1044,6 +1044,74 @@ class TestMemoryCollectorToolsNode(BaseTest):
         await self.core_memory.arefresh_from_db()
         self.assertEqual(self.core_memory.text, "Initial memory content\nAdditional memory")
 
+    async def test_drops_unknown_tool_call(self):
+        # The memory model can hallucinate a tool name (or call a non-memory tool it saw in context).
+        # Such calls must be answered, not crash the node with a KeyError.
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Calling a tool that doesn't exist",
+                    tool_calls=[
+                        {
+                            "name": "get_dashboard",
+                            "args": {"id": 1},
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        new_state = await self.node.arun(state, {})
+        assert new_state is not None
+        assert new_state.memory_collection_messages is not None
+        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        content = new_state.memory_collection_messages[1].content
+        assert isinstance(content, str)
+        self.assertIn("does not exist", content)
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")  # type: ignore[attr-defined]
+        await self.core_memory.arefresh_from_db()
+        self.assertEqual(self.core_memory.text, "Initial memory content")
+
+    async def test_handles_mix_of_known_and_unknown_tool_calls(self):
+        # A valid memory tool call alongside a hallucinated one: process the former, answer the latter.
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Mixed tool calls",
+                    tool_calls=[
+                        {
+                            "name": "execute_sql",
+                            "args": {"query": "SELECT 1"},
+                            "id": "1",
+                        },
+                        {
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "Additional memory"},
+                            "id": "2",
+                        },
+                    ],
+                )
+            ],
+        )
+
+        new_state = await self.node.arun(state, {})
+        assert new_state is not None
+        assert new_state.memory_collection_messages is not None
+        self.assertEqual(len(new_state.memory_collection_messages), 3)
+        tool_messages = {
+            message.tool_call_id: message  # type: ignore[attr-defined]
+            for message in new_state.memory_collection_messages
+            if message.type == "tool"
+        }
+        self.assertIn("does not exist", tool_messages["1"].content)
+        self.assertEqual(tool_messages["2"].content, "Memory appended.")
+        await self.core_memory.arefresh_from_db()
+        self.assertEqual(self.core_memory.text, "Initial memory content\nAdditional memory")
+
     async def test_error_when_no_memory_collection_messages(self):
         # Test error when no memory collection messages are present
         state = AssistantState(messages=[], memory_collection_messages=[])
