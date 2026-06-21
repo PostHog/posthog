@@ -41,5 +41,9 @@ rstest = "0.26"
 name = "pipeline"
 harness = false
 
+[[bench]]
+name = "cache_contention"
+harness = false
+
 [lints]
 workspace = true
