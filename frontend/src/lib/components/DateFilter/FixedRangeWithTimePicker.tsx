@@ -108,7 +108,7 @@ export function FixedRangeWithTimePicker({
                             date.isBefore(localTo, 'd')
                         ),
                     })}
-                    getLemonButtonTimeProps={(timeProps) => {
+                    getTimeState={(timeProps) => {
                         const currentValue = selectingStart ? localFrom : localTo
                         const selected = currentValue
                             ? timeProps.unit === 'h' && use24HourFormat
@@ -118,8 +118,6 @@ export function FixedRangeWithTimePicker({
 
                         return {
                             active: selected === String(timeProps.value),
-                            className: 'rounded-none',
-                            'data-attr': `${timeProps.value}-${timeProps.unit}`,
                             onClick: () => {
                                 // Fall back to today so the user can set the time
                                 // before picking a date — otherwise clicking time

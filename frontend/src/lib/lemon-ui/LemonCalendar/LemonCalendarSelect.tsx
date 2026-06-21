@@ -7,29 +7,19 @@ import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import {
-    GetLemonButtonTimePropsOpts,
+    GetTimeStateOpts,
     LemonCalendar,
     LemonCalendarProps,
+    timeDataAttr,
 } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 
 import { LemonSwitch } from '../LemonSwitch'
 import { Popover } from '../Popover'
 
-function timeDataAttr({ unit, value }: GetLemonButtonTimePropsOpts): string {
-    return `${value}-${unit}`
-}
-
-export function getTimeElement(
-    parent: HTMLElement | null,
-    props: GetLemonButtonTimePropsOpts
-): HTMLDivElement | undefined | null {
+export function getTimeElement(parent: HTMLElement | null, props: GetTimeStateOpts): HTMLDivElement | undefined | null {
     return parent?.querySelector(`[data-attr="${timeDataAttr(props)}"]`)
 }
-function scrollToTimeElement(
-    calendarEl: HTMLDivElement | null,
-    props: GetLemonButtonTimePropsOpts,
-    skipAnimation: boolean
-): void {
+function scrollToTimeElement(calendarEl: HTMLDivElement | null, props: GetTimeStateOpts, skipAnimation: boolean): void {
     getTimeElement(calendarEl, props)?.scrollIntoView({
         block: 'start',
         inline: 'nearest',
@@ -39,7 +29,7 @@ function scrollToTimeElement(
 
 function proposedDate(
     target: dayjs.Dayjs | null,
-    { value, unit }: GetLemonButtonTimePropsOpts,
+    { value, unit }: GetTimeStateOpts,
     use24HourFormat: boolean = false
 ): dayjs.Dayjs {
     let date = target || dayjs().startOf('day')
@@ -163,7 +153,7 @@ export function LemonCalendarSelect({
         }
     })
 
-    const onTimeClick = (props: GetLemonButtonTimePropsOpts): void => {
+    const onTimeClick = (props: GetTimeStateOpts): void => {
         const date = proposedDate(selectValue, props, use24HourFormat)
         scrollToTime(date, false)
         setSelectValue(date)
@@ -201,7 +191,7 @@ export function LemonCalendarSelect({
 
                     return { disabledReason, selected: date.isSame(selectValue, 'd') }
                 }}
-                getLemonButtonTimeProps={(props) => {
+                getTimeState={(props) => {
                     const selected = selectValue
                         ? props.unit === 'h' && use24HourFormat
                             ? String(selectValue.hour())
@@ -219,9 +209,7 @@ export function LemonCalendarSelect({
 
                     return {
                         active: selected === String(props.value),
-                        className: 'rounded-none',
-                        'data-attr': timeDataAttr(props),
-                        disabledReason: disabledReason,
+                        disabledReason,
                         onClick: () => {
                             if (selected != props.value) {
                                 onTimeClick(props)

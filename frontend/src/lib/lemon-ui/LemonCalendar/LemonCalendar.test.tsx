@@ -207,11 +207,11 @@ describe('LemonCalendar', () => {
         expect(fourteen?.getAttribute('aria-disabled')).toBe('true')
     })
 
-    test('calls getLemonButtonTimeProps for each time', async () => {
+    test('calls getTimeState for each time', async () => {
         const calls: any = []
         render(
             <LemonCalendar
-                getLemonButtonTimeProps={({ unit, value }) => {
+                getTimeState={({ unit, value }) => {
                     calls.push([unit, value])
                     return {}
                 }}
@@ -243,7 +243,7 @@ describe('LemonCalendar', () => {
         const calls: any = []
         render(
             <LemonCalendar
-                getLemonButtonTimeProps={({ unit, value }) => {
+                getTimeState={({ unit, value }) => {
                     calls.push([unit, value])
                     return {}
                 }}
