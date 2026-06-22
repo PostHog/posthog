@@ -222,6 +222,22 @@ def test_is_xmin(sync_type: str | None, expected: bool) -> None:
 
 
 @pytest.mark.parametrize(
+    "sync_type,expected",
+    [
+        (ExternalDataSchema.SyncType.XMIN, True),
+        (ExternalDataSchema.SyncType.INCREMENTAL, True),
+        (ExternalDataSchema.SyncType.APPEND, True),
+        (ExternalDataSchema.SyncType.WEBHOOK, True),
+        (ExternalDataSchema.SyncType.CDC, True),
+        (ExternalDataSchema.SyncType.FULL_REFRESH, False),
+        (None, False),
+    ],
+)
+def test_table_row_count_is_cumulative(sync_type: str | None, expected: bool) -> None:
+    assert ExternalDataSchema(sync_type=sync_type).table_row_count_is_cumulative is expected
+
+
+@pytest.mark.parametrize(
     "sync_type_config,expected",
     [
         ({"xmin_last_value": 42, "xmin_ceiling": (1 << 32) + 42, "xmin_num_wraparound": 1}, (42, (1 << 32) + 42, 1)),
