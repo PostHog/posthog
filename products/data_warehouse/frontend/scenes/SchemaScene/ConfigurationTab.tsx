@@ -82,7 +82,7 @@ export function ConfigurationTab({
     onViewSyncHistory,
 }: ConfigurationTabProps): JSX.Element {
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { isProjectTime, refreshingSchemas } = useValues(logic)
+    const { isProjectTime, refreshingSchemas, resyncingSchema } = useValues(logic)
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
         useActions(logic)
 
@@ -128,6 +128,7 @@ export function ConfigurationTab({
                     source={source}
                     schema={schema}
                     resyncSchema={resyncSchema}
+                    resyncingSchema={resyncingSchema}
                     deleteTable={deleteTable}
                 />
             )
@@ -882,11 +883,13 @@ function DangerZoneSection({
     source,
     schema,
     resyncSchema,
+    resyncingSchema,
     deleteTable,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     resyncSchema: (schema: ExternalDataSourceSchema) => void
+    resyncingSchema: boolean
     deleteTable: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
     const hasFullCdcResync = schema.sync_type === 'cdc'
@@ -953,6 +956,7 @@ function DangerZoneSection({
                                                 secondaryButton: { children: 'Cancel', type: 'tertiary' },
                                             })
                                         }}
+                                        loading={resyncingSchema}
                                         disabledReason={disabledReason}
                                     >
                                         Full resync
@@ -965,6 +969,7 @@ function DangerZoneSection({
                                         type="secondary"
                                         status="danger"
                                         onClick={() => resyncSchema(schema)}
+                                        loading={resyncingSchema}
                                         disabledReason={disabledReason}
                                     >
                                         Delete table and resync
