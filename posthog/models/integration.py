@@ -3497,6 +3497,10 @@ class AwsS3Integration:
         GetCallerIdentity requires no IAM permissions, so it verifies the credentials are valid
         without assuming any particular S3 policy. It hits the fixed global AWS STS endpoint, so
         there is no user-controlled endpoint and no SSRF surface (unlike S3-compatible).
+
+        This runs synchronously on the request thread, so the timeout budget is kept tight:
+        a single attempt (no retry) bounds the worst case at ~10s (connect + read) if STS is
+        unreachable, rather than blocking the worker while botocore retries.
         """
         import boto3  # noqa: PLC0415 — keeps botocore off the module import path (startup time)
         from botocore.config import Config  # noqa: PLC0415
@@ -3506,7 +3510,7 @@ class AwsS3Integration:
             "sts",
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
-            config=Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 2}),
+            config=Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 1}),
         )
         try:
             identity = client.get_caller_identity()

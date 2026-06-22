@@ -707,6 +707,8 @@ class TestS3CompatibleIntegration:
         assert integration.integration_id == "my-r2"
         assert integration.config == {"name": "my-r2", "endpoint_url": "https://account.r2.cloudflarestorage.com"}
         assert integration.sensitive_config == {"aws_access_key_id": "key", "aws_secret_access_key": "secret"}
+        # Credentials must never surface in the API response.
+        assert "aws_secret_access_key" not in response.json()["config"]
 
     def test_create_rejects_duplicate_name(self, client: HttpClient):
         client.force_login(self.user)
