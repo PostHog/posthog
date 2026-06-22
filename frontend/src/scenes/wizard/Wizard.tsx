@@ -23,9 +23,10 @@ export function Wizard(): JSX.Element {
                 {view === 'project' && (
                     <div className="max-w-xs">
                         <div className="mb-8">
-                            <h1 className="text-3xl font-bold mb-3">AI wizard</h1>
+                            <h1 className="text-3xl font-bold mb-3">AI setup wizard</h1>
                             <p className="text-muted-alt">
-                                Select which project the wizard should use to install PostHog.
+                                Select which project the AI agent should use to install PostHog. The agent runs in your
+                                terminal, reads your codebase to set things up, and asks before making changes.
                             </p>
                         </div>
 

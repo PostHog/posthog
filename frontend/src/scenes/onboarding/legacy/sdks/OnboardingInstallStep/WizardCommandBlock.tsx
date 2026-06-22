@@ -79,7 +79,8 @@ export function WizardCommandBlock(): JSX.Element {
                     />
 
                     <p className="text-xs text-muted mb-0">
-                        Auto-detects your framework, installs the SDK, and sets up event capture.
+                        Starts an AI agent that reads your codebase to auto-detect your framework, installs the SDK,
+                        and sets up event capture.
                     </p>
 
                     <div className="flex flex-wrap gap-1.5 items-center">

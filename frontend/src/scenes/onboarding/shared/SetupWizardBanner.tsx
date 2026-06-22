@@ -37,7 +37,10 @@ const SetupWizardBanner = ({
             <LemonBanner type="info" hideIcon={true}>
                 <h3 className="pb-1">AI setup wizard</h3>
                 <div className="flex flex-col p-2">
-                    <p className="font-normal pb-1">Try using the AI setup wizard to automatically install PostHog.</p>
+                    <p className="font-normal pb-1">
+                        Try using the AI setup wizard to automatically install PostHog. It runs an AI agent in your
+                        terminal that reads your codebase to set things up, and asks before making changes.
+                    </p>
                     <p className="font-normal pb-2">
                         Run the following command from the root of your {integrationName} project.
                     </p>
