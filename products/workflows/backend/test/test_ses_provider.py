@@ -11,6 +11,7 @@ import dns.name
 import dns.resolver
 from botocore.exceptions import ClientError
 from parameterized import parameterized
+from rest_framework import exceptions
 
 from products.workflows.backend.providers.ses import SESProvider
 
@@ -339,7 +340,6 @@ class TestSESProvider(TestCase):
             expected = "success" if token in present_tokens else "pending"
             assert statuses[token] == expected, f"{token}: expected {expected}, got {statuses[token]}"
 
-
     def test_delete_identity_dissociates_tenants_before_delete(self):
         """SES rejects DeleteIdentity while tenant associations exist, so they must be removed first."""
         provider = SESProvider()
@@ -403,6 +403,25 @@ class TestSESProvider(TestCase):
 
             mock_ses_client.delete_identity.assert_called_once_with(Identity=TEST_DOMAIN)
 
+    def test_delete_identity_reraises_unexpected_dissociation_error(self):
+        """A non-NotFoundException error while dissociating tenants propagates and skips DeleteIdentity."""
+        provider = SESProvider()
+
+        with (
+            patch.object(provider, "ses_client") as mock_ses_client,
+            patch.object(provider, "ses_v2_client") as mock_ses_v2_client,
+            patch.object(provider.sts_client, "get_caller_identity", return_value={"Account": "123456789012"}),
+        ):
+            mock_ses_v2_client.list_resource_tenants.return_value = {"ResourceTenants": [{"TenantName": "team-1"}]}
+            mock_ses_v2_client.delete_tenant_resource_association.side_effect = ClientError(
+                {"Error": {"Code": "AccessDeniedException", "Message": "denied"}}, "DeleteTenantResourceAssociation"
+            )
+
+            with pytest.raises(ClientError):
+                provider.delete_identity(TEST_DOMAIN)
+
+            mock_ses_client.delete_identity.assert_not_called()
+
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     def test_verify_email_domain_blank_mail_from_uses_default(self, mock_resolver_cls):
         """A blank MAIL FROM subdomain must default to 'feedback', never produce '.<domain>'."""
@@ -431,7 +450,7 @@ class TestSESProvider(TestCase):
     def test_verify_email_domain_invalid_mail_from_raises(self):
         """A malformed MAIL FROM subdomain is rejected with a clear error before reaching SES."""
         provider = SESProvider()
-        with pytest.raises(Exception, match="valid MAIL FROM subdomain"):
+        with pytest.raises(exceptions.ValidationError, match="valid MAIL FROM subdomain"):
             provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="not a label", team_id=1)
 
     def test_update_mail_from_subdomain_blank_uses_default(self):

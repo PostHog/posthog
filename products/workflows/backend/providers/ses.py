@@ -390,9 +390,11 @@ class SESProvider:
         """
         Delete an identity from SES
         """
+        # Tenant associations block DeleteIdentity, so dissociate them first. Kept outside the
+        # try below so a dissociation failure propagates with its own context rather than being
+        # logged as a DeleteIdentity error that never ran.
+        self._dissociate_identity_tenants(identity)
         try:
-            # Tenant associations block DeleteIdentity, so dissociate them first.
-            self._dissociate_identity_tenants(identity)
             self.ses_client.delete_identity(Identity=identity)
             logger.info(f"Identity {identity} deleted from SES")
         except (ClientError, BotoCoreError) as e:
