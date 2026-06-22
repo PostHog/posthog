@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("signals", "0042_signalreport_status_before_suppression")]
+    dependencies = [("signals", "0043_signalreporttask_rel_idx")]
 
     operations = [
         migrations.AlterField(

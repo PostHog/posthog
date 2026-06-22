@@ -1,1 +1,1 @@
-0043_alter_signalscoutconfig_run_interval_minutes
+0044_alter_signalscoutconfig_run_interval_minutes

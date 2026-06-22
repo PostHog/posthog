@@ -2612,6 +2612,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",
             "examples": ["execute-sql", "feature-flag-get-all"],
         },
+        "$mcp_tool_category": {
+            "label": "MCP tool category",
+            "description": "The product category the invoked tool belongs to — the grouping dimension the MCP analytics dashboard buckets tool calls by. Stamped server-side from the tool catalog (PostHog's server) or declared per tool (external servers). Omitted when the tool has no catalogued category (e.g. the `exec` dispatcher), which the dashboard buckets as 'Uncategorized'. Present on mcp_tool_call.",
+            "examples": ["Error tracking", "Logs", "Feature flags", "Session replays"],
+        },
         "$mcp_tool_description": {
             "label": "MCP tool description",
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do — descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
@@ -2701,6 +2706,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 "Run a HogQL/SQL query against PostHog.",
                 "List feature flags in the project.",
             ],
+        },
+        "$mcp_listed_tool_names": {
+            "label": "MCP listed tool names",
+            "description": "Array of every tool name advertised to the agent on a tools/list request, in multi-tool mode. Stored as a JSON array — filter with `contains` against a single tool name (e.g. 'execute-sql'). Lets you compute zombie tools (advertised but never called) by diffing against $mcp_tool_name from mcp_tool_call events. In single-exec mode the catalog rides on $mcp_exec_inner_tool_names instead. Only present on mcp_tools_list.",
+            "examples": ["execute-sql", "feature-flag-get-all"],
         },
         "$mcp_exec_inner_tool_names": {
             "label": "MCP exec inner tool catalog",
@@ -2824,6 +2834,40 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "is_error": {
             "label": "Is error (unprefixed)",
             "description": "Older unprefixed variant of $mcp_is_error. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_is_error for new dashboards.",
+        },
+        "mcp_runtime": {
+            "label": "MCP runtime",
+            "description": "Server runtime that handled the MCP request. 'hono' means it was served by the Hono-based MCP server.",
+            "examples": ["hono"],
+        },
+        "mcp_vendor_client": {
+            "label": "MCP vendor client",
+            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "examples": ["ClaudeCode", "ClaudeAI"],
+        },
+        "mcp_session_client_name": {
+            "label": "MCP session client name",
+            "description": "MCP client name captured at session initialize and carried across every request in that session. Session-scoped counterpart of $mcp_client_name.",
+            "examples": ["claude-code", "codex-mcp-client"],
+        },
+        "mcp_session_client_version": {
+            "label": "MCP session client version",
+            "description": "MCP client version captured at session initialize and carried across every request in that session.",
+        },
+        "mcp_session_protocol_version": {
+            "label": "MCP session protocol version",
+            "description": "MCP protocol version negotiated at session initialize and carried across every request in that session.",
+            "examples": ["2025-11-25", "2025-06-18"],
+        },
+        "mcp_session_consumer": {
+            "label": "MCP session consumer",
+            "description": "Upstream surface that initiated the MCP session, captured at session initialize. Session-scoped counterpart of $mcp_consumer.",
+            "examples": ["posthog-code", "slack"],
+        },
+        "mcp_session_vendor_client": {
+            "label": "MCP session vendor client",
+            "description": "Vendor client captured at session initialize and carried across every request in that session.",
+            "examples": ["ClaudeCode", "ClaudeAI"],
         },
         "$csp_document_url": {
             "label": "Document URL",
