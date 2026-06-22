@@ -31,10 +31,10 @@ import '../Nodes/NotebookNodeUsageMetrics'
 import '../Nodes/NotebookNodeZendeskTickets'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useMountedLogic } from 'kea'
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
+import { BindLogic, useMountedLogic } from 'kea'
+import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef } from 'react'
 
-import { IconComment, IconSparkles } from '@posthog/icons'
+import { IconComment } from '@posthog/icons'
 import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
@@ -55,9 +55,49 @@ import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { CreatePostHogWidgetNodeOptions, NotebookNodeAttributes, NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
-import { NotebookAIChat, getNotebookAIChatTitle } from './MarkdownNotebookAIChat'
 import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
 import { notebookLogic } from './notebookLogic'
+
+const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set(['height', 'nodeId', '__init', 'children', 'tabId', 'placement'])
+
+const NUMERIC_MARKDOWN_NODE_ATTRIBUTE_KEYS: Partial<Record<NotebookNodeType, string[]>> = {
+    [NotebookNodeType.Cohort]: ['id'],
+    [NotebookNodeType.Experiment]: ['id'],
+    [NotebookNodeType.Group]: ['groupTypeIndex'],
+}
+
+const MARKDOWN_NODE_ATTRIBUTE_LABELS: Partial<Record<NotebookNodeType, Record<string, string>>> = {
+    [NotebookNodeType.Cohort]: {
+        id: 'Cohort ID',
+    },
+    [NotebookNodeType.EarlyAccessFeature]: {
+        id: 'Early access feature ID',
+    },
+    [NotebookNodeType.Experiment]: {
+        id: 'Experiment ID',
+    },
+    [NotebookNodeType.FeatureFlag]: {
+        id: 'Feature flag ID or key',
+    },
+    [NotebookNodeType.FeatureFlagCodeExample]: {
+        id: 'Feature flag ID or key',
+    },
+    [NotebookNodeType.Group]: {
+        groupTypeIndex: 'Group type index',
+        id: 'Group key',
+    },
+    [NotebookNodeType.Person]: {
+        distinctId: 'Distinct ID',
+        id: 'Person UUID',
+    },
+    [NotebookNodeType.Survey]: {
+        id: 'Survey ID',
+    },
+    [NotebookNodeType.ZendeskTickets]: {
+        groupKey: 'Group key',
+        personId: 'Person UUID',
+    },
+}
 
 export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, NotebookNodeType>> = {
     Query: NotebookNodeType.Query,
@@ -102,40 +142,39 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     insertCommand?: NotebookComponentDefinition['insertCommand']
 }[] = [
     { tagName: 'Query', category: 'Insight' },
-    { tagName: 'Python', category: 'Code', exclusiveEditPanel: true },
+    { tagName: 'Python', category: 'Code' },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
-    { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings', exclusiveEditPanel: true },
-    { tagName: 'Experiment', category: 'Experiment', exclusiveEditPanel: true },
+    { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
+    { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },
     { tagName: 'Embed', category: 'Media', EditComponent: EmbedEdit },
     { tagName: 'Latex', category: 'Media', label: 'LaTeX', EditComponent: LatexEdit },
-    { tagName: 'FeatureFlag', category: 'PostHog', label: 'Feature flag', exclusiveEditPanel: true },
-    { tagName: 'Survey', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'Person', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'Group', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'Cohort', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'Map', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'Recording', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'Backlink', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'ReplayTimestamp', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'PersonFeed', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'PersonProperties', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'GroupProperties', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'TaskCreate', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'LLMTrace', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'Issues', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'UsageMetrics', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'ZendeskTickets', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'RelatedGroups', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'CustomerJourney', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'SupportTickets', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'EarlyAccessFeature', category: 'PostHog', label: 'Early access feature', exclusiveEditPanel: true },
+    { tagName: 'FeatureFlag', category: 'PostHog', label: 'Feature flag' },
+    { tagName: 'Survey', category: 'PostHog' },
+    { tagName: 'Person', category: 'Data' },
+    { tagName: 'Group', category: 'Data' },
+    { tagName: 'Cohort', category: 'Data' },
+    { tagName: 'Map', category: 'Data' },
+    { tagName: 'Recording', category: 'Data' },
+    { tagName: 'Backlink', category: 'PostHog' },
+    { tagName: 'ReplayTimestamp', category: 'PostHog' },
+    { tagName: 'PersonFeed', category: 'Data' },
+    { tagName: 'PersonProperties', category: 'Data' },
+    { tagName: 'GroupProperties', category: 'Data' },
+    { tagName: 'TaskCreate', category: 'PostHog' },
+    { tagName: 'LLMTrace', category: 'PostHog' },
+    { tagName: 'Issues', category: 'PostHog' },
+    { tagName: 'UsageMetrics', category: 'PostHog' },
+    { tagName: 'ZendeskTickets', category: 'PostHog' },
+    { tagName: 'RelatedGroups', category: 'PostHog' },
+    { tagName: 'CustomerJourney', category: 'PostHog' },
+    { tagName: 'SupportTickets', category: 'PostHog' },
+    { tagName: 'EarlyAccessFeature', category: 'PostHog', label: 'Early access feature' },
     {
         tagName: 'FeatureFlagCodeExample',
         category: 'PostHog',
         label: 'Feature flag code example',
-        exclusiveEditPanel: true,
     },
 ]
 
@@ -159,18 +198,6 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
                 getMarkdownNotebookNodeTitle(node, nodeType, options, label),
         }
     }),
-    {
-        tagName: 'Chat',
-        label: 'AI chat',
-        category: 'AI',
-        icon: <IconSparkles />,
-        defaultProps: { id: '' },
-        ViewComponent: NotebookAIChat,
-        EditComponent: NotebookAIChat,
-        exclusiveEditPanel: true,
-        hideModeActions: true,
-        getTitle: getNotebookAIChatTitle,
-    },
     {
         // Overrides the default registry's authorial-note definition: the note flavor
         // (`text`, stored as `<!-- … -->`) renders through CommentBlock before the registry
@@ -308,12 +335,69 @@ export function RealNotebookNodeView(props: NotebookComponentRenderProps): JSX.E
 }
 
 export function RealNotebookNodeEdit(props: NotebookComponentRenderProps): JSX.Element {
+    const notebookNodeType = MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE[props.node.tagName]
+    const options = notebookNodeType ? KNOWN_NODES[notebookNodeType] : null
+
+    if (!options || !notebookNodeType) {
+        return <div className="MarkdownNotebook__component-preview">Unsupported notebook node.</div>
+    }
+
+    if (!options.Settings) {
+        return <RealNotebookNodeAttributeEdit {...props} notebookNodeType={notebookNodeType} options={options} />
+    }
+
     return <RealNotebookNodeComponent {...props} forceEditing editOnly />
+}
+
+export function RealNotebookNodeAttributeEdit({
+    node,
+    updateProps,
+    notebookNodeType,
+    options,
+}: NotebookComponentRenderProps & {
+    notebookNodeType: NotebookNodeType
+    options: CreatePostHogWidgetNodeOptions<any>
+}): JSX.Element {
+    const attributes = getNodeAttributes(node.props, node.id, options, notebookNodeType, true)
+    const attributeKeys = getEditableNodeAttributeKeys(options, attributes)
+
+    if (!attributeKeys.length) {
+        return (
+            <div className="MarkdownNotebook__component-form text-secondary text-sm">
+                No editable filters for this block.
+            </div>
+        )
+    }
+
+    return (
+        <div className="MarkdownNotebook__component-form">
+            {attributeKeys.map((key, index) => {
+                const label = getMarkdownNodeAttributeLabel(notebookNodeType, key)
+                return (
+                    <label key={key} className="flex flex-col gap-1">
+                        <span className="text-xs font-semibold text-secondary">{label}</span>
+                        <LemonInput
+                            aria-label={label}
+                            value={getPrimitiveNotebookPropInputValue(attributes[key])}
+                            onChange={(value) =>
+                                updateProps({
+                                    [key]: getSerializableAttributeInputValue(notebookNodeType, key, value),
+                                })
+                            }
+                            placeholder={label}
+                            autoFocus={index === 0 && wasNotebookNodeJustInserted(node.id)}
+                        />
+                    </label>
+                )
+            })}
+        </div>
+    )
 }
 
 export function RealNotebookNodeComponent({
     node,
     mode,
+    notebookMode,
     updateProps,
     deleteNode,
     forceEditing = false,
@@ -330,6 +414,7 @@ export function RealNotebookNodeComponent({
         <MountedRealNotebookNodeComponent
             node={node}
             mode={mode}
+            notebookMode={notebookMode}
             updateProps={updateProps}
             deleteNode={deleteNode}
             editOnly={editOnly}
@@ -343,6 +428,7 @@ export function RealNotebookNodeComponent({
 export function MountedRealNotebookNodeComponent({
     node,
     mode,
+    notebookMode,
     updateProps,
     editOnly,
     forceEditing,
@@ -383,23 +469,14 @@ export function MountedRealNotebookNodeComponent({
     )
 
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const { setEditingNodeEditing } = useActions(notebookLogic)
-
-    useEffect(() => {
-        if (!forceEditing) {
-            return
-        }
-
-        setEditingNodeEditing(attributes.nodeId, true)
-        return () => setEditingNodeEditing(attributes.nodeId, false)
-    }, [attributes.nodeId, forceEditing, setEditingNodeEditing])
 
     const Component = options.Component
     const Settings = options.Settings
     const showSettings = forceEditing && Settings
-    const showContent = !editOnly || !Settings
+    const showContent = !editOnly
+    const isNotebookEditable = (notebookMode ?? mode) === 'edit'
     const isResizeable =
-        mode === 'edit' &&
+        isNotebookEditable &&
         (typeof options.resizeable === 'function' ? options.resizeable(attributes) : (options.resizeable ?? true))
     const contentStyle: CSSProperties | undefined =
         isResizeable || attributes.height
@@ -424,6 +501,39 @@ export function MountedRealNotebookNodeComponent({
         window.addEventListener('mouseup', handleResizeEnd)
     }, [isResizeable, updateAttributes])
 
+    const handleResizeHandlePointerDown = useCallback(
+        (event: ReactPointerEvent<HTMLDivElement>): void => {
+            if (!isResizeable || !contentRef.current) {
+                return
+            }
+
+            event.preventDefault()
+            event.stopPropagation()
+
+            const element = contentRef.current
+            const startY = event.clientY
+            const startHeight = element.getBoundingClientRect().height
+            const parsedMinHeight = Number.parseFloat(window.getComputedStyle(element).minHeight)
+            const minHeight = Number.isFinite(parsedMinHeight) ? parsedMinHeight : 0
+
+            const handlePointerMove = (moveEvent: PointerEvent): void => {
+                moveEvent.preventDefault()
+                const nextHeight = Math.max(minHeight, startHeight + moveEvent.clientY - startY)
+                element.style.height = `${Math.round(nextHeight)}px`
+            }
+
+            const handlePointerUp = (): void => {
+                window.removeEventListener('pointermove', handlePointerMove)
+                window.removeEventListener('pointerup', handlePointerUp)
+                updateAttributes({ height: element.clientHeight })
+            }
+
+            window.addEventListener('pointermove', handlePointerMove)
+            window.addEventListener('pointerup', handlePointerUp)
+        },
+        [isResizeable, updateAttributes]
+    )
+
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
@@ -444,6 +554,13 @@ export function MountedRealNotebookNodeComponent({
                             onMouseDown={handleResizeStart}
                         >
                             <Component attributes={attributes} updateAttributes={updateAttributes} />
+                            {isResizeable ? (
+                                <div
+                                    className="MarkdownNotebook__real-node-resize-handle"
+                                    aria-hidden="true"
+                                    onPointerDown={handleResizeHandlePointerDown}
+                                />
+                            ) : null}
                         </div>
                     ) : null}
                 </div>
@@ -550,6 +667,49 @@ export function getDefaultProps(options: CreatePostHogWidgetNodeOptions<any> | n
 
 export function getDefaultPropsForNodeType(nodeType: NotebookNodeType | undefined): NotebookComponentProps {
     return getDefaultProps(nodeType ? KNOWN_NODES[nodeType] : null)
+}
+
+export function getEditableNodeAttributeKeys(
+    options: CreatePostHogWidgetNodeOptions<any>,
+    attributes: Partial<NotebookNodeAttributes<any>>
+): string[] {
+    return Object.keys(options.attributes).filter((key) => {
+        if (INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS.has(key)) {
+            return false
+        }
+
+        const value = attributes[key]
+        return value === undefined || value === null || ['boolean', 'number', 'string'].includes(typeof value)
+    })
+}
+
+export function getMarkdownNodeAttributeLabel(notebookNodeType: NotebookNodeType, key: string): string {
+    return MARKDOWN_NODE_ATTRIBUTE_LABELS[notebookNodeType]?.[key] ?? splitTagName(key)
+}
+
+export function getPrimitiveNotebookPropInputValue(value: NotebookPropValue | undefined): string {
+    if (value === undefined || value === null) {
+        return ''
+    }
+    return typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string' ? String(value) : ''
+}
+
+export function getSerializableAttributeInputValue(
+    notebookNodeType: NotebookNodeType,
+    key: string,
+    value: string
+): NotebookPropValue | undefined {
+    const trimmedValue = value.trim()
+    if (!trimmedValue) {
+        return undefined
+    }
+
+    if (NUMERIC_MARKDOWN_NODE_ATTRIBUTE_KEYS[notebookNodeType]?.includes(key)) {
+        const numericValue = Number(trimmedValue)
+        return Number.isFinite(numericValue) ? numericValue : trimmedValue
+    }
+
+    return trimmedValue
 }
 
 export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {

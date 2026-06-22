@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ROLLBAR,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Rollbar",
             caption="""Enter your Rollbar project access token to pull your Rollbar error data into the PostHog Data warehouse.
 

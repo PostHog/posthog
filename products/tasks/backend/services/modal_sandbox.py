@@ -97,6 +97,27 @@ def _get_modal_region() -> str:
     return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
 
 
+def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
+    """Build the `cpu`/`memory` kwargs for ``modal.Sandbox.create``.
+
+    `cpu_cores` / `memory_gb` are the limit (max). When the config is burstable, emit Modal's
+    ``(request, limit)`` tuple form so the box is billed at ``max(request, actual)`` and can burst
+    up to the limit; otherwise emit the flat scalar, which makes request == limit (fixed size).
+
+    The burstable request floor comes from ``cpu_request_cores`` / ``memory_request_mb`` (defaulting
+    to the small floor in ``sandbox_config``). The request is clamped to the limit so it never
+    exceeds it when the configured size is at or below the requested floor.
+    """
+    cpu_limit = float(config.cpu_cores)
+    memory_limit_mb = int(config.memory_gb * 1024)
+    if not config.burstable_resources:
+        return {"cpu": cpu_limit, "memory": memory_limit_mb}
+    return {
+        "cpu": (min(float(config.cpu_request_cores), cpu_limit), cpu_limit),
+        "memory": (min(int(config.memory_request_mb), memory_limit_mb), memory_limit_mb),
+    }
+
+
 LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"),
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
@@ -372,8 +393,7 @@ class ModalSandbox(SandboxBase):
                 "name": sandbox_name,
                 "image": image,
                 "timeout": config.ttl_seconds,
-                "cpu": float(config.cpu_cores),
-                "memory": int(config.memory_gb * 1024),
+                **_resource_create_kwargs(config),
                 "region": region,
                 "verbose": True,
             }

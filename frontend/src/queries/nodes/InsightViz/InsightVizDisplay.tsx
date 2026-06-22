@@ -5,7 +5,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
@@ -32,6 +34,8 @@ import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
+import { FunnelTimeToConvertTable } from 'scenes/insights/views/Funnels/FunnelTimeToConvertTable'
+import { FunnelTrendsTable } from 'scenes/insights/views/Funnels/FunnelTrendsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { Paths } from 'scenes/paths/Paths'
@@ -131,6 +135,7 @@ export function InsightVizDisplay({
         useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         isFunnels,
@@ -279,6 +284,19 @@ export function InsightVizDisplay({
         return null
     })()
 
+    // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
+    // don't render two legends. The slope graph always does; trends line/area/cumulative do when the
+    // quill in-chart legend is on (an unset display is the line chart, matching Trends.tsx's renderer).
+    const isQuillLegendTrendsChart =
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND] &&
+        activeView === InsightType.TRENDS &&
+        (!display ||
+            display === ChartDisplayType.ActionsLineGraph ||
+            display === ChartDisplayType.ActionsLineGraphCumulative ||
+            display === ChartDisplayType.ActionsAreaGraph)
+    const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || isQuillLegendTrendsChart
+    const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
+
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
             case InsightType.TRENDS:
@@ -339,18 +357,28 @@ export function InsightVizDisplay({
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
-            (funnelsFilter?.funnelVizType === FunnelVizType.Steps ||
-                funnelsFilter?.funnelVizType === FunnelVizType.Flow) &&
             !disableTable
         ) {
-            return (
-                <SceneSection
-                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
-                    className="mt-4"
-                >
+            const funnelVizType = funnelsFilter?.funnelVizType
+            const funnelTable =
+                funnelVizType === FunnelVizType.TimeToConvert ? (
+                    <FunnelTimeToConvertTable />
+                ) : funnelVizType === FunnelVizType.Trends ? (
+                    <FunnelTrendsTable />
+                ) : funnelVizType === FunnelVizType.Steps || funnelVizType === FunnelVizType.Flow ? (
                     <FunnelStepsTable />
-                </SceneSection>
-            )
+                ) : null
+
+            if (funnelTable) {
+                return (
+                    <SceneSection
+                        title={<span className="font-semibold text-lg m-0">Detailed results</span>}
+                        className="mt-4"
+                    >
+                        {funnelTable}
+                    </SceneSection>
+                )
+            }
         }
 
         if (display === ChartDisplayType.BoxPlot && !disableTable) {
@@ -466,12 +494,12 @@ export function InsightVizDisplay({
                         <div
                             className={clsx(
                                 'InsightVizDisplay__content',
-                                supportsDisplay && showLegend && 'InsightVizDisplay__content--with-legend'
+                                showSideLegend && 'InsightVizDisplay__content--with-legend'
                             )}
                         >
                             {BlockingEmptyState ? (
                                 BlockingEmptyState
-                            ) : supportsDisplay && showLegend ? (
+                            ) : showSideLegend ? (
                                 <>
                                     <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
                                     <div className="InsightVizDisplay__content__right empty:hidden">

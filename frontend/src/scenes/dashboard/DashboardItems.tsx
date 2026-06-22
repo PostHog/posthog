@@ -57,6 +57,7 @@ export function DashboardItems(): JSX.Element {
         dashboardWidgetsEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
+        scrollToBottomSignal,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -94,6 +95,7 @@ export function DashboardItems(): JSX.Element {
     const scrollAnimationRef = useRef<number | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
     const scrollContainerRectRef = useRef<DOMRect | null>(null)
+    const lastScrollSignalRef = useRef(scrollToBottomSignal)
 
     useEffect(() => {
         return () => {
@@ -107,6 +109,27 @@ export function DashboardItems(): JSX.Element {
             scrollContainerRectRef.current = null
         }
     }, [])
+
+    // Scroll the dashboard to the bottom when the logic requests it (e.g. after adding tiles).
+    // Two animation frames let React commit and react-grid-layout grow the container before we measure.
+    useEffect(() => {
+        if (scrollToBottomSignal === lastScrollSignalRef.current) {
+            return
+        }
+        lastScrollSignalRef.current = scrollToBottomSignal
+
+        let secondFrame = 0
+        const firstFrame = requestAnimationFrame(() => {
+            secondFrame = requestAnimationFrame(() => {
+                const scrollContainer = document.getElementById('main-content')
+                scrollContainer?.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' })
+            })
+        })
+        return () => {
+            cancelAnimationFrame(firstFrame)
+            cancelAnimationFrame(secondFrame)
+        }
+    }, [scrollToBottomSignal])
     const className = clsx({
         'dashboard-view-mode': !layoutEditMode,
         'dashboard-edit-mode': layoutEditMode,

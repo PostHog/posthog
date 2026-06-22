@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -38,6 +39,7 @@ class TypeformSource(SimpleSource[TypeformSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TYPEFORM,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Typeform",
             iconPath="/static/services/typeform.png",
             caption="""Enter a Typeform personal access token to sync forms and responses.

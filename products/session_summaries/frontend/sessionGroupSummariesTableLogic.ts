@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { objectClean } from 'lib/utils'
+import { objectClean } from 'lib/utils/objects'
 
 import { Breadcrumb } from '~/types'
 

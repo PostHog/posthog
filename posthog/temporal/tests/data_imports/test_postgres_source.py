@@ -199,6 +199,70 @@ async def test_postgres_source_full_refresh(
     assert res.results == TEST_DATA
 
 
+@pytest.fixture
+def external_data_schema_incremental(external_data_source: ExternalDataSource, team) -> ExternalDataSchema:
+    schema = ExternalDataSchema.objects.create(
+        name=POSTGRES_TABLE_NAME,
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "id",
+            "incremental_field_type": "integer",
+            "incremental_field_last_value": None,
+        },
+    )
+    return schema
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_source_recovers_from_dropped_connection_via_offset_chunking(
+    team,
+    postgres_source_table: AsyncCursor[TupleRow],
+    external_data_source: ExternalDataSource,
+    external_data_schema_incremental: ExternalDataSchema,
+):
+    """A non-read-replica source streams rows through a named ServerCursor. When the
+    upstream connection is culled mid-stream it surfaces as a "server conn crashed?"
+    ProtocolViolation, and the sync recovers by resuming through offset chunking.
+
+    Regression: offset chunking opened its cursor with connection.cursor(), which
+    inherited the ServerCursor cursor_factory and raised "ServerCursor.__init__()
+    missing 1 required positional argument: 'name'", so the recovery itself crashed
+    instead of completing the sync.
+    """
+    table_name = f"postgres_{POSTGRES_TABLE_NAME}"
+    expected_num_rows = len(TEST_DATA)
+
+    real_fetchmany = psycopg.ServerCursor.fetchmany
+    state = {"tripped": False}
+
+    def flaky_fetchmany(self, *args, **kwargs):
+        # Trip once on the initial server-cursor stream to mimic the source culling the
+        # backend mid-fetch, then let the offset-chunking fallback (a plain Cursor) read
+        # normally. ServerCursor is only used by the streaming read path, so this targets
+        # exactly the fetch that triggers the connection-dropped recovery.
+        if not state["tripped"]:
+            state["tripped"] = True
+            raise psycopg.errors.ProtocolViolation("server conn crashed?")
+        return real_fetchmany(self, *args, **kwargs)
+
+    with mock.patch.object(psycopg.ServerCursor, "fetchmany", flaky_fetchmany):
+        res = await run_external_data_job_workflow(
+            team=team,
+            external_data_source=external_data_source,
+            external_data_schema=external_data_schema_incremental,
+            table_name=table_name,
+            expected_rows_synced=expected_num_rows,
+            expected_total_rows=expected_num_rows,
+            expected_columns=["id", "name", "email", "created_at", "big_int", "int_range", "num_range", "tstz_range"],
+        )
+
+    assert state["tripped"], "expected the streaming server cursor to hit the simulated connection drop"
+    assert res.results == TEST_DATA
+
+
 def test_postgresql__source_config_loads():
     job_inputs = {
         "host": "host.com",

@@ -13,6 +13,8 @@ import temporalio.workflow
 import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 
+from posthog.hogql import ast
+
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.routing import get_producer
@@ -22,6 +24,7 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.messaging.filter_storage import get_filters_and_properties
+from posthog.temporal.messaging.hogql_compile import compile_hogql_for_streaming
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import BytecodeResult, execute_bytecode
@@ -33,24 +36,30 @@ LOGGER = get_logger(__name__)
 MAX_OPTIMIZED_PROPERTIES = 100  # Safety limit to avoid query complexity issues
 
 
-def build_person_properties_select_clause(person_properties: list[str]) -> tuple[str, dict[str, str], dict[str, str]]:
-    """Build ClickHouse SELECT expressions for the requested person properties.
+def build_person_properties_select_exprs(
+    person_properties: list[str],
+) -> tuple[list[ast.Alias], dict[str, str]]:
+    """Build HogQL SELECT expressions for the requested person properties.
 
-    Property names come from cohort filters, so they must stay out of the SQL string.
-    The returned clause contains only generated aliases and query parameter placeholders.
+    Property names come from cohort filters, so they must never be substring-concatenated
+    into SQL. Using ``ast.Field(chain=["properties", key])`` keeps the key out of the printed
+    SQL: HogQL either rewrites to a materialized column or routes the key through context
+    parameters when emitting ``JSONExtract``.
     """
-    property_selects: list[str] = []
-    property_alias_mapping: dict[str, str] = {}
-    property_query_params: dict[str, str] = {}
+    selects: list[ast.Alias] = []
+    alias_mapping: dict[str, str] = {}
 
     for i, prop in enumerate(person_properties):
-        safe_alias = f"prop_{i}"
-        property_key_param = f"property_key_{i}"
-        property_selects.append(f"JSONExtract(properties, %({property_key_param})s, 'String') as `{safe_alias}`")
-        property_alias_mapping[safe_alias] = prop
-        property_query_params[property_key_param] = prop
+        alias = f"prop_{i}"
+        selects.append(
+            ast.Alias(
+                alias=alias,
+                expr=ast.Field(chain=["properties", prop]),
+            )
+        )
+        alias_mapping[alias] = prop
 
-    return ",\n                ".join(property_selects), property_alias_mapping, property_query_params
+    return selects, alias_mapping
 
 
 def format_cohort_ids_for_logging(cohort_ids: list[int]) -> str:
@@ -476,53 +485,73 @@ async def backfill_precalculated_person_properties_activity(
             # Not in activity context (e.g., during tests), skip metrics
             pass
 
-        # Build optimized query to only fetch needed person properties
+        # Build the HogQL SELECT list — either targeted property accessors (so HogQL can use
+        # materialized columns when present) or the full ``properties`` JSON as a fallback.
         property_alias_mapping: dict[str, str] = {}
-        property_query_params: dict[str, str] = {}
+        select_exprs: list[ast.Expr] = [ast.Alias(alias="person_id", expr=ast.Field(chain=["id"]))]
 
-        if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES:
-            properties_clause, property_alias_mapping, property_query_params = build_person_properties_select_clause(
-                person_properties
-            )
+        # A '%' in a property key makes the HogQL printer raise (it can resolve the accessor to a
+        # column identifier, and '%' is banned there). Such keys are rare but valid person-property
+        # names, so when any appear we fall back to fetching the full ``properties`` JSON: the
+        # consumer evaluates filters against the full dict regardless, which keeps these keys working.
+        has_identifier_unsafe_key = any("%" in prop for prop in person_properties)
 
-            logger.info(
-                f"Optimized query: fetching {len(person_properties)} specific properties with parameterized keys"
-            )
+        if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES and not has_identifier_unsafe_key:
+            property_exprs, property_alias_mapping = build_person_properties_select_exprs(person_properties)
+            select_exprs.extend(property_exprs)
+
+            logger.info(f"Optimized query: fetching {len(person_properties)} specific properties via HogQL")
         else:
-            # Fallback to all properties if we have too many properties or can't determine which ones are needed
-            properties_clause = "properties"
+            select_exprs.append(ast.Field(chain=["properties"]))
             if person_properties and len(person_properties) > MAX_OPTIMIZED_PROPERTIES:
                 logger.warning(
                     f"Too many properties ({len(person_properties)} > {MAX_OPTIMIZED_PROPERTIES}) - falling back to fetching all properties for performance"
+                )
+            elif has_identifier_unsafe_key:
+                logger.warning(
+                    "Property key contains '%' (not a valid HogQL identifier) - falling back to fetching all properties"
                 )
             else:
                 logger.warning(
                     "Falling back to fetching all properties - could not determine specific properties needed"
                 )
 
-        person_filter_clause = "AND id = %(person_id)s" if inputs.person_id is not None else ""
-        persons_query = f"""
-            SELECT
-                id as person_id,
-                {properties_clause}
-            FROM person FINAL
-            WHERE team_id = %(team_id)s
-              AND id >= %(start_person_id)s
-              AND id <= %(end_person_id)s
-              AND is_deleted = 0
-              {person_filter_clause}
-            ORDER BY id
-            FORMAT JSONEachRow
-        """
-
-        query_params = {
-            "team_id": inputs.team_id,
-            "start_person_id": inputs.start_person_id,
-            "end_person_id": inputs.end_person_id,
-            **property_query_params,
-        }
+        where_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["id"]),
+                right=ast.Constant(value=inputs.start_person_id),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["id"]),
+                right=ast.Constant(value=inputs.end_person_id),
+            ),
+        ]
         if inputs.person_id is not None:
-            query_params["person_id"] = inputs.person_id
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["id"]),
+                    right=ast.Constant(value=inputs.person_id),
+                )
+            )
+
+        persons_query_ast = ast.SelectQuery(
+            select=select_exprs,
+            # The HogQL ``persons`` table handles ``team_id`` scoping, argMax/FINAL dedup, and
+            # ``is_deleted = 0`` filtering automatically. Note it also adds an implicit
+            # ``argMax(created_at) < now() + 1 day`` clamp, so future-dated persons (clock skew /
+            # backdated imports) are excluded — unlike the old raw-SQL ``person FINAL`` query.
+            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            where=ast.And(exprs=where_exprs),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC")],
+            # No explicit limit: compile_hogql_for_streaming uses LimitContext.COHORT_CALCULATION,
+            # which injects LIMIT 1_000_000_000. ID ranges are bounded by batch_size (default
+            # 1000 persons), so this cap is never reached in practice.
+        )
+
+        persons_query, query_params = await compile_hogql_for_streaming(persons_query_ast, team_id=inputs.team_id)
 
         last_person_id = inputs.start_person_id
         batch_count = 0

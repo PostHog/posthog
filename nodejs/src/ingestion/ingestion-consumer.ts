@@ -261,7 +261,6 @@ export class IngestionConsumer {
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
-            groupId: this.groupId,
             outputs,
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
@@ -276,6 +275,7 @@ export class IngestionConsumer {
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+                FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }

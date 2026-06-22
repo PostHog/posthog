@@ -11,6 +11,7 @@ from hogli_commands.product import gh as gh_module
 from hogli_commands.product.checks import (
     CheckContext,
     FileFolderConflictsCheck,
+    IsolationChainCheck,
     OrphanedTestFilesCheck,
     PackageJsonScriptsCheck,
     ProductYamlCheck,
@@ -223,6 +224,107 @@ class TestAbsenceChecks:
         )
         result = check.run(ctx)
         assert not result.issues
+
+    def test_contract_check_forbidden_with_deferred_presentation_entries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An isolated product still owing presentation-wave work can't opt into the skip."""
+        import hogli_commands.product.isolation as isolation_module
+
+        monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: ["e1", "e2"])
+        ctx = _make_product(
+            tmp_path,
+            scripts={
+                "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+                "backend:contract-check": "echo 'Contract files unchanged'",
+            },
+            isolated=True,
+            extra_dirs=["backend"],
+        )
+        result = check.run(ctx)
+        assert any("presentation-wave ignore_imports" in i for i in result.issues)
+        # and it must not nag the same product to *add* the script it can't have yet
+        assert not any("missing 'backend:contract-check'" in i for i in result.issues)
+
+
+# ---------------------------------------------------------------------------
+# Isolation chain: earned-but-not-turned-on enforcement
+# ---------------------------------------------------------------------------
+
+
+_NARROWED_TURBO = {
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": ["backend/facade/**", "backend/presentation/**"],
+            "outputs": [],
+            "cache": True,
+        }
+    },
+}
+
+chain_check = IsolationChainCheck()
+
+
+_WITH_SCRIPT = {
+    "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
+    "backend:contract-check": "echo 'Contract files unchanged'",
+}
+
+
+def _seal_externally(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The tmp fixture product isn't declared in the repo's real tach.toml/pyproject.toml,
+    # so force compute_isolation_status to see an externally sealed, internally clean product.
+    import hogli_commands.product.isolation as isolation_module
+
+    monkeypatch.setattr(isolation_module, "has_tach_interface", lambda *_a, **_k: True)
+    monkeypatch.setattr(isolation_module, "has_legacy_interface_leaks", lambda *_a, **_k: False)
+    monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: [])
+
+
+class TestIsolationChainTurnOn:
+    def test_eligible_with_script_but_no_narrowed_turbo_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        result = chain_check.run(ctx)
+        assert any("inert" in i for i in result.issues)
+        assert result.file == "products/my_product/turbo.json"
+
+    def test_eligible_with_narrowed_turbo_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        result = chain_check.run(ctx)
+        assert not result.issues
+
+    def test_eligible_without_script_is_not_nagged_to_narrow_turbo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Eligible + sealed but the contract-check script isn't added yet: PackageJsonScriptsCheck
+        # owns nagging for the script, so IsolationChainCheck must not raise the turn-on issue
+        # (which would falsely claim the product "carries 'backend:contract-check'").
+        _seal_externally(monkeypatch)
+        ctx = _make_product(
+            tmp_path,
+            scripts={"backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"},
+            isolated=True,
+        )
+        result = chain_check.run(ctx)
+        assert not any("inert" in i for i in result.issues)
+
+    def test_not_externally_sealed_does_not_demand_turbo(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Without the tach interface the product isn't externally sealed — TachCheck owns that
+        # failure, so the chain check must not pile on a turbo-narrowing demand.
+        import hogli_commands.product.isolation as isolation_module
+
+        monkeypatch.setattr(isolation_module, "has_tach_interface", lambda *_a, **_k: False)
+        monkeypatch.setattr(isolation_module, "has_legacy_interface_leaks", lambda *_a, **_k: False)
+        monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: [])
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        result = chain_check.run(ctx)
+        assert not any("inert" in i for i in result.issues)
 
 
 # ---------------------------------------------------------------------------
@@ -1037,3 +1139,41 @@ class TestOrphanedTestFilesCheck:
         (ctx.backend_dir / "temporal" / "tests" / "test_workflow.py").write_text("")
         result = self._orphan_check.run(ctx)
         assert any("backend/temporal/tests/test_workflow.py" in i for i in result.issues)
+
+
+_IGNORE_IMPORTS_PYPROJECT = """
+[tool.importlinter]
+root_packages = ["products"]
+
+[[tool.importlinter.contracts]]
+name = "presentation must use facade"
+type = "forbidden"
+source_modules = ["products.*.backend.presentation"]
+forbidden_modules = ["products.*.backend"]
+ignore_imports = [
+    "products.**.backend.presentation.** -> products.**.backend.facade.**",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.runner",
+    "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
+    "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
+]
+"""
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("logs", 2),
+        ("tracing", 1),
+        ("wizard", 0),
+    ],
+)
+def test_presentation_bypass_entries(name: str, expected: int) -> None:
+    from hogli_commands.product.isolation import presentation_bypass_entries
+
+    assert len(presentation_bypass_entries(name, _IGNORE_IMPORTS_PYPROJECT)) == expected
+
+
+def test_presentation_bypass_entries_handles_broken_toml() -> None:
+    from hogli_commands.product.isolation import presentation_bypass_entries
+
+    assert presentation_bypass_entries("logs", "not = [valid") == []

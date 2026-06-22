@@ -20,9 +20,6 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
-from posthog.temporal.ai import SyncVectorsInputs
-from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.ai_observability.eval_reports.schedule import (
     create_count_trigger_schedule,
     create_eval_reports_schedule,
@@ -71,6 +68,7 @@ from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCou
 from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
+from posthog.temporal.session_replay.surfacing_scoring_sweep.schedule import create_surfacing_scoring_sweep_schedule
 from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
@@ -78,11 +76,9 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
-from products.error_tracking.backend.temporal.recommendations_refresh.types import RecommendationsRefreshInputs
-from products.error_tracking.backend.temporal.spike_event_cleanup.schedule import (
+from products.error_tracking.backend.facade.temporal import (
+    RecommendationsRefreshInputs,
     create_error_tracking_spike_event_cleanup_schedule,
-)
-from products.error_tracking.backend.temporal.symbol_set_cleanup.schedule import (
     create_error_tracking_symbol_set_cleanup_schedule,
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
@@ -94,6 +90,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
 from products.tasks.backend.temporal.code_workstreams.schedule import create_evaluate_code_workstreams_schedule
+from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
@@ -101,20 +98,10 @@ from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 logger = structlog.get_logger(__name__)
 
 
-async def create_sync_vectors_schedule(client: Client):
-    sync_vectors_schedule = Schedule(
-        action=ScheduleActionStartWorkflow(
-            "ai-sync-vectors",
-            asdict(SyncVectorsInputs(embedding_versions=EmbeddingVersion(actions=LATEST_ACTIONS_EMBEDDING_VERSION))),
-            id="ai-sync-vectors-schedule",
-            task_queue=settings.MAX_AI_TASK_QUEUE,
-        ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
-    )
+async def cleanup_sync_vectors_schedule(client: Client):
+    """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
-        await a_update_schedule(client, "ai-sync-vectors-schedule", sync_vectors_schedule)
-    else:
-        await a_create_schedule(client, "ai-sync-vectors-schedule", sync_vectors_schedule, trigger_immediately=True)
+        await a_delete_schedule(client, "ai-sync-vectors-schedule")
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -403,6 +390,41 @@ async def create_wa_weekly_digest_schedule(client: Client):
         )
 
 
+async def create_wa_digest_notification_schedule(client: Client):
+    """Create or update the schedule for the WA digest notification workflow."""
+    wa_digest_notification_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "wa-digest-notification",
+            WADigestNotificationInput(),
+            id="wa-digest-notification-schedule",
+            task_queue=settings.MESSAGING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Weekly at Monday 9 AM PT",
+                    hour=[ScheduleRange(start=9, end=9)],
+                    day_of_week=[ScheduleRange(start=1, end=1)],
+                )
+            ],
+            time_zone_name="America/Los_Angeles",
+        ),
+    )
+
+    if await a_schedule_exists(client, "wa-digest-notification-schedule"):
+        await a_update_schedule(client, "wa-digest-notification-schedule", wa_digest_notification_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "wa-digest-notification-schedule",
+            wa_digest_notification_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_ducklake_compaction_schedule(client: Client):
     """Create or update the schedule for the DuckLake compaction workflow.
 
@@ -629,7 +651,7 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 
 
 schedules = [
-    create_sync_vectors_schedule,
+    cleanup_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
     create_count_all_playlists_schedule,
@@ -648,6 +670,7 @@ schedules = [
     create_evaluation_clustering_schedule,
     cleanup_legacy_session_summarization_schedules,
     create_summarization_sweep_reconciler_schedule,
+    create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
     create_purge_deleted_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
@@ -662,6 +685,7 @@ schedules = [
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
     create_wa_weekly_digest_schedule,
+    create_wa_digest_notification_schedule,
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,

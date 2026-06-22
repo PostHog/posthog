@@ -97,9 +97,11 @@ To rebuild the tree:
 
 ### "Where is time going?"
 
-1. Run `print_summary.py` — it surfaces the top-5 slowest spans by `duration_nano`.
-2. For a noisy trace, run `print_timeline.py` and scan the indented durations — you can see whether time is dominated by one child span or fan-out across many.
-3. To dig into one slow span, `SPAN="<name>" python3 scripts/extract_span.py FILE`.
+1. Every span from `apm-trace-get` carries `self_time_nano` — duration not covered by children. Sort by it: the top span is where wall-clock actually went. A parent with large `self_time_nano` is an **uninstrumented gap** (the work happened inside it, not in any recorded child).
+2. Run `print_summary.py` — it surfaces the top-5 slowest spans by `duration_nano`.
+3. For a noisy trace, run `print_timeline.py` and scan the indented durations — you can see whether time is dominated by one child span or fan-out across many.
+4. To dig into one slow span, `SPAN="<name>" python3 scripts/extract_span.py FILE`.
+5. For aggregate "which child dominates" questions use `apm-spans-tree` and read `calls_per_parent_invocation` — it separates a child that's slow per call from one that merely runs 20× per parent.
 
 ### "Where did the error happen?"
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import ssl
 import math
+import time
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -73,6 +74,27 @@ def _qualified_table(database: str, table_name: str) -> str:
     return f"{_quote_identifier(database)}.{_quote_identifier(table_name)}"
 
 
+# Number of times we re-open the client before giving up on a transient drop during connect.
+_MAX_CONNECT_ATTEMPTS = 3
+
+# Substrings of a connect-time failure that denote the connection being dropped before/during the
+# TLS read (ClickHouse Cloud cold-resume hanging up the first request, a proxy/LB idle cull, a
+# network blip) rather than a deterministic config error. A fresh attempt recovers. The TLS config
+# failures we never retry (`certificate verify failed`, `SSL: WRONG_VERSION_NUMBER`) don't contain
+# any of these, so the allowlist can't catch them.
+_TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
+    # OpenSSL 3.x and 1.x wordings for the peer closing the socket without a clean TLS close_notify.
+    "UNEXPECTED_EOF_WHILE_READING",
+    "EOF occurred in violation of protocol",
+    "Connection reset by peer",
+    "Connection aborted",
+)
+
+
+def _is_transient_connect_drop(error_message: str) -> bool:
+    return any(substring in error_message for substring in _TRANSIENT_CONNECT_DROP_SUBSTRINGS)
+
+
 def _get_client(
     *,
     host: str,
@@ -92,28 +114,41 @@ def _get_client(
     reader that we use to read very large tables without buffering them in
     memory.
     """
-    try:
-        return get_client(
-            host=host,
-            port=port,
-            database=database,
-            username=user,
-            # clickhouse-connect expects str; passwordless auth is empty string.
-            password=password or "",
-            secure=secure,
-            verify=verify,
-            connect_timeout=CONNECT_TIMEOUT_SECONDS,
-            send_receive_timeout=query_timeout,
-            query_limit=0,  # we manage limits ourselves
-            settings=settings or {},
-            compress=True,
-        )
-    except (ClickHouseError, OSError, ssl.SSLError) as e:
-        # OSError covers socket.gaierror, ConnectionRefusedError, TimeoutError,
-        # and httpx-raised network errors that subclass OSError. ssl.SSLError
-        # covers TLS handshake failures that happen before ClickHouse sees
-        # the request.
-        raise ClickHouseConnectionError(str(e)) from e
+    attempt = 0
+    while True:
+        try:
+            return get_client(
+                host=host,
+                port=port,
+                database=database,
+                username=user,
+                # clickhouse-connect expects str; passwordless auth is empty string.
+                password=password or "",
+                secure=secure,
+                verify=verify,
+                connect_timeout=CONNECT_TIMEOUT_SECONDS,
+                send_receive_timeout=query_timeout,
+                query_limit=0,  # we manage limits ourselves
+                settings=settings or {},
+                compress=True,
+            )
+        except (ClickHouseError, OSError, ssl.SSLError) as e:
+            # OSError covers socket.gaierror, ConnectionRefusedError, TimeoutError,
+            # and httpx-raised network errors that subclass OSError. ssl.SSLError
+            # covers TLS handshake failures that happen before ClickHouse sees
+            # the request.
+            attempt += 1
+            message = str(e)
+            if attempt < _MAX_CONNECT_ATTEMPTS and _is_transient_connect_drop(message):
+                structlog.get_logger().warning(
+                    "Transient ClickHouse connection drop during connect; retrying",
+                    attempt=attempt,
+                    max_attempts=_MAX_CONNECT_ATTEMPTS,
+                    exc_info=e,
+                )
+                time.sleep(attempt)
+                continue
+            raise ClickHouseConnectionError(message) from e
 
 
 def _strip_type_modifiers(type_name: str) -> tuple[str, bool]:
@@ -228,10 +263,26 @@ def get_schemas(
     schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
     for row in result.result_rows:
         table_name, column_name, raw_type = row[0], row[1], row[2]
+        if _is_inner_table(table_name):
+            continue
         _, nullable = _strip_type_modifiers(raw_type)
         schema_list[table_name].append((column_name, raw_type, nullable))
 
     return schema_list
+
+
+def _is_inner_table(table_name: str) -> bool:
+    """Whether a table is a materialized view's hidden inner table.
+
+    ClickHouse backs a materialized view created without an explicit `TO`
+    target with an auto-generated inner table — `.inner.<mv_name>` on older
+    Ordinary databases, `.inner_id.<uuid>` on Atomic databases. These are
+    implementation details, not user data: their `.inner_id.<uuid>` names
+    change whenever the view is recreated, so a sync pointed at one breaks
+    the moment the view is rebuilt. Discover the materialized view by its own
+    name instead, never its inner table.
+    """
+    return table_name.startswith(".inner.") or table_name.startswith(".inner_id.")
 
 
 # Match `TO db.table` or `TO table` clause in MV CREATE statement.
@@ -712,6 +763,31 @@ _DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
     "max_memory_usage": 1_000_000_000,
 }
 
+# Substrings of probe errors that are expected environment limits or designed
+# fallbacks rather than bugs on our side. In every case we fall back to append
+# mode, so capturing them only adds error-tracking noise:
+#   - "is unknown or readonly": clickhouse-connect validates session settings
+#     client-side and refuses any the server reports as readonly or unknown
+#     ("Setting <x> is unknown or readonly"), routine on managed offerings
+#     (ClickHouse Cloud) and readonly user profiles.
+#   - MEMORY_LIMIT_EXCEEDED / TIMEOUT_EXCEEDED: the bounded probe exhausted one
+#     of its own budgets (`max_memory_usage` / `max_execution_time`).
+#     `optimize_aggregation_in_order` keeps the GROUP BY streaming, but on
+#     large/slow (e.g. S3-backed) source tables the scan can still hit these
+#     caps before `read_overflow_mode='break'` truncates on rows — the probe
+#     behaving exactly as designed. Some managed servers also enforce a memory
+#     cap below our `max_memory_usage`, surfacing the same way.
+_EXPECTED_PROBE_FAILURE_SUBSTRINGS: tuple[str, ...] = (
+    "is unknown or readonly",
+    "MEMORY_LIMIT_EXCEEDED",
+    "TIMEOUT_EXCEEDED",
+)
+
+
+def _is_expected_probe_failure(message: str) -> bool:
+    """Whether a duplicate-PK probe failure is an expected environment limit or designed fallback."""
+    return any(substring in message for substring in _EXPECTED_PROBE_FAILURE_SUBSTRINGS)
+
 
 def _has_duplicate_primary_keys(
     client: ClickHouseClient,
@@ -748,14 +824,20 @@ def _has_duplicate_primary_keys(
         result = client.query(query, settings=_DUPLICATE_PK_CHECK_SETTINGS)
         return len(result.result_rows) > 0
     except ClickHouseError as e:
-        # Any unexpected server error is treated as "assume duplicates" —
-        # safer to force append mode than to merge against a key we couldn't
-        # verify. (We don't hit max_rows_to_read here because
-        # read_overflow_mode='break' turns that into a silent truncation.)
+        # Any server error is treated as "assume duplicates" — safer to force
+        # append mode than to merge against a key we couldn't verify. (We don't
+        # hit max_rows_to_read here because read_overflow_mode='break' turns
+        # that into a silent truncation.)
         logger.warning(
             f"_has_duplicate_primary_keys: assuming duplicates exist (probe failed for {database}.{table_name}): {e}"
         )
-        capture_exception(e)
+        # Only report genuinely unexpected probe failures. Exhausting the
+        # probe's own memory/time budget is the designed fallback on large
+        # source tables, and managed/readonly ClickHouse servers routinely
+        # reject our tuning settings — expected outcomes the append-mode
+        # fallback already handles, so capturing them only adds noise.
+        if not _is_expected_probe_failure(str(e)):
+            capture_exception(e)
         return True
 
 

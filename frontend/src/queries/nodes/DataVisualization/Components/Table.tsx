@@ -8,7 +8,7 @@ import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { execHog } from 'lib/hog'
-import { lightenDarkenColor } from 'lib/utils'
+import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'

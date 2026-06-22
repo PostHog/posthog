@@ -7,7 +7,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
-import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
+import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 
 import { DateMappingOption } from '~/types'
 

@@ -1520,7 +1520,7 @@ describe('BatchWritingPersonStore', () => {
             const mockRepo = createMockRepository()
             const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
 
-            const result = await personStore.addPersonlessDistinctId(teamId, 'test-distinct')
+            const result = await personStore.addPersonlessDistinctId(teamId, 'test-distinct', 0)
 
             expect(mockRepo.addPersonlessDistinctId).toHaveBeenCalledWith(teamId, 'test-distinct')
             expect(result).toBe(true)
@@ -1531,7 +1531,7 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.addPersonlessDistinctId = jest.fn().mockResolvedValue(false)
             const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
 
-            const result = await personStore.addPersonlessDistinctId(teamId, 'test-distinct')
+            const result = await personStore.addPersonlessDistinctId(teamId, 'test-distinct', 0)
 
             expect(mockRepo.addPersonlessDistinctId).toHaveBeenCalledWith(teamId, 'test-distinct')
             expect(result).toBe(false)

@@ -146,7 +146,9 @@ def sync_saved_query_to_dag(
     # update type (name is automatically synced from saved_query in Node.save())
     target.type = node_type
 
-    database = Database.create_for(team=team)
+    # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
+    # sees every referenced table/view.
+    database = Database.create_for(team=team, bypass_warehouse_access_control=True)
     # clear previous incoming edges, dependencies may have changed
     Edge.objects.filter(team=team, target=target).delete()
 

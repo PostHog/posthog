@@ -11,6 +11,9 @@ interface AxisLabelsProps {
     /** The *unresolved* user y-tick formatter (config). When set, every stacked axis uses it; when
      *  unset, each axis auto-formats against its own ticks. Only consulted for the multi-axis path. */
     userYTickFormatter?: (value: number) => string
+    /** Per-axis tick formatters keyed by axis id. A gutter prefers its own formatter, then
+     *  `userYTickFormatter`, then auto-formats against its ticks. Only consulted for the multi-axis path. */
+    yAxisFormatters?: Record<string, (value: number) => string>
     hideXAxis?: boolean
     hideYAxis?: boolean
     axisColor?: string
@@ -230,6 +233,7 @@ export const AxisLabels = React.memo(function AxisLabels({
     xTickFormatter,
     yTickFormatter,
     userYTickFormatter,
+    yAxisFormatters,
     hideXAxis,
     hideYAxis,
     axisColor = 'rgba(0, 0, 0, 0.5)',
@@ -268,7 +272,7 @@ export const AxisLabels = React.memo(function AxisLabels({
         const gutters: Gutter[] = []
         Object.entries(scales.yAxes).forEach(([axisId, axis]) => {
             const ticks = axis.ticks()
-            const formatter = userYTickFormatter ?? autoFormatterFor(ticks)
+            const formatter = yAxisFormatters?.[axisId] ?? userYTickFormatter ?? autoFormatterFor(ticks)
             const offset = axis.position === 'left' ? leftCum : rightCum
             gutters.push({ key: `y-${axisId}`, side: axis.position, offset, ticks, scale: axis.scale, formatter })
             const width = widthOf(ticks, formatter) + GUTTER_GAP
@@ -279,7 +283,7 @@ export const AxisLabels = React.memo(function AxisLabels({
             }
         })
         return gutters
-    }, [hideYAxis, orientation, scales.yAxes, scales.y, yTicks, yTickFormatter, userYTickFormatter])
+    }, [hideYAxis, orientation, scales.yAxes, scales.y, yTicks, yTickFormatter, userYTickFormatter, yAxisFormatters])
 
     const visibleXLabels = useMemo(
         () =>

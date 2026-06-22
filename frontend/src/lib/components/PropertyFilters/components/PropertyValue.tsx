@@ -23,15 +23,15 @@ import { isGroupCardFilterKey, propertyFilterTypeToPropertyDefinitionType } from
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { formatDate } from 'lib/utils/datetime'
 import {
-    formatDate,
     isOperatorBetween,
     isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
     isOperatorRegex,
-    toString,
-} from 'lib/utils'
+} from 'lib/utils/operators'
+import { toString } from 'lib/utils/strings'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,

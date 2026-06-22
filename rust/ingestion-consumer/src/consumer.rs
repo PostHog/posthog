@@ -12,6 +12,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::config::Config;
+use crate::discovery::DiscoveryMode;
 use crate::dispatcher::Dispatcher;
 use crate::transport::HttpTransport;
 use crate::types::SerializedKafkaMessage;
@@ -112,8 +113,14 @@ impl IngestionConsumer {
         transport: Arc<HttpTransport>,
         handle: Handle,
     ) -> anyhow::Result<Self> {
-        let worker_urls = config.worker_urls();
-        if worker_urls.is_empty() {
+        // In endpointslice mode the worker set comes from discovery, so there is
+        // no static readiness list — main gates startup on the first discovered
+        // worker. In static mode we keep the configured list for readiness.
+        let worker_urls = match config.worker_discovery_mode {
+            DiscoveryMode::Static => config.worker_urls(),
+            DiscoveryMode::EndpointSlice => Vec::new(),
+        };
+        if config.worker_discovery_mode == DiscoveryMode::Static && worker_urls.is_empty() {
             anyhow::bail!("No worker addresses configured");
         }
 
@@ -165,6 +172,10 @@ impl IngestionConsumer {
         let mut accepting_new_batches = true;
 
         while accepting_new_batches || !in_flight_batches.is_empty() {
+            // Consumer-level concurrency: how many Kafka batches are being
+            // processed in parallel, bounded by `max_in_flight_batches`.
+            gauge!("ingestion_consumer_in_flight_batches").set(in_flight_batches.len() as f64);
+
             if accepting_new_batches && in_flight_batches.len() < self.max_in_flight_batches {
                 tokio::select! {
                     _ = self.handle.shutdown_recv() => {
@@ -215,19 +226,11 @@ impl IngestionConsumer {
         let task_batch_id = batch_id.clone();
         let dispatcher = Arc::clone(&self.dispatcher);
         let transport = Arc::clone(&self.transport);
-        let worker_urls = self.worker_urls.clone();
         let group_id = self.group_id.clone();
 
         let handle = tokio::spawn(async move {
-            Self::process_collected_batch(
-                collected,
-                task_batch_id,
-                dispatcher,
-                transport,
-                worker_urls,
-                group_id,
-            )
-            .await
+            Self::process_collected_batch(collected, task_batch_id, dispatcher, transport, group_id)
+                .await
         });
 
         info!(
@@ -299,7 +302,6 @@ impl IngestionConsumer {
         batch_id: String,
         dispatcher: Arc<Dispatcher>,
         transport: Arc<HttpTransport>,
-        worker_urls: Vec<String>,
         group_id: String,
     ) -> anyhow::Result<ProcessedBatch> {
         let batch_size = collected.messages.len();
@@ -347,18 +349,19 @@ impl IngestionConsumer {
         for sub_batch in sub_batches {
             let transport = Arc::clone(&transport);
             let dispatcher = Arc::clone(&dispatcher);
-            let url = worker_urls[sub_batch.worker_idx].clone();
+            let worker = sub_batch.worker.clone();
             let bid = batch_id.clone();
-            let worker_idx = sub_batch.worker_idx;
             let routing_keys = sub_batch.routing_keys.clone();
             let message_count = sub_batch.messages.len();
 
             handles.push(tokio::spawn(async move {
-                let result = transport.send_batch(&url, &bid, sub_batch.messages).await;
+                let result = transport
+                    .send_batch(&worker, &bid, sub_batch.messages)
+                    .await;
                 let is_error = result.is_err();
 
-                dispatcher.on_sub_batch_resolved(worker_idx, message_count, &routing_keys);
-                dispatcher.record_send_outcome(worker_idx, is_error);
+                dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys);
+                dispatcher.record_send_outcome(&worker, is_error);
 
                 result
             }));

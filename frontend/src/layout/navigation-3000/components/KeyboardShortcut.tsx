@@ -1,7 +1,7 @@
 import './KeyboardShortcut.scss'
 
-import { isMac, isMobile } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { isMac, isMobile } from 'lib/utils/dom'
 
 import { HotKeyOrModifier } from '~/types'
 

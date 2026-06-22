@@ -30,6 +30,7 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
+from posthog.helpers.trigram_search import TrigramSearchField, apply_trigram_search, normalize_search_term
 from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
@@ -266,6 +267,13 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
 }
 
 
+# Free-text search over the runs list uses the shared trigram helper for the
+# prose-like fields (branch, run type), where fuzzy/typo matching helps. Commit
+# SHA and PR number are matched exactly (prefix / numeric id) via extra_exact_q —
+# fuzzy matching a hex SHA or an integer is meaningless.
+RUN_SEARCH_FIELDS = (TrigramSearchField("branch"), TrigramSearchField("run_type"))
+
+
 def list_runs_for_team(
     team_id: int,
     review_state: str | None = None,
@@ -273,8 +281,9 @@ def list_runs_for_team(
     pr_number: int | None = None,
     commit_sha: str | None = None,
     branch: str | None = None,
+    search: str | None = None,
 ) -> db_models.QuerySet[Run]:
-    qs = Run.objects.filter(team_id=team_id).select_related("repo").order_by("-created_at")
+    qs = Run.objects.filter(team_id=team_id).select_related("repo")
     if repo_id is not None:
         qs = qs.filter(repo_id=repo_id)
     if review_state and review_state in REVIEW_STATE_FILTERS:
@@ -285,7 +294,20 @@ def list_runs_for_team(
         qs = qs.filter(commit_sha=commit_sha)
     if branch:
         qs = qs.filter(branch=branch)
-    return qs
+    if search and (term := normalize_search_term(search)):
+        # Commit SHA matches by prefix (reviewers paste the short SHA); PR number by exact id.
+        extra_exact_q = Q(commit_sha__istartswith=term)
+        if term.isdigit():
+            extra_exact_q |= Q(pr_number=int(term))
+        return apply_trigram_search(
+            qs,
+            term,
+            span_prefix="visual_review.runs.search",
+            fields=RUN_SEARCH_FIELDS,
+            extra_exact_q=extra_exact_q,
+            tiebreakers=("-created_at",),
+        )
+    return qs.order_by("-created_at")
 
 
 def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
@@ -1853,6 +1875,22 @@ def _image_cell(url: str | None, alt: str) -> str:
 _IMAGE_TABLE_HEADER = "| Snapshot | Before | After |\n| --- | --- | --- |"
 
 
+_REVIEWABLE_RESULTS = (SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
+
+
+def _reviewable_snapshot_qs(run: Run) -> db_models.QuerySet[RunSnapshot]:
+    return run.snapshots.using(READER_DB).filter(result__in=_REVIEWABLE_RESULTS)
+
+
+def _postable_snapshot_qs(run: Run) -> db_models.QuerySet[RunSnapshot]:
+    """Reviewable snapshots minus the ones an approval comment should not surface.
+
+    Quarantined snapshots are suppressed by policy and tolerated ones are
+    intentional known drift, so neither belongs in the comment.
+    """
+    return _reviewable_snapshot_qs(run).exclude(is_quarantined=True).exclude(review_state=ReviewState.TOLERATED)
+
+
 def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
     """Before/after image tables for the approved snapshots.
 
@@ -1863,8 +1901,7 @@ def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
     resolved (e.g. object storage disabled) so the comment stays text-only.
     """
     snapshots = list(
-        run.snapshots.using(READER_DB)
-        .filter(result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED))
+        _postable_snapshot_qs(run)
         .select_related(
             "current_artifact",
             "current_artifact__thumbnail",
@@ -1924,11 +1961,8 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     reviewer can eyeball them without leaving the PR (omitted when no image can
     be resolved).
     """
-    counts = Counter(
-        run.snapshots.filter(
-            result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
-        ).values_list("result", flat=True)
-    )
+    counts = Counter(_postable_snapshot_qs(run).values_list("result", flat=True))
+    suppressed_only = not counts and _reviewable_snapshot_qs(run).exists()
 
     if approver is None:
         approver_text = "a reviewer"
@@ -1955,6 +1989,8 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     ]
     if summary:
         sections.append(f"{summary}.")
+    elif suppressed_only:
+        sections.append("All visual changes in this run were quarantined or tolerated.")
     if add_images:
         tables = _build_snapshot_image_tables(run, repo)
         if tables:

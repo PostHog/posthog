@@ -14,7 +14,7 @@ import {
     TableRow,
 } from '@posthog/quill-primitives'
 
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { type NotableSession } from '../mcpDashboardOverviewLogic'

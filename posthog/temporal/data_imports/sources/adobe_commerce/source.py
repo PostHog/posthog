@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class AdobeCommerceSource(SimpleSource[AdobeCommerceSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ADOBE_COMMERCE,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
+            keywords=["magento"],
             label="Adobe Commerce (Magento)",
             iconPath="/static/services/adobe_commerce.png",
             fields=cast(list[FieldType], []),
