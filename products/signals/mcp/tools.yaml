@@ -234,9 +234,28 @@ tools:
         description: >
             List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
             (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears
-            once its config is registered — immediately via `signals-scout-config-create`, or on the coordinator's next
-            tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with
-            `signals-scout-config-update` to tune them.
+            once its config is registered — immediately via `signals-scout-config-create` (one skill) or
+            `signals-scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which
+            scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update`
+            to tune them.
+    signals-scout-config-sync:
+        operation: signals_scout_config_sync
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        list: true
+        title: Sync scout configs
+        description: >
+            Materialize the Signals scout fleet for this project (idempotent): seeds the canonical `signals-scout-*`
+            skills and creates a default-schedule config for any scout lacking one, then returns all scout configs. The
+            Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet
+            immediately instead of waiting for the tick. Pair with `signals-scout-config-update` to tune the returned
+            configs.
+        requires_ai_consent: true
     signals-scout-config-update:
         operation: signals_scout_config_update
         enabled: true
