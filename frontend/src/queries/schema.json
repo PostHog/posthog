@@ -25951,6 +25951,10 @@
         "LogValueResult": {
             "additionalProperties": false,
             "properties": {
+                "count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of log records with this attribute value, over the current date range, service, and resource filters."
+                },
                 "id": {
                     "type": "string"
                 },
