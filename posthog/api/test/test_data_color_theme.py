@@ -24,9 +24,21 @@ class TestDataColorTheme(APIBaseTest):
                 # seeded one — otherwise its `colors` would be order/shard-dependent
                 # (real palette when not flushed, empty when recreated).
                 colors=[
-                    "#1d4aff", "#621da6", "#42827e", "#ce0e74", "#f14f58",
-                    "#7c440e", "#529a0a", "#0476fb", "#fe729e", "#35416b",
-                    "#41cbc4", "#b64b02", "#e4a604", "#a56eff", "#30d5c8",
+                    "#1d4aff",
+                    "#621da6",
+                    "#42827e",
+                    "#ce0e74",
+                    "#f14f58",
+                    "#7c440e",
+                    "#529a0a",
+                    "#0476fb",
+                    "#fe729e",
+                    "#35416b",
+                    "#41cbc4",
+                    "#b64b02",
+                    "#e4a604",
+                    "#a56eff",
+                    "#30d5c8",
                 ],
                 team=None,
             )
