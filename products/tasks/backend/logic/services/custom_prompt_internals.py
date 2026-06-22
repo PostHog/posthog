@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
 
 from asgiref.sync import sync_to_async
@@ -166,7 +167,10 @@ async def _refresh_task_run(task_run_id) -> TaskRun:
     """
 
     def _read() -> TaskRun:
-        close_old_connections()
+        # Guarded like push_dispatcher: close_old_connections() health-checks live connections,
+        # which trips pytest-django's DB-access guard in unit tests that patch the ORM read.
+        if not settings.TEST:
+            close_old_connections()
         return TaskRun.objects.get(id=task_run_id)
 
     try:

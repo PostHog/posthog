@@ -1428,10 +1428,14 @@ class TestPollForTurnConnectionDrop:
         completed = FakeTaskRun(status=TaskRun.Status.COMPLETED)
         get_mock = MagicMock(side_effect=[OperationalError("server closed the connection unexpectedly"), completed])
 
+        # settings.TEST gates the close_old_connections() call (it health-checks live
+        # connections, which trips the test DB-access guard), so flip it off to exercise
+        # the real reconnect path.
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.settings.TEST", False),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.close_old_connections") as close_conns,
             patch("products.tasks.backend.models.TaskRun.objects.get", new=get_mock),
         ):
