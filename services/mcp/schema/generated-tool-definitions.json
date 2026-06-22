@@ -1952,6 +1952,20 @@
             "readOnlyHint": false
         }
     },
+    "desktop-file-system-canvas-partial-update": {
+        "description": "Publish the React source for a freeform canvas (a \"dashboard\" item on the desktop surface). The `id` is the canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do not write a local file.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update canvas code",
+        "title": "Update canvas code",
+        "required_scopes": ["file_system:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "desktop-file-system-create": {
         "description": "Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are created automatically) and `type: folder`. A blank instruction set is created for the channel automatically; use the desktop-file-system-instructions-partial-update tool to fill it in.",
         "category": "Core",
@@ -5890,51 +5904,6 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
-    },
-    "session-recording-export-create": {
-        "description": "Trigger an export of a single session recording's data to a downloadable archive. Requires staff access. Provide the `session_id` and a `reason` (recorded for audit). Returns an export job whose `status` starts as `pending`; poll `session-recording-export-get` with the returned `id` until `status` is `complete`, then read `export_location` for the archive's storage path. The export gathers recording blocks plus related ClickHouse metadata, so completion is not instant.",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "Export session recording",
-        "title": "Export session recording",
-        "required_scopes": ["session_recording:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "replay-admin-export"
-    },
-    "session-recording-export-get": {
-        "description": "Get a single session recording export job by `id`. Requires staff access. Returns its `status` (pending/running/complete/failed), `export_location` (the archive's storage path, populated once `status` is `complete`), any `error_message`, and `is_expired` (exports older than 7 days may have been purged). Use after `session-recording-export-create` to poll for completion.",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "Get session recording export",
-        "title": "Get session recording export",
-        "required_scopes": ["session_recording:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "replay-admin-export"
-    },
-    "session-recording-exports-list": {
-        "description": "List past session recording export jobs for the project, newest first. Requires staff access. Use to find an export's `id` and `status` before reading its download location via `session-recording-export-get`.",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "List session recording exports",
-        "title": "List session recording exports",
-        "required_scopes": ["session_recording:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "replay-admin-export"
     },
     "session-recording-get": {
         "description": "Get a specific session recording by ID. Returns full recording metadata including duration, interaction counts, console log counts, person info, and viewing status. Session recordings are reachable from events, errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that project or session. A 404 means no recording was captured. If the user wants to understand what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary, or run a summarizer scanner via `vision-scanners-scan-session` (see the investigating-replay skill; scanning is slow). If a recording is missing (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific session, or sample recent events for project-wide issues).",
