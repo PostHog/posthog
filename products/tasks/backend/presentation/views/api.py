@@ -1263,6 +1263,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
 
+            # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
+            # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
+            # that were never warm; best-effort, since a failure only over-counts the pool until terminal.
+            try:
+                tasks_facade.update_task_run_state(pk, remove_keys=["await_user_message"])
+            except Exception:
+                logger.warning("Failed to clear await_user_message for task run %s", pk)
+
             response_payload: dict[str, Any] = {
                 "jsonrpc": request.validated_data["jsonrpc"],
                 "result": {"queued": True},
@@ -1309,6 +1317,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 payload=command_payload,
             )
 
+            tasks_facade.capture_relay_command_telemetry(
+                pk, task_id, self.team_id, method=method, params=params, success=agent_response.ok
+            )
             if agent_response.ok:
                 return Response(agent_response.json())
 
@@ -1333,18 +1344,27 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         except http_requests.ConnectionError:
             logger.warning(f"Agent server unreachable for task run {pk}")
+            tasks_facade.capture_relay_command_telemetry(
+                pk, task_id, self.team_id, method=method, params=params, success=False
+            )
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         except http_requests.Timeout:
             logger.warning(f"Agent server request timed out for task run {pk}")
+            tasks_facade.capture_relay_command_telemetry(
+                pk, task_id, self.team_id, method=method, params=params, success=False
+            )
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Agent server request timed out"}).data,
                 status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
         except Exception:
             logger.exception(f"Failed to proxy command to agent server for task run {pk}")
+            tasks_facade.capture_relay_command_telemetry(
+                pk, task_id, self.team_id, method=method, params=params, success=False
+            )
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
