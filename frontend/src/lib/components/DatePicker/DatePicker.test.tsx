@@ -33,19 +33,13 @@ const renderDatePicker = (
 }
 
 describe('DatePicker', () => {
-    it('shows the placeholder when there is no value', () => {
-        const { container } = renderDatePicker(null, { placeholder: 'Pick a day' })
-        expect(within(container).getByText('Pick a day')).toBeTruthy()
-    })
-
-    it('renders the selected value with the default format', () => {
-        const { container } = renderDatePicker(dayjs('2023-01-15'))
-        expect(within(container).getByText('January 15, 2023')).toBeTruthy()
-    })
-
-    it('renders the selected value with a custom format', () => {
-        const { container } = renderDatePicker(dayjs('2023-01-15'), { format: 'YYYY-MM-DD' })
-        expect(within(container).getByText('2023-01-15')).toBeTruthy()
+    it.each([
+        ['the placeholder when there is no value', null, { placeholder: 'Pick a day' }, 'Pick a day'],
+        ['the selected value with the default format', dayjs('2023-01-15'), {}, 'January 15, 2023'],
+        ['the selected value with a custom format', dayjs('2023-01-15'), { format: 'YYYY-MM-DD' }, '2023-01-15'],
+    ])('renders %s', (_name, value, props, expectedText) => {
+        const { container } = renderDatePicker(value, props)
+        expect(within(container).getByText(expectedText)).toBeTruthy()
     })
 
     it('selecting a date in the popover calls onChange', async () => {

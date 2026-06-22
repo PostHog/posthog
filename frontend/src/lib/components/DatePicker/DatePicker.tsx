@@ -5,9 +5,15 @@ import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lem
  * Design-system-agnostic single-date picker — the migration seam between the LemonUI
  * calendar family and Quill's DateTimePicker. Callers depend on this dayjs-facing API;
  * the internal rendering swaps from LemonUI to Quill in one place without touching callers.
+ * That swap should land behind a feature flag so LemonUI and Quill can run side by side
+ * and roll back without a revert.
  *
  * Trigger concerns (placeholder, clearable, format, ...) live here by design — Quill
  * separates the trigger from the picker panel, so the wrapper owns the trigger.
+ *
+ * The prop surface is intentionally minimal: trigger-styling props (size, type) and
+ * `selectionPeriodLimit` are deliberately omitted until a real caller needs them, rather
+ * than re-exposing the wrapped component's full API and losing the decoupling.
  */
 export interface DatePickerProps {
     value: dayjs.Dayjs | null
@@ -31,7 +37,7 @@ export interface DatePickerProps {
     clearable?: boolean
     /** dayjs format string for the trigger label. */
     format?: string
-    /** Stretch the trigger to fill its container. */
+    /** Stretch the trigger to fill its container. Defaults to true — the seam owns this default rather than inheriting it from the wrapped trigger. */
     fullWidth?: boolean
     /** Disable the trigger and explain why on hover. */
     disabledReason?: string
@@ -54,23 +60,16 @@ export function DatePicker({
     placeholder,
     clearable,
     format,
-    fullWidth,
+    fullWidth = true,
     disabledReason,
     visible,
     onClickOutside,
     'data-attr': dataAttr,
 }: DatePickerProps): JSX.Element {
-    // Only forward defined trigger props — the wrapped trigger hardcodes some defaults
-    // (e.g. fullWidth) that an explicit `undefined` would clobber when spread.
-    const buttonProps: NonNullable<LemonCalendarSelectInputProps['buttonProps']> = {}
-    if (fullWidth !== undefined) {
-        buttonProps.fullWidth = fullWidth
-    }
-    if (disabledReason !== undefined) {
-        buttonProps.disabledReason = disabledReason
-    }
-    if (dataAttr !== undefined) {
-        buttonProps['data-attr'] = dataAttr
+    const buttonProps: NonNullable<LemonCalendarSelectInputProps['buttonProps']> = {
+        fullWidth,
+        disabledReason,
+        'data-attr': dataAttr,
     }
 
     return (
