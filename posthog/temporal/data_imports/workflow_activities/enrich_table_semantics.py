@@ -188,9 +188,17 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     """Generate and persist semantic annotations for one warehouse table. Safe to re-run."""
     log = logger.bind(team_id=team_id, schema_id=str(schema_id))
 
-    team = Team.objects.only("id", "uuid", "organization_id").get(id=team_id)
+    team = (
+        Team.objects.select_related("organization")
+        .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
+        .get(id=team_id)
+    )
     if not enrichment_enabled(team):
         return {"status": "skipped", "reason": "flag_disabled"}
+    # Respect the org's AI data-processing opt-out: this path ships table/column metadata and core
+    # memory to the LLM gateway, so the feature flag alone is not enough of a gate.
+    if team.organization.is_ai_data_processing_approved is not True:
+        return {"status": "skipped", "reason": "ai_data_processing_not_approved"}
 
     schema = (
         ExternalDataSchema.objects.select_related("source", "table")
