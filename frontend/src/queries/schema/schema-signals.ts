@@ -332,6 +332,9 @@ export interface SignalsScoutSignalExtra extends SignalExtraBase {
     /** The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs`
      * LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not). */
     task_run_id: string
+    /** The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the inbox card to the
+     * run in the Tasks UI. Absent on emissions made before this linkage was captured. */
+    task_id?: string
     finding_id: string
     skill_name: string
     skill_version: number

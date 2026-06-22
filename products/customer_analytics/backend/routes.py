@@ -1,7 +1,9 @@
 from posthog.api.routing import RouterRegistry
 
-from products.customer_analytics.backend.api.organization_members import OrganizationMembersForAccountViewSet
-from products.customer_analytics.backend.api.views import (
+from products.customer_analytics.backend.presentation.views.organization_members import (
+    OrganizationMembersForAccountViewSet,
+)
+from products.customer_analytics.backend.presentation.views.views import (
     AccountNotebookViewSet,
     AccountViewSet,
     CustomerJourneyViewSet,

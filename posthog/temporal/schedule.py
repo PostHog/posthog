@@ -20,9 +20,6 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
-from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
-from posthog.temporal.ai import SyncVectorsInputs
-from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.ai_observability.eval_reports.schedule import (
     create_count_trigger_schedule,
     create_eval_reports_schedule,
@@ -92,7 +89,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
 )
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
-from products.tasks.backend.temporal.code_workstreams.schedule import create_evaluate_code_workstreams_schedule
+from products.tasks.backend.facade.temporal import create_evaluate_code_workstreams_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -101,20 +98,10 @@ from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 logger = structlog.get_logger(__name__)
 
 
-async def create_sync_vectors_schedule(client: Client):
-    sync_vectors_schedule = Schedule(
-        action=ScheduleActionStartWorkflow(
-            "ai-sync-vectors",
-            asdict(SyncVectorsInputs(embedding_versions=EmbeddingVersion(actions=LATEST_ACTIONS_EMBEDDING_VERSION))),
-            id="ai-sync-vectors-schedule",
-            task_queue=settings.MAX_AI_TASK_QUEUE,
-        ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
-    )
+async def cleanup_sync_vectors_schedule(client: Client):
+    """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
-        await a_update_schedule(client, "ai-sync-vectors-schedule", sync_vectors_schedule)
-    else:
-        await a_create_schedule(client, "ai-sync-vectors-schedule", sync_vectors_schedule, trigger_immediately=True)
+        await a_delete_schedule(client, "ai-sync-vectors-schedule")
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -664,7 +651,7 @@ async def create_error_tracking_recommendations_refresh_schedule(client: Client)
 
 
 schedules = [
-    create_sync_vectors_schedule,
+    cleanup_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
     create_count_all_playlists_schedule,

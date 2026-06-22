@@ -17,10 +17,10 @@ Usage:
     PAT=phx_... python services/agent-tests/src/examples/seed.py
 
     # Seed a subset — selectors match a bundle slug exactly or as a substring:
-    PAT=phx_... python services/agent-tests/src/examples/seed.py concierge approval
+    PAT=phx_... python services/agent-tests/src/examples/seed.py builder approval
 
     # Same, comma-separated:
-    PAT=phx_... python services/agent-tests/src/examples/seed.py --only agent-concierge,agent-approval-demo
+    PAT=phx_... python services/agent-tests/src/examples/seed.py --only agent-builder,agent-approval-demo
 
     # Show what would be seeded without touching anything:
     python services/agent-tests/src/examples/seed.py --list
@@ -78,8 +78,8 @@ METADATA: dict[str, dict[str, str]] = {
         "name": "Approval demo agent",
         "description": "Smallest possible agent that demonstrates approval-gated tool calls — chat with it and ask it to save a note.",
     },
-    "agent-concierge": {
-        "name": "Agent concierge",
+    "agent-builder": {
+        "name": "Agent Builder",
         "description": "Meta-agent for the platform.",
     },
 }
@@ -496,7 +496,7 @@ def parse_args(argv: list[str]) -> tuple[bool, list[str]]:
         elif arg.startswith("--only="):
             selectors.extend(s for s in arg.split("=", 1)[1].split(",") if s)
         elif arg == "--only":
-            die("--only needs a value, e.g. --only=agent-concierge")
+            die("--only needs a value, e.g. --only=agent-builder")
         elif arg.startswith("--"):
             die(f"unknown flag {arg!r}")
         else:
@@ -510,7 +510,15 @@ def mint_dev_pat() -> str | None:
     return its value, adding the agents scopes the seed needs. Dev-only; returns
     None if it can't (no flox, command failed, no users). Lets `seed.py` run
     without the caller hunting down a PAT."""
-    repo_root = EXAMPLES_ROOT.parents[3]
+    # The repo root is the ancestor that holds `manage.py` — find it rather than
+    # hardcoding a parent index, which silently breaks if this file ever moves.
+    repo_root = next(
+        (p for p in EXAMPLES_ROOT.parents if (p / "manage.py").is_file()),
+        None,
+    )
+    if repo_root is None:
+        log("pat", "couldn't locate repo root (no manage.py in any parent dir)")
+        return None
     try:
         out = subprocess.run(
             [

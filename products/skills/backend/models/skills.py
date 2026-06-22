@@ -34,6 +34,11 @@ class LLMSkill(UUIDModel):
     allowed_tools = models.JSONField(blank=True, default=list)
     metadata = models.JSONField(blank=True, default=dict)
 
+    # Generic classification, decoupled from the skill name. Empty for an ordinary skill; a known
+    # value (e.g. "scout") groups the skill into its own surface in the UI. Producers own the value
+    # (the Signals harness stamps "scout"); the skills product treats it as an opaque string.
+    category = models.CharField(max_length=64, blank=True, default="", db_default="")
+
     # Versioning (same pattern as LLMPrompt)
     version = models.PositiveIntegerField(default=1)
     is_latest = models.BooleanField(default=True)

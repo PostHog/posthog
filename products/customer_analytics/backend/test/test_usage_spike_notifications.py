@@ -1,6 +1,3 @@
-import json
-from urllib.parse import unquote
-
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -8,11 +5,11 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
-from products.customer_analytics.backend.services.usage_spike_notifications import notify_managers_of_usage_spike
+from products.customer_analytics.backend.logic.usage_spike_notifications import notify_managers_of_usage_spike
 from products.customer_analytics.backend.test.factories import create_account
 from products.notifications.backend.facade.enums import NotificationType, Priority, SourceType, TargetType
 
-SERVICE = "products.customer_analytics.backend.services.usage_spike_notifications"
+SERVICE = "products.customer_analytics.backend.logic.usage_spike_notifications"
 
 SPIKES = [{"metric": "events", "factor": 3.2, "direction": "up", "percent_change": 220}]
 
@@ -121,27 +118,5 @@ class TestNotifyManagersOfUsageSpike(BaseTest):
         assert data.source_id == "spike-1"
         assert data.title == "Usage spike: Acme Corp"
         assert data.body == "events 3.2× (up) — detected 2026-06-09"
-
-        base, _, fragment = data.source_url.partition("#")
-        # Project-relative: the notifications side panel adds the project prefix on navigation.
-        assert base == "/customer_analytics/accounts"
-        assert fragment.startswith("open=")
-        assert json.loads(unquote(fragment[len("open=") :])) == {
-            "id": str(account.id),
-            "externalId": "org-123",
-            "name": "Acme Corp",
-            "tab": "usage",
-        }
-
-    def test_source_url_omits_missing_external_id(self, mock_create, _mock_dispatched):
-        account = self._create_account_with_managers(csm_id=101, ae_id=None)
-        account.properties = {**account.properties.model_dump(mode="json"), "billing_id": "bill-9"}
-        account.save()
-        self._notify_managers(billing_id="bill-9")
-
-        fragment = mock_create.call_args.args[0].source_url.partition("#")[2]
-        assert json.loads(unquote(fragment[len("open=") :])) == {
-            "id": str(account.id),
-            "name": "Acme Corp",
-            "tab": "usage",
-        }
+        # Project-relative path; the notifications side panel adds the project prefix on navigation.
+        assert data.source_url == f"/customer_analytics/accounts/{account.id}/usage"
