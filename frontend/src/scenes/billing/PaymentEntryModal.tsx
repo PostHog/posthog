@@ -1,4 +1,3 @@
-import { DotLottiePlayer } from '@dotlottie/react-player'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -111,13 +110,7 @@ export const PaymentEntryModal = (): JSX.Element => {
                     </div>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
-                        <DotLottiePlayer
-                            src="/static/payment-loading.lottie"
-                            loop
-                            autoplay
-                            aria-label="Loading animation"
-                            className="h-20 w-20"
-                        />
+                        <img src="/static/payment-loading.gif" alt="" aria-hidden="true" className="h-20 w-20" />
                         <p className="text-secondary text-md mt-4">We're contacting the hedgehogs for approval.</p>
                     </div>
                 )}
