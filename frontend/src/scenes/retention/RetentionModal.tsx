@@ -12,7 +12,7 @@ import { percentage } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { asDisplay, pickBestPersonDistinctId } from 'scenes/persons/person-utils'
 import { RetentionTableAppearanceType } from 'scenes/retention/types'
 import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { SaveCohortModal } from 'scenes/trends/persons-modal/SaveCohortModal'
@@ -225,7 +225,9 @@ export function RetentionModal(): JSX.Element | null {
                                                         <LemonButton
                                                             size="small"
                                                             to={urls.personByDistinctId(
-                                                                personAppearances.person.distinct_ids[0]
+                                                                pickBestPersonDistinctId(
+                                                                    personAppearances.person.distinct_ids
+                                                                ) ?? personAppearances.person.distinct_ids[0]
                                                             )}
                                                             data-attr="retention-person-link"
                                                         >
