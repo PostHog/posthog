@@ -21,6 +21,8 @@ import dataclasses
 from datetime import timedelta
 from typing import Any
 
+from django.utils import timezone
+
 import structlog
 import posthoganalytics
 from temporalio import activity, workflow
@@ -316,10 +318,15 @@ def _upsert_annotation(
     )
     if created or annotation.is_user_edited:
         return
-    annotation.description = description
-    annotation.description_source = source
-    annotation.ai_model = ai_model
-    annotation.save(update_fields=["description", "description_source", "ai_model", "updated_at"])
+    # Guarded update: only write when the row is still not user-edited in the DB, so an edit that lands in the
+    # race window between the get_or_create read and this write is honoured rather than clobbered. update()
+    # bypasses auto_now, so updated_at is set explicitly.
+    WarehouseColumnAnnotation.objects.for_team(team.id).filter(id=annotation.id, is_user_edited=False).update(
+        description=description,
+        description_source=source,
+        ai_model=ai_model,
+        updated_at=timezone.now(),
+    )
 
 
 @activity.defn

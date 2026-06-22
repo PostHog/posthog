@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import patch
 
 from posthog.models import Organization, Team
+from posthog.models.scoping.manager import TeamScopedQuerySet
 from posthog.temporal.data_imports.workflow_activities import enrich_table_semantics as enrich
 from posthog.temporal.data_imports.workflow_activities.enrich_table_semantics import (
     build_enrichment_prompt,
@@ -310,6 +311,37 @@ class TestEnrichTableSemanticsSync:
 
         annotation = _annotations(team, table)["amount"]
         assert annotation.description == "user wrote this in the race window"
+        assert annotation.description_source == WarehouseColumnAnnotation.DescriptionSource.USER_EDITED
+
+    def test_upsert_honours_user_edit_committed_after_get_or_create_read(self):
+        # The true race: get_or_create returns a row whose in-memory is_user_edited is still False, but a user
+        # commits an edit before the write lands. The guarded update must see the DB flag and leave it alone.
+        team = _team()
+        _, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
+        committed = WarehouseColumnAnnotation.objects.for_team(team.pk).create(
+            team=team,
+            table=table,
+            column_name="amount",
+            description="user wrote this just before the write",
+            description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
+            is_user_edited=True,
+        )
+        # Stale snapshot the enrichment "saw": same row, but is_user_edited not yet observed as True. Only
+        # get_or_create is faked, so the real guarded .filter(...).update(...) still runs against the DB.
+        stale = WarehouseColumnAnnotation.objects.for_team(team.pk).get(id=committed.id)
+        stale.is_user_edited = False
+
+        with patch.object(TeamScopedQuerySet, "get_or_create", return_value=(stale, False)):
+            enrich._upsert_annotation(
+                team,
+                table,
+                "amount",
+                "AI generated description",
+                WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED,
+            )
+
+        annotation = _annotations(team, table)["amount"]
+        assert annotation.description == "user wrote this just before the write"
         assert annotation.description_source == WarehouseColumnAnnotation.DescriptionSource.USER_EDITED
 
     def test_upsert_updates_existing_non_user_edited_annotation(self):

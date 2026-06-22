@@ -577,17 +577,13 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             database.get_posthog_table_names,
         ]
 
-        table_found = False
-        all_tables: list[str] = []
+        # The database is built per-user, so these getters already return only the tables this user may read.
+        accessible_tables: set[str] = set()
         for get_tables in table_sources:
-            tables = get_tables()
-            if table_name in tables:
-                table_found = True
-                break
-            all_tables.extend(tables)
+            accessible_tables.update(get_tables())
 
-        if not table_found:
-            available = ", ".join(sorted(all_tables)[:20])
+        if table_name not in accessible_tables:
+            available = ", ".join(sorted(accessible_tables)[:20])
             return f"Table `{table_name}` not found. Available tables include: {available}..."
 
         serialized = database.serialize(hogql_context, include_only={table_name})
@@ -614,17 +610,24 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         foreign_keys = semantics.get("foreign_keys")
         if foreign_keys:
-            lines.append("")
-            lines.append("Foreign keys (use these to join related tables):")
+            fk_lines: list[str] = []
             for fk in foreign_keys:
                 if not (fk.get("column") and fk.get("target_table") and fk.get("target_column")):
+                    continue
+                # Don't leak the name of a table this user can't read: a FK target the user is denied
+                # is filtered out, mirroring the object-level access check on the source table itself.
+                if fk["target_table"] not in accessible_tables:
                     continue
                 # FK identifiers come from the source DB and are untrusted (see _sanitize_semantic_text):
                 # a quoted identifier could carry newlines or instruction-like text. Sanitize before rendering.
                 column = _sanitize_semantic_text(fk["column"])
                 target_table = _sanitize_semantic_text(fk["target_table"])
                 target_column = _sanitize_semantic_text(fk["target_column"])
-                lines.append(f"- {column} → {target_table}.{target_column}")
+                fk_lines.append(f"- {column} → {target_table}.{target_column}")
+            if fk_lines:
+                lines.append("")
+                lines.append("Foreign keys (use these to join related tables):")
+                lines.extend(fk_lines)
 
         if semantics.get("description") or column_descriptions:
             lines.append("")
