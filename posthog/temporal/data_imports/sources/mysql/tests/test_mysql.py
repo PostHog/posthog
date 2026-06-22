@@ -21,7 +21,9 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     _build_query,
     _is_bad_plan_error,
     _is_transient_connect_drop,
+    _is_transient_tablet_unavailable,
     _release_streaming_cursor,
+    _retry_on_transient_tablet_unavailable,
     _safe_convert_date,
     _safe_convert_datetime,
     _sanitize_identifier,
@@ -930,6 +932,89 @@ class TestConnectTransientRetry:
                 pass
 
         assert mock_connect.call_count == 1
+        sleep.assert_not_called()
+
+
+class TestIsTransientTabletUnavailable:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # The shape Vitess/PlanetScale vtgate surfaces when a backend tablet is briefly
+            # unreachable (failover/restart) — the target keyspace, host, and port vary, the
+            # `code = Unavailable` gRPC token is the stable signal.
+            "unknown: target: keyspace.-.primary: vttablet: rpc error: code = Unavailable "
+            'desc = connection error: desc = "transport: Error while dialing: dial tcp '
+            '0.0.0.0:0: connect: connection refused"',
+            "vttablet: rpc error: code = Unavailable desc = node is shutting down",
+        ],
+    )
+    def test_matches_grpc_unavailable(self, message):
+        assert _is_transient_tablet_unavailable(pymysql.err.OperationalError(1105, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # Other gRPC statuses ride the same 1105 ER_UNKNOWN_ERROR catch-all but are not the
+            # transient "tablet briefly down" class, so they must not be absorbed here.
+            (1105, "vttablet: rpc error: code = InvalidArgument desc = some bad request"),
+            (1105, "vttablet: rpc error: code = ResourceExhausted desc = grpc: trying to send too large"),
+            # Config/credential errors stay untouched.
+            (1045, "Access denied for user"),
+            (2003, "Can't connect to MySQL server on 'db.example.com'"),
+        ],
+    )
+    def test_does_not_match_non_unavailable_errors(self, code, message):
+        assert not _is_transient_tablet_unavailable(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_tablet_unavailable(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_tablet_unavailable(ValueError("code = Unavailable"))
+
+
+class TestRetryOnTransientTabletUnavailable:
+    @staticmethod
+    def _unavailable() -> pymysql.err.OperationalError:
+        return pymysql.err.OperationalError(
+            1105,
+            "unknown: target: keyspace.-.primary: vttablet: rpc error: code = Unavailable "
+            'desc = connection error: desc = "transport: Error while dialing: connect: connection refused"',
+        )
+
+    @pytest.mark.parametrize(
+        "fail_count,expected_sleeps",
+        [
+            (1, [2]),
+            (3, [2, 4, 6]),
+        ],
+    )
+    def test_retries_then_succeeds(self, mocker, fail_count, expected_sleeps):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        operation = MagicMock(side_effect=[self._unavailable()] * fail_count + ["ok"])
+
+        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
+
+        assert operation.call_count == fail_count + 1
+        assert [c.args[0] for c in sleep.call_args_list] == expected_sleeps
+
+    def test_gives_up_after_max_attempts(self, mocker):
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        operation = MagicMock(side_effect=self._unavailable())
+
+        with pytest.raises(pymysql.err.OperationalError):
+            _retry_on_transient_tablet_unavailable(operation, MagicMock())
+
+        assert operation.call_count == _MAX_CONNECT_ATTEMPTS
+
+    def test_does_not_retry_non_transient_error(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        operation = MagicMock(side_effect=pymysql.err.OperationalError(1045, "Access denied for user"))
+
+        with pytest.raises(pymysql.err.OperationalError):
+            _retry_on_transient_tablet_unavailable(operation, MagicMock())
+
+        assert operation.call_count == 1
         sleep.assert_not_called()
 
 
