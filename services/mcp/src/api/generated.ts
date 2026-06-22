@@ -23365,6 +23365,17 @@ export namespace Schemas {
       notes: string[];
     }
 
+    export interface GoogleSearchConsoleSite {
+      /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
+      siteUrl: string;
+      /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
+      permissionLevel: string;
+    }
+
+    export interface GoogleSearchConsoleSitesResponse {
+      sites: GoogleSearchConsoleSite[];
+    }
+
     /**
      * * `line` - line
      * * `symbol` - symbol
@@ -45043,6 +45054,47 @@ export namespace Schemas {
       source_id: string;
       /** The inbox report this finding linked to, or null if none could be resolved. */
       report: LinkedSignalReport | null;
+    }
+
+    /**
+     * A team's enforced scout run caps and current usage.
+     *
+     * These are the values the coordinator actually applies at dispatch (resolved per-team override →
+     * fleet-wide default → code constant), so the UI can show the real throttle rather than what a
+     * user thinks they configured.
+     */
+    export interface ScoutLimits {
+      /** Most scout runs the team can start in a single 30-minute coordinator tick. */
+      max_runs_per_tick: number;
+      /**
+         * Most scout runs the team can start per rolling 24 hours, or null when uncapped.
+         * @nullable
+         */
+      max_runs_per_day: number | null;
+      /** Scout runs the team has started in the trailing 24 hours. */
+      runs_today: number;
+      /**
+         * Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.
+         * @nullable
+         */
+      runs_remaining_today: number | null;
+    }
+
+    /**
+     * Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
+     * the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
+     * change without a deploy to either app.
+     */
+    export interface ScoutMetadata {
+      /** Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist). */
+      enrolled: boolean;
+      /**
+         * Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.
+         * @nullable
+         */
+      banner_message: string | null;
+      /** The team's enforced scout run caps and current usage. */
+      limits: ScoutLimits;
     }
 
     /**
