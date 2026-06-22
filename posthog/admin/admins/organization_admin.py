@@ -12,6 +12,7 @@ from django.utils.html import format_html
 from django.utils.module_loading import import_string
 from django.utils.safestring import mark_safe
 
+from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
@@ -19,8 +20,6 @@ from posthog.admin.inlines.project_inline import ProjectInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
-
-from products.legal_documents.backend.admin import LegalDocumentInline
 
 # Registry of models to count for bulk-delete report.
 # Format: (model_import_path, filter_field, display_name)
@@ -178,7 +177,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         OrganizationMemberInline,
         OrganizationInviteInline,
         OrganizationDomainInline,
-        LegalDocumentInline,
     ]
     readonly_fields = [
         "id",
@@ -206,6 +204,11 @@ class OrganizationAdmin(admin.ModelAdmin):
         "id",
         "name",
     )
+
+    def get_inlines(self, request, obj=None):
+        # Inlines other apps registered for Organization, so a product can show a panel on
+        # this page without core importing it. See posthog.admin.inline_registry.
+        return [*super().get_inlines(request, obj), *extra_inlines_for(Organization)]
 
     def members_count(self, organization: Organization):
         return organization.members.count()
