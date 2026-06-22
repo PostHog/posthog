@@ -78,24 +78,34 @@ def _strip_null_padding(raw: bytes) -> bytes:
     return raw[start:end]
 
 
+def _block_to_text(name: str, raw: bytes, snappy_decompress: Callable[[bytes], bytes]) -> str | None:
+    block = _strip_null_padding(raw)
+    if not block:
+        return None
+    try:
+        return snappy_decompress(block).decode("utf-8", "replace")
+    except Exception as err:  # noqa: BLE001 — a single bad block shouldn't abort the run
+        print(f"  ! skipped block {name}: {err}", file=sys.stderr)
+        return None
+
+
 def iter_block_text(source: Path, snappy_decompress: Callable[[bytes], bytes]) -> Iterator[str]:
-    """Yield the snappy-decompressed UTF-8 text of every data block in the export."""
+    """Yield the snappy-decompressed UTF-8 text of every data block, one block in memory at a time."""
     if source.is_dir():
         block_paths = sorted((source / "data").glob("*")) if (source / "data").is_dir() else sorted(source.glob("*"))
-        readers = [(p.name, p.read_bytes) for p in block_paths if p.is_file()]
+        for path in block_paths:
+            if path.is_file():
+                text = _block_to_text(path.name, path.read_bytes(), snappy_decompress)
+                if text is not None:
+                    yield text
     else:
+        # keep a single zip handle open for the whole iteration; read+decode one block at a time
         with zipfile.ZipFile(source) as zf:
-            names = [n for n in zf.namelist() if n.startswith("data/") and not n.endswith("/")]
-            readers = [(n, (lambda n=n: zipfile.ZipFile(source).read(n))) for n in names]
-
-    for name, read in readers:
-        block = _strip_null_padding(read())
-        if not block:
-            continue
-        try:
-            yield snappy_decompress(block).decode("utf-8", "replace")
-        except Exception as err:  # noqa: BLE001 — a single bad block shouldn't abort the run
-            print(f"  ! skipped block {name}: {err}", file=sys.stderr)
+            for name in zf.namelist():
+                if name.startswith("data/") and not name.endswith("/"):
+                    text = _block_to_text(name, zf.read(name), snappy_decompress)
+                    if text is not None:
+                        yield text
 
 
 def iter_records(block_text: str) -> Iterator[dict]:
