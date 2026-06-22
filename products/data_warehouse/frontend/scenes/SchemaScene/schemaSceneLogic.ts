@@ -134,6 +134,13 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 refreshSchemas: () => true,
             },
         ],
+        resyncingSchema: [
+            false as boolean,
+            {
+                resyncSchema: () => true,
+                loadSchema: () => false,
+            },
+        ],
     })),
     selectors({
         schema: [(s) => [s.schemaData], (schemaData): ExternalDataSourceSchema | null => schemaData],
@@ -224,8 +231,9 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             try {
                 await api.externalDataSchemas.resync(schema.id)
                 posthog.capture('schema resynced', { sourceType: values.source?.source_type })
+                lemonToast.success(`Resync started for ${schema.label ?? schema.name}`)
             } catch (e: any) {
-                lemonToast.error(e?.message || 'Cant refresh schema at this time')
+                lemonToast.error(e?.message || "Couldn't start resync")
             } finally {
                 actions.loadSchema()
             }
