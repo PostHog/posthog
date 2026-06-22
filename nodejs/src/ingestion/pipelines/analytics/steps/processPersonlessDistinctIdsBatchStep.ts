@@ -2,14 +2,13 @@ import {
     buildFlagCalledPersonlessMatcher,
     isFlagCalledPersonlessCandidate,
 } from '~/ingestion/common/flag-called-personless'
-import { DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS } from '~/ingestion/config'
-
 import {
     hasInsertedPersonlessDistinctId,
     markPersonlessDistinctIdInserted,
     personlessDistinctIdCacheOperationsCounter,
 } from '~/ingestion/common/persons/personless-distinct-id-cache'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
+import { DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS } from '~/ingestion/config'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PipelineEvent, Team } from '~/types'
 
