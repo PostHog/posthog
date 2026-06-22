@@ -18,7 +18,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.schema import ProductKey
 
-from posthog.api.capture_dispatch import CaptureRoutedError, capture_internal_routed
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import extend_schema
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -325,7 +325,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             "$group_set": group_properties or group.group_properties,
         }
         try:
-            result = capture_internal_routed(
+            result = capture_internal(
                 token=self.team.api_token,
                 event_name="$groupidentify",
                 event_source="ee_ch_views_groups",
@@ -335,7 +335,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 process_person_profile=False,
             )
             result.raise_for_status()
-        except CaptureRoutedError as error:
+        except CaptureInternalError as error:
             raise TriggerGroupIdentifyException(
                 exception_data={
                     "code": f"Failed to submit {operation} event.",
@@ -683,7 +683,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             }
 
             try:
-                routed_result = capture_internal_routed(
+                routed_result = capture_internal(
                     token=self.team.api_token,
                     event_name=event_name,
                     event_source="ee_ch_views_groups",
@@ -694,7 +694,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 )
                 routed_result.raise_for_status()
 
-            except CaptureRoutedError as e:
+            except CaptureInternalError as e:
                 return response.Response(
                     {
                         "attr": "$unset",

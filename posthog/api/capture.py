@@ -1,255 +1,562 @@
-from concurrent.futures import Future, ThreadPoolExecutor
+"""capture_internal — batch-native client for the v1 analytics capture endpoint.
+
+Targets ``/i/v1/analytics/events`` (capture-rs v1).  Analytics events only;
+replay event names are rejected client-side.  Typed ``event.options`` replaces
+the legacy property-stuffing pattern, and legacy ``$``-keys are defensively
+stripped so capture-rs's blind property splicing never produces duplicate keys.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Optional
+from uuid import uuid4
 
 import structlog
 from prometheus_client import Counter
-from requests import Response
 from requests.adapters import HTTPAdapter, Retry
 from requests.exceptions import RequestException
 
-from posthog.logging.timing import timed
 from posthog.security.outbound_proxy import internal_requests_session
 from posthog.settings.ingestion import (
-    CAPTURE_INTERNAL_MAX_WORKERS,
     CAPTURE_INTERNAL_URL,
-    CAPTURE_REPLAY_INTERNAL_URL,
-    NEW_ANALYTICS_CAPTURE_ENDPOINT,
-    REPLAY_CAPTURE_ENDPOINT,
+    CAPTURE_V1_INTERNAL_ENDPOINT,
+    CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
+    CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS,
 )
 
 logger = structlog.get_logger(__name__)
 
-# These event names are reserved for internal use and refer to non-analytics
-# events that are ingested via a separate path than analytics events. They have
-# fewer restrictions on e.g. the order they need to be processed in.
+# --------------------------------------------------------------------------- #
+# Replay event names — shared constant for client-side rejection
+# --------------------------------------------------------------------------- #
+
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event", *SESSION_RECORDING_DEDICATED_KAFKA_EVENTS)
 
-# let's track who is using this to detect new (ab)usive call sites quickly
-CAPTURE_INTERNAL_EVENT_SUBMITTED_COUNTER = Counter(
-    "capture_internal_event_submitted",
-    "Events received by capture_internal, tagged by source.",
-    labelnames=["event_source"],  # which internal codepath submitted this event
+# --------------------------------------------------------------------------- #
+# Constants
+# --------------------------------------------------------------------------- #
+
+SDK_INFO = "posthog-capture-v1-internal/1.0"
+
+# v1 Options struct fields and their legacy property counterparts.
+_OPTIONS_TO_LEGACY_PROPERTY: dict[str, str] = {
+    "cookieless_mode": "$cookieless_mode",
+    "disable_skew_correction": "$ignore_sent_at",
+    "product_tour_id": "$product_tour_id",
+    "process_person_profile": "$process_person_profile",
+}
+_VALID_OPTION_KEYS = frozenset(_OPTIONS_TO_LEGACY_PROPERTY.keys())
+
+# Extra legacy aliases that must also be stripped from properties.
+_EXTRA_LEGACY_ALIASES: dict[str, str] = {
+    "disable_skew_correction": "disable_skew_adjustment",
+}
+
+_KNOWN_RESULT_STATUSES = frozenset({"ok", "drop", "warning", "retry"})
+
+# --------------------------------------------------------------------------- #
+# Metrics
+# --------------------------------------------------------------------------- #
+
+CAPTURE_V1_BATCH_SUBMITTED = Counter(
+    "capture_v1_internal_batch_submitted",
+    "Batch submissions to capture v1 endpoint.",
+    labelnames=["event_source"],
 )
-CAPTURE_INTERNAL_REQUEST_FAILED = Counter(
-    "capture_internal_request_failed",
-    "Failures from legacy capture_internal, tagged by source and status.",
+CAPTURE_V1_EVENT_SUBMITTED = Counter(
+    "capture_v1_internal_event_submitted",
+    "Individual events submitted to capture v1 endpoint.",
+    labelnames=["event_source"],
+)
+CAPTURE_V1_EVENT_RESULT = Counter(
+    "capture_v1_internal_event_result",
+    "Per-event result status from capture v1 endpoint.",
+    labelnames=["event_source", "result"],
+)
+CAPTURE_V1_REQUEST_FAILED = Counter(
+    "capture_v1_internal_request_failed",
+    "Whole-request failures from capture v1 endpoint.",
     labelnames=["event_source", "status_code"],
 )
+CAPTURE_V1_RESUBMIT = Counter(
+    "capture_v1_internal_resubmit",
+    "Resubmit rounds triggered by retry results.",
+    labelnames=["event_source"],
+)
+CAPTURE_V1_OPTION_CONFLICT = Counter(
+    "capture_v1_internal_option_conflict",
+    "Typed option input disagreed with a legacy property; explicit won.",
+    labelnames=["event_source", "field"],
+)
+
+# --------------------------------------------------------------------------- #
+# Errors & result type
+# --------------------------------------------------------------------------- #
 
 
 class CaptureInternalError(Exception):
-    pass
+    """Raised on client-side validation failures or transport/HTTP errors.
+
+    Carries a ``.status_code`` (the HTTP status from capture-rs, or 0 for
+    client-side / transport errors) so callers can propagate it into their
+    own HTTP responses.
+    """
+
+    def __init__(self, message: str, *, status_code: int = 0) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
-@timed("capture_internal_event_submission")
-def capture_internal(
-    *,  # only keyword args for clarity
-    token: str,
-    event_name: str,
+@dataclass
+class CaptureInternalResult:
+    """Aggregated outcome of a (possibly multi-round) v1 batch submission."""
+
+    status_code: int
+    results: dict[str, dict[str, Any]] = field(default_factory=dict)
+    error: Optional[dict[str, Any]] = None
+
+    ok: list[str] = field(default_factory=list)
+    dropped: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    retried: list[str] = field(default_factory=list)
+    unaccounted: list[str] = field(default_factory=list)
+
+    def succeeded(self) -> bool:
+        return self.error is None and not self.dropped and not self.retried and not self.unaccounted
+
+    def terminal_failures(self) -> dict[str, dict[str, Any]]:
+        return {
+            uid: self.results[uid] for uid in (*self.dropped, *self.retried, *self.unaccounted) if uid in self.results
+        }
+
+    def raise_for_status(self) -> None:
+        if self.error:
+            raise CaptureInternalError(
+                f"capture internal whole-request failure ({self.status_code}): "
+                f"{self.error.get('error', 'unknown')}: {self.error.get('error_description', '')}",
+                status_code=self.status_code,
+            )
+        failures = len(self.dropped) + len(self.retried) + len(self.unaccounted)
+        if failures:
+            raise CaptureInternalError(
+                f"capture internal partial failure: {len(self.dropped)} dropped, "
+                f"{len(self.retried)} exhausted retries, {len(self.unaccounted)} unaccounted",
+                status_code=0,
+            )
+
+
+# --------------------------------------------------------------------------- #
+# Header builder — single chokepoint for every physical POST
+# --------------------------------------------------------------------------- #
+
+
+def _build_v1_headers(token: str, attempt: int) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "User-Agent": SDK_INFO,
+        "PostHog-Sdk-Info": SDK_INFO,
+        "PostHog-Attempt": str(attempt),
+        "PostHog-Request-Id": str(uuid4()),
+        "PostHog-Request-Timestamp": datetime.now(UTC).isoformat(),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Options / properties normalizer
+# --------------------------------------------------------------------------- #
+
+
+def _resolve_scalar(
+    explicit: Any,
+    legacy: Any,
+    *,
+    field: str,
     event_source: str,
-    distinct_id: str,
-    timestamp: Optional[datetime | str],
-    properties: dict[str, Any],
-    sent_at: Optional[datetime | str] = None,
-    process_person_profile: bool = False,
-    event_uuid: Optional[str] = None,
-) -> Response:
+) -> Any:
+    """Return *explicit* if set, else *legacy*; log + count when both are set and disagree."""
+    if explicit is not None:
+        if legacy is not None and legacy != explicit:
+            logger.warning(
+                "capture_internal option conflict",
+                event_source=event_source,
+                field=field,
+                explicit=explicit,
+                legacy=legacy,
+            )
+            CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field=field).inc()
+        return explicit
+    return legacy
+
+
+def _normalize_options_and_properties(
+    event_dict: dict[str, Any],
+    *,
+    process_person_profile: bool,
+    event_source: str,
+) -> tuple[dict[str, Any], Optional[str], Optional[str], dict[str, Any]]:
+    """Separate typed ``options``/fields from free-form ``properties``.
+
+    Returns ``(options_dict, session_id, window_id, cleaned_properties)``.
+    The caller's dicts are never mutated.
     """
-    capture_internal submits a single-event capture request payload to the capture-rs backend service.
-    This is the preferred method for publishing events from the Django app on behalf of non-PostHog admin
-    teams/projects. PLEASE DO NOT write events directly to ingestion Kafka topics - USE THIS!
+    raw_options: dict[str, Any] = event_dict.get("options") or {}
+    props: dict[str, Any] = dict(event_dict.get("properties") or {})
 
-    Args:
-        token: API token to submit the event on behalf of (required)
-        event_name: the name of the event to be published (required)
-        event_source: observability tag indicating the internal module/codepath submitting the event (required)
-        distinct_id: the distict ID of the event (optional; required in properties if absent)
-        timestamp: the timestamp of the event to be published (optional; will be set to now UTC if absent)
-        properties: event properties to submit with the event (required; can be empty)
-        sent_at: time the client submitted this event (optional; typically, let capture_internal set this)
-        process_person_profile: if TRUE, process the person profile for the event according to the caller's settings.
-                                if FALSE, disable person processing for this event.
-        event_uuid: optional deterministic UUID to assign to the event (default: capture-rs assigns a fresh UUIDv7).
-                    Use this when the caller needs a stable, queryable event UUID — e.g. to link back to the event
-                    from an admin UI. Must be a parseable UUID string.
+    unknown = set(raw_options.keys()) - _VALID_OPTION_KEYS
+    if unknown:
+        raise CaptureInternalError(f"capture_internal ({event_source}): unknown option key(s): {sorted(unknown)}")
 
-    Returns:
-        Response object, the result of POSTing the event payload to the capture-rs backend service.
+    options: dict[str, Any] = {}
 
-    Throws:
-        HTTPError if the request fails.
-        CaptureInternalError if the inputs to capture_internal are malformed or missing required values.
-    """
-    logger.debug(
-        "capture_internal",
-        token=token,
-        distinct_id=distinct_id,
-        event_name=event_name,
+    for opt_key, legacy_prop in _OPTIONS_TO_LEGACY_PROPERTY.items():
+        explicit = raw_options.get(opt_key)
+        legacy = props.pop(legacy_prop, None)
+
+        alias = _EXTRA_LEGACY_ALIASES.get(opt_key)
+        if alias:
+            alias_val = props.pop(alias, None)
+            if legacy is None:
+                legacy = alias_val
+
+        resolved = _resolve_scalar(explicit, legacy, field=opt_key, event_source=event_source)
+        if resolved is not None:
+            options[opt_key] = resolved
+
+    session_id: Optional[str] = _resolve_scalar(
+        event_dict.get("session_id"),
+        props.pop("$session_id", None),
+        field="session_id",
+        event_source=event_source,
+    )
+    window_id: Optional[str] = _resolve_scalar(
+        event_dict.get("window_id"),
+        props.pop("$window_id", None),
+        field="window_id",
         event_source=event_source,
     )
 
-    event_payload = prepare_capture_internal_payload(
-        token,
-        event_name,
-        event_source,
-        distinct_id,
-        timestamp,
-        properties,
-        sent_at,
-        process_person_profile,
-        event_uuid,
-    )
+    # Function-level override: when the caller says no person processing,
+    # force it even if the event-level option disagrees (but log the conflict).
+    if not process_person_profile:
+        existing = options.get("process_person_profile")
+        if existing is not None and existing is not False:
+            logger.warning(
+                "capture_internal option conflict",
+                event_source=event_source,
+                field="process_person_profile",
+                explicit=f"function_param={process_person_profile}",
+                legacy=existing,
+            )
+            CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field="process_person_profile").inc()
+        options["process_person_profile"] = False
 
-    # determine if this is a recordings or events type, route to correct capture endpoint
-    resolved_capture_url = f"{CAPTURE_INTERNAL_URL}{NEW_ANALYTICS_CAPTURE_ENDPOINT}"
-    if event_name in SESSION_RECORDING_EVENT_NAMES:
-        resolved_capture_url = f"{CAPTURE_REPLAY_INTERNAL_URL}{REPLAY_CAPTURE_ENDPOINT}"
+    return options, session_id, window_id, props
 
-    with internal_requests_session() as s:
-        s.mount(
-            resolved_capture_url,
-            HTTPAdapter(
-                max_retries=Retry(
-                    total=3, backoff_factor=0.1, status_forcelist=[500, 502, 503, 504], allowed_methods={"POST"}
-                )
-            ),
+
+# --------------------------------------------------------------------------- #
+# Payload builder
+# --------------------------------------------------------------------------- #
+
+
+def prepare_capture_internal_batch(
+    events: list[dict[str, Any]],
+    *,
+    token: str,
+    event_source: str,
+    historical_migration: bool = False,
+    process_person_profile: bool = False,
+) -> tuple[dict[str, Any], list[str]]:
+    """Build a v1 batch envelope from caller-supplied event dicts.
+
+    Returns ``(payload, ordered_uuids)`` so callers can correlate the
+    results map.
+    """
+    if not token:
+        raise CaptureInternalError(f"capture_internal ({event_source}): API token is required")
+    if not events:
+        raise CaptureInternalError(f"capture_internal ({event_source}): at least one event is required")
+
+    batch: list[dict[str, Any]] = []
+    uuids: list[str] = []
+
+    for ev in events:
+        event_name: str = ev.get("event", "")
+        if not event_name:
+            raise CaptureInternalError(f"capture_internal ({event_source}): event name is required")
+
+        if event_name in SESSION_RECORDING_EVENT_NAMES:
+            raise CaptureInternalError(
+                f"capture_internal ({event_source}): '{event_name}' is a replay event; use the replay capture path"
+            )
+
+        distinct_id: str = ev.get("distinct_id", "")
+        if not distinct_id:
+            props = ev.get("properties") or {}
+            distinct_id = props.get("distinct_id", "")
+        if not distinct_id:
+            raise CaptureInternalError(f"capture_internal ({event_source}, {event_name}): distinct_id is required")
+
+        event_uuid: str = ev.get("event_uuid") or ev.get("uuid") or str(uuid4())
+        uuids.append(event_uuid)
+
+        raw_ts: Any = ev.get("timestamp", "")
+        if not raw_ts:
+            timestamp_str = datetime.now(UTC).isoformat()
+        elif isinstance(raw_ts, datetime):
+            if raw_ts.tzinfo is None:
+                raw_ts = raw_ts.replace(tzinfo=UTC)
+            timestamp_str = raw_ts.astimezone(UTC).isoformat()
+        else:
+            timestamp_str = str(raw_ts)
+
+        options, session_id, window_id, cleaned_props = _normalize_options_and_properties(
+            ev, process_person_profile=process_person_profile, event_source=event_source
         )
 
-        CAPTURE_INTERNAL_EVENT_SUBMITTED_COUNTER.labels(event_source=event_source).inc()
-        try:
-            resp = s.post(
-                resolved_capture_url,
-                json=event_payload,
-                timeout=2,
-            )
-        except RequestException:
-            CAPTURE_INTERNAL_REQUEST_FAILED.labels(event_source=event_source, status_code="transport").inc()
-            raise
+        entry: dict[str, Any] = {
+            "event": event_name,
+            "uuid": event_uuid,
+            "distinct_id": distinct_id,
+            "timestamp": timestamp_str,
+            "properties": cleaned_props,
+        }
+        if session_id is not None:
+            entry["session_id"] = session_id
+        if window_id is not None:
+            entry["window_id"] = window_id
+        if options:
+            entry["options"] = options
 
-        if resp.status_code >= 400:
-            CAPTURE_INTERNAL_REQUEST_FAILED.labels(event_source=event_source, status_code=str(resp.status_code)).inc()
+        batch.append(entry)
 
-        return resp
+    payload: dict[str, Any] = {
+        "created_at": datetime.now(UTC).isoformat(),
+        "capture_internal": True,
+        "historical_migration": historical_migration,
+        "batch": batch,
+    }
+    return payload, uuids
+
+
+# --------------------------------------------------------------------------- #
+# Primary API
+# --------------------------------------------------------------------------- #
 
 
 def capture_batch_internal(
     *,
     events: list[dict[str, Any]],
-    event_source: str,
     token: str,
+    event_source: str,
+    historical_migration: bool = False,
     process_person_profile: bool = False,
-) -> list[Future]:
-    """
-    capture_batch_internal submits multiple capture request payloads to
-    PostHog (capture-rs backend) concurrently. capture_batch_internal does
-    not submit single requests to the capture /batch/ endpoint, so historical
-    event submission is not supported.
+    max_attempts: int = CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
+    timeout: float = 2,
+) -> CaptureInternalResult:
+    """Submit a batch of events to the v1 analytics capture endpoint.
 
-    Args:
-        events: List of event payloads to capture. Each payload MUST include
-                well-formed distinct_id, timestamp, and (possibly empty) properties dict
-        event_source: observability tag indicating the internal module/codepath submitting the event (required)
-        token: API token to submit events in this batch on behalf of (required; overrides individual event tokens)
-        process_person_profile: if TRUE, process the person profile for each event according to it's properties or team config
-                                if FALSE, disable person processing for all events in the batch (default: FALSE)
-
-    Returns:
-        List of Future objects that the caller can resolve to Response objects or thrown Exceptions
+    Transport-level retries on 5xx are handled by urllib3 (hardcoded at 3,
+    matching v0).  ``max_attempts`` caps application-level resubmit rounds
+    for per-event ``retry`` results.
     """
-    logger.debug(
-        "capture_batch_internal",
-        event_count=len(events),
-        event_source=event_source,
+    payload, uuids = prepare_capture_internal_batch(
+        events,
         token=token,
+        event_source=event_source,
+        historical_migration=historical_migration,
         process_person_profile=process_person_profile,
     )
 
-    futures: list[Future] = []
+    url = f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}"
 
-    with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
-        # Note:
-        # 1. token should be supplied by caller, and be consistent per batch submitted.
-        #    new capture_internal will attempt to extract from each event if missing
-        # 2. distinct_id should be present on each event since these can differ within a batch
-        sent_at: datetime = datetime.now(UTC)  # should be same for whole batch
-        for event in events:
-            properties: dict[str, Any] = event.get("properties", {})
-            distinct_id: str = event.get("distinct_id", "")
-            timestamp: str = event.get("timestamp", properties.get("timestamp", ""))
+    CAPTURE_V1_BATCH_SUBMITTED.labels(event_source=event_source).inc()
+    CAPTURE_V1_EVENT_SUBMITTED.labels(event_source=event_source).inc(len(uuids))
 
-            future = executor.submit(
-                capture_internal,
-                token=token,
-                event_name=event.get("event", ""),
-                event_source=event_source,
-                distinct_id=distinct_id,
-                timestamp=timestamp,
-                properties=properties,
-                sent_at=sent_at,
-                process_person_profile=process_person_profile,
-            )
-            futures.append(future)
+    # Build the index of uuid→event so we can resubmit subsets.
+    uuid_to_event: dict[str, dict[str, Any]] = {}
+    for uid, entry in zip(uuids, payload["batch"]):
+        uuid_to_event[uid] = entry
 
-    return futures
+    # Aggregate terminal outcomes across rounds.
+    aggregated: dict[str, dict[str, Any]] = {}
+    attempt = 1
+    pending_batch = payload["batch"]
+
+    with internal_requests_session() as session:
+        session.mount(
+            url,
+            HTTPAdapter(
+                max_retries=Retry(
+                    total=3,
+                    backoff_factor=0.1,
+                    status_forcelist=[500, 502, 503, 504],
+                    allowed_methods={"POST"},
+                )
+            ),
+        )
+
+        while True:
+            headers = _build_v1_headers(token, attempt)
+            submit_payload: dict[str, Any] = {
+                "created_at": payload["created_at"],
+                "capture_internal": payload["capture_internal"],
+                "historical_migration": payload["historical_migration"],
+                "batch": pending_batch,
+            }
+
+            try:
+                resp = session.post(url, json=submit_payload, headers=headers, timeout=timeout)
+            except RequestException as exc:
+                CAPTURE_V1_REQUEST_FAILED.labels(event_source=event_source, status_code="transport").inc()
+                return CaptureInternalResult(
+                    status_code=0,
+                    error={"error": "transport_error", "error_description": str(exc)},
+                )
+
+            if resp.status_code != 200:
+                CAPTURE_V1_REQUEST_FAILED.labels(
+                    event_source=event_source,
+                    status_code=str(resp.status_code),
+                ).inc()
+                try:
+                    error_body = resp.json()
+                except Exception:
+                    error_body = {
+                        "error": "unknown",
+                        "error_description": resp.text[:500] if resp.text else "",
+                    }
+                return CaptureInternalResult(
+                    status_code=resp.status_code,
+                    error=error_body,
+                )
+
+            # --- 200: parse per-event results ---
+            try:
+                body = resp.json()
+            except Exception:
+                return CaptureInternalResult(
+                    status_code=resp.status_code,
+                    error={"error": "invalid_json", "error_description": "could not parse 200 body"},
+                )
+
+            results_map: dict[str, Any] = body.get("results", {})
+
+            retry_uuids: list[str] = []
+            for uid in list(uuid_to_event.keys()):
+                if uid in aggregated:
+                    continue
+                entry = results_map.get(uid)
+                if entry is None:
+                    continue
+                clamped = entry.get("result", "ok")
+                if clamped not in _KNOWN_RESULT_STATUSES:
+                    clamped = "unknown"
+                CAPTURE_V1_EVENT_RESULT.labels(event_source=event_source, result=clamped).inc()
+                if entry.get("result") == "retry":
+                    retry_uuids.append(uid)
+                else:
+                    aggregated[uid] = entry
+
+            if not retry_uuids or attempt >= max_attempts:
+                for uid in retry_uuids:
+                    entry = results_map.get(uid, {"result": "retry"})
+                    aggregated[uid] = entry
+                break
+
+            # --- resubmit retry-uuids ---
+            CAPTURE_V1_RESUBMIT.labels(event_source=event_source).inc()
+            retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
+            if retry_after > 0:
+                time.sleep(retry_after)
+
+            pending_batch = [uuid_to_event[uid] for uid in retry_uuids]
+            attempt += 1
+
+    # Sweep for uuids never acknowledged by capture-rs.
+    for uid in uuid_to_event:
+        if uid not in aggregated:
+            aggregated[uid] = {"result": "unaccounted"}
+
+    result = CaptureInternalResult(status_code=200, results=aggregated)
+    for uid, entry in aggregated.items():
+        status = entry.get("result", "ok")
+        if status == "ok":
+            result.ok.append(uid)
+        elif status == "drop":
+            result.dropped.append(uid)
+        elif status == "warning":
+            result.warnings.append(uid)
+        elif status == "retry":
+            result.retried.append(uid)
+        else:
+            result.unaccounted.append(uid)
+
+    return result
 
 
-# prep payload for new capture_internal to POST to capture-rs
-def prepare_capture_internal_payload(
+def _parse_retry_after(header_value: Optional[str]) -> float:
+    """Parse Retry-After header, capped to the configured maximum."""
+    if not header_value:
+        return 0.0
+    try:
+        val = float(header_value)
+    except (ValueError, TypeError):
+        return 1.0
+    return min(max(val, 0), CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS)
+
+
+# --------------------------------------------------------------------------- #
+# Convenience single-event wrapper
+# --------------------------------------------------------------------------- #
+
+
+def capture_internal(
+    *,
     token: str,
     event_name: str,
     event_source: str,
-    distinct_id: Optional[str],
-    timestamp: Optional[datetime | str],
-    properties: dict[str, Any],
-    sent_at: Optional[datetime | str] = None,
-    process_person_profile: bool = False,
+    distinct_id: str,
+    timestamp: Optional[str | datetime] = None,
+    properties: Optional[dict[str, Any]] = None,
+    options: Optional[dict[str, Any]] = None,
+    session_id: Optional[str] = None,
+    window_id: Optional[str] = None,
     event_uuid: Optional[str] = None,
-) -> dict[str, Any]:
-    # mark event as internal for observability
-    properties["capture_internal"] = True
+    process_person_profile: bool = False,
+    historical_migration: bool = False,
+    timeout: float = 2,
+) -> CaptureInternalResult:
+    """Submit a single event to the v1 analytics capture endpoint.
 
-    # for back compatibility, if this is TRUE, we don't change the event
-    # so existing event (or team acct) settings for $process_person_profile
-    # will apply. If FALSE, we set the prop to explicitly force the issue.
-    # with FALSE as default, we avoid accidental internal uses that cause
-    # expensive person profile updates for no reason
-    if not process_person_profile:
-        properties["$process_person_profile"] = process_person_profile
-
-    # ensure args passed into capture_internal that
-    # override event attributes are well formed
-
-    if not token:
-        raise CaptureInternalError(f"capture_internal ({event_source}, {event_name}): API token is required")
-
-    if not distinct_id:
-        distinct_id = properties.get("distinct_id", None)
-    if not distinct_id:
-        raise CaptureInternalError(f"capture_internal ({event_source}, {event_name}): distinct ID is required")
-
-    if not event_name:
-        raise CaptureInternalError(f"capture_internal ({event_source}): event name is required")
-
-    # if the timestamp or sent_at fields are strings, assume they are well-formed ISO8601 stamps
-    if not sent_at:
-        sent_at = datetime.now(UTC).isoformat()
-    elif isinstance(sent_at, datetime):
-        sent_at = sent_at.replace(tzinfo=UTC).isoformat()
-    if not timestamp:
-        timestamp = datetime.now(UTC).isoformat()
-    elif isinstance(timestamp, datetime):
-        timestamp = timestamp.replace(tzinfo=UTC).isoformat()
-
-    payload: dict[str, Any] = {
-        "api_key": token,
-        "timestamp": timestamp,
-        "distinct_id": distinct_id,
-        "sent_at": sent_at,
+    Wraps the event into a 1-element batch and delegates to
+    :func:`capture_batch_internal`.
+    """
+    event_dict: dict[str, Any] = {
         "event": event_name,
-        "properties": properties,
+        "distinct_id": distinct_id,
+        "properties": properties or {},
     }
-    if event_uuid:
-        payload["uuid"] = event_uuid
-    return payload
+    if timestamp is not None:
+        event_dict["timestamp"] = timestamp
+    if options is not None:
+        event_dict["options"] = options
+    if session_id is not None:
+        event_dict["session_id"] = session_id
+    if window_id is not None:
+        event_dict["window_id"] = window_id
+    if event_uuid is not None:
+        event_dict["event_uuid"] = event_uuid
+
+    return capture_batch_internal(
+        events=[event_dict],
+        token=token,
+        event_source=event_source,
+        historical_migration=historical_migration,
+        process_person_profile=process_person_profile,
+        timeout=timeout,
+    )

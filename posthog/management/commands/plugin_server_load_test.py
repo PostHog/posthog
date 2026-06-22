@@ -112,22 +112,17 @@ class Command(BaseCommand):
                 }
             )
 
-        # as in "classic" capture_internal, ordered_events are submitted async
-        # returning a list of futures (previously ignored!) so final event
-        # ordering in the ingest topic is not guaranteed here
         start_time = time.monotonic()
-        results = capture_batch_internal(
+        result = capture_batch_internal(
             events=events,
             event_source="plugin_server_load_test",
             token=token,
-            process_person_profile=True,  # allow person profile processing to occur as cfg for this token (team/project)
+            process_person_profile=True,
         )
-        for future in results:
-            try:
-                result = future.result()
-                result.raise_for_status()
-            except Exception as e:
-                logger.exception("event_submission_fail", error=e)
+        try:
+            result.raise_for_status()
+        except Exception as e:
+            logger.exception("event_submission_fail", error=e)
 
         while True:
             offsets = admin.list_consumer_group_offsets(group_id="clickhouse-ingestion")
