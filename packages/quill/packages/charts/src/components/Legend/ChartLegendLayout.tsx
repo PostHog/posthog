@@ -28,17 +28,15 @@ export function ChartLegendLayout({
 }: ChartLegendLayoutProps): React.ReactElement {
     const isRow = position === 'left' || position === 'right'
     const legendFirst = position === 'top' || position === 'left'
-    // Bound the legend so a many-series legend scrolls instead of inflating the chart: a side legend
-    // caps at the chart's height and ~45% of its width; a top/bottom legend caps at ~40% height so the
-    // plot always keeps the majority. Needs the chart container to have a resolved cross-axis size.
-    // Inline (not Tailwind classes) because the consuming app doesn't scan this package for utilities.
-    const legendStyle: React.CSSProperties = isRow
-        ? { maxHeight: '100%', maxWidth: '45%', overflowY: 'auto' }
-        : { maxHeight: '40%', overflowY: 'auto' }
+    // Side legends stretch to the chart height — a % max-height no-ops without an explicit ancestor height,
+    // which top/bottom's max-h-[40%] still needs. `justify-center-safe` keeps short side legends centered
+    // yet scrollable (plain center would push the top rows past the scroll origin).
+    const legendClass = isRow
+        ? 'flex flex-col self-stretch max-w-[45%] overflow-y-auto justify-center-safe'
+        : 'max-h-[40%] overflow-y-auto'
+
     const legendSlot = legend ? (
-        <div className="flex-none shrink-0 min-h-0 min-w-0" style={legendStyle}>
-            {legend}
-        </div>
+        <div className={`flex-none shrink-0 min-h-0 min-w-0 ${legendClass}`}>{legend}</div>
     ) : null
     // `flex flex-col` so the inner chart's `flex: 1` resolves; `self-stretch` so the chart fills the cross axis regardless of `align` (which then only affects the legend).
     const chartSlot = <div className="flex flex-col flex-1 min-w-0 min-h-0 self-stretch">{children}</div>

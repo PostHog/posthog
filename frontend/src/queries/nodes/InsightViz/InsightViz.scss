@@ -202,10 +202,11 @@
     display: flex;
     flex: 1;
     flex-direction: column;
-    min-height: var(--insight-viz-min-height);
+    height: var(--insight-viz-min-height);
 
-    // Pin the height so an in-chart legend with many series scrolls within the plot area instead of
-    // stretching the chart taller (the legend's max-height caps resolve against this).
+    // Explicit height (not just min/max) so a top/bottom in-chart legend's max-height: 40% cap resolves —
+    // a flex-derived used size does not count, and without it the legend stretches the chart taller.
+    min-height: var(--insight-viz-min-height);
     max-height: var(--insight-viz-min-height);
     margin: 0.5rem;
 
@@ -213,6 +214,7 @@
     .InsightCard &,
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
+        height: auto;
         min-height: auto;
         max-height: none;
     }
@@ -221,6 +223,7 @@
     &--WorldMap,
     &--BoldNumber,
     &--Metric {
+        height: auto;
         min-height: auto;
         max-height: none;
         margin: 0;

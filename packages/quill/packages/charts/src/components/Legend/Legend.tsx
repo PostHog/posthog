@@ -22,10 +22,12 @@ export interface LegendProps {
     renderItem?: (defaultNode: React.ReactNode, item: LegendItem) => React.ReactNode
 }
 
-const ALIGN_CLASS = {
-    start: 'justify-start',
-    center: 'justify-center',
-    end: 'justify-end',
+// Position a horizontal legend via auto-margins on a fit-content box, not `justify-content`: rows keep a
+// shared left edge (so a wrapped legend is a clean grid, not ragged) while the block still honors `align`.
+const BLOCK_ALIGN_CLASS = {
+    start: 'mr-auto',
+    center: 'mx-auto',
+    end: 'ml-auto',
 } as const
 
 export function Legend({
@@ -42,9 +44,14 @@ export function Legend({
         return null
     }
     const hidden = hiddenKeys?.length ? new Set(hiddenKeys) : null
-    const layout = orientation === 'horizontal' ? 'flex-row flex-wrap gap-x-3 gap-y-1' : 'flex-col gap-1'
+    // Stack from the start edge (justify-start) so the legend scrolls cleanly when it overflows its slot;
+    // centering would push the leading rows past the scroll origin. Horizontal adds the fit-content box.
+    const layout =
+        orientation === 'horizontal'
+            ? `flex-row flex-wrap gap-x-3 gap-y-1 justify-start w-fit max-w-full ${BLOCK_ALIGN_CLASS[align]}`
+            : 'flex-col gap-1 justify-start'
     return (
-        <div className={`flex ${layout} ${ALIGN_CLASS[align]} ${className ?? ''}`} data-attr={dataAttr}>
+        <div className={`flex ${layout} ${className ?? ''}`} data-attr={dataAttr}>
             {items.map((item) => {
                 const dimmed = hidden?.has(item.key) ? ' opacity-40' : ''
                 const rowClass = `inline-flex items-center gap-1.5 text-xs leading-none${dimmed}`
