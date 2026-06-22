@@ -10,25 +10,17 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     CodeReference,
     Commit,
-    LineReference,
     NoteArtefact,
-    RepoSelection,
     TaskRunArtefact,
     artefact_type_for,
     parse_artefact_content,
 )
 from products.signals.backend.models import SignalReportArtefact
-from products.tasks.backend.repo_selection import RepoSelectionResult
 
 
 class TestArtefactSchemas(SimpleTestCase):
     def test_registry_covers_every_artefact_type_exactly(self):
         assert set(ARTEFACT_CONTENT_SCHEMAS.keys()) == set(SignalReportArtefact.ArtefactType.values)
-
-    def test_repo_selection_mirror_stays_in_sync_with_tasks_model(self):
-        # `RepoSelection` mirrors the tasks-product `RepoSelectionResult` (no cross-product import
-        # from the schema module). If the tasks model grows a field, the mirror must follow.
-        assert set(RepoSelection.model_fields) >= set(RepoSelectionResult.model_fields)
 
     def test_code_reference_round_trips(self):
         ref = CodeReference(file_path="a.py", start_line=1, end_line=3, contents="x", relevance_note="why")
@@ -67,18 +59,6 @@ class TestArtefactSchemas(SimpleTestCase):
             relevance_note="why",
         )
         assert ref.end_line == 20
-
-    def test_line_reference_rejects_overlong_contents(self):
-        with self.assertRaises(ValidationError):
-            LineReference(file_path="a.py", line=1, note="n", contents="x" * 1001)
-
-    def test_line_reference_defaults_contents_to_none(self):
-        ref = LineReference(file_path="a.py", line=10, note="look here")
-        assert ref.contents is None
-
-    def test_line_reference_rejects_line_below_one(self):
-        with self.assertRaises(ValidationError):
-            LineReference(file_path="a.py", line=0, note="x")
 
     def test_commit_defaults_note_to_none(self):
         commit = Commit(repository="PostHog/posthog", branch="fix/foo", commit_sha="abc123f", message="fix: foo")

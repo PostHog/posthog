@@ -1,11 +1,12 @@
 from dataclasses import dataclass
+from typing import TypeVar
 
 from django.db import transaction
 
 import structlog
 import temporalio
 import posthoganalytics
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
@@ -14,7 +15,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import is_available_for_team
-from products.signals.backend.artefact_schemas import ArtefactContent, RepoSelection, SuggestedReviewers
+from products.signals.backend.artefact_schemas import ArtefactContent, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import (
@@ -59,6 +60,24 @@ class RunAgenticReportOutput:
     repository: str
 
 
+_ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
+
+
+def _parse_artefact_content(
+    model_cls: type[_ArtefactContentT], artefact: SignalReportArtefact, report_id: str
+) -> _ArtefactContentT:
+    # These artefacts are written only by this pipeline from the current schemas, so a parse failure
+    # is a bug on our side (corrupt content or an incompatible schema change) — fail loudly rather
+    # than silently dropping prior research and degrading a re-promotion into a fresh run.
+    try:
+        return model_cls.model_validate_json(artefact.content)
+    except ValidationError as error:
+        raise ValueError(
+            f"report {report_id}: {artefact.type} artefact {artefact.id} is incompatible with the "
+            f"current {model_cls.__name__} schema"
+        ) from error
+
+
 async def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
     """Reconstruct the previous report state."""
     report = await SignalReport.objects.filter(id=report_id).only("title", "summary").afirst()
@@ -91,34 +110,12 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
     async for artefact in artefacts_qs:
         match artefact.type:
             case SignalReportArtefact.ArtefactType.SIGNAL_FINDING:
-                try:
-                    finding = SignalFinding.model_validate_json(artefact.content)
-                except ValidationError:
-                    logger.warning(
-                        "Ignoring signal_finding artefact with incompatible schema (likely written by the legacy path)",
-                        report_id=report_id,
-                        artefact_id=artefact.id,
-                    )
-                else:
-                    findings_by_signal[finding.signal_id] = finding
+                finding = _parse_artefact_content(SignalFinding, artefact, report_id)
+                findings_by_signal[finding.signal_id] = finding
             case SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
-                try:
-                    actionability = ActionabilityAssessment.model_validate_json(artefact.content)
-                except ValidationError:
-                    logger.warning(
-                        "Ignoring actionability artefact with incompatible schema (likely written by the legacy path)",
-                        report_id=report_id,
-                        artefact_id=artefact.id,
-                    )
+                actionability = _parse_artefact_content(ActionabilityAssessment, artefact, report_id)
             case SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
-                try:
-                    priority = PriorityAssessment.model_validate_json(artefact.content)
-                except ValidationError:
-                    logger.warning(
-                        "Ignoring priority artefact with incompatible schema (likely written by the legacy path)",
-                        report_id=report_id,
-                        artefact_id=artefact.id,
-                    )
+                priority = _parse_artefact_content(PriorityAssessment, artefact, report_id)
 
     findings = list(findings_by_signal.values())
     if not findings or actionability is None:
@@ -133,9 +130,9 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
     return ReportResearchOutput(
         title=report.title,
         summary=report.summary,
-        findings=findings,
-        actionability=actionability,
-        priority=priority,
+        # Reconstructed from already-persisted artefacts, so everything is "old" — a re-research that
+        # reuses these writes nothing; only what it changes lands in new_artefacts.
+        old_artefacts=[*findings, actionability, *([priority] if priority else [])],
     )
 
 
@@ -232,7 +229,7 @@ async def _persist_agentic_report_artefacts(
     reviewers_content = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
         team_id=team_id,
         repository=repo_selection.repository or "",
-        findings=result.findings,
+        findings=result.effective_findings(),
     )
 
     # Persist only what's new this run; values the agent confirmed unchanged keep their latest
@@ -254,26 +251,15 @@ async def _persist_agentic_report_artefacts(
         if repo_selection.task_id
         else ArtefactAttribution.system()
     )
-    new_findings = (
-        result.findings
-        if result.new_finding_signal_ids is None
-        else [f for f in result.findings if f.signal_id in set(result.new_finding_signal_ids)]
-    )
+    # Everything the run flagged as new gets persisted; the artefact type derives from each content
+    # model. Reviewers are derived from findings, so they're only re-persisted when a finding changed.
+    has_new_finding = any(isinstance(content, SignalFinding) for content in result.new_artefacts)
 
     artefacts = [
-        # The signals-owned RepoSelection schema mirrors the tasks product's RepoSelectionResult
-        # (parity-tested) — convert at the product boundary so the stored model is signals' own.
-        ArtefactDraft(
-            content=RepoSelection.model_validate(repo_selection.model_dump()),
-            attribution=repo_selection_attribution,
-        ),
-        *(ArtefactDraft(content=finding, attribution=research_attribution) for finding in new_findings),
+        ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution),
+        *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
     ]
-    if result.actionability_is_new:
-        artefacts.append(ArtefactDraft(content=result.actionability, attribution=research_attribution))
-    if result.priority and result.priority_is_new:
-        artefacts.append(ArtefactDraft(content=result.priority, attribution=research_attribution))
-    if reviewers_content and new_findings:
+    if reviewers_content and has_new_finding:
         artefacts.append(
             ArtefactDraft(
                 content=SuggestedReviewers.model_validate(list(reviewers_content)),
@@ -294,8 +280,8 @@ async def _persist_agentic_report_artefacts(
             repository=repo_selection.repository or "",
             title=result.title,
             summary=result.summary,
-            actionability=result.actionability,
-            priority=result.priority,
+            actionability=result.effective_actionability(),
+            priority=result.effective_priority(),
             reviewers_content=reviewers_content,
         )
     except Exception as error:
@@ -366,20 +352,22 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 result,
                 input.repo_selection,
             )
+        actionability = result.effective_actionability()
+        priority = result.effective_priority()
         logger.info(
             "signals agentic report completed",
             report_id=input.report_id,
             signal_count=len(input.signals),
-            choice=result.actionability.actionability.value,
+            choice=actionability.actionability.value,
             repository=repository,
         )
         return RunAgenticReportOutput(
             title=result.title,
             summary=result.summary,
-            choice=result.actionability.actionability,
-            priority=result.priority.priority if result.priority else None,
-            explanation=result.actionability.explanation,
-            already_addressed=result.actionability.already_addressed,
+            choice=actionability.actionability,
+            priority=priority.priority if priority else None,
+            explanation=actionability.explanation,
+            already_addressed=actionability.already_addressed,
             repository=repository,
         )
     except Exception as error:

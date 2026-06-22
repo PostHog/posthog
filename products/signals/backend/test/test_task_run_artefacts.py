@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -144,20 +144,20 @@ class TestTaskRunArtefacts(BaseTest):
         # The custom product's "implementation" row doesn't count as a signals implementation.
         assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == []
 
-    def test_record_implementation_task_sets_gate_column_first_writer_wins(self):
+    def test_record_implementation_task_writes_gate_row_and_artefact(self):
         report = self._report()
         task = self._task()
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
 
-        report.refresh_from_db()
-        assert report.implementation_task_id == task.id
+        # Both the legacy SignalReportTask gate row and the task_run work-log artefact are written.
+        assert SignalReportTask.objects.filter(
+            report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        ).exists()
         assert signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION) == [str(task.id)]
 
-        # A second recording appends another log entry but never reassigns the gate.
-        other_task = self._task()
-        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(other_task.id))
-        report.refresh_from_db()
-        assert report.implementation_task_id == task.id
+        # Idempotent on the gate row for the same task — re-recording doesn't duplicate the link.
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
 
     def _final_report(self) -> CustomAgentFinalReport:
         return CustomAgentFinalReport(

@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
+from pydantic import BaseModel
 
 from products.signals.backend.artefact_schemas import ArtefactContentValidationError, CodeReference, NoteArtefact
 from products.signals.backend.custom_agent.base import NO_REPO, CustomSignalAgent
@@ -77,8 +78,11 @@ class TestCustomAgentLogArtefacts(BaseTest):
     def test_register_artefact_rejects_non_content_models(self):
         agent = self._agent()
 
+        class NotAContentModel(BaseModel):
+            value: str
+
         with self.assertRaises(ArtefactContentValidationError):
-            agent.register_artefact(RepoSelectionResult(repository="a/b", reason="not a content schema"))  # type: ignore[arg-type]
+            agent.register_artefact(NotAContentModel(value="not a content schema"))  # type: ignore[arg-type]
 
         assert agent._registered_artefacts == []
 

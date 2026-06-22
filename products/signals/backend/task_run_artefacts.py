@@ -16,7 +16,7 @@ from __future__ import annotations
 from pydantic import ValidationError
 
 from products.signals.backend.artefact_schemas import TaskRunArtefact
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact, SignalReportTask
 
 # Product identifier for task runs driven by the built-in signals pipeline (research /
 # implementation / repo-selection). Custom agents supply their own product via `identifier()`.
@@ -96,15 +96,20 @@ def signals_task_ids(*, report_id: str, type: str) -> list[str]:
 def record_implementation_task(
     *, team_id: int, report_id: str, task_id: str, run_id: str | None = None
 ) -> SignalReportArtefact:
-    """Record a started implementation task: the report's `implementation_task` gate column plus
-    the `task_run` work-log artefact.
+    """Record a started implementation task as BOTH the legacy `SignalReportTask` gate row and the
+    `task_run` work-log artefact.
 
-    The column is the auto-start idempotency gate — a compare-and-set (first writer wins), so the
-    gate never depends on the freeform, API-mutable artefact log. Call inside the transaction
-    that created the task. Shared by auto-start and the manual start-task API.
+    `SignalReportTask` (an `implementation` row) is the auto-start idempotency gate — see
+    `auto_start.py` — because the artefact log is freeform and API-mutable and so can't be trusted
+    for a spend-controlling decision. We dual-write the artefact so that, once
+    `backfill_task_run_artefacts` has converted every legacy row, the gate can switch to the
+    artefact log and `SignalReportTask` can be dropped. Call inside the transaction that created
+    the task. Shared by auto-start and the manual start-task API.
     """
-    SignalReport.objects.filter(id=report_id, team_id=team_id, implementation_task__isnull=True).update(
-        implementation_task_id=task_id
+    SignalReportTask.objects.get_or_create(
+        report_id=report_id,
+        task_id=task_id,
+        defaults={"team_id": team_id, "relationship": TASK_RUN_TYPE_IMPLEMENTATION},
     )
     return append_task_run_artefact(
         team_id=team_id,

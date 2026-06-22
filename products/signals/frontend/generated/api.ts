@@ -340,7 +340,7 @@ export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: st
 }
 
 /**
- * Fetch the unified diff introduced by a `commit` artefact's commit via the team's GitHub integration — lets the UI render exactly what an agent pushed, commit by commit.
+ * Fetch the unified diff of a `commit` artefact's branch against the repository default branch via the team's GitHub integration — using the branch's current tip so the diff reflects the latest state of the work, not just the single recorded commit.
  * @summary Fetch the diff for a commit artefact
  */
 export const signalsReportArtefactsDiff = async (

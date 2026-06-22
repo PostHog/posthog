@@ -5,8 +5,10 @@ the canonical home of every artefact content shape: one model per artefact type.
 are parsed into these models once, at the boundaries — `parse_artefact_content` for API writes
 and for reads that consume stored rows — and everything in between passes the typed model
 around; the model helpers derive a row's type from the content model's class. The module is
-kept deliberately dependency-light (pydantic only) so models, views, and temporal code can all
-import it without pulling in the report-research / sandbox machinery.
+kept deliberately dependency-light so models, views, and temporal code can all import it without
+pulling in the report-research / sandbox machinery — its non-pydantic imports are leaf DTOs that
+carry no such weight: the cross-product `RepoSelectionResult` (`repo_selection.types`) and the
+generated `posthog.schema.RelevantCommit` (reused as the single source of truth for commit shape).
 
 Reads of legacy rows that predate these schemas stay tolerant (parse failures are skipped or
 degraded, never raised to users).
@@ -20,6 +22,10 @@ from enum import Enum
 from typing import Any, cast
 
 from pydantic import BaseModel, Field, RootModel, ValidationError, field_validator, model_validator
+
+from posthog.schema import RelevantCommit
+
+from products.tasks.backend.repo_selection.types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
 # contract (see custom_agent.schemas.validate_identifier_part), kept inline so this module stays
@@ -155,30 +161,12 @@ class SafetyJudgment(BaseModel):
     )
 
 
-class RepoSelection(BaseModel):
-    """Content schema for a `repo_selection` artefact.
-
-    Signals-owned mirror of `products.tasks.backend.repo_selection.RepoSelectionResult` (this
-    module must stay free of cross-product imports); a parity test guards against field drift.
-    """
-
-    repository: str | None = Field(
-        description="Selected repository in 'owner/repo' format, or null if none of the candidates are relevant."
-    )
-    reason: str = Field(description="Why this repository was selected (or why none matched).")
-    task_id: str | None = Field(
-        default=None,
-        description="UUID of the sandbox task that performed the selection, when an agent ran (null for "
-        "the 0/1-candidate shortcuts that never spawn a sandbox).",
-    )
-
-
 class SuggestedReviewerEntry(BaseModel):
     """One reviewer in a `suggested_reviewers` artefact's content list."""
 
     github_login: str = Field(description="GitHub login identifying the reviewer (stored lowercased).")
     github_name: str | None = Field(default=None, description="Optional human-readable display name.")
-    relevant_commits: list[dict[str, Any]] = Field(
+    relevant_commits: list[RelevantCommit] = Field(
         default_factory=list,
         description="Commit evidence explaining why this reviewer is relevant.",
     )
@@ -231,7 +219,10 @@ _MAX_CODE_REFERENCE_LINES = 20
 
 
 class CodeReference(BaseModel):
-    """Content schema for a `code_reference` artefact: a contiguous span of source lines."""
+    """Content schema for a `code_reference` artefact: a contiguous span of source lines.
+
+    A single-line callout is just `start_line == end_line`.
+    """
 
     file_path: str = Field(description="Repository-relative path to the referenced file.")
     start_line: int = Field(ge=1, description="First line of the referenced range (1-indexed, inclusive).")
@@ -268,31 +259,6 @@ class CodeReference(BaseModel):
         if self.end_line - self.start_line + 1 > _MAX_CODE_REFERENCE_LINES:
             raise ValueError(f"the referenced range must not exceed {_MAX_CODE_REFERENCE_LINES} lines")
         return self
-
-
-class LineReference(BaseModel):
-    """Content schema for a `line_reference` artefact: a single source line callout (a point).
-
-    Used for tour-style features or to let an agent point at one specific line of behaviour,
-    as opposed to `code_reference` which spans a contiguous range.
-    """
-
-    file_path: str = Field(description="Repository-relative path to the referenced file.")
-    line: int = Field(ge=1, description="The referenced line number (1-indexed).")
-    note: str = Field(description="Short note on what this line shows or why it matters.")
-    contents: str | None = Field(
-        default=None,
-        max_length=_MAX_CODE_LINE_LENGTH,
-        description=f"The exact source text of the referenced line, if available "
-        f"(at most {_MAX_CODE_LINE_LENGTH} characters).",
-    )
-
-    @field_validator("file_path", "note")
-    @classmethod
-    def fields_must_not_be_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("must not be empty or whitespace-only")
-        return v
 
 
 class Commit(BaseModel):
@@ -376,9 +342,9 @@ class NoteArtefact(BaseModel):
 # entries that record discrete work (accumulate). `SignalFinding` (keyed by signal_id) and
 # `Dismissal` (stacking) have their own semantics; `VideoSegment` is a legacy plain append.
 StatusArtefactContent = (
-    SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelection | SuggestedReviewers
+    SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
 )
-LogArtefactContent = CodeReference | LineReference | Commit | TaskRunArtefact | NoteArtefact
+LogArtefactContent = CodeReference | Commit | TaskRunArtefact | NoteArtefact
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
 # Keys are `SignalReportArtefact.ArtefactType` values, kept as plain strings so this module stays
@@ -389,11 +355,10 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "actionability_judgment": ActionabilityAssessment,
     "priority_judgment": PriorityAssessment,
     "signal_finding": SignalFinding,
-    "repo_selection": RepoSelection,
+    "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
     "dismissal": Dismissal,
     "code_reference": CodeReference,
-    "line_reference": LineReference,
     "commit": Commit,
     "task_run": TaskRunArtefact,
     "note": NoteArtefact,

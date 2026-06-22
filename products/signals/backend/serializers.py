@@ -537,11 +537,13 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
 
 
 class CommitDiffResponseSerializer(serializers.Serializer):
-    """Response for the `commit` artefact diff endpoint — the commit rendered against its parent."""
+    """Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
+    repository default branch."""
 
     diff = serializers.CharField(
         read_only=True,
-        help_text="Unified diff (patch) text introduced by the commit, from the GitHub commits API.",
+        help_text="Unified diff (patch) text of the branch against the repository default branch, "
+        "from the GitHub compare API.",
     )
     truncated = serializers.BooleanField(
         read_only=True,

@@ -1412,16 +1412,17 @@ class SignalReportArtefactViewSet(
         responses={
             200: OpenApiResponse(
                 response=CommitDiffResponseSerializer,
-                description="The commit's unified diff (against its first parent).",
+                description="The branch's unified diff against the repository default branch.",
             ),
-            400: OpenApiResponse(description="Artefact is not a commit, or is missing repository/commit_sha."),
+            400: OpenApiResponse(description="Artefact is not a commit, or is missing repository/branch."),
             404: OpenApiResponse(description="Artefact not found, or no GitHub integration can access the repository."),
-            502: OpenApiResponse(description="GitHub could not produce the diff (commit not found, fetch failed)."),
+            502: OpenApiResponse(description="GitHub could not produce the diff (branch not found, fetch failed)."),
         },
         summary="Fetch the diff for a commit artefact",
         description=(
-            "Fetch the unified diff introduced by a `commit` artefact's commit via the team's GitHub "
-            "integration — lets the UI render exactly what an agent pushed, commit by commit."
+            "Fetch the unified diff of a `commit` artefact's branch against the repository default "
+            "branch via the team's GitHub integration — using the branch's current tip so the diff "
+            "reflects the latest state of the work, not just the single recorded commit."
         ),
         operation_id="signals_report_artefacts_diff",
     )
@@ -1441,13 +1442,18 @@ class SignalReportArtefactViewSet(
             # Log artefacts store arbitrary JSON; a non-object payload has no repository/commit.
             content = {}
         repository = content.get("repository")
-        commit_sha = content.get("commit_sha")
-        if not repository or not commit_sha:
+        branch = content.get("branch")
+        if not repository or not branch:
             return Response(
-                {"error": "Artefact is missing a repository or commit_sha."},
+                {"error": "Artefact is missing a repository or branch."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # The diff is deliberately bounded to repos the team's GitHub installation can access
+        # (`first_for_team_repository` returns None otherwise) rather than to a single per-report
+        # repository: a report's work legitimately spans multiple repos (cross-repo fixes, stacked
+        # PRs). That connection boundary is the intended scope — any `task:write` holder can already
+        # run agents against those same repos — and the repo/ref values are validated in `get_diff`.
         github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
         if github is None:
             return Response(
@@ -1455,37 +1461,41 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_404_NOT_FOUND,
             )
         try:
-            result = github.get_commit_diff(repository, str(commit_sha))
+            # Diff the commit's branch against the repo default branch, using each branch's current
+            # tip (no SHA pinning) so the diff stays useful as the branch keeps moving after the
+            # commit was recorded — e.g. after PR babysitting or customer tweaks.
+            base_branch = github.get_default_branch(repository)
+            result = github.get_diff(repository, target_branch=str(branch), base_branch=base_branch)
         except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
             logger.warning(
-                "signals commit diff fetch errored",
+                "signals branch diff fetch errored",
                 repository=repository,
-                commit_sha=commit_sha,
+                branch=branch,
             )
             return Response(
-                {"error": "GitHub could not produce the diff for this commit."},
+                {"error": "GitHub could not produce the diff for this branch."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         if not result.get("success"):
             # Surface a clean message rather than the raw GitHub error body. A 404 from the
-            # commits API means the commit (or repo) isn't on the remote — most often a branch
-            # that was force-rewritten or deleted.
+            # compare API means the branch (or repo) isn't on the remote — most often a branch
+            # that was merged-and-deleted or force-rewritten away.
             if result.get("status_code") == 404:
                 return Response(
                     {
-                        "error": f"Commit '{commit_sha}' or repository '{repository}' was not found on GitHub — "
-                        "the commit may have been rewritten away, or the branch deleted."
+                        "error": f"Branch '{branch}' or repository '{repository}' was not found on GitHub — "
+                        "the branch may have been deleted or merged away."
                     },
                     status=status.HTTP_404_NOT_FOUND,
                 )
             logger.warning(
-                "signals commit diff fetch failed",
+                "signals branch diff fetch failed",
                 repository=repository,
-                commit_sha=commit_sha,
+                branch=branch,
                 status_code=result.get("status_code"),
             )
             return Response(
-                {"error": "GitHub could not produce the diff for this commit."},
+                {"error": "GitHub could not produce the diff for this branch."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response(

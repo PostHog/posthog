@@ -15,17 +15,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="signalreport",
-            name="implementation_task",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name="+",
-                to="tasks.task",
-            ),
-        ),
-        migrations.AddField(
             model_name="signalreportartefact",
             name="updated_at",
             field=models.DateTimeField(auto_now=True, null=True),
@@ -44,7 +33,6 @@ class Migration(migrations.Migration):
                     ("suggested_reviewers", "Suggested Reviewers"),
                     ("dismissal", "Dismissal"),
                     ("code_reference", "Code Reference"),
-                    ("line_reference", "Line Reference"),
                     ("commit", "Commit"),
                     ("task_run", "Task Run"),
                     ("note", "Note"),

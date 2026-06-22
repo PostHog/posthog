@@ -14,6 +14,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
+    SignalReportTask,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -26,7 +27,7 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
-from products.signals.backend.task_run_artefacts import record_implementation_task
+from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, record_implementation_task
 from products.tasks.backend.models import Task
 
 logger = structlog.get_logger(__name__)
@@ -98,24 +99,27 @@ def _create_implementation_task_if_absent(
     repository: str,
     base_branch: str | None,
 ) -> Task | None:
-    """Create the implementation task and record it (gate column + work-log artefact), serialized per report.
+    """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
     Auto-start is re-evaluated from several independent paths — the reviewer-edit on-commit hook,
     the agentic pipeline, and custom agents — so two evaluations can race. A bare check-then-create
     would let both observe "no implementation task yet" and each spawn one (duplicate Temporal
     workflow, duplicate draft PR, duplicate spend). Locking the `SignalReport` row and re-checking
-    inside the lock makes the decision atomic: the second evaluation blocks, then sees the
-    `implementation_task` gate column (set in the same transaction as the task) and returns
-    ``None``. Returns the created ``Task``, or ``None`` if one already exists / the report is gone.
+    inside the lock makes the decision atomic: the second evaluation blocks, then sees the gate and
+    returns ``None``. Returns the created ``Task``, or ``None`` if one already exists / the report
+    is gone.
     """
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return None
-        # The gate is a real column, not the artefact log: task_run artefacts are freeform
-        # (any agent can append or delete them via the API), so they can't be trusted as the
-        # decision for whether an implementation has started.
-        if report.implementation_task_id is not None:
+        # The gate is the legacy `SignalReportTask` implementation link, not the artefact log:
+        # task_run artefacts are freeform and API-mutable (any agent can append or delete them via
+        # the API), so they can't be trusted to decide whether an implementation has started.
+        # `record_implementation_task` below dual-writes this gate row and the task_run artefact;
+        # once `backfill_task_run_artefacts` has converted every legacy row, the gate can move to
+        # the artefact log and `SignalReportTask` can be dropped.
+        if SignalReportTask.objects.filter(report_id=report_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION).exists():
             return None
         team = Team.objects.select_related("organization").get(id=team_id)
         task = Task.create_and_run(
@@ -136,7 +140,7 @@ def _create_implementation_task_if_absent(
         if task_run is None:
             raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
         # Written inside the lock so the gate check above and this write are serialized — the
-        # `implementation_task` column must be visible before the lock releases.
+        # `SignalReportTask` gate row must be visible before the lock releases.
         record_implementation_task(
             team_id=team_id,
             report_id=report_id,
@@ -221,7 +225,7 @@ async def maybe_autostart_implementation_task(
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
     Idempotent: skipped if an implementation task already started for the report
-    (the `implementation_task` gate column), if the report is not immediately
+    (a `SignalReportTask` implementation gate row), if the report is not immediately
     actionable, if it's already addressed, if priority is missing, if there are no
     suggested reviewers, or if no reviewer's autonomy threshold is met. The
     "already started" check is enforced atomically under a row lock in
@@ -235,16 +239,22 @@ async def maybe_autostart_implementation_task(
     """
     # Cheap pre-check to skip the expensive assignee resolution when a task already exists;
     # the authoritative, race-free check happens under the lock below.
-    task_exists = await SignalReport.objects.filter(
-        id=report_id, team_id=team_id, implementation_task__isnull=False
+    task_exists = await SignalReportTask.objects.filter(
+        report_id=report_id, team_id=team_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
     ).aexists()
-    if (
-        actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE
-        or actionability.already_addressed
-        or priority is None
-        or not reviewers_content
-        or task_exists
-    ):
+    skip_reason: str | None = None
+    if task_exists:
+        skip_reason = "implementation task already exists"
+    elif actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
+        skip_reason = f"not immediately actionable: {actionability.actionability.value}"
+    elif actionability.already_addressed:
+        skip_reason = "report already addressed"
+    elif priority is None:
+        skip_reason = "no priority assessment"
+    elif not reviewers_content:
+        skip_reason = "no suggested reviewers"
+    if skip_reason is not None:
+        logger.info("signals auto-start skipped", report_id=report_id, team_id=team_id, reason=skip_reason)
         return
 
     team_config = await SignalTeamConfig.objects.filter(team_id=team_id).afirst()
@@ -254,6 +264,12 @@ async def maybe_autostart_implementation_task(
         team_id, priority.priority, reviewers_content, team_default_priority
     )
     if task_user is None:
+        logger.info(
+            "signals auto-start skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="no reviewer meets the autonomy priority threshold",
+        )
         return
 
     base_branch = None
@@ -273,6 +289,7 @@ async def maybe_autostart_implementation_task(
     )
     if task is None:
         # Another evaluation won the race and already created the implementation task.
+        logger.info("signals auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
         return
 
 
@@ -331,24 +348,48 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
     """
     report = await SignalReport.objects.filter(id=report_id, team_id=team_id).only("title", "summary").afirst()
     if report is None or not report.title or not report.summary:
+        logger.info(
+            "signals auto-start re-eval skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="report missing or not yet summarized",
+        )
         return
 
     actionability = await _latest_artefact_as(
         report_id, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, ActionabilityAssessment
     )
     if actionability is None:
+        logger.info(
+            "signals auto-start re-eval skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="no actionability artefact",
+        )
         return
     repo_selection = await _latest_artefact_as(
         report_id, SignalReportArtefact.ArtefactType.REPO_SELECTION, RepoSelectionResult
     )
     repository = repo_selection.repository if repo_selection else None
     if not repository:
+        logger.info(
+            "signals auto-start re-eval skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="no repository selected",
+        )
         return
     priority = await _latest_artefact_as(
         report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
     )
     reviewers_content = await _latest_reviewers_content(report_id)
     if not reviewers_content:
+        logger.info(
+            "signals auto-start re-eval skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="no suggested reviewers",
+        )
         return
 
     await maybe_autostart_implementation_task(

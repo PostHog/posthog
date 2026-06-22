@@ -12,7 +12,13 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.signals.backend.artefact_schemas import CodeReference, NoteArtefact, Priority, PriorityAssessment
+from products.signals.backend.artefact_schemas import (
+    CodeReference,
+    NoteArtefact,
+    Priority,
+    PriorityAssessment,
+    TaskRunArtefact,
+)
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.tasks.backend.models import Task
 
@@ -457,7 +463,6 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             ("repo_selection", SignalReportArtefact.ArtefactType.REPO_SELECTION),
             ("dismissal", SignalReportArtefact.ArtefactType.DISMISSAL),
             ("code_reference", SignalReportArtefact.ArtefactType.CODE_REFERENCE),
-            ("line_reference", SignalReportArtefact.ArtefactType.LINE_REFERENCE),
             ("commit", SignalReportArtefact.ArtefactType.COMMIT),
             ("task_run", SignalReportArtefact.ArtefactType.TASK_RUN),
             ("note", SignalReportArtefact.ArtefactType.NOTE),
@@ -647,7 +652,6 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
     @parameterized.expand(
         [
             ("code_reference", _CODE_REFERENCE_CONTENT),
-            ("line_reference", {"file_path": "a.py", "line": 3, "note": "here"}),
             (
                 "commit",
                 {"repository": "PostHog/posthog", "branch": "fix/foo", "commit_sha": "abc123f", "message": "fix"},
@@ -840,6 +844,40 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert report_response.json()["priority"] == "P0"
+
+    def test_patch_task_run_cannot_drift_task_id_from_the_fk(self):
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        other_task = Task.objects.create(
+            team=self.team, title="o", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        artefact = SignalReportArtefact.append(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=TaskRunArtefact(task_id=str(task.id), product="signals", type="research"),
+            attribution=ArtefactAttribution.from_task(str(task.id)),
+        )
+
+        # Editing content.task_id to a different task is rejected — the `task` FK is the association.
+        drift = self.client.patch(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": {"task_id": str(other_task.id), "product": "signals", "type": "research"}}),
+            content_type="application/json",
+        )
+        assert drift.status_code == status.HTTP_400_BAD_REQUEST
+
+        # Editing other fields while keeping the same task_id is fine.
+        ok = self.client.patch(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": {"task_id": str(task.id), "product": "signals", "type": "implementation"}}),
+            content_type="application/json",
+        )
+        assert ok.status_code == status.HTTP_200_OK, ok.json()
+        artefact.refresh_from_db()
+        assert json.loads(artefact.content)["type"] == "implementation"
+        assert str(artefact.task_id) == str(task.id)
 
     def test_patch_other_team_returns_404(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -1089,7 +1127,7 @@ class TestSignalReportCommitDiff(APIBaseTest):
     @parameterized.expand(
         [
             ("missing_repository", {"branch": "b", "commit_sha": "abc123f", "message": "m"}),
-            ("missing_sha", {"repository": "PostHog/posthog", "branch": "b", "message": "m"}),
+            ("missing_branch", {"repository": "PostHog/posthog", "commit_sha": "abc123f", "message": "m"}),
         ]
     )
     def test_diff_rejects_incomplete_content(self, _name, content):
@@ -1108,7 +1146,8 @@ class TestSignalReportCommitDiff(APIBaseTest):
     def _mock_github(self, result: dict):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
-        github.return_value.get_commit_diff.return_value = result
+        github.return_value.get_default_branch.return_value = "master"
+        github.return_value.get_diff.return_value = result
         return github
 
     def test_diff_success_returns_diff_and_truncated(self):

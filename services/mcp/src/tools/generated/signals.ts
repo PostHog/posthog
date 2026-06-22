@@ -211,7 +211,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            "If you do ANY work connected to one of these reports — even pure research or investigation — first associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own task id is filled in automatically). That task_run artefact IS the task↔report association — commits you push are recorded on the report through it, and without it your work is invisible to the report. Read the report's work log via inbox-report-artefacts-list before acting."
+            "If you do ANY work connected to one of these reports — even pure research or investigation — always first associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own task id is filled in automatically). That task_run artefact IS the task↔report association — commits you push are recorded on the report through it, and without it your work is invisible to the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's expected, not an error to fix; skip the association and carry on. Without the write tools (a read-only session) ignore the association step entirely — artefact persistence is handled for you. Read the report's work log via inbox-report-artefacts-list before acting."
         )
     },
 })
@@ -232,7 +232,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            'If you do ANY work connected to this report — even pure research or investigation — you MUST first associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own task id is filled in automatically). That task_run artefact IS the task↔report association — commits you push via git_signed_commit are recorded on the report through it, and without it your work is invisible to the report. Then log the work as artefacts as you go — notes, code references, and commits pushed outside git_signed_commit (signed pushes are recorded automatically). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version to re-assess. Without the write tools, work as instructed by your task — artefact persistence is handled for you.'
+            "If you do ANY work connected to this report — even pure research or investigation — always first associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own task id is filled in automatically). That task_run artefact IS the task↔report association — commits you push via git_signed_commit are recorded on the report through it, and without it your work is invisible to the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's expected, not an error to fix; skip the association and continue. Then log the work as artefacts as you go — notes, code references, and commits pushed outside git_signed_commit (signed pushes are recorded automatically). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version to re-assess. Without the write tools, work as instructed by your task — artefact persistence is handled for you."
         )
     },
 })

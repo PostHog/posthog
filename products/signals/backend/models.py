@@ -17,10 +17,12 @@ from posthog.models.utils import UUIDModel
 
 from products.signals.backend.artefact_schemas import (
     ArtefactContent,
+    ArtefactContentValidationError,
     Dismissal,
     LogArtefactContent,
     SignalFinding,
     StatusArtefactContent,
+    TaskRunArtefact,
     artefact_type_for,
     parse_artefact_content,
 )
@@ -181,17 +183,6 @@ class SignalReport(UUIDModel):
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
-
-    # The implementation task started for this report (auto-start or the manual start-task API) —
-    # the auto-start idempotency gate. A real column, set in the same transaction as the task
-    # under the report-row lock, because the gate must not depend on the freeform artefact log:
-    # task_run artefacts are unconstrained (any agent can append or delete them via the API) and
-    # matching on their content's (product, type) labels is a magic-string check. The task_run
-    # artefact is still written alongside, as the work-log entry. SET_NULL: deleting the task
-    # re-arms auto-start, which is the explicit, visible behavior.
-    implementation_task = models.ForeignKey(
-        "tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
-    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -408,7 +399,6 @@ class SignalReportArtefact(UUIDModel):
         SUGGESTED_REVIEWERS = "suggested_reviewers"
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
-        LINE_REFERENCE = "line_reference"
         COMMIT = "commit"
         TASK_RUN = "task_run"
         NOTE = "note"
@@ -436,7 +426,6 @@ class SignalReportArtefact(UUIDModel):
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
             ArtefactType.CODE_REFERENCE,
-            ArtefactType.LINE_REFERENCE,
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
             ArtefactType.NOTE,
@@ -483,6 +472,10 @@ class SignalReportArtefact(UUIDModel):
         or constructed directly), so a row's type can never mismatch its content shape and no row
         can be written unattributed.
         """
+        # A task_run's content.task_id is the same association as the row's `task` FK — they must
+        # not diverge. The FK comes from attribution, so require task attribution that matches.
+        if isinstance(content, TaskRunArtefact) and content.task_id != attribution.task_id:
+            raise ArtefactContentValidationError("task_run content.task_id must match the artefact's attributed task")
         return cls.objects.create(
             team_id=team_id,
             report_id=report_id,
@@ -612,27 +605,38 @@ class SignalReportArtefact(UUIDModel):
 
         Editing the latest `suggested_reviewers` row changes the report's canonical reviewers,
         so it re-evaluates auto-start the same way appending a new reviewers row does."""
-        self.content = parse_artefact_content(self.type, content).model_dump_json()
+        parsed = parse_artefact_content(self.type, content)
+        # The `task` FK is the association and is creation-time only; an edit must not let
+        # content.task_id drift away from it.
+        if isinstance(parsed, TaskRunArtefact) and str(parsed.task_id) != str(self.task_id):
+            raise ArtefactContentValidationError(
+                "task_run content.task_id must match the artefact's task and cannot be reassigned by editing"
+            )
+        self.content = parsed.model_dump_json()
         self.save(update_fields=["content", "updated_at"])
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
 
 
 class SignalReportTask(UUIDModel):
-    """Deprecated: task↔report association now lives entirely in `task_run` artefacts.
+    """Legacy task↔report link. Still the auto-start idempotency gate (an `implementation` row),
+    but being migrated out in favour of `task_run` artefacts.
 
-    No longer read or written anywhere — `SignalReportArtefact` rows of type `task_run` (whose
-    `task` attribution FK is always the task they record) are the sole source of association.
-    Kept only so existing rows survive the rolling deploy; run `backfill_task_run_artefacts` to
-    convert any remaining rows, then drop the table in a follow-up migration.
+    Auto-start and the manual start-task API write *both* a `relationship="implementation"` row
+    here and a `task_run` artefact (`record_implementation_task`). The gate reads this table — see
+    `auto_start.py` — because the artefact log is freeform and API-mutable and so can't be trusted
+    for a spend-controlling decision. Once `backfill_task_run_artefacts` has converted every legacy
+    row to a `task_run` artefact, the gate can switch to the artefact log and this table can be
+    dropped. General task↔report association already lives only in artefacts; this table is kept
+    solely for the implementation gate during that transition.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="report_tasks")
     task = models.ForeignKey("tasks.Task", on_delete=models.CASCADE, related_name="signal_report_tasks")
-    # Deprecated label ("repo_selection" / "research" / "implementation" on legacy rows). No
-    # longer read or written — purpose is derived from artefacts instead. Nullable so new rows
-    # can omit it during the rolling deploy; the column drop is a follow-up migration.
+    # "implementation" for the rows the gate reads; legacy rows also carry "research" /
+    # "repo_selection". Nullable because the brief link-only window allowed unlabelled rows; the
+    # backfill maps those to default artefacts.
     relationship = models.CharField(max_length=200, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

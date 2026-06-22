@@ -927,7 +927,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["attr"], "github_user_integration")
 
     def test_create_task_with_signal_report_same_team(self):
-        from products.signals.backend.models import SignalReport
+        from products.signals.backend.models import SignalReport, SignalReportTask
         from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 
         report = SignalReport.objects.create(team=self.team)
@@ -947,11 +947,14 @@ class TestTaskAPI(BaseTaskAPITest):
         data = response.json()
         self.assertEqual(data["signal_report"], str(report.id))
         # A manual "start implementation" records the implementation task_run artefact (the
-        # task↔report association and work-log entry) and sets the report's gate column that
-        # blocks the auto-start pipeline from double-starting.
+        # task↔report association and work-log entry) and writes the legacy SignalReportTask gate
+        # row that blocks the auto-start pipeline from double-starting.
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [data["id"]])
-        report.refresh_from_db()
-        self.assertEqual(str(report.implementation_task_id), data["id"])
+        self.assertTrue(
+            SignalReportTask.objects.filter(
+                report=report, task_id=data["id"], relationship=TASK_RUN_TYPE_IMPLEMENTATION
+            ).exists()
+        )
 
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport

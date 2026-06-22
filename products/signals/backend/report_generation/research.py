@@ -37,6 +37,7 @@ __all__ = [
     "PriorityAssessment",
     "ReportPresentationOutput",
     "ReportResearchOutput",
+    "ResearchArtefactContent",
     "SignalFinding",
     "run_multi_turn_research",
 ]
@@ -81,36 +82,54 @@ Principles:
         return v
 
 
+# The report artefacts a research run produces: one finding per signal plus the two assessments.
+ResearchArtefactContent = SignalFinding | ActionabilityAssessment | PriorityAssessment
+
+
 class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
     summary: str = Field(description="Generated factual report summary.")
-    findings: list[SignalFinding] = Field(
-        description="One finding per signal in the report, in the same order as the input signals.",
-    )
-    actionability: ActionabilityAssessment = Field(description="Actionability assessment.")
-    priority: PriorityAssessment | None = Field(
-        default=None, description="Priority assessment. None when not actionable."
-    )
     research_task_id: str | None = Field(
         default=None,
         description="UUID of the sandbox task that performed the research; artefacts persisted from "
         "this output are attributed to it. None for saved fixtures / pre-existing outputs.",
     )
-    # Newness markers: the fields above are the *effective* state (reused + new), so downstream
-    # consumers (auto-start, the workflow output) never have to merge with previous research.
-    # Persistence appends artefacts only for the new values — a re-research that confirms the
-    # existing artefacts produces no new rows.
-    new_finding_signal_ids: list[str] | None = Field(
-        default=None,
-        description="signal_ids of findings (re)produced this run. None means every finding is new "
-        "(first run / saved fixtures). Findings confirmed unchanged are excluded.",
+    # The run's findings and assessments split by whether they changed: `old_artefacts` were
+    # confirmed unchanged (already persisted — a re-research reusing them writes nothing) and
+    # `new_artefacts` were produced or changed this run (persisted unconditionally). The report's
+    # effective state is the union of the two — read it via the `effective_*` accessors rather than
+    # picking a list, since a given assessment lives in whichever list this run put it in.
+    old_artefacts: list[ResearchArtefactContent] = Field(
+        default_factory=list,
+        description="Findings/assessments confirmed unchanged this run; already persisted, not re-written.",
     )
-    actionability_is_new: bool = Field(
-        default=True, description="False when the previous actionability assessment was confirmed unchanged."
+    new_artefacts: list[ResearchArtefactContent] = Field(
+        default_factory=list,
+        description="Findings/assessments produced or changed this run; persisted unconditionally.",
     )
-    priority_is_new: bool = Field(
-        default=True, description="False when the previous priority assessment was confirmed unchanged."
-    )
+
+    def _artefacts(self) -> tuple[ResearchArtefactContent, ...]:
+        # new wins over old — a changed value supersedes the confirmed-unchanged one.
+        return (*self.new_artefacts, *self.old_artefacts)
+
+    def effective_findings(self) -> list[SignalFinding]:
+        by_signal: dict[str, SignalFinding] = {}
+        for artefact in self._artefacts():
+            if isinstance(artefact, SignalFinding) and artefact.signal_id not in by_signal:
+                by_signal[artefact.signal_id] = artefact
+        return list(by_signal.values())
+
+    def effective_actionability(self) -> ActionabilityAssessment:
+        for artefact in self._artefacts():
+            if isinstance(artefact, ActionabilityAssessment):
+                return artefact
+        raise ValueError("ReportResearchOutput has no actionability assessment")
+
+    def effective_priority(self) -> PriorityAssessment | None:
+        for artefact in self._artefacts():
+            if isinstance(artefact, PriorityAssessment):
+                return artefact
+        return None
 
 
 # On re-research, the agent confirms still-valid prior artefacts instead of regenerating them —
@@ -563,6 +582,34 @@ def _resolve_finding_response(
     return _enforce_signal_id(response, expected_id), True
 
 
+def _resolve_actionability_response(
+    response: ActionabilityAssessment | ActionabilityUpdate,
+    previous: ActionabilityAssessment | None,
+) -> tuple[ActionabilityAssessment, bool]:
+    """Collapse an actionability response to (effective assessment, is_new)."""
+    if isinstance(response, ActionabilityUpdate):
+        if response.previous_assessment_correct and previous is not None:
+            return previous, False
+        if response.assessment is None:  # unreachable: the model validator requires it
+            raise ValueError("ActionabilityUpdate carried no assessment")
+        return response.assessment, True
+    return response, True
+
+
+def _resolve_priority_response(
+    response: PriorityAssessment | PriorityUpdate,
+    previous: PriorityAssessment | None,
+) -> tuple[PriorityAssessment, bool]:
+    """Collapse a priority response to (effective assessment, is_new)."""
+    if isinstance(response, PriorityUpdate):
+        if response.previous_assessment_correct and previous is not None:
+            return previous, False
+        if response.assessment is None:  # unreachable: the model validator requires it
+            raise ValueError("PriorityUpdate carried no assessment")
+        return response.assessment, True
+    return response, True
+
+
 async def run_multi_turn_research(
     signals: list[SignalData],
     context: CustomPromptSandboxContext,
@@ -586,7 +633,7 @@ async def run_multi_turn_research(
         raise ValueError("No signals to investigate")
 
     previous_findings_by_signal_id = (
-        {finding.signal_id: finding for finding in previous_report_research.findings}
+        {finding.signal_id: finding for finding in previous_report_research.effective_findings()}
         if previous_report_research
         else {}
     )
@@ -645,9 +692,13 @@ async def run_multi_turn_research(
                 task_id=str(session.task.id),
             )
 
+        # Each finding/assessment lands in new_artefacts (produced this run) or old_artefacts
+        # (confirmed unchanged); persistence writes the new list, reusing the old.
+        old_artefacts: list[ResearchArtefactContent] = []
+        new_artefacts: list[ResearchArtefactContent] = []
+
         first_finding, first_is_new = _resolve_finding_response(first_response, first_previous, signals[0].signal_id)
-        findings: list[SignalFinding] = [first_finding]
-        new_finding_signal_ids: list[str] = [first_finding.signal_id] if first_is_new else []
+        (new_artefacts if first_is_new else old_artefacts).append(first_finding)
         if output_fn:
             output_fn(
                 f"Signal 1/{total} done: {first_finding.signal_id}"
@@ -674,9 +725,7 @@ async def run_multi_turn_research(
                 label=f"signal_{i}_of_{total}",
             )
             finding, is_new = _resolve_finding_response(response, previous_finding, signal.signal_id)
-            findings.append(finding)
-            if is_new:
-                new_finding_signal_ids.append(finding.signal_id)
+            (new_artefacts if is_new else old_artefacts).append(finding)
             if output_fn:
                 output_fn(
                     f"Signal {i}/{total} done: {finding.signal_id}"
@@ -686,7 +735,9 @@ async def run_multi_turn_research(
         # Actionability assessment
         if output_fn:
             output_fn("Assessing actionability...")
-        previous_actionability = previous_report_research.actionability if previous_report_research else None
+        previous_actionability = (
+            previous_report_research.effective_actionability() if previous_report_research else None
+        )
         actionability_prompt = build_actionability_prompt(total, previous_actionability=previous_actionability)
         actionability_schema: type[ActionabilityAssessment] | type[ActionabilityUpdate] = (
             ActionabilityUpdate if previous_actionability else ActionabilityAssessment
@@ -696,15 +747,10 @@ async def run_multi_turn_research(
             actionability_schema,
             label="actionability",
         )
-        if isinstance(actionability_response, ActionabilityUpdate):
-            if actionability_response.previous_assessment_correct and previous_actionability is not None:
-                actionability_result, actionability_is_new = previous_actionability, False
-            elif actionability_response.assessment is None:  # unreachable: the model validator requires it
-                raise ValueError("ActionabilityUpdate carried no assessment")
-            else:
-                actionability_result, actionability_is_new = actionability_response.assessment, True
-        else:
-            actionability_result, actionability_is_new = actionability_response, True
+        actionability_result, actionability_is_new = _resolve_actionability_response(
+            actionability_response, previous_actionability
+        )
+        (new_artefacts if actionability_is_new else old_artefacts).append(actionability_result)
         if output_fn:
             output_fn(
                 f"Actionability: {actionability_result.actionability.value}"
@@ -717,7 +763,7 @@ async def run_multi_turn_research(
         if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
             if output_fn:
                 output_fn("Assessing priority...")
-            previous_priority = previous_report_research.priority if previous_report_research else None
+            previous_priority = previous_report_research.effective_priority() if previous_report_research else None
             priority_prompt = build_priority_prompt(total, previous_priority=previous_priority)
             priority_schema: type[PriorityAssessment] | type[PriorityUpdate] = (
                 PriorityUpdate if previous_priority else PriorityAssessment
@@ -727,15 +773,8 @@ async def run_multi_turn_research(
                 priority_schema,
                 label="priority",
             )
-            if isinstance(priority_response, PriorityUpdate):
-                if priority_response.previous_assessment_correct and previous_priority is not None:
-                    priority_result, priority_is_new = previous_priority, False
-                elif priority_response.assessment is None:  # unreachable: the model validator requires it
-                    raise ValueError("PriorityUpdate carried no assessment")
-                else:
-                    priority_result, priority_is_new = priority_response.assessment, True
-            else:
-                priority_result, priority_is_new = priority_response, True
+            priority_result, priority_is_new = _resolve_priority_response(priority_response, previous_priority)
+            (new_artefacts if priority_is_new else old_artefacts).append(priority_result)
             if output_fn:
                 output_fn(f"Priority: {priority_result.priority.value}" + ("" if priority_is_new else " (unchanged)"))
 
@@ -760,15 +799,15 @@ async def run_multi_turn_research(
         await asyncio.shield(session.end(status="failed", error=str(e)))
         raise
 
-    logger.info("multi_turn_research: completed with %d findings (%d new)", len(findings), len(new_finding_signal_ids))
+    new_finding_count = sum(1 for artefact in new_artefacts if isinstance(artefact, SignalFinding))
+    total_finding_count = new_finding_count + sum(
+        1 for artefact in old_artefacts if isinstance(artefact, SignalFinding)
+    )
+    logger.info("multi_turn_research: completed with %d findings (%d new)", total_finding_count, new_finding_count)
     return ReportResearchOutput(
         title=presentation_result.title,
         summary=presentation_result.summary,
-        findings=findings,
-        actionability=actionability_result,
-        priority=priority_result,
         research_task_id=str(session.task.id),
-        new_finding_signal_ids=new_finding_signal_ids,
-        actionability_is_new=actionability_is_new,
-        priority_is_new=priority_is_new,
+        old_artefacts=old_artefacts,
+        new_artefacts=new_artefacts,
     )

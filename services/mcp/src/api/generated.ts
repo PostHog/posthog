@@ -11499,10 +11499,11 @@ export namespace Schemas {
     }
 
     /**
-     * Response for the `commit` artefact diff endpoint — the commit rendered against its parent.
+     * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
+     * repository default branch.
      */
     export interface CommitDiffResponse {
-      /** Unified diff (patch) text introduced by the commit, from the GitHub commits API. */
+      /** Unified diff (patch) text of the branch against the repository default branch, from the GitHub compare API. */
       readonly diff: string;
       /** True when the diff was too large to return in full and has been truncated. */
       readonly truncated: boolean;
@@ -26923,7 +26924,6 @@ export namespace Schemas {
      * * `suggested_reviewers` - Suggested Reviewers
      * * `dismissal` - Dismissal
      * * `code_reference` - Code Reference
-     * * `line_reference` - Line Reference
      * * `commit` - Commit
      * * `task_run` - Task Run
      * * `note` - Note
@@ -26941,7 +26941,6 @@ export namespace Schemas {
       SuggestedReviewers: 'suggested_reviewers',
       Dismissal: 'dismissal',
       CodeReference: 'code_reference',
-      LineReference: 'line_reference',
       Commit: 'commit',
       TaskRun: 'task_run',
       Note: 'note',
@@ -40193,7 +40192,7 @@ export namespace Schemas {
      * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
-      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, line_reference, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run, video_segment. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run, video_segment. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from django.db import transaction
 
-from products.signals.backend.artefact_schemas import ArtefactContent, RepoSelection, SuggestedReviewers
+from products.signals.backend.artefact_schemas import ArtefactContent, SuggestedReviewers
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
@@ -54,9 +54,7 @@ def create_custom_agent_ready_report(
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
-            # Signals-owned mirror of the tasks product's RepoSelectionResult (parity-tested) —
-            # convert at the product boundary so the stored model is signals' own.
-            content=RepoSelection.model_validate(repo_selection.model_dump()),
+            content=repo_selection,
             attribution=attribution,
         )
         SignalReportArtefact.append_status(

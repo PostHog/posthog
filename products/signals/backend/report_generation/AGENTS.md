@@ -48,8 +48,10 @@ the safety judge first, then calls into this flow via a Temporal activity if the
   fully research only new or stale signals
   show previous actionability, priority, title, and summary as context
   the agent confirms still-correct findings/assessments (via the `*Update` wrapper schemas)
-  instead of regenerating them — `ReportResearchOutput` carries effective values plus newness
-  markers, and the caller activity persists artefacts only for the new ones
+  instead of regenerating them — `ReportResearchOutput` splits its findings/assessments into
+  `old_artefacts` (confirmed unchanged, already persisted) and `new_artefacts` (produced this run),
+  and the caller activity persists the new ones unconditionally; read the report's effective state
+  via the `effective_*` accessors
 
 In production, the `update` path is triggered automatically when a `ready` report is
 re-promoted after accumulating enough new signals. The caller activity (`temporal/agentic/report.py`)

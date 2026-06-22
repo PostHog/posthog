@@ -12,7 +12,12 @@ from products.signals.backend.auto_start import (
     _create_implementation_task_if_absent,
     _resolve_autostart_assignee,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalUserAutonomyConfig
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportTask,
+    SignalUserAutonomyConfig,
+)
 from products.signals.backend.report_generation.research import Priority
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 from products.tasks.backend.models import Task, TaskRun
@@ -103,10 +108,13 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     assert first is not None
     assert second is None
     assert mock_create.call_count == 1
-    # The gate the second evaluation observed is the report's implementation_task column, set in
-    # the same transaction as the task; the task_run artefact is the work-log entry alongside.
-    report.refresh_from_db()
-    assert report.implementation_task_id == first.id
+    # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
+    # written in the same transaction as the task; the task_run artefact is the work-log entry
+    # alongside.
+    assert (
+        SignalReportTask.objects.filter(report=report, task=first, relationship=TASK_RUN_TYPE_IMPLEMENTATION).count()
+        == 1
+    )
     assert (
         SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).count() == 1
     )

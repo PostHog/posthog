@@ -294,16 +294,7 @@ class CustomSignalAgent:
         self._assignees = list(assignees)
 
     def register_artefact(self, content: ArtefactContent) -> None:
-        """Queue an artefact of any type for the report being built.
-
-        ``content`` is a typed model from ``artefact_schemas`` (validated at construction); the
-        artefact's type is derived from the model class. Queued artefacts are written in
-        registration order, in the same transaction as the report, at the next finalization
-        point. Status types (judgments, repo selection, suggested reviewers) are latest-wins — a
-        registered one supersedes the report's current status. ``commit`` artefacts are recorded
-        automatically by the signed-commit hook and the ``task_run`` association is written by
-        report persistence, so neither needs registering here.
-        """
+        """Queue an artefact (typed from ``artefact_schemas``) to be written with the report."""
         artefact_type_for(content)  # fail at the call site for models that aren't artefact content
         self._registered_artefacts.append(content)
 

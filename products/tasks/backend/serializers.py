@@ -235,9 +235,9 @@ class TaskSerializer(serializers.ModelSerializer):
             validated_data.setdefault("title_manually_set", True)
 
         # Inbox / PostHog Code: a task created via this API with a signal report is a manual
-        # "start implementation". Record it in the same transaction — the report's
-        # `implementation_task` gate column blocks the auto-start pipeline from double-starting,
-        # and the task_run artefact is the work-log entry that derives the task's purpose.
+        # "start implementation". Record it in the same transaction — the `SignalReportTask`
+        # implementation gate row blocks the auto-start pipeline from double-starting, and the
+        # task_run artefact is the work-log entry that derives the task's purpose.
         with transaction.atomic():
             task = super().create(validated_data)
             if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
