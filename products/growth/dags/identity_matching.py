@@ -11,9 +11,11 @@ Ground truth comes from retroactive merges: an orphan that merges into a person 
 the feature window is, at window end, indistinguishable from a permanent orphan, so those
 merges provide labels for training and for precision/recall evaluation without leakage.
 
-The job writes scored links to its own ClickHouse tables (keyed by job_id, 30-day TTL).
-It never writes to the person store: merges are irreversible, links stay reversible and
-analytics-only.
+The job persists nothing on the ClickHouse cluster: each stage writes its output as Parquet
+to a pre-provisioned "scratch" S3 bucket via `INSERT INTO FUNCTION s3(...)`, namespaced per
+run (`<prefix>/team_<team_id>/<job_id>/<dataset>/`), and reads it back with the `s3(...)` table
+function. Retention is the bucket lifecycle policy's job — there is no MergeTree TTL. It never
+writes to the person store: merges are irreversible, links stay reversible and analytics-only.
 
 Environment restrictions: the job processes internal PostHog data that only exists on
 Cloud US (team 2). It is not registered on Cloud EU, and on Cloud US it only accepts the
@@ -24,10 +26,10 @@ Known limitations:
   long-dormant merged distinct_id that reactivates in-window is classified as an orphan.
 - IP-based features require `$ip` on events; teams with IP anonymization enabled will
   produce empty IP coverage (surfaced loudly in the run report).
-- Tables store raw IPs; they are internal-only and expire via TTL.
+- The Parquet objects store raw IPs; they are internal-only and expire via the scratch
+  bucket's lifecycle policy.
 """
 
-import uuid
 import hashlib
 import datetime
 from collections.abc import Sequence
@@ -44,12 +46,19 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.common import JobOwners, settings_with_log_comment
 
 from products.growth.backend.constants import (
-    IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE,
-    IDENTITY_MATCHING_DEVICE_DAYS_TABLE,
-    IDENTITY_MATCHING_LINKS_TABLE,
+    IDENTITY_MATCHING_CANDIDATE_PAIRS_DATASET,
+    IDENTITY_MATCHING_CANDIDATE_PAIRS_STRUCTURE,
+    IDENTITY_MATCHING_DEVICE_DAYS_DATASET,
+    IDENTITY_MATCHING_DEVICE_DAYS_STRUCTURE,
+    IDENTITY_MATCHING_LINKS_DATASET,
+    IDENTITY_MATCHING_LINKS_STRUCTURE,
     IDENTITY_MATCHING_LOGREG_MODEL_VERSION,
-    IDENTITY_MATCHING_PERSON_TIMELINE_TABLE,
+    IDENTITY_MATCHING_PERSON_TIMELINE_DATASET,
+    IDENTITY_MATCHING_PERSON_TIMELINE_STRUCTURE,
     IDENTITY_MATCHING_RULES_MODEL_VERSION,
+    identity_matching_dataset_read_args,
+    identity_matching_run_prefix,
+    identity_matching_s3_args,
 )
 
 # Click IDs that indicate a paid ad click, a subset of CAMPAIGN_PROPERTIES
@@ -111,11 +120,6 @@ DEFAULT_RULE_WEIGHTS: dict[str, float] = {
     "path_jaccard": 2.0,
     "paid_continuity": 0.75,
 }
-
-DEVICE_DAYS_TABLE = IDENTITY_MATCHING_DEVICE_DAYS_TABLE
-PERSON_TIMELINE_TABLE = IDENTITY_MATCHING_PERSON_TIMELINE_TABLE
-CANDIDATE_PAIRS_TABLE = IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE
-LINKS_TABLE = IDENTITY_MATCHING_LINKS_TABLE
 
 # Internal-only data-safety guardrails: the training data lives in the PostHog Cloud US
 # internal project (team 2). The job is not registered on Cloud EU at all, and on Cloud US
@@ -221,10 +225,6 @@ class MatchingRun:
     config: IdentityMatchingConfig
 
     @property
-    def job_uuid(self) -> uuid.UUID:
-        return uuid.UUID(self.job_id)
-
-    @property
     def date_start(self) -> str:
         return self.config.date_start
 
@@ -244,129 +244,86 @@ class MatchingRun:
 
 
 @dataclass(frozen=True)
-class MatchingTable:
-    name: str
-    columns_sql: str
-    order_by: str
+class MatchingDataset:
+    """A per-run S3 dataset: a folder of one or more Parquet objects under the run prefix.
 
-    @property
-    def qualified_name(self) -> str:
-        return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
+    `folder` is the path segment under `<prefix>/team_<team_id>/<job_id>/`; `structure` is the
+    Parquet column schema, passed as the explicit `structure` arg to every `s3(...)` call so that
+    writes cast the projection to fixed column types (replacing the old `INSERT INTO <table>`) and
+    reads stay schema-stable. No DDL: there is no table to create, sync, or drop.
+    """
 
-    @property
-    def create_sql(self) -> str:
-        return f"""
-            CREATE TABLE IF NOT EXISTS {self.qualified_name}
-            (
-                {self.columns_sql}
-            )
-            ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.qualified_name}', '{{replica}}-{{shard}}', computed_at)
-            ORDER BY ({self.order_by})
-            TTL computed_at + INTERVAL 30 DAY DELETE
-            """
+    folder: str
+    structure: str
 
-    def create(self, client: Client) -> None:
-        client.execute(self.create_sql)
+    def write_args(self, run: "MatchingRun", filename: str) -> str:
+        """`s3(...)` args writing one object `<folder>/<filename>` for this run."""
+        return identity_matching_s3_args(run.config.team_id, run.job_id, f"{self.folder}/{filename}", self.structure)
 
-    def sync(self, client: Client) -> None:
-        client.execute(f"SYSTEM SYNC REPLICA {self.qualified_name} STRICT")
+    def read_args(self, run: "MatchingRun") -> str:
+        """`s3(...)` args globbing every Parquet object in this dataset for this run."""
+        return identity_matching_dataset_read_args(run.config.team_id, run.job_id, self.folder, self.structure)
 
 
-DEVICE_DAYS = MatchingTable(
-    name=DEVICE_DAYS_TABLE,
-    columns_sql="""
-        job_id UUID,
-        team_id Int64,
-        distinct_id String,
-        day Date,
-        ips Array(String),
-        browser String,
-        os String,
-        device_type String,
-        timezone String,
-        browser_language String,
-        raw_user_agent String,
-        geo_city String,
-        geo_subdivision String,
-        geo_postal String,
-        paths Array(String),
-        referring_domain String,
-        utm_source String,
-        utm_medium String,
-        utm_campaign String,
-        has_paid_clid UInt8,
-        first_clid_kind String,
-        event_count UInt64,
-        first_ts DateTime64(6, 'UTC'),
-        last_ts DateTime64(6, 'UTC'),
-        computed_at DateTime DEFAULT now()
-    """,
-    order_by="job_id, team_id, distinct_id, day",
+DEVICE_DAYS = MatchingDataset(IDENTITY_MATCHING_DEVICE_DAYS_DATASET, IDENTITY_MATCHING_DEVICE_DAYS_STRUCTURE)
+PERSON_TIMELINE = MatchingDataset(
+    IDENTITY_MATCHING_PERSON_TIMELINE_DATASET, IDENTITY_MATCHING_PERSON_TIMELINE_STRUCTURE
 )
-
-PERSON_TIMELINE = MatchingTable(
-    name=PERSON_TIMELINE_TABLE,
-    columns_sql="""
-        job_id UUID,
-        team_id Int64,
-        distinct_id String,
-        is_anchor UInt8,
-        person_key String,
-        label_person_key String,
-        label_target_id String,
-        first_seen DateTime64(6, 'UTC'),
-        computed_at DateTime DEFAULT now()
-    """,
-    order_by="job_id, team_id, distinct_id",
+CANDIDATE_PAIRS = MatchingDataset(
+    IDENTITY_MATCHING_CANDIDATE_PAIRS_DATASET, IDENTITY_MATCHING_CANDIDATE_PAIRS_STRUCTURE
 )
+LINKS = MatchingDataset(IDENTITY_MATCHING_LINKS_DATASET, IDENTITY_MATCHING_LINKS_STRUCTURE)
 
-CANDIDATE_PAIRS = MatchingTable(
-    name=CANDIDATE_PAIRS_TABLE,
-    columns_sql="""
-        job_id UUID,
-        team_id Int64,
-        orphan_distinct_id String,
-        anchor_person_key String,
-        shared_ip_days UInt32,
-        shared_ips UInt32,
-        min_ip_block_size UInt32,
-        geo_city_match UInt8,
-        timezone_match UInt8,
-        language_match UInt8,
-        ua_exact_match UInt8,
-        orphan_is_webview UInt8,
-        device_type_complement UInt8,
-        days_overlap UInt32,
-        orphan_last_to_anchor_first_s Int64,
-        avg_path_jaccard Float32,
-        orphan_paid_touch UInt8,
-        anchor_paid_touch UInt8,
-        orphan_event_count UInt64,
-        anchor_event_count UInt64,
-        label Int8,
-        computed_at DateTime DEFAULT now()
-    """,
-    order_by="job_id, team_id, orphan_distinct_id, anchor_person_key",
-)
+# A single Parquet object per SQL-produced dataset; multi-part datasets append `part_<n>`.
+SINGLE_OBJECT = "data.parquet"
 
-LINKS = MatchingTable(
-    name=LINKS_TABLE,
-    columns_sql="""
-        job_id UUID,
-        team_id Int64,
-        model_version LowCardinality(String),
-        orphan_distinct_id String,
-        anchor_person_key String,
-        score Float64,
-        runner_up_score Float64,
-        margin Float64,
-        tier LowCardinality(String),
-        computed_at DateTime DEFAULT now()
-    """,
-    order_by="job_id, team_id, model_version, orphan_distinct_id",
-)
+# `s3_truncate_on_insert` makes each write overwrite its own deterministically-named object, so an
+# op retry is idempotent. `s3_throw_on_zero_files_match=0` lets a glob that matches nothing return
+# zero rows instead of erroring (the logreg-skipped and no-data paths).
 
-ALL_TABLES: list[MatchingTable] = [DEVICE_DAYS, PERSON_TIMELINE, CANDIDATE_PAIRS, LINKS]
+
+def _write_settings(context: dagster.OpExecutionContext) -> dict[str, str]:
+    return {**settings_with_log_comment(context), "s3_truncate_on_insert": "1"}
+
+
+def _read_settings(context: dagster.OpExecutionContext) -> dict[str, str]:
+    return {**settings_with_log_comment(context), "s3_throw_on_zero_files_match": "0"}
+
+
+# Rows the Python ops build (person_timeline, logreg links) are written in small batches as inline
+# VALUES. clickhouse_driver's native-block insert path (`INSERT ... VALUES` with a list of tuples
+# and nothing after VALUES) hangs against `INSERT INTO FUNCTION s3(...)`; embedding the rows as
+# `VALUES (%(..)s), ...` placeholders instead routes through ordinary server-parsed substitution,
+# which writes Parquet to s3 reliably. Batches stay small so each substituted statement stays well
+# under max_query_size (raised here for headroom) and the AST element cap.
+_S3_VALUES_BATCH = 1000
+
+
+def _write_rows_to_s3(
+    context: dagster.OpExecutionContext,
+    cluster: ClickhouseCluster,
+    dataset: "MatchingDataset",
+    run: "MatchingRun",
+    rows: list[tuple[Any, ...]],
+    columns: int,
+    filename_prefix: str = "part",
+) -> None:
+    if not rows:
+        return
+    query_settings = {**_write_settings(context), "max_query_size": "10485760"}
+    for part, offset in enumerate(range(0, len(rows), _S3_VALUES_BATCH)):
+        batch = rows[offset : offset + _S3_VALUES_BATCH]
+        placeholders: list[str] = []
+        parameters: dict[str, Any] = {}
+        for i, row in enumerate(batch):
+            keys = [f"v{i}_{j}" for j in range(columns)]
+            placeholders.append("(" + ", ".join(f"%({key})s" for key in keys) + ")")
+            parameters.update(zip(keys, row, strict=True))
+        query = (
+            f"INSERT INTO FUNCTION s3({dataset.write_args(run, f'{filename_prefix}_{part}.parquet')}) "
+            f"VALUES {', '.join(placeholders)}"
+        )
+        cluster.any_host(partial(_execute, query=query, parameters=parameters, query_settings=query_settings)).result()
 
 
 def _prop(name: str) -> str:
@@ -387,19 +344,18 @@ def _has_paid_clid_expr() -> str:
 
 
 @dagster.op
-def setup_tables(
+def prepare_run(
     context: dagster.OpExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
     config: IdentityMatchingConfig,
 ) -> MatchingRun:
-    """Create the job's tables on all hosts and seed the run state."""
+    """Validate the team gate and seed the run state. No tables are created — each stage writes
+    Parquet to its own S3 prefix, and the first real write surfaces any auth/bucket error."""
     validate_team_allowed(config.team_id)
-    for table in ALL_TABLES:
-        cluster.map_all_hosts(table.create).result()
     run = MatchingRun(job_id=context.run.run_id, config=config)
     context.log.info(
         f"Run {run.job_id}: team {config.team_id}, window [{run.date_start}, {run.date_end}), "
-        f"edges from {run.edges_start}, eval until {run.eval_end}"
+        f"edges from {run.edges_start}, eval until {run.eval_end}; "
+        f"writing to s3 prefix {identity_matching_run_prefix(config.team_id, run.job_id)}/"
     )
     return run
 
@@ -413,13 +369,9 @@ def build_device_day_index(
     """Aggregate per-(distinct_id, day) signals from events into the device-day index."""
     config = run.config
     query = f"""
-        INSERT INTO {DEVICE_DAYS.qualified_name}
-        (job_id, team_id, distinct_id, day, ips, browser, os, device_type, timezone,
-         browser_language, raw_user_agent, geo_city, geo_subdivision, geo_postal, paths,
-         referring_domain, utm_source, utm_medium, utm_campaign, has_paid_clid,
-         first_clid_kind, event_count, first_ts, last_ts)
+        INSERT INTO FUNCTION s3({DEVICE_DAYS.write_args(run, SINGLE_OBJECT)})
         SELECT
-            toUUID(%(job_id)s),
+            %(job_id)s,
             team_id,
             distinct_id,
             toDate(timestamp) AS day,
@@ -460,20 +412,18 @@ def build_device_day_index(
         "paths_cap": config.paths_per_day_cap,
     }
     cluster.any_host(
-        partial(_execute, query=query, parameters=parameters, query_settings=settings_with_log_comment(context))
+        partial(_execute, query=query, parameters=parameters, query_settings=_write_settings(context))
     ).result()
-    cluster.map_all_hosts(DEVICE_DAYS.sync).result()
 
     [[rows, devices, empty_ip_rows]] = cluster.any_host(
         partial(
             _execute,
             query=f"""
                 SELECT count(), uniqExact(distinct_id), countIf(empty(ips))
-                FROM {DEVICE_DAYS.qualified_name}
-                WHERE job_id = toUUID(%(job_id)s)
+                FROM s3({DEVICE_DAYS.read_args(run)})
             """,
-            parameters={"job_id": run.job_id},
-            query_settings=settings_with_log_comment(context),
+            parameters={},
+            query_settings=_read_settings(context),
         )
     ).result()
     empty_ip_fraction = (empty_ip_rows / rows) if rows else 0.0
@@ -596,9 +546,8 @@ def extract_person_timeline(
         for member in members:
             person_key_by_id[member] = person_key
 
-    job_uuid = run.job_uuid
     rows: list[tuple[Any, ...]] = [
-        (job_uuid, config.team_id, member, 1, person_key, "", "", first_seen_by_id[member])
+        (run.job_id, config.team_id, member, 1, person_key, "", "", first_seen_by_id[member])
         for member, person_key in person_key_by_id.items()
     ]
     labeled = 0
@@ -616,20 +565,10 @@ def extract_person_timeline(
             # The orphan merged into a person that was not an anchor in the window, so no
             # candidate pair could ever have linked it; counted separately in evaluation.
             unrecoverable += 1
-        rows.append((job_uuid, config.team_id, other_id, 0, "", label_person_key, target_id, first_seen))
+        rows.append((run.job_id, config.team_id, other_id, 0, "", label_person_key, target_id, first_seen))
 
-    insert_query = f"""
-        INSERT INTO {PERSON_TIMELINE.qualified_name}
-        (job_id, team_id, distinct_id, is_anchor, person_key, label_person_key, label_target_id, first_seen)
-        VALUES
-    """
-    batch_size = 100_000
-    for offset in range(0, len(rows), batch_size):
-        batch = rows[offset : offset + batch_size]
-        cluster.any_host(
-            partial(_execute, query=insert_query, parameters=batch, query_settings=settings_with_log_comment(context))
-        ).result()
-    cluster.map_all_hosts(PERSON_TIMELINE.sync).result()
+    # Each batch is its own Parquet part object; reads glob `person_timeline/*.parquet`.
+    _write_rows_to_s3(context, cluster, PERSON_TIMELINE, run, rows, columns=8)
 
     anchor_persons = len(set(person_key_by_id.values()))
     context.add_output_metadata(
@@ -653,27 +592,21 @@ def build_candidate_pairs(
     """Generate (orphan, anchor person) candidate pairs from IP-day co-location and compute pair features."""
     config = run.config
     query = f"""
-        INSERT INTO {CANDIDATE_PAIRS.qualified_name}
-        (job_id, team_id, orphan_distinct_id, anchor_person_key, shared_ip_days, shared_ips,
-         min_ip_block_size, geo_city_match, timezone_match, language_match, ua_exact_match,
-         orphan_is_webview, device_type_complement, days_overlap, orphan_last_to_anchor_first_s,
-         avg_path_jaccard, orphan_paid_touch, anchor_paid_touch, orphan_event_count,
-         anchor_event_count, label)
+        INSERT INTO FUNCTION s3({CANDIDATE_PAIRS.write_args(run, SINGLE_OBJECT)})
         WITH
         anchors AS (
             SELECT distinct_id, person_key
-            FROM {PERSON_TIMELINE.qualified_name}
-            WHERE job_id = toUUID(%(job_id)s) AND is_anchor = 1
+            FROM s3({PERSON_TIMELINE.read_args(run)})
+            WHERE is_anchor = 1
         ),
         labels AS (
             SELECT distinct_id, label_person_key
-            FROM {PERSON_TIMELINE.qualified_name}
-            WHERE job_id = toUUID(%(job_id)s) AND is_anchor = 0 AND label_person_key != ''
+            FROM s3({PERSON_TIMELINE.read_args(run)})
+            WHERE is_anchor = 0 AND label_person_key != ''
         ),
         dd AS (
             SELECT *
-            FROM {DEVICE_DAYS.qualified_name}
-            WHERE job_id = toUUID(%(job_id)s)
+            FROM s3({DEVICE_DAYS.read_args(run)})
         ),
         ip_day_blocks AS (
             SELECT ip, day, uniqExact(distinct_id) AS block_size
@@ -773,7 +706,7 @@ def build_candidate_pairs(
             LIMIT %(max_candidates_per_orphan)s BY orphan_distinct_id
         )
         SELECT
-            toUUID(%(job_id)s),
+            %(job_id)s,
             %(team_id)s,
             p.orphan_distinct_id,
             p.anchor_person_key,
@@ -807,20 +740,18 @@ def build_candidate_pairs(
         "max_candidates_per_orphan": config.max_candidates_per_orphan,
     }
     cluster.any_host(
-        partial(_execute, query=query, parameters=parameters, query_settings=settings_with_log_comment(context))
+        partial(_execute, query=query, parameters=parameters, query_settings=_write_settings(context))
     ).result()
-    cluster.map_all_hosts(CANDIDATE_PAIRS.sync).result()
 
     [[pair_rows, orphans_with_candidates, positives, negatives]] = cluster.any_host(
         partial(
             _execute,
             query=f"""
                 SELECT count(), uniqExact(orphan_distinct_id), countIf(label = 1), countIf(label = 0)
-                FROM {CANDIDATE_PAIRS.qualified_name}
-                WHERE job_id = toUUID(%(job_id)s)
+                FROM s3({CANDIDATE_PAIRS.read_args(run)})
             """,
-            parameters={"job_id": run.job_id},
-            query_settings=settings_with_log_comment(context),
+            parameters={},
+            query_settings=_read_settings(context),
         )
     ).result()
     context.add_output_metadata(
@@ -860,11 +791,9 @@ def score_rule_based(
     """Score candidate pairs with the weighted rules and keep the best anchor per orphan."""
     config = run.config
     query = f"""
-        INSERT INTO {LINKS.qualified_name}
-        (job_id, team_id, model_version, orphan_distinct_id, anchor_person_key, score,
-         runner_up_score, margin, tier)
+        INSERT INTO FUNCTION s3({LINKS.write_args(run, f"{RULES_MODEL_VERSION}.parquet")})
         SELECT
-            toUUID(%(job_id)s),
+            %(job_id)s,
             %(team_id)s,
             '{RULES_MODEL_VERSION}',
             orphan_distinct_id,
@@ -872,7 +801,8 @@ def score_rule_based(
             score,
             runner_up,
             score - runner_up,
-            multiIf(score >= %(tier_high)s, 'high', score >= %(tier_medium)s, 'medium', 'low')
+            multiIf(score >= %(tier_high)s, 'high', score >= %(tier_medium)s, 'medium', 'low'),
+            now()
         FROM (
             SELECT
                 orphan_distinct_id,
@@ -890,8 +820,7 @@ def score_rule_based(
                     orphan_distinct_id,
                     anchor_person_key,
                     ({_rule_score_expr(config.rule_weights)}) AS score
-                FROM {CANDIDATE_PAIRS.qualified_name}
-                WHERE job_id = toUUID(%(job_id)s) AND team_id = %(team_id)s
+                FROM s3({CANDIDATE_PAIRS.read_args(run)})
             )
         )
         WHERE rn = 1 AND score >= %(min_score)s AND (score - runner_up) >= %(min_margin)s
@@ -905,20 +834,19 @@ def score_rule_based(
         "min_margin": config.rule_min_margin,
     }
     cluster.any_host(
-        partial(_execute, query=query, parameters=parameters, query_settings=settings_with_log_comment(context))
+        partial(_execute, query=query, parameters=parameters, query_settings=_write_settings(context))
     ).result()
-    cluster.map_all_hosts(LINKS.sync).result()
 
     [[links]] = cluster.any_host(
         partial(
             _execute,
             query=f"""
                 SELECT count()
-                FROM {LINKS.qualified_name}
-                WHERE job_id = toUUID(%(job_id)s) AND model_version = '{RULES_MODEL_VERSION}'
+                FROM s3({LINKS.read_args(run)})
+                WHERE model_version = '{RULES_MODEL_VERSION}'
             """,
-            parameters={"job_id": run.job_id},
-            query_settings=settings_with_log_comment(context),
+            parameters={},
+            query_settings=_read_settings(context),
         )
     ).result()
     context.add_output_metadata({"rule_links": dagster.MetadataValue.int(links)})
@@ -956,12 +884,12 @@ def train_logreg_and_score(
             _execute,
             query=f"""
                 SELECT orphan_distinct_id, label, {feature_cols}
-                FROM {CANDIDATE_PAIRS.qualified_name}
-                WHERE job_id = toUUID(%(job_id)s) AND label != -1
+                FROM s3({CANDIDATE_PAIRS.read_args(run)})
+                WHERE label != -1
                 LIMIT %(max_rows)s
             """,
-            parameters={"job_id": run.job_id, "max_rows": config.max_training_rows},
-            query_settings=settings_with_log_comment(context),
+            parameters={"max_rows": config.max_training_rows},
+            query_settings=_read_settings(context),
         )
     ).result()
     positives = sum(1 for row in labeled_rows if row[1] == 1)
@@ -986,13 +914,13 @@ def train_logreg_and_score(
             _execute,
             query=f"""
                 SELECT orphan_distinct_id, label, {feature_cols}
-                FROM {CANDIDATE_PAIRS.qualified_name}
-                WHERE job_id = toUUID(%(job_id)s) AND label = -1
+                FROM s3({CANDIDATE_PAIRS.read_args(run)})
+                WHERE label = -1
                 ORDER BY cityHash64(orphan_distinct_id, anchor_person_key)
                 LIMIT %(limit)s
             """,
-            parameters={"job_id": run.job_id, "limit": weak_negative_count},
-            query_settings=settings_with_log_comment(context),
+            parameters={"limit": weak_negative_count},
+            query_settings=_read_settings(context),
         )
     ).result()
 
@@ -1046,13 +974,12 @@ def train_logreg_and_score(
             _execute,
             query=f"""
                 SELECT orphan_distinct_id, anchor_person_key, {feature_cols}
-                FROM {CANDIDATE_PAIRS.qualified_name}
-                WHERE job_id = toUUID(%(job_id)s)
+                FROM s3({CANDIDATE_PAIRS.read_args(run)})
                 ORDER BY orphan_distinct_id, anchor_person_key
                 LIMIT %(max_rows)s
             """,
-            parameters={"job_id": run.job_id, "max_rows": config.max_scoring_rows},
-            query_settings=settings_with_log_comment(context),
+            parameters={"max_rows": config.max_scoring_rows},
+            query_settings=_read_settings(context),
         )
     ).result()
     if len(scoring_rows) >= config.max_scoring_rows:
@@ -1071,12 +998,12 @@ def train_logreg_and_score(
                 best_by_orphan[orphan_id] = (prob, anchor_key, best[0])
             elif prob > best[2]:
                 best_by_orphan[orphan_id] = (best[0], best[1], prob)
-        job_uuid = run.job_uuid
+        computed_at = datetime.datetime.now(datetime.UTC)
         for orphan_id, (prob, anchor_key, runner_up) in best_by_orphan.items():
             tier = "high" if prob >= config.prob_tier_high else "medium" if prob >= config.prob_tier_medium else "low"
             link_rows.append(
                 (
-                    job_uuid,
+                    run.job_id,
                     config.team_id,
                     LOGREG_MODEL_VERSION,
                     orphan_id,
@@ -1085,22 +1012,15 @@ def train_logreg_and_score(
                     runner_up,
                     prob - runner_up,
                     tier,
+                    computed_at,
                 )
             )
 
-    insert_query = f"""
-        INSERT INTO {LINKS.qualified_name}
-        (job_id, team_id, model_version, orphan_distinct_id, anchor_person_key, score,
-         runner_up_score, margin, tier)
-        VALUES
-    """
-    batch_size = 100_000
-    for offset in range(0, len(link_rows), batch_size):
-        batch = link_rows[offset : offset + batch_size]
-        cluster.any_host(
-            partial(_execute, query=insert_query, parameters=batch, query_settings=settings_with_log_comment(context))
-        ).result()
-    cluster.map_all_hosts(LINKS.sync).result()
+    # Winners go to their own `links/logreg_v1_part_<n>.parquet` objects (the rules op already
+    # wrote `links/rules_v1.parquet`); the read side unions them with `links/*.parquet`.
+    _write_rows_to_s3(
+        context, cluster, LINKS, run, link_rows, columns=10, filename_prefix=f"{LOGREG_MODEL_VERSION}_part"
+    )
 
     metadata["logreg_links"] = dagster.MetadataValue.int(len(link_rows))
     context.add_output_metadata(metadata)
@@ -1119,22 +1039,20 @@ def evaluate_and_report(
         raise ValueError(f"Mismatched runs: {rules_run.job_id!r} vs {logreg_run.job_id!r}")
     run = rules_run
     config = run.config
-    ch_settings = settings_with_log_comment(context)
+    ch_settings = _read_settings(context)
 
     [[devices, anchor_devices]] = cluster.any_host(
         partial(
             _execute,
             query=f"""
                 SELECT uniqExact(d.distinct_id), uniqExactIf(d.distinct_id, t.is_anchor = 1)
-                FROM {DEVICE_DAYS.qualified_name} AS d
+                FROM s3({DEVICE_DAYS.read_args(run)}) AS d
                 LEFT JOIN (
                     SELECT distinct_id, is_anchor
-                    FROM {PERSON_TIMELINE.qualified_name}
-                    WHERE job_id = toUUID(%(job_id)s)
+                    FROM s3({PERSON_TIMELINE.read_args(run)})
                 ) AS t ON d.distinct_id = t.distinct_id
-                WHERE d.job_id = toUUID(%(job_id)s)
             """,
-            parameters={"job_id": run.job_id},
+            parameters={},
             query_settings=ch_settings,
         )
     ).result()
@@ -1147,15 +1065,14 @@ def evaluate_and_report(
                 SELECT
                     uniqExactIf(t.distinct_id, t.label_person_key != ''),
                     uniqExactIf(t.distinct_id, t.label_person_key = '')
-                FROM {PERSON_TIMELINE.qualified_name} AS t
+                FROM s3({PERSON_TIMELINE.read_args(run)}) AS t
                 INNER JOIN (
                     SELECT DISTINCT distinct_id
-                    FROM {DEVICE_DAYS.qualified_name}
-                    WHERE job_id = toUUID(%(job_id)s)
+                    FROM s3({DEVICE_DAYS.read_args(run)})
                 ) AS d ON t.distinct_id = d.distinct_id
-                WHERE t.job_id = toUUID(%(job_id)s) AND t.is_anchor = 0
+                WHERE t.is_anchor = 0
             """,
-            parameters={"job_id": run.job_id},
+            parameters={},
             query_settings=ch_settings,
         )
     ).result()
@@ -1165,10 +1082,9 @@ def evaluate_and_report(
             _execute,
             query=f"""
                 SELECT uniqExact(orphan_distinct_id)
-                FROM {CANDIDATE_PAIRS.qualified_name}
-                WHERE job_id = toUUID(%(job_id)s)
+                FROM s3({CANDIDATE_PAIRS.read_args(run)})
             """,
-            parameters={"job_id": run.job_id},
+            parameters={},
             query_settings=ch_settings,
         )
     ).result()
@@ -1203,19 +1119,18 @@ def evaluate_and_report(
                         t.label_person_key,
                         p.orphan_paid_touch,
                         p.anchor_paid_touch
-                    FROM {LINKS.qualified_name} AS lk
-                    INNER JOIN {CANDIDATE_PAIRS.qualified_name} AS p
-                        ON lk.job_id = p.job_id
-                        AND lk.orphan_distinct_id = p.orphan_distinct_id
+                    FROM s3({LINKS.read_args(run)}) AS lk
+                    INNER JOIN s3({CANDIDATE_PAIRS.read_args(run)}) AS p
+                        ON lk.orphan_distinct_id = p.orphan_distinct_id
                         AND lk.anchor_person_key = p.anchor_person_key
                     LEFT JOIN (
                         SELECT distinct_id, label_person_key
-                        FROM {PERSON_TIMELINE.qualified_name}
-                        WHERE job_id = toUUID(%(job_id)s) AND is_anchor = 0 AND label_person_key != ''
+                        FROM s3({PERSON_TIMELINE.read_args(run)})
+                        WHERE is_anchor = 0 AND label_person_key != ''
                     ) AS t ON lk.orphan_distinct_id = t.distinct_id
-                    WHERE lk.job_id = toUUID(%(job_id)s) AND lk.model_version = %(model_version)s
+                    WHERE lk.model_version = %(model_version)s
                 """,
-                parameters={"job_id": run.job_id, "model_version": model_version},
+                parameters={"model_version": model_version},
                 query_settings=ch_settings,
             )
         ).result()
@@ -1261,7 +1176,7 @@ def _execute(
 
 @dagster.job(tags={"owner": JobOwners.TEAM_GROWTH.value, "disable_slack_notifications": "true"})
 def identity_matching_job():
-    run = setup_tables()
+    run = prepare_run()
     run = build_device_day_index(run)
     run = extract_person_timeline(run)
     run = build_candidate_pairs(run)

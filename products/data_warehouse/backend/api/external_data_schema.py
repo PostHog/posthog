@@ -567,20 +567,53 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if "sync_type" in data:
             validated_data["sync_type"] = sync_type
 
-        trigger_refresh = False
-        # Update the validated_data with incremental fields
-        if sync_type in (
+        # The sync type the schema will end up with: the new one if the request changes it, else the
+        # existing one. Incremental-style config (incremental_field, incremental_field_type,
+        # primary_key_columns, lookback) is keyed off this so a PATCH that edits only those fields —
+        # without re-sending sync_type — still persists. Previously the whole block below was gated on
+        # `sync_type` being in the request, so a bare `{"incremental_field": ...}` PATCH was silently
+        # dropped while the 200 response still echoed the submitted value from the in-memory config.
+        resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
+        incremental_style_types = (
             ExternalDataSchema.SyncType.INCREMENTAL,
             ExternalDataSchema.SyncType.APPEND,
             ExternalDataSchema.SyncType.WEBHOOK,
-        ):
+        )
+
+        # A bare edit (no sync_type in the request) of sync-config fields on a schema whose sync type
+        # can't apply them would otherwise be an unpersisted no-op that still returns 200 — only the
+        # incremental-style branch below writes these, and a non-incremental schema falls through it.
+        # Reject it so the caller gets a clear error instead of a response that looks applied but isn't.
+        # (primary_key_columns is included: CDC/xmin do use it, but only when sync_type is sent, so a
+        # bare PK edit on those is dropped just like on full_refresh.)
+        if "sync_type" not in data and resulting_sync_type not in incremental_style_types:
+            unappliable_fields = [
+                field
+                for field in (
+                    "incremental_field",
+                    "incremental_field_type",
+                    "incremental_field_lookback_seconds",
+                    "primary_key_columns",
+                )
+                if field in data and data.get(field) is not None
+            ]
+            if unappliable_fields:
+                raise ValidationError(
+                    f"{', '.join(unappliable_fields)} cannot be applied to a schema with sync type "
+                    f"{resulting_sync_type or 'not set'} on its own. "
+                    "Include sync_type in the same request to change the sync type."
+                )
+
+        trigger_refresh = False
+        # Update the validated_data with incremental fields
+        if resulting_sync_type in incremental_style_types:
             payload = instance.sync_type_config
 
             if "primary_key_columns" in data:
                 new_pk = data.get("primary_key_columns")
                 old_pk = instance.sync_type_config.get("primary_key_columns")
                 if (
-                    sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                    resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
                     and new_pk != old_pk
                     and instance.table is not None
                 ):
@@ -593,7 +626,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             # Detect incremental field changes before mutating payload
             incremental_field_changed = False
             incremental_field = data.get("incremental_field")
-            if sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
+            if resulting_sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
                 if "incremental_field" in data:
                     incremental_field_changed = (
                         payload.get("incremental_field") != incremental_field
@@ -607,7 +640,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             # Lookback only applies to incremental — merge-by-PK makes re-reading the overlap window
             # idempotent. `null` clears it.
-            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and "incremental_field_lookback_seconds" in data:
+            if (
+                resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                and "incremental_field_lookback_seconds" in data
+            ):
                 payload["incremental_field_lookback_seconds"] = data.get("incremental_field_lookback_seconds")
 
             if incremental_field_changed:
@@ -665,7 +701,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # frequency the schema will actually end up with — the new value if one is supplied, else
         # the existing interval — against the sync type it will end up with. This also catches
         # switching a 1-minute CDC schema to a non-CDC type without re-sending the frequency.
-        resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
         resulting_frequency = sync_frequency
         if not resulting_frequency and instance.sync_frequency_interval is not None:
             resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
@@ -715,6 +750,25 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 f"CDC requires a primary key on table '{instance.name}'. "
                 "Add a primary key on the source table and retry."
             )
+
+        # Switching sync type across the xmin boundary changes the physical Delta schema: xmin
+        # force-projects a non-nullable `_ph_xmin` control column that no other sync type writes.
+        # Reusing the existing Delta table fails the write — the column is missing on the way in, or
+        # lingers on the way out — so force a full resync to rebuild the table from scratch.
+        if (
+            "sync_type" in data
+            and sync_type != instance.sync_type
+            and ExternalDataSchema.SyncType.XMIN in (sync_type, instance.sync_type)
+        ):
+            if is_any_external_data_schema_paused(instance.team_id):
+                raise ValidationError(
+                    "Monthly sync limit reached. Please increase your billing limit before changing "
+                    "the sync type — a full re-sync would be required."
+                )
+            validated_data.setdefault("sync_type_config", instance.sync_type_config)
+            validated_data["sync_type_config"]["reset_pipeline"] = True
+            if should_sync if should_sync is not None else instance.should_sync:
+                trigger_refresh = True
 
         # When re-enabling a webhook schema, force a full refresh to avoid missing data
         if (

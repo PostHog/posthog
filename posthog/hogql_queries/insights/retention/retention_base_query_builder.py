@@ -148,25 +148,27 @@ class RetentionBaseQueryBuilder(ABC):
                 sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
             )
 
-    def apply_breakdown(self, base_query: ast.SelectQuery) -> None:
+    def breakdown_extract_expr_for_query(self) -> ast.Expr | None:
         if not self.query.breakdownFilter:
-            return
-
-        breakdown_expr = None
+            return None
 
         if self.query.breakdownFilter.breakdowns:
             # supporting only single breakdowns for now
             breakdown = self.query.breakdownFilter.breakdowns[0]
-            breakdown_expr = breakdown_extract_expr(
+            return breakdown_extract_expr(
                 str(breakdown.property), cast(str, breakdown.type), breakdown.group_type_index
             )
-        elif self.query.breakdownFilter.breakdown is not None:
-            breakdown_expr = breakdown_extract_expr(
+        if self.query.breakdownFilter.breakdown is not None:
+            return breakdown_extract_expr(
                 cast(str, self.query.breakdownFilter.breakdown),
                 cast(str, self.query.breakdownFilter.breakdown_type),
                 self.query.breakdownFilter.breakdown_group_type_index,
             )
 
+        return None
+
+    def apply_breakdown(self, base_query: ast.SelectQuery) -> None:
+        breakdown_expr = self.breakdown_extract_expr_for_query()
         if breakdown_expr is None:
             return
 

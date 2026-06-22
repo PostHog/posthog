@@ -256,6 +256,9 @@ class TestGetEventSource(BaseTest):
     @parameterized.expand(
         [
             ("terraform", "posthog/terraform-provider 1.0", EventSource.TERRAFORM),
+            ("cli_exact", "posthog-cli", EventSource.CLI),
+            ("cli_with_version", "posthog-cli/0.7.30", EventSource.CLI),
+            ("cli_via_mcp_is_cli", "posthog-cli/posthog-cli posthog/mcp-server; version: 1.0.0", EventSource.CLI),
             ("wizard", "posthog/wizard 1.0", EventSource.WIZARD),
             ("posthog_code", "posthog/code 1.2.3", EventSource.POSTHOG_CODE),
             ("hog_dev_subdomain", "posthog/desktop.hog.dev 0.1.0", EventSource.POSTHOG_CODE),

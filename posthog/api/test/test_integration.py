@@ -7,6 +7,7 @@ from datetime import timedelta
 from urllib.parse import quote
 
 import pytest
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings as django_settings
@@ -3662,3 +3663,60 @@ class TestIntegrationDeletionHogFunctionGuard:
         assert "Slack flow" in content
         assert "Slack notifier" in content
         assert Integration.objects.filter(id=self.integration.id).exists()
+
+
+class TestIntegrationRequestAccessAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The endpoint is members-only, so default the requester to a plain member.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/integrations/request_access/"
+
+    @patch("posthog.api.integration.send_integration_access_request")
+    def test_member_can_request_access(self, mock_task):
+        response = self.client.post(self._url(), {"kind": "slack", "reason": "We need Slack alerts"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {"success": True}
+        mock_task.delay.assert_called_once_with(
+            team_id=self.team.id,
+            requesting_user_id=self.user.id,
+            kind="slack",
+            reason="We need Slack alerts",
+        )
+
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN),
+            ("owner", OrganizationMembership.Level.OWNER),
+        ]
+    )
+    @patch("posthog.api.integration.send_integration_access_request")
+    def test_admins_cannot_request_access(self, _name, level, mock_task):
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+        response = self.client.post(
+            self._url(), {"kind": "github", "reason": "Link issues from error tracking"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_task.delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_reason", {"kind": "slack"}),
+            ("blank_reason", {"kind": "slack", "reason": "   "}),
+            ("missing_kind", {"reason": "We need it"}),
+            ("invalid_kind", {"kind": "not-a-real-kind", "reason": "We need it"}),
+        ]
+    )
+    @patch("posthog.api.integration.send_integration_access_request")
+    def test_invalid_payload_is_rejected(self, _name, payload, mock_task):
+        response = self.client.post(self._url(), payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        mock_task.delay.assert_not_called()

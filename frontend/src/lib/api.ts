@@ -5122,8 +5122,11 @@ const api = {
         async get(id: SignalReport['id']): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).get()
         },
-        async artefacts(id: SignalReport['id']): Promise<SignalReportArtefactResponse> {
-            return await new ApiRequest().signalReport(id).withAction('artefacts').get()
+        async artefacts(
+            id: SignalReport['id'],
+            params: { limit?: number } = {}
+        ): Promise<SignalReportArtefactResponse> {
+            return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
         },
         async getReportSignals(reportId: string): Promise<{ report: SignalReport | null; signals: SignalNode[] }> {
             return await new ApiRequest().signalReport(reportId).withAction('signals').get()
@@ -6879,10 +6882,6 @@ const api = {
 
         async unreadCount(): Promise<{ count: number }> {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
-        },
-
-        async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
-            return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
         },
 
         async compose(data: {
