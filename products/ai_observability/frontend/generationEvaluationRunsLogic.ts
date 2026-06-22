@@ -7,12 +7,13 @@ import { queryEvaluationRuns } from './utils'
 
 export interface GenerationEvaluationRunsLogicProps {
     generationEventId: string
+    traceId?: string
 }
 
 export const generationEvaluationRunsLogic = kea<generationEvaluationRunsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'generationEvaluationRunsLogic']),
     props({} as GenerationEvaluationRunsLogicProps),
-    key((props) => props.generationEventId),
+    key((props) => (props.traceId ? `trace-${props.traceId}` : props.generationEventId)),
 
     actions({
         refreshGenerationEvaluationRuns: true,
@@ -26,7 +27,8 @@ export const generationEvaluationRunsLogic = kea<generationEvaluationRunsLogicTy
                 loadGenerationEvaluationRuns: async () => {
                     try {
                         return await queryEvaluationRuns({
-                            generationEventId: props.generationEventId,
+                            generationEventId: props.traceId ? undefined : props.generationEventId,
+                            traceId: props.traceId,
                             forceRefresh: values.isForceRefresh,
                         })
                     } catch (error) {
