@@ -68,6 +68,7 @@ import {
     isDev,
     lastAssistantTextPreview,
     MemoryStore,
+    PgIdentityAdminStore,
     readTypedBundle,
     RevisionStore,
     SessionQueue,
@@ -79,6 +80,7 @@ import { getNativeTool, hasNativeTool, listNativeTools } from '@posthog/agent-to
 
 import { mountMemoryRoutes } from './api/memory'
 import { mountTableRoutes } from './api/tables'
+import { mountUsersRoutes } from './api/users'
 import { buildTypedBundleRouter } from './api/typed-bundle'
 import { buildApprovalDecidedMarker } from './approval-marker'
 // compile-custom-tools.ts now exports `compileTypedTool` — wired by the
@@ -113,6 +115,12 @@ export interface JanitorServerOpts {
     /** Read-only tabular store for the console Tables view. */
     tabularStore?: TabularStore
     /**
+     * Keyless admin view over agent_user + agent_identity_credential for the
+     * console "Users" pane. When omitted, /users/* routes return 503. Holds no
+     * decryption key — metadata only.
+     */
+    identityAdmin?: PgIdentityAdminStore
+    /**
      * Shared HMAC signing key — when set, the auth middleware requires
      * `x-internal-secret: <jwt>` with `aud = agent-janitor.rpc` on every
      * non-`/healthz` request. Unset → middleware is skipped (dev / harness).
@@ -133,6 +141,7 @@ const ListSessionsQuerySchema = z.object({
         .transform((s) => (s ? s.split(',').filter(Boolean) : undefined))
         .pipe(z.array(SessionStateSchema).optional()),
     revision_id: z.string().optional(),
+    agent_user_id: z.string().optional(),
     created_after: z.string().optional(),
     created_before: z.string().optional(),
 })
@@ -390,6 +399,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             const filter = {
                 states: q.state as AgentSession['state'][] | undefined,
                 revisionId: q.revision_id,
+                agentUserId: q.agent_user_id,
                 createdAfter: q.created_after,
                 createdBefore: q.created_before,
             }
@@ -1082,6 +1092,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     // each exporting `mount*Routes(app, opts, log)` called here.
     mountMemoryRoutes(app, { memoryStore: opts.memoryStore, log })
     mountTableRoutes(app, { tabularStore: opts.tabularStore, log })
+    mountUsersRoutes(app, { identityAdmin: opts.identityAdmin, log })
 
     // Last in the chain. Catches anything the route handlers threw (via
     // asyncHandler), translates ZodError → 400, everything else → 500.

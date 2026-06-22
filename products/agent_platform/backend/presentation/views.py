@@ -527,6 +527,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "partial_update",
         "destroy",
         "approvals_decide",
+        "users_connection_delete",
         # POST `preview_proxy` forwards `run`/`send`/`cancel` — each starts,
         # feeds, or kills a draft session, driving the agent's configured
         # tools and incurring inference cost. That's a write-class capability,
@@ -540,6 +541,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
+        "users_list",
         "stats",
         # GET (SSE `listen`) → `preview_proxy_get`. DRF uses the bound function
         # name as `view.action`, so the GET variant is its own scope-map entry;
@@ -970,8 +972,116 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 offset=offset,
                 state=request.query_params.get("state") or None,
                 revision_id=request.query_params.get("revision_id") or None,
+                agent_user_id=request.query_params.get("agent_user_id") or None,
                 created_after=request.query_params.get("created_after") or None,
                 created_before=request.query_params.get("created_before") or None,
+            )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_users_list",
+        description=(
+            "List this agent's end-users (the stable identities behind inbound "
+            "principals) and each user's linked external connections. Connection "
+            "metadata only — credential material is never returned."
+        ),
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentUsersList",
+                fields={
+                    "count": drf_serializers.IntegerField(),
+                    "results": drf_serializers.ListField(
+                        child=inline_serializer(
+                            name="AgentUserWithConnections",
+                            fields={
+                                "id": drf_serializers.UUIDField(),
+                                "principal_kind": drf_serializers.CharField(
+                                    help_text="Edge-identity kind: slack | jwt | posthog | service | …",
+                                ),
+                                "principal_id": drf_serializers.CharField(),
+                                "metadata": drf_serializers.JSONField(allow_null=True, required=False),
+                                "created_at": drf_serializers.DateTimeField(),
+                                "connections": drf_serializers.ListField(
+                                    child=inline_serializer(
+                                        name="AgentUserConnection",
+                                        fields={
+                                            "id": drf_serializers.UUIDField(),
+                                            "provider": drf_serializers.CharField(),
+                                            "scopes": drf_serializers.ListField(child=drf_serializers.CharField()),
+                                            "state": drf_serializers.CharField(help_text="active | revoked"),
+                                            "subject": drf_serializers.CharField(allow_null=True, required=False),
+                                            "access_expires_at": drf_serializers.DateTimeField(
+                                                allow_null=True, required=False
+                                            ),
+                                            "created_at": drf_serializers.DateTimeField(),
+                                            "updated_at": drf_serializers.DateTimeField(),
+                                            "revoked_at": drf_serializers.DateTimeField(allow_null=True, required=False),
+                                        },
+                                    )
+                                ),
+                            },
+                        )
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="users")
+    def users_list(self, request: Request, **kwargs) -> Response:
+        """End-users of this agent, each with their linked connections."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            payload = _janitor().list_users(int(self.team_id), str(application.id))
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_users_connection_delete",
+        description=(
+            "Revoke one of an end-user's linked connections. The credential is "
+            "marked revoked (kept for audit), so the agent can no longer act as "
+            "that user on the provider."
+        ),
+        parameters=[
+            OpenApiParameter("agent_user_id", OpenApiTypes.UUID, OpenApiParameter.PATH, required=True),
+            OpenApiParameter(
+                "provider",
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
+                required=True,
+                description="Identity provider id (e.g. 'posthog', 'github').",
+            ),
+        ],
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentConnectionDelete",
+                fields={
+                    "provider": drf_serializers.CharField(),
+                    "revoked": drf_serializers.BooleanField(),
+                },
+            )
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path=r"users/(?P<agent_user_id>[^/.]+)/connections/(?P<provider>[^/.]+)",
+    )
+    def users_connection_delete(
+        self, request: Request, agent_user_id: str = "", provider: str = "", **kwargs
+    ) -> Response:
+        """Revoke one linked connection for an end-user."""
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        try:
+            payload = _janitor().delete_connection(
+                int(self.team_id), str(application.id), agent_user_id, provider
             )
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
