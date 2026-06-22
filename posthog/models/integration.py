@@ -8,7 +8,7 @@ import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, NoReturn, Optional
 from urllib.parse import urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
@@ -182,6 +182,7 @@ class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
         APPLE_PUSH = "apns"
+        AWS_S3 = "aws-s3"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
@@ -209,6 +210,7 @@ class Integration(models.Model):
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
         REDDIT_ADS = "reddit-ads"
+        S3_COMPATIBLE = "s3-compatible"
         SALESFORCE = "salesforce"
         SLACK = "slack"
         # Deprecated — kept in choices to avoid a no-op migration. The runtime no longer creates
@@ -262,6 +264,8 @@ class Integration(models.Model):
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "databricks":
+            return self.integration_id or "unknown ID"
+        if self.kind in (Integration.IntegrationKind.AWS_S3, Integration.IntegrationKind.S3_COMPATIBLE):
             return self.integration_id or "unknown ID"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
@@ -3400,6 +3404,187 @@ class AzureBlobIntegration:
             if part.startswith("AccountName="):
                 return part.split("=", 1)[1]
         return None
+
+
+class S3CredentialIntegrationError(Exception):
+    """Error raised when an S3-family credential integration is not valid."""
+
+    pass
+
+
+class BaseS3CredentialIntegration:
+    """Shared credential storage for S3-family integrations (AWS S3, S3-compatible, and future kinds
+    such as a first-class GCS-via-S3 integration).
+
+    Kind-agnostic by design: subclasses set their own `kind` and may store extra non-sensitive config
+    (e.g. `endpoint_url`). Only the credentials live in `sensitive_config`; bucket, region, prefix and
+    other export-specific settings stay on the batch export destination config, so one credential can
+    be reused across many buckets/regions — and, in future, by Redshift COPY-mode exports that stage
+    to S3.
+    """
+
+    kind: ClassVar[str]
+
+    integration: Integration
+    # The `aws_` prefix applies even to non-AWS (S3-compatible) providers: these are AWS Signature V4
+    # credentials, which every S3-compatible provider (R2, MinIO, Spaces, ...) uses. The names also
+    # match boto3's kwargs and the existing S3-family batch export config fields, so they pass through
+    # unchanged.
+    aws_access_key_id: str
+    aws_secret_access_key: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != self.kind:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not a '{self.kind}' integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+
+        try:
+            self.aws_access_key_id = integration.sensitive_config["aws_access_key_id"]
+            self.aws_secret_access_key = integration.sensitive_config["aws_secret_access_key"]
+        except KeyError as e:
+            raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing")
+
+    @staticmethod
+    def _build_sensitive_config(aws_access_key_id: str, aws_secret_access_key: str) -> dict[str, str]:
+        return {
+            "aws_access_key_id": aws_access_key_id,
+            "aws_secret_access_key": aws_secret_access_key,
+        }
+
+
+class AwsS3Integration(BaseS3CredentialIntegration):
+    """An AWS S3 integration storing reusable AWS credentials.
+
+    Holds only credentials. Unlike `S3CompatibleIntegration` it has no `endpoint_url` — an AWS
+    integration must never be pointed at an arbitrary endpoint (SSRF boundary).
+    """
+
+    kind = Integration.IntegrationKind.AWS_S3.value
+
+    @property
+    def aws_account_id(self) -> str | None:
+        """The AWS account id resolved from the credentials at create time, if available."""
+        return self.integration.config.get("aws_account_id")
+
+    @staticmethod
+    def validate_credentials(aws_access_key_id: str, aws_secret_access_key: str) -> str:
+        """Validate AWS credentials via STS GetCallerIdentity, returning the AWS account id.
+
+        GetCallerIdentity requires no IAM permissions, so it verifies the credentials are valid
+        without assuming any particular S3 policy. It hits the fixed global AWS STS endpoint, so
+        there is no user-controlled endpoint and no SSRF surface (unlike S3-compatible).
+        """
+        import boto3  # noqa: PLC0415 — keeps botocore off the module import path (startup time)
+        from botocore.config import Config  # noqa: PLC0415
+        from botocore.exceptions import BotoCoreError, ClientError  # noqa: PLC0415
+
+        client = boto3.client(
+            "sts",
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            config=Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 2}),
+        )
+        try:
+            identity = client.get_caller_identity()
+        except ClientError as e:
+            message = e.response.get("Error", {}).get("Message") or str(e)
+            raise S3CredentialIntegrationError(f"AWS credentials are not valid: {message}")
+        except BotoCoreError as e:
+            raise S3CredentialIntegrationError(f"Could not validate AWS credentials: {e}")
+
+        return identity["Account"]
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        name: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        created_by: "User | None" = None,
+    ) -> Integration:
+        if not name:
+            raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+
+        # Fail fast on invalid/expired credentials, and capture the (non-sensitive) account id.
+        account_id = cls.validate_credentials(aws_access_key_id, aws_secret_access_key)
+
+        # `name` is the unencrypted, frontend-visible identifier — never an AWS credential, which is
+        # treated as a secret. The account id is non-sensitive and kept for display/debugging.
+        # TODO: consider a hybrid identifier `f"{account_id}-{name}"` instead of bare `name`. It would
+        # match the rest of the codebase (most integrations derive integration_id from a real property
+        # of the connection) and stay meaningful, while `name` still disambiguates multiple credential
+        # sets for the same AWS account (bare account_id would collide under update_or_create).
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=cls.kind,
+            integration_id=name,
+            defaults={
+                "config": {"name": name, "aws_account_id": account_id},
+                "sensitive_config": cls._build_sensitive_config(aws_access_key_id, aws_secret_access_key),
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+
+class S3CompatibleIntegration(BaseS3CredentialIntegration):
+    """An S3-compatible storage integration (MinIO, Cloudflare R2, DigitalOcean Spaces, Hetzner, etc.).
+
+    Holds the same credentials as `AwsS3Integration` plus the provider `endpoint_url` (non-sensitive),
+    since credentials are bound to a specific S3-compatible provider. Callers must SSRF-validate
+    `endpoint_url` before calling `integration_from_config` (see `IntegrationSerializer.create`).
+    """
+
+    kind = Integration.IntegrationKind.S3_COMPATIBLE.value
+
+    endpoint_url: str
+
+    def __init__(self, integration: Integration) -> None:
+        super().__init__(integration)
+        try:
+            self.endpoint_url = integration.config["endpoint_url"]
+        except KeyError:
+            raise S3CredentialIntegrationError("S3-compatible integration is missing required field: 'endpoint_url'")
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        name: str,
+        endpoint_url: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        created_by: "User | None" = None,
+    ) -> Integration:
+        if not name:
+            raise S3CredentialIntegrationError("A name is required for an S3-compatible integration")
+        if not endpoint_url:
+            raise S3CredentialIntegrationError("An endpoint URL is required for an S3-compatible integration")
+
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=cls.kind,
+            integration_id=name,
+            defaults={
+                "config": {"name": name, "endpoint_url": endpoint_url},
+                "sensitive_config": cls._build_sensitive_config(aws_access_key_id, aws_secret_access_key),
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
 
 
 class StripeIntegration:

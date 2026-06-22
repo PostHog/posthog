@@ -561,6 +561,183 @@ class TestDatabricksIntegration:
         assert response.json()["detail"] == expected_error_message
 
 
+class TestAwsS3Integration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    def test_create_with_valid_config(self, mock_validate, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "aws-s3",
+                "config": {
+                    "name": "prod-aws",
+                    "aws_access_key_id": "AKIAEXAMPLE",
+                    "aws_secret_access_key": "secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["kind"] == "aws-s3"
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.kind == "aws-s3"
+        assert integration.team == self.team
+        assert integration.integration_id == "prod-aws"
+        assert integration.config == {"name": "prod-aws", "aws_account_id": "123456789012"}
+        assert integration.sensitive_config == {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "secret",
+        }
+        # Credentials must never surface in the API response.
+        assert "aws_secret_access_key" not in response.json()["config"]
+
+    @patch("posthog.models.integration.AwsS3Integration.validate_credentials")
+    def test_create_rejects_invalid_credentials(self, mock_validate, client: HttpClient):
+        from posthog.models.integration import S3CredentialIntegrationError
+
+        mock_validate.side_effect = S3CredentialIntegrationError("AWS credentials are not valid: nope")
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "aws-s3",
+                "config": {
+                    "name": "prod-aws",
+                    "aws_access_key_id": "AKIAEXAMPLE",
+                    "aws_secret_access_key": "wrong",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "AWS credentials are not valid" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "invalid_config,expected_error_message",
+        [
+            (
+                {"aws_access_key_id": "k", "aws_secret_access_key": "s"},
+                "Name, access key ID, and secret access key must be provided",
+            ),
+            (
+                {"name": "n", "aws_secret_access_key": "s"},
+                "Name, access key ID, and secret access key must be provided",
+            ),
+            ({"name": "n", "aws_access_key_id": "k"}, "Name, access key ID, and secret access key must be provided"),
+            ({}, "Name, access key ID, and secret access key must be provided"),
+            (
+                {"name": "n", "aws_access_key_id": "k", "aws_secret_access_key": 1},
+                "Name, access key ID, and secret access key must be strings",
+            ),
+        ],
+    )
+    def test_create_with_invalid_config(self, invalid_config, expected_error_message, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "aws-s3", "config": invalid_config},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == expected_error_message
+
+
+class TestS3CompatibleIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_with_valid_config(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "s3-compatible",
+                "config": {
+                    "name": "my-r2",
+                    "endpoint_url": "https://account.r2.cloudflarestorage.com",
+                    "aws_access_key_id": "key",
+                    "aws_secret_access_key": "secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["kind"] == "s3-compatible"
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.integration_id == "my-r2"
+        assert integration.config == {"name": "my-r2", "endpoint_url": "https://account.r2.cloudflarestorage.com"}
+        assert integration.sensitive_config == {"aws_access_key_id": "key", "aws_secret_access_key": "secret"}
+
+    def test_create_rejects_invalid_endpoint_url(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "s3-compatible",
+                "config": {
+                    "name": "bad",
+                    "endpoint_url": "not-a-valid-url",
+                    "aws_access_key_id": "key",
+                    "aws_secret_access_key": "secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid endpoint URL" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "invalid_config,expected_error_message",
+        [
+            (
+                {"endpoint_url": "https://e.com", "aws_access_key_id": "k", "aws_secret_access_key": "s"},
+                "Name, endpoint URL, access key ID, and secret access key must be provided",
+            ),
+            (
+                {"name": "n", "aws_access_key_id": "k", "aws_secret_access_key": "s"},
+                "Name, endpoint URL, access key ID, and secret access key must be provided",
+            ),
+            ({}, "Name, endpoint URL, access key ID, and secret access key must be provided"),
+        ],
+    )
+    def test_create_with_invalid_config(self, invalid_config, expected_error_message, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "s3-compatible", "config": invalid_config},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == expected_error_message
+
+
 class TestIntegrationAPIKeyAccess:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
