@@ -88,10 +88,42 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     username = models.CharField(max_length=255)
     password = EncryptedTextField(max_length=500)
 
+    # S3 bucket backing the org's managed warehouse (no secrets — access is via IRSA / the
+    # ClickHouse EC2 role). Written at provision time so the duckling backfill reads the
+    # authoritative bucket name instead of re-deriving it. Nullable for rows provisioned
+    # before this field existed.
+    bucket = models.CharField(max_length=255, null=True, blank=True)
+    bucket_region = models.CharField(max_length=50, default="us-east-1")
+
     class Meta:
         db_table = "posthog_duckgresserver"
         verbose_name = "Duckgres server"
         verbose_name_plural = "Duckgres servers"
+
+
+class DuckgresServerTeam(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """Per-team membership of an org's Duckgres warehouse.
+
+    A DuckgresServer is org-scoped and can host many teams (1->n). This model
+    records which teams live in a given server, and is the home for any future
+    team-specific server config.
+    """
+
+    server = models.ForeignKey(
+        "posthog.DuckgresServer",
+        on_delete=models.CASCADE,
+        related_name="teams",
+    )
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="duckgres_server_team",
+    )
+
+    class Meta:
+        db_table = "posthog_duckgresserverteam"
+        verbose_name = "Duckgres server team"
+        verbose_name_plural = "Duckgres server teams"
 
 
 class DuckLakeBackfill(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -110,6 +142,13 @@ class DuckLakeBackfill(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     enabled = models.BooleanField(
         default=True,
         help_text="Whether warehouse backfills are enabled for this team",
+    )
+    table_suffix = models.CharField(
+        max_length=63,
+        null=True,
+        blank=True,
+        help_text="Suffix for this team's warehouse tables in the duckling (events_<suffix>, persons_<suffix>). "
+        "User-supplied; falls back to the shared tables when unset.",
     )
 
     class Meta:

@@ -384,7 +384,10 @@ interface MessageProps {
     isSlashCommandResponse?: boolean
 }
 
-function Message({
+// Memoized so a thread re-render (e.g. on every streaming token) only re-renders messages whose
+// props actually changed. Relies on threadGrouped preserving message object identity for unchanged
+// messages — see enhanceThreadToolCalls in maxThreadLogic.
+const Message = React.memo(function Message({
     message,
     nextMessage,
     isLastInGroup,
@@ -722,7 +725,7 @@ function Message({
             </div>
         </MessageContainer>
     )
-}
+})
 
 function MessageGroupSkeleton({
     groupType,

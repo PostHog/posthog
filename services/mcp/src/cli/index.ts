@@ -20,8 +20,12 @@ schema <tool_name> [field_path]
 call [--json] [--confirm] <tool_name> <json_input>`
 
 interface BuiltExec {
-    config: CliConfig
     context: Context
+    execTool: Tool<ZodObjectAny>
+    tools: Tool<ZodObjectAny>[]
+}
+
+interface BuiltStaticExec {
     execTool: Tool<ZodObjectAny>
     tools: Tool<ZodObjectAny>[]
 }
@@ -61,6 +65,22 @@ function printResult(result: unknown): void {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }
 
+function buildStaticExec(): BuiltStaticExec {
+    const tools = getCliTools()
+    const execTool = createExecTool(
+        tools,
+        undefined,
+        'Execute a PostHog CLI command',
+        COMMAND_REFERENCE,
+        'posthog-cli',
+        undefined,
+        [],
+        { requireDestructiveConfirmation: true }
+    )
+
+    return { execTool, tools }
+}
+
 async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltExec> {
     const context = await buildCliContext(config)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
@@ -85,13 +105,17 @@ async function buildExec(config: CliConfig = resolveCliConfig()): Promise<BuiltE
         { requireDestructiveConfirmation: true }
     )
 
-    return { config, context, execTool, tools }
+    return { context, execTool, tools }
 }
 
-async function buildAgentHelpForConfig(config: CliConfig = resolveCliConfig()): Promise<string> {
-    const context = await buildCliContext(config)
-    const aiConsentGiven = await context.stateManager.getAiConsentGiven()
-    return buildAgentHelp(getCliTools({ aiConsentGiven }))
+function buildAgentHelpForStaticCatalog(): string {
+    return buildAgentHelp(getCliTools())
+}
+
+async function runStaticExecCommand(command: string): Promise<void> {
+    const { execTool } = buildStaticExec()
+    const result = await execTool.handler(undefined as unknown as Context, { command })
+    printResult(result)
 }
 
 async function runExecCommand(command: string): Promise<void> {
@@ -113,7 +137,7 @@ async function runDryCall(args: string[]): Promise<void> {
         throw new Error('Usage: posthog-cli api call --dry-run [--json] [--confirm] <tool> <json>')
     }
 
-    const { tools } = await buildExec()
+    const { tools } = buildStaticExec()
     const tool = tools.find((candidate) => candidate.name === toolName)
     if (!tool) {
         throw new Error(`Unknown tool: "${toolName}". Run "posthog-cli api search <term>".`)
@@ -189,16 +213,16 @@ async function main(): Promise<void> {
     }
 
     if (command === 'agent-help' || command === '--agent-help') {
-        process.stdout.write(`${await buildAgentHelpForConfig()}\n`)
+        process.stdout.write(`${buildAgentHelpForStaticCatalog()}\n`)
         return
     }
 
     switch (command) {
         case 'tools':
-            await runExecCommand('tools')
+            await runStaticExecCommand('tools')
             return
         case 'search':
-            await runExecCommand(`search ${args.join(' ')}`)
+            await runStaticExecCommand(`search ${args.join(' ')}`)
             return
         case 'info': {
             const json = takeFlag(args, '--json')
@@ -206,7 +230,7 @@ async function main(): Promise<void> {
             if (!toolName) {
                 throw new Error('Usage: posthog-cli api info [--json] <tool>')
             }
-            await runExecCommand(`info ${json ? '--json ' : ''}${toolName}`)
+            await runStaticExecCommand(`info ${json ? '--json ' : ''}${toolName}`)
             return
         }
         case 'schema': {
@@ -214,7 +238,7 @@ async function main(): Promise<void> {
             if (!toolName) {
                 throw new Error('Usage: posthog-cli api schema <tool> [field.path]')
             }
-            await runExecCommand(`schema ${toolName}${args[0] ? ` ${args[0]}` : ''}`)
+            await runStaticExecCommand(`schema ${toolName}${args[0] ? ` ${args[0]}` : ''}`)
             return
         }
         case 'call': {

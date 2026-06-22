@@ -690,7 +690,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
+    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|streamlit_apps|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -759,6 +759,19 @@ expose = [
 ]
 from = [
     "products.mcp_store",
+]
+
+# legal_documents has a non-standard public surface — posthog/urls registers its pandadoc
+# webhook (presentation.webhook), not the canonical presentation.views — so it gets a dedicated
+# block rather than joining the canonical alternation above.
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.legal_documents",
 ]
 
 # error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to

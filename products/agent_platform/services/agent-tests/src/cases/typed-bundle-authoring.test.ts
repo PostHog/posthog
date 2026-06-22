@@ -53,7 +53,6 @@ async function newDraft(c: Cluster, slug = 'tba-test'): Promise<string> {
         slug: `${slug}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
         name: slug,
         description: '',
-        encrypted_env: null,
     })
     const spec = AgentSpecSchema.parse(defaultSpec())
     const rev = await c.revisions.createRevision({
