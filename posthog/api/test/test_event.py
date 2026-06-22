@@ -1359,11 +1359,11 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.api.event.cache")
     @patch("posthog.api.event._execute_events_list_query")
-    def test_caches_successful_window_with_result_count(self, patch_query_with_columns, mock_cache):
+    def test_caches_successful_window_with_result_count(self, patch_execute_query, mock_cache):
         mock_cache.get.return_value = None  # No cached window
 
         # Return enough results (>= half of limit) to succeed on first window
-        patch_query_with_columns.return_value = (
+        patch_execute_query.return_value = (
             [
                 {
                     "uuid": "event",
@@ -1390,11 +1390,11 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.api.event.cache")
     @patch("posthog.api.event._execute_events_list_query")
-    def test_uses_cached_window_when_result_count_meets_threshold(self, patch_query_with_columns, mock_cache):
+    def test_uses_cached_window_when_result_count_meets_threshold(self, patch_execute_query, mock_cache):
         # Cached window with result_count >= half_limit (60 >= 50 for limit=100)
         mock_cache.get.return_value = {"window": 3600, "result_count": 60}
 
-        patch_query_with_columns.return_value = (
+        patch_execute_query.return_value = (
             [
                 {
                     "uuid": "event",
@@ -1413,7 +1413,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         self.client.get(f"/api/projects/{self.team.id}/events/")
 
         # Should only call once since cached window returned enough results
-        assert patch_query_with_columns.call_count == 1
+        assert patch_execute_query.call_count == 1
 
         # Should NOT update cache when data is identical (optimization)
         mock_cache.set.assert_not_called()
@@ -1503,11 +1503,11 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.api.event.cache")
     @patch("posthog.api.event._execute_events_list_query")
-    def test_does_not_cache_when_fallback_used(self, patch_query_with_columns, mock_cache):
+    def test_does_not_cache_when_fallback_used(self, patch_execute_query, mock_cache):
         mock_cache.get.return_value = None
 
         # Return too few results to trigger fallback
-        patch_query_with_columns.return_value = (
+        patch_execute_query.return_value = (
             [
                 {
                     "uuid": "event",
@@ -1528,10 +1528,10 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         mock_cache.set.assert_not_called()
 
     @patch("posthog.api.event._execute_events_list_query")
-    def test_only_tries_windows_shorter_than_request(self, patch_query_with_columns):
+    def test_only_tries_windows_shorter_than_request(self, patch_execute_query):
         # Request a 10-minute window (600 seconds)
         # Should only try windows < 600: [60, 300] (2 windows) + fallback
-        patch_query_with_columns.return_value = (
+        patch_execute_query.return_value = (
             [
                 {
                     "uuid": "event",
@@ -1550,13 +1550,13 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         self.client.get(f"/api/projects/{self.team.id}/events/?after=2024-01-01T00:00:00Z&before=2024-01-01T00:10:00Z")
 
         # Should try [60, 300] + fallback = 3 calls
-        assert patch_query_with_columns.call_count == 3
+        assert patch_execute_query.call_count == 3
 
     @patch("posthog.api.event._execute_events_list_query")
-    def test_no_window_optimization_for_small_request_range(self, patch_query_with_columns):
+    def test_no_window_optimization_for_small_request_range(self, patch_execute_query):
         # Request a 30-second window - smaller than smallest optimization window (60s)
         # Should skip all windows and go straight to full request
-        patch_query_with_columns.return_value = (
+        patch_execute_query.return_value = (
             [
                 {
                     "uuid": "event",
@@ -1574,14 +1574,14 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         self.client.get(f"/api/projects/{self.team.id}/events/?after=2024-01-01T00:00:00Z&before=2024-01-01T00:00:30Z")
 
         # No windows < 30s, so straight to fallback = 1 call
-        assert patch_query_with_columns.call_count == 1
+        assert patch_execute_query.call_count == 1
 
     @patch("posthog.api.event.cache")
     @patch("posthog.api.event._execute_events_list_query")
-    def test_different_cache_keys_for_different_filters(self, patch_query_with_columns, mock_cache):
+    def test_different_cache_keys_for_different_filters(self, patch_execute_query, mock_cache):
         mock_cache.get.return_value = None
 
-        patch_query_with_columns.return_value = (
+        patch_execute_query.return_value = (
             [
                 {
                     "uuid": "event",
@@ -1626,7 +1626,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
     )
     @patch("posthog.api.event.cache")
     @patch("posthog.api.event._execute_events_list_query")
-    def test_asc_order_skips_window_optimization(self, _name, num_results, patch_query_with_columns, mock_cache):
+    def test_asc_order_skips_window_optimization(self, _name, num_results, patch_execute_query, mock_cache):
         """
         ASC order queries skip window optimization entirely.
 
@@ -1637,7 +1637,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         - No caching (nothing to cache)
         """
         mock_cache.get.return_value = None
-        patch_query_with_columns.return_value = (
+        patch_execute_query.return_value = (
             [
                 {
                     "uuid": f"event-{i}",
@@ -1655,6 +1655,6 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?orderBy={json.dumps(['timestamp'])}")
 
-        assert patch_query_with_columns.call_count == 1
+        assert patch_execute_query.call_count == 1
         assert len(response.json()["results"]) == num_results
         mock_cache.set.assert_not_called()
