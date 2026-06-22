@@ -3,6 +3,7 @@ import json
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.conf import settings
 
 from social_django.models import UserSocialAuth
@@ -30,7 +31,6 @@ from products.signals.backend.slack_inbox_notifications import (
     _summary_excerpt,
     dispatch_inbox_item_notifications,
 )
-from products.tasks.backend.models import Task, TaskRun
 
 
 @pytest.mark.parametrize(
@@ -353,6 +353,8 @@ def _create_implementation_task_with_run(
     *,
     pr_url: str | None = None,
 ) -> None:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
         team=team,
         title="Implementation task",
@@ -911,7 +913,7 @@ def test_build_signal_thread_blocks_renders_header_content_and_github_details() 
     }
     blocks, fallback = _build_signal_thread_blocks(signal)
 
-    assert blocks[0]["elements"][0]["text"] == "*GitHub · Issue*  ·  Weight: 2.5"
+    assert blocks[0]["elements"][0]["text"] == "*GitHub · Issue*"
     assert blocks[1]["text"]["text"] == "Users report the export button does nothing"
     detail = blocks[2]["elements"][0]["text"]
     assert "#42" in detail
@@ -969,6 +971,68 @@ def test_build_signal_thread_blocks_rejects_unsafe_detail_url() -> None:
     assert "Priority: high" in detail
     assert "Status: open" in detail
     assert "javascript:" not in detail
+
+
+def test_build_signal_thread_blocks_renders_markdown_content_as_mrkdwn() -> None:
+    # Markdown in the description (headings, bullets, emphasis, links) renders as Slack mrkdwn
+    # rather than showing literal `##`, `**`, and `[text](url)` noise.
+    signal = {
+        "source_product": "github",
+        "source_type": "issue",
+        "weight": 1.0,
+        "content": "## Bug\n**Export** is broken, see [issue](https://example.com/i?a=1&b=2)\n- step one\n- step two",
+        "extra": {},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    content_text = blocks[1]["text"]["text"]
+    assert "*Bug*" in content_text
+    assert "*Export*" in content_text
+    assert "<https://example.com/i?a=1&amp;b=2|issue>" in content_text
+    assert "• step one" in content_text
+    # No raw markdown syntax should survive the conversion.
+    assert "##" not in content_text
+    assert "**" not in content_text
+    assert "[issue]" not in content_text
+
+
+def test_build_signal_thread_blocks_neutralizes_injection_in_markdown_content() -> None:
+    # Even when converting markdown, raw mention/link syntax in untrusted content stays inert.
+    signal = {
+        "source_product": "github",
+        "source_type": "issue",
+        "weight": 1.0,
+        "content": "**Heads up** <!here> and <@U999> and a fake <https://evil.com|click here>",
+        "extra": {},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    content_text = blocks[1]["text"]["text"]
+    assert "*Heads up*" in content_text  # markdown still rendered
+    assert "<!here>" not in content_text
+    assert "<@U999>" not in content_text
+    assert "<https://evil.com|click here>" not in content_text
+    assert "&lt;!here&gt;" in content_text
+    assert "&lt;@U999&gt;" in content_text
+
+
+def test_build_signal_thread_blocks_defangs_mention_injection_via_markdown_links() -> None:
+    # `markdown_to_mrkdwn` turns `[text](dest)` into Slack's `<dest|label>` form; an untrusted
+    # description could smuggle a broadcast/ping by pointing the link at `!channel` / `@U123`.
+    signal = {
+        "source_product": "github",
+        "source_type": "issue",
+        "weight": 1.0,
+        "content": "[ping everyone](!channel) and [dm me](@U12345678) but [real](https://example.com) is fine",
+        "extra": {},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    content_text = blocks[1]["text"]["text"]
+    # No live mention/broadcast token survives.
+    assert "<!channel|" not in content_text
+    assert "<@U12345678|" not in content_text
+    assert "&lt;!channel|ping everyone&gt;" in content_text
+    assert "&lt;@U12345678|dm me&gt;" in content_text
+    # A genuine http(s) link is still rendered as a clickable Slack link.
+    assert "<https://example.com|real>" in content_text
 
 
 @pytest.mark.django_db

@@ -129,6 +129,7 @@ def prepare_ast_for_printing(
                 team=context.team,
                 user=context.user,
                 timings=context.timings,
+                bypass_warehouse_access_control=context.bypass_warehouse_access_control,
             )
     if context.direct_postgres_connection_metadata is None and context.database is not None:
         context.direct_postgres_connection_metadata = getattr(context.database, "_direct_connection_metadata", None)

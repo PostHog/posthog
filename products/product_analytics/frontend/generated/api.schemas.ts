@@ -1481,6 +1481,15 @@ export interface GoalLineApi {
     value: number
 }
 
+export type LegendPositionApi = (typeof LegendPositionApi)[keyof typeof LegendPositionApi]
+
+export const LegendPositionApi = {
+    Top: 'top',
+    Bottom: 'bottom',
+    Left: 'left',
+    Right: 'right',
+} as const
+
 export type MetricSummaryApi = (typeof MetricSummaryApi)[keyof typeof MetricSummaryApi]
 
 export const MetricSummaryApi = {
@@ -1574,6 +1583,8 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
     hideWeekends?: boolean | null
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     /** Metric display: change pill color when the metric decreased. Defaults to red. */
     metricChangeDecreaseColor?: string | null
     /** Metric display: change pill color when the metric increased. Defaults to green. */

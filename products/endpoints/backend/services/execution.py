@@ -54,6 +54,13 @@ from posthog.clickhouse.query_tagging import (
 from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
@@ -61,6 +68,7 @@ from posthog.synthetic_user import SyntheticUser
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.data_load.saved_query_service import trigger_saved_query_schedule
+from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
@@ -85,6 +93,47 @@ logger = structlog.get_logger(__name__)
 LAST_EXECUTED_THROTTLE = timedelta(minutes=30)
 
 ExecutionType = Literal["materialized", "materialized_fallback", "inline", "ducklake", "ducklake_fallback"]
+
+# Deterministic, customer-caused ClickHouse cost guardrails → stable client `code` + remediation.
+# Kept out of status="error" so they don't page on-call; surfaced as an actionable 400.
+_QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
+    ClickHouseQueryTimeOut: (
+        "query_timeout",
+        "This query exceeded the execution time limit. Narrow its scope (e.g. a smaller date range) "
+        "or materialize the endpoint for dedicated compute.",
+    ),
+    ClickHouseQueryMemoryLimitExceeded: (
+        "query_memory_limit",
+        "This query exceeded the memory limit. Narrow its scope (e.g. a smaller date range) "
+        "or materialize the endpoint.",
+    ),
+    ClickHouseQuerySizeExceeded: (
+        "query_too_large",
+        # No materialize hint: it re-parses the same SQL, so it can't shrink an oversized query.
+        "The query text is too large to execute. Simplify the query.",
+    ),
+    ClickHouseEstimatedQueryExecutionTimeTooLong: (
+        "query_estimated_too_slow",
+        "This query is estimated to run too long. Reduce its scope by narrowing the time range "
+        "or materialize the endpoint.",
+    ),
+}
+
+# Cost guardrails + transient capacity: customer problems, not faults. Skipped from capture and
+# re-raised past the materialized/ducklake inline fallback.
+_QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (*_QUERY_PERFORMANCE_ERRORS, ClickHouseAtCapacity)
+
+
+def _is_query_guardrail_error(error: BaseException) -> bool:
+    return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
+
+
+def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
+    # isinstance, not dict[type(e)], so a future subclass can't KeyError into a 500.
+    for exc_type, code_and_detail in _QUERY_PERFORMANCE_ERRORS.items():
+        if isinstance(error, exc_type):
+            return code_and_detail
+    raise error
 
 
 def _emit_endpoint_failure_signal(
@@ -399,12 +448,15 @@ class EndpointExecutionService(PydanticModelMixin):
             self.log_rejected_run(endpoint, self.format_validation_detail(exc.detail))
             raise
 
+        use_materialized = self.should_use_materialized_table(endpoint, data, version_obj)
+
         report_user_action(
             cast("User | SyntheticUser", self.request.user),
             "endpoint executed",
             {
                 "endpoint_id": str(endpoint.id),
                 "endpoint_name": endpoint.name,
+                "is_materialized": use_materialized,
                 "has_filters_override": bool(data.filters_override),
                 "has_variables": bool(data.variables),
                 "has_limit": data.limit is not None,
@@ -417,9 +469,6 @@ class EndpointExecutionService(PydanticModelMixin):
             team=self.team,
             analytics_props=get_request_analytics_properties(self.request),
         )
-
-        # Check if we should use materialization for this version
-        use_materialized = self.should_use_materialized_table(endpoint, data, version_obj)
 
         debug = data.debug or False
         execution_type: ExecutionType = "materialized" if use_materialized else "inline"
@@ -447,7 +496,9 @@ class EndpointExecutionService(PydanticModelMixin):
                     result = None
             elif self._should_use_ducklake(endpoint, version_obj):
                 try:
-                    result = self._execute_ducklake_endpoint(endpoint, version_obj.query.copy(), debug=debug)
+                    result = self._execute_ducklake_endpoint(
+                        endpoint, data, version_obj, version_obj.query.copy(), debug=debug
+                    )
                     execution_type = "ducklake"
                 except Exception:
                     logger.warning(
@@ -497,6 +548,17 @@ class EndpointExecutionService(PydanticModelMixin):
         except ConcurrencyLimitExceeded:
             ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
+        except tuple(_QUERY_PERFORMANCE_ERRORS) as e:
+            execution_status = "query_performance"
+            error_label = type(e).__name__
+            code, detail = _query_performance_code_and_detail(e)
+            logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
+            raise EndpointQueryTooExpensive(detail, code=code)
+        except ClickHouseAtCapacity:
+            execution_status = "capacity"
+            error_label = "ClickHouseAtCapacity"
+            logger.warning("Endpoint query hit shared ClickHouse capacity", endpoint_name=endpoint.name)
+            raise EndpointAtCapacity()
         except Exception as e:
             execution_status = "error"
             error_label = type(e).__name__
@@ -510,7 +572,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 ENDPOINT_EXECUTION_TOTAL.labels(
                     execution_type=execution_type, query_kind=query_kind_metric, status=execution_status
                 ).inc()
-            if execution_status in ("error", "user_error"):
+            if execution_status in ("error", "user_error", "query_performance", "capacity"):
                 log_endpoint_execution(
                     team_id=self.team.pk,
                     endpoint_id=str(endpoint.id),
@@ -707,6 +769,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
+            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
+            if _is_query_guardrail_error(e):
+                raise
             logger.exception(
                 "Materialized endpoint execution failed",
                 endpoint_name=endpoint.name,
@@ -812,6 +877,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
+            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
+            if _is_query_guardrail_error(e):
+                raise
             logger.exception(
                 "Inline endpoint execution failed",
                 endpoint_name=endpoint.name,
@@ -841,16 +909,28 @@ class EndpointExecutionService(PydanticModelMixin):
     def _execute_ducklake_endpoint(
         self,
         endpoint: Endpoint,
+        data: EndpointRunRequest,
+        version: EndpointVersion,
         query: dict,
         debug: bool = False,
     ) -> Response:
         from posthog.ducklake.client import execute_ducklake_query
 
         try:
+            strategy = strategy_for(endpoint, version, self.team)
+            plan = strategy.build_inline_plan(query, data)
+
+            hogql_query = HogQLQuery(query=query["query"], variables=query.get("variables"))
+            if plan.variables_override and hogql_query.variables:
+                for override in plan.variables_override:
+                    if hogql_query.variables.get(override.variableId):
+                        hogql_query.variables[override.variableId] = override
+
             result = execute_ducklake_query(
                 self.team.pk,
-                query=HogQLQuery(query=query["query"]),
+                query=hogql_query,
                 organization_id=str(self.team.organization_id),
+                team=self.team,
             )
             response_data: dict = {
                 "results": result.results,

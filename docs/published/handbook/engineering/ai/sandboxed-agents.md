@@ -176,8 +176,8 @@ for example, a discovery pass followed by per-item research, then assessment and
 ### Example
 
 ```python
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 
 # 1. Start: discovery turn
 session, candidates = await MultiTurnSession.start(
@@ -209,7 +209,7 @@ await session.end()
 
 ### Reference implementation
 
-See `products/tasks/backend/services/mts_example/` for a complete working example.
+See `products/tasks/backend/logic/services/mts_example/` for a complete working example.
 It runs a multi-turn agent that discovers "cursed" identifiers in a repo,
 researches each one, and produces output in the shape Signals consumes:
 
@@ -223,7 +223,7 @@ Run it locally (DEBUG only):
 DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>
 ```
 
-See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/services/mts_example/README.md) for details on adapting it to your own use case.
+See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/logic/services/mts_example/README.md) for details on adapting it to your own use case.
 
 ## Code execution
 

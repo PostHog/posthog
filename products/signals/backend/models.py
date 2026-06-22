@@ -166,6 +166,10 @@ class SignalReport(UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
+    # The status held immediately before the report was suppressed (archived). Lets "restore"
+    # return the report to where it was instead of always dropping it back to POTENTIAL.
+    # Null for reports that were never suppressed (and cleared again on restore).
+    status_before_suppression = models.CharField(max_length=20, choices=Status, null=True, blank=True)
 
     total_weight = models.FloatField(default=0.0)
     signal_count = models.IntegerField(default=0)
@@ -267,6 +271,9 @@ class SignalReport(UUIDModel):
             case (S.IN_PROGRESS | S.SUPPRESSED | S.READY | S.RESOLVED, S.POTENTIAL):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
+                if self.status == S.SUPPRESSED:
+                    self.status_before_suppression = None
+                    updated_fields.add("status_before_suppression")
                 if snooze_for is not None:
                     self.signals_at_run = self.signal_count + snooze_for
                     updated_fields.add("signals_at_run")
@@ -276,6 +283,14 @@ class SignalReport(UUIDModel):
                 if error is not None:
                     self.error = error
                     updated_fields.add("error")
+
+            # Restore (un-archive) a suppressed report to the researched, user-visible state it held
+            # before suppression. Title/summary/error are already set from the earlier research run,
+            # so they are preserved as-is. In-flight states (candidate/in_progress) are never restored
+            # here — they have no live workflow to resume and instead route back through POTENTIAL above.
+            case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED):
+                self.status_before_suppression = None
+                updated_fields.add("status_before_suppression")
 
             # Any non-deleted status can fail
             case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED, S.FAILED):
@@ -289,8 +304,10 @@ class SignalReport(UUIDModel):
                 S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED,
                 S.SUPPRESSED,
             ):
+                # Remember where it was so "restore" can return it there (see restore_target_status).
+                self.status_before_suppression = self.status
                 self.promoted_at = None
-                updated_fields.add("promoted_at")
+                updated_fields.update(["status_before_suppression", "promoted_at"])
 
             # Any non-deleted status can be deleted
             case (
@@ -318,6 +335,22 @@ class SignalReport(UUIDModel):
         self.status = new_status
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
+
+    def restore_target_status(self) -> "SignalReport.Status":
+        """
+        The status a suppressed report should return to on restore (un-archive).
+
+        A report archived while fully researched (ready / pending_input / resolved / failed) returns
+        to that exact state so it reappears where the user archived it from. Anything else — including
+        in-flight states with no live workflow, or legacy rows with no recorded prior status — routes
+        back through POTENTIAL to re-enter the pipeline.
+        """
+        S = self.Status
+        researched = {S.READY, S.PENDING_INPUT, S.RESOLVED, S.FAILED}
+        prior = self.status_before_suppression
+        if prior in {s.value for s in researched}:
+            return S(prior)
+        return S.POTENTIAL
 
 
 class SignalEmissionRecord(UUIDModel):
@@ -388,6 +421,10 @@ class SignalReportTask(UUIDModel):
     class Meta:
         verbose_name = "Signal report task"
         verbose_name_plural = "Signal report tasks"
+        indexes = [
+            # Billing and PR-URL lookups traverse this bridge by report filtered on relationship.
+            models.Index(fields=["report", "relationship"], name="signals_report_task_rel_idx"),
+        ]
 
 
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
@@ -438,14 +475,16 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Minutes between runs. The coordinator dispatches this scout when
     # `last_run_at is None or now - last_run_at >= run_interval_minutes`. Deterministic —
     # no sampling. Floor of 10 keeps one scout from monopolising the worker pool; default
-    # 180 = every 3 hours. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
+    # 1440 = every 24 hours. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
     # `PositiveSmallIntegerField` (smallint, max 32767) so the documented 30-day ceiling fits.
-    # Default chosen for run economics: most runs close out without a finding, so hourly mostly
-    # pays to re-confirm "nothing new"; a 3h cadence cuts per-scout spend materially with
-    # negligible detection latency for non-spike findings. Tune per scout via the config API.
+    # Default chosen for run economics: most runs close out without a finding, so a tighter
+    # cadence mostly pays to re-confirm "nothing new"; a daily cadence cuts per-scout spend
+    # materially with negligible detection latency for non-spike findings. The flag's
+    # `enabled_interval_minutes` can still override this per launch posture, and any scout is
+    # tunable per row via the config API.
     run_interval_minutes = models.PositiveIntegerField(
-        default=180,
-        db_default=180,
+        default=1440,
+        db_default=1440,
         validators=[MinValueValidator(10), MaxValueValidator(43200)],
     )
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
