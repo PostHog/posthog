@@ -7,12 +7,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.util import (
-    correct_result_for_sampling,
-    get_earliest_timestamp,
-    get_interval_func_ch,
-    get_start_of_interval_sql,
-)
+from posthog.queries.util import correct_result_for_sampling, get_interval_func_ch, get_start_of_interval_sql
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
@@ -102,8 +97,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         ) = self.get_steps_reached_conditions()
         interval_func = get_interval_func_ch(self._filter.interval)
 
+        # Imported here to avoid a circular import at module load (timestamp_utils pulls in HogQL).
+        from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_unfiltered  # noqa: PLC0415
+
         if self._filter.date_from is None:
-            _date_from = get_earliest_timestamp(self._team.pk)
+            _date_from = get_earliest_timestamp_unfiltered(self._team)
         else:
             _date_from = self._filter.date_from
 

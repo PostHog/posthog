@@ -65,6 +65,7 @@ from posthog.models.cohort.util import (
 )
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.filters.filter import Filter
+from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.property import Property, PropertyGroup
@@ -73,7 +74,6 @@ from posthog.models.utils import UUIDT
 from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.base import determine_parsed_date_for_property_matching, property_group_to_Q
 from posthog.queries.person_query import PersonQuery
-from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
@@ -452,7 +452,7 @@ class CohortFiltersField(serializers.JSONField):
 
 class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    earliest_timestamp_func = get_earliest_timestamp
+    earliest_timestamp_func = earliest_timestamp_func
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _create_static_person_ids = serializers.ListField(
         required=False, child=serializers.CharField(), write_only=True, default=[]
