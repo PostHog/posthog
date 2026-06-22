@@ -25,6 +25,7 @@ hcl/
       prod-eu/ops.hcl       # legacy query_log_archive_old, sharded_tophog (tophog)
     golden/                 # vendored per-env cluster dumps — the drift baseline
     check.sh                # validate + diff layers vs golden for every env
+    diff.sh                 # preview DDL your uncommitted edits produce, per env
 ```
 
 `base/` is a single layer directory; `hclexp` loads every `*.hcl` in it, so
@@ -88,6 +89,10 @@ HCLEXP=posthog/clickhouse/hcl/bin/hclexp
 
 # Fidelity + reference guard for every OPS environment (CI entry point)
 bash posthog/clickhouse/hcl/ops/check.sh
+
+# Preview the migration DDL your uncommitted edits would produce, per env
+# (committed = reference, working tree = desired). Optional ref / env args.
+bash posthog/clickhouse/hcl/ops/diff.sh
 
 # Resolve a layer stack to canonical HCL
 $HCLEXP load -layer posthog/clickhouse/hcl/ops/base,posthog/clickhouse/hcl/ops/env/dev -out /tmp/ops-dev.hcl
