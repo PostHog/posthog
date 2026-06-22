@@ -11,17 +11,20 @@ query-time computation:
      then the OAuth client name) — `HARNESS_TOKEN_SQL`.
   2. Bucket that token into a customer label — `harness_label_sql`.
 
-This module is the single source of truth. Two other places intentionally mirror
-it and must move in lockstep: the logo/colour registry in
-`products/mcp_analytics/frontend/dashboard/harnessRegistry.ts` (keyed by the
-label strings emitted here) and the documented query in the
-`querying-posthog-data` skill's `models-mcp.md`. The frontend no longer resolves
-labels itself — it reads them from the runners that call this module.
+This module is being established as the single source of truth. Today the same
+label logic still lives in two other places that must move in lockstep until they
+are consolidated onto this runner: the frontend's own `categorizeHarness` +
+`HARNESS_REGISTRY` in `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts`
+(its category keys also drive logos/colours), and the documented query in the
+`querying-posthog-data` skill's `models-mcp.md`. Rewiring the dashboard onto this
+runner (and the registry down to logos-by-label) is a follow-up; a cross-language
+test pinning the registry keys to `HARNESS_LABELS` lands with that rewire.
 
 Because the token appears many times in the bucketing `multiIf`, callers compute
 it once as a column (`{HARNESS_TOKEN_SQL} AS h`, or `argMax(..., timestamp)` for a
 per-session value) and pass that column name to `harness_label_sql` — never inline
-the token into the `multiIf`.
+the token into the `multiIf`. `token_col` is always a SQL identifier the caller
+controls, never request input.
 """
 
 # Leading product token of the User-Agent, e.g. "claude-code" from "claude-code/2.1.x (cli)".
@@ -98,8 +101,9 @@ def harness_label_sql(token_col: str = "h") -> str:
     )"""
 
 
-# Every customer label `harness_label_sql` can emit, for cross-checking against
-# the frontend registry's logo/colour keys (a test asserts the two agree).
+# Every customer label `harness_label_sql` can emit. A unit test asserts this tuple
+# stays in step with the multiIf branches; the frontend registry's logo/colour keys
+# are cross-checked against it when the dashboard is rewired onto this runner.
 HARNESS_LABELS: tuple[str, ...] = (
     "Claude Desktop",
     "Claude Code (VS Code)",

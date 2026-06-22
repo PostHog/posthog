@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -5,10 +6,25 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, MCPHarnessBreakdownItem, MCPHarnessBreakdownQuery
+from posthog.schema import (
+    DateRange,
+    EventPropertyFilter,
+    MCPHarnessBreakdownItem,
+    MCPHarnessBreakdownQuery,
+    PropertyOperator,
+)
 
+from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+
+
+def test_harness_labels_tuple_matches_multiif_branches() -> None:
+    # The tuple and the multiIf are two expressions of one fact (the labels we emit);
+    # this keeps them from drifting. Each branch ends `, '<Label>',`; the else arm is 'Other'.
+    sql = mcp_harness.harness_label_sql("h")
+    emitted = set(re.findall(r"'([^']+)',\s*$", sql, re.MULTILINE)) | {"Other"}
+    assert emitted == set(mcp_harness.HARNESS_LABELS)
 
 
 class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
@@ -52,6 +68,17 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
                 "ua_claude_sdk",
                 {"$mcp_client_user_agent": "claude-code/2.1.0 (sdk-ts, agent-sdk/0.3)"},
                 "Claude Agent SDK",
+            ),
+            # Surface-specific exacts must win over the generic claude-code prefix.
+            (
+                "ua_claude_vscode",
+                {"$mcp_client_user_agent": "claude-code/2.1.0 (claude-vscode, agent-sdk/0.3)"},
+                "Claude Code (VS Code)",
+            ),
+            (
+                "ua_claude_desktop",
+                {"$mcp_client_user_agent": "claude-code/2.1.0 (claude-desktop, agent-sdk/0.3)"},
+                "Claude Desktop",
             ),
             ("ua_openai", {"$mcp_client_user_agent": "openai-mcp/1.0.0"}, "OpenAI"),
             ("session_librechat", {"mcp_session_client_name": "@librechat/api-client"}, "LibreChat"),
@@ -107,3 +134,24 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
 
         assert "Cursor" in by_harness
         assert "OpenAI Codex" not in by_harness
+
+    def test_property_filter_applies(self) -> None:
+        # properties is the only user-supplied input reaching the WHERE clause;
+        # confirm it actually filters (via property_to_expr), not just passes through.
+        self._emit(properties={"mcp_session_client_name": "codex-mcp-client", "$mcp_tool_name": "query_run"})
+        self._emit(properties={"mcp_session_client_name": "cursor-vscode", "$mcp_tool_name": "insight_get"})
+        flush_persons_and_events()
+
+        runner = MCPHarnessBreakdownQueryRunner(
+            query=MCPHarnessBreakdownQuery(
+                dateRange=DateRange(date_from="-90d"),
+                properties=[
+                    EventPropertyFilter(key="$mcp_tool_name", value=["query_run"], operator=PropertyOperator.EXACT)
+                ],
+            ),
+            team=self.team,
+        )
+        by_harness = {row.harness: row for row in runner.calculate().results}
+
+        assert "OpenAI Codex" in by_harness
+        assert "Cursor" not in by_harness
