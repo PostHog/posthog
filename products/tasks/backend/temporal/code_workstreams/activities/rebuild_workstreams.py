@@ -12,8 +12,8 @@ from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.code_workstreams.classify import pick_primary_situation
-from products.tasks.backend.code_workstreams.grouping import (
+from products.tasks.backend.logic.code_workstreams.classify import pick_primary_situation
+from products.tasks.backend.logic.code_workstreams.grouping import (
     PrInput,
     TaskInput,
     Workstream,

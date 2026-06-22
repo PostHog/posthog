@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 import structlog
 import posthoganalytics
@@ -29,9 +29,11 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.agentic.select_repository import GITHUB_ONLY_DOMAINS
-from products.tasks.backend.models import SandboxEnvironment, Task
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext, extract_json_from_text
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, extract_json_from_text
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task
 
 logger = structlog.get_logger(__name__)
 
@@ -405,7 +407,7 @@ Rules:
         sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
             self.team_id,
             SIGNALS_REPO_DISCOVERY_ENV_NAME,
-            SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
             allowed_domains=GITHUB_ONLY_DOMAINS,
         )
         selected = await select_repository_for_team(
@@ -600,7 +602,7 @@ Return only a JSON object matching this schema. Do not include markdown fences o
             )(
                 self.team_id,
                 SIGNALS_REPORT_RESEARCH_ENV_NAME,
-                SandboxEnvironment.NetworkAccessLevel.TRUSTED,
+                tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
             )
             context = CustomPromptSandboxContext(
                 team_id=self.team_id,
@@ -614,7 +616,7 @@ Return only a JSON object matching this schema. Do not include markdown fences o
                 prompt=prompt,
                 context=context,
                 step_name=label,
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
                 internal=True,
             )
             self._session = session

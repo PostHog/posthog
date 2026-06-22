@@ -13,10 +13,15 @@
  *      every series, including the Node process defaults, is sliceable per
  *      service in a fleet dashboard) and registers default process metrics
  *      (CPU, RSS/heap, GC pauses, event-loop lag, open FDs).
- *   2. `createMetricsServer({ port, log })` on a DEDICATED port (default 6738,
- *      AGENT_METRICS_PORT) — never the public request port. vmagent scrapes
- *      the pod on this port; the internet-facing ingress listener never serves
- *      `/metrics`. The metrics server itself logs nothing per scrape.
+ *   2. In prod, `createMetricsServer({ port, log })` on a DEDICATED port
+ *      (default 6738, AGENT_METRICS_PORT) — never the public request port.
+ *      vmagent scrapes the pod on this port; the internet-facing ingress
+ *      listener never serves `/metrics`. The metrics server logs nothing per
+ *      scrape. In LOCAL DEV the three services share a host, so binding the
+ *      same dedicated port thrice collides — instead each mounts the
+ *      `handleMetricsRequest` hook as a subpath on its own main/health server
+ *      (distinct ports already), and no dedicated server is started. Prod
+ *      behaviour (and the chart's scrape config) is unchanged.
  *
  * Express services additionally record `agent_http_request_duration_seconds`
  * via a tiny middleware (kept in each service so agent-shared stays
@@ -27,7 +32,7 @@
  * against the single shared `register` re-exported here.
  */
 
-import { createServer, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { collectDefaultMetrics, Counter, Gauge, Histogram, register } from 'prom-client'
 
 import type { Logger } from './logger'
@@ -89,26 +94,39 @@ export function recordHttpRequest(
 }
 
 /**
- * Start the dedicated Prometheus scrape server. Serves `GET /metrics` and
- * `GET /_metrics` (the chart's default scrape path) from the shared registry;
- * everything else 404s. Deliberately silent per request — scrapes fire every
- * ~60s and would otherwise flood the log.
+ * Serve `GET /metrics` + `GET /_metrics` (the chart's default scrape path) from
+ * the shared registry. Returns true if it handled the request (path matched),
+ * false otherwise — so the same logic backs both the dedicated prod server and
+ * a same-port dev mount on an existing service server. Silent per request.
+ */
+export function handleMetricsRequest(req: IncomingMessage, res: ServerResponse, log: Logger): boolean {
+    const path = (req.url ?? '/').split('?', 1)[0]
+    if (req.method === 'GET' && (path === '/metrics' || path === '/_metrics')) {
+        register
+            .metrics()
+            .then((body) => {
+                res.writeHead(200, { 'content-type': register.contentType })
+                res.end(body)
+            })
+            .catch((err: unknown) => {
+                log.error({ err: err instanceof Error ? err.message : String(err) }, 'metrics.collect_failed')
+                res.writeHead(500)
+                res.end()
+            })
+        return true
+    }
+    return false
+}
+
+/**
+ * Start the dedicated Prometheus scrape server (prod). Everything other than the
+ * metrics paths 404s. Deliberately silent per request — scrapes fire every ~60s
+ * and would otherwise flood the log. In dev, services skip this and mount
+ * `handleMetricsRequest` on their main server instead (see the module note).
  */
 export function createMetricsServer(opts: { port: number; log: Logger }): Server {
     const server = createServer((req, res) => {
-        const url = req.url ?? '/'
-        if (req.method === 'GET' && (url === '/metrics' || url === '/_metrics')) {
-            register
-                .metrics()
-                .then((body) => {
-                    res.writeHead(200, { 'content-type': register.contentType })
-                    res.end(body)
-                })
-                .catch((err: unknown) => {
-                    opts.log.error({ err: err instanceof Error ? err.message : String(err) }, 'metrics.collect_failed')
-                    res.writeHead(500)
-                    res.end()
-                })
+        if (handleMetricsRequest(req, res, opts.log)) {
             return
         }
         res.writeHead(404)
