@@ -309,10 +309,36 @@ class BatchQueue:
         )
 
     @staticmethod
+    async def verify_advisory_lock(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> bool:
+        """Check if this session still holds the advisory lock for (team_id, schema_id)."""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_locks
+                    WHERE locktype = 'advisory'
+                      AND classid = {ADVISORY_LOCK_NAMESPACE}
+                      AND objid = hashtext(%(key)s)
+                      AND pid = pg_backend_pid()
+                      AND granted = true
+                )
+                """,
+                {"key": f"{team_id}:{schema_id}"},
+            )
+            row = await cur.fetchone()
+            return bool(row and row[0])
+
+    @staticmethod
     async def get_stale_executing(
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int = 0,
+        keep_locks: bool = False,
     ) -> list[PendingBatch]:
         """Find batches stuck in 'executing' whose advisory lock is not held (previous pod crashed).
 
@@ -321,6 +347,9 @@ class BatchQueue:
 
         ``grace_seconds`` requires the 'executing' status row to be older than
         this threshold before the batch is considered orphaned.
+
+        When ``keep_locks`` is True the caller is responsible for releasing the
+        probe locks after it has finished acting on the returned batches.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -353,8 +382,8 @@ class BatchQueue:
 
         result = [PendingBatch(**row) for row in rows]
 
-        # Release the locks immediately — we only needed them to detect orphans.
-        await BatchQueue.unlock_for_batches(conn, batches=result)
+        if not keep_locks:
+            await BatchQueue.unlock_for_batches(conn, batches=result)
 
         return result
 
