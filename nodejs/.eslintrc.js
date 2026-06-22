@@ -82,7 +82,7 @@ module.exports = {
             },
         },
         {
-            // Ingestion is standardized on the ~/ alias (see INGESTION_SEPARATION.md). Ban parent-relative
+            // Ingestion is standardized on the ~/ alias. Ban parent-relative
             // (../) imports so the structure stays codemod-friendly through future moves; keep ./ siblings.
             // Overrides replace rule options, so the global fetch/node-fetch/undici bans are repeated here.
             files: ['src/ingestion/**/*.ts'],
