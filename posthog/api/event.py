@@ -126,6 +126,38 @@ def _get_event_list_cache_key(
 # zipping HogQL result rows back into the dict shape `ClickhouseEventSerializer` expects.
 EVENT_LIST_SELECT_COLUMNS = ["uuid", "event", "properties", "timestamp", "distinct_id", "elements_chain"]
 
+# Property-filter keys EventsQuery's schema accepts. Legacy-only keys (property_type,
+# property_type_format) are dropped — the schema forbids them and property_to_expr doesn't need them.
+_ALLOWED_PROPERTY_KEYS = {"key", "value", "operator", "type", "label", "group_type_index"}
+
+
+def _clean_property_node(node: dict) -> dict:
+    """Strip schema-rejected keys from a property filter, recursing into property groups.
+
+    A group node (`{"type": "AND"/"OR", "values": [...]}`) keeps its structure so the runner's
+    `property_to_expr` preserves nested AND/OR; only leaf filters are key-filtered.
+    """
+    values = node.get("values")
+    if isinstance(values, list):
+        return {"type": node.get("type"), "values": [_clean_property_node(v) for v in values if isinstance(v, dict)]}
+    return {k: v for k, v in node.items() if k in _ALLOWED_PROPERTY_KEYS}
+
+
+def _iter_leaf_property_filters(properties: "builtins.list[dict] | dict | None") -> Iterator[dict]:
+    """Yield the leaf filter dicts in a flat list or a (possibly nested) property group."""
+    stack: builtins.list[dict] = []
+    if isinstance(properties, dict):
+        stack.append(properties)
+    elif properties:
+        stack.extend(p for p in properties if isinstance(p, dict))
+    while stack:
+        node = stack.pop()
+        values = node.get("values")
+        if isinstance(values, list):
+            stack.extend(v for v in values if isinstance(v, dict))
+        else:
+            yield node
+
 
 def parse_timestamp(timestamp: str, tzinfo: ZoneInfo) -> datetime:
     try:
@@ -151,7 +183,7 @@ def run_events_query(
     event: Optional[str],
     person_id: Optional[str],
     distinct_id: Optional[str],
-    properties: Optional[builtins.list[dict]],
+    properties: "builtins.list[dict] | dict | None",
     action_id: Optional[str],
     time_window_seconds: Optional[int] = None,
 ) -> tuple[builtins.list[dict], bool, Optional[int]]:
@@ -199,7 +231,14 @@ def run_events_query(
         if not action.steps:
             return [], False, applied_window_seconds
 
-    where_properties: builtins.list[dict] = list(properties) if properties else []
+    # A flat list of leaf filters goes through `properties`; a property group goes through
+    # `fixedProperties`, where the runner's `property_to_expr` preserves its nested AND/OR.
+    where_properties: builtins.list[dict] = []
+    fixed_properties: builtins.list[dict] = []
+    if isinstance(properties, dict):
+        fixed_properties = [properties]
+    elif properties:
+        where_properties = list(properties)
     if distinct_id is not None:
         where_properties.append(
             {"type": "event_metadata", "key": "distinct_id", "value": distinct_id, "operator": "exact"}
@@ -215,6 +254,7 @@ def run_events_query(
         personId=str(person_id) if person_id else None,
         actionId=int(action_id) if action_id else None,
         properties=cast("builtins.list[dict[str, object]]", where_properties) if where_properties else None,
+        fixedProperties=cast("builtins.list[dict[str, object]]", fixed_properties) if fixed_properties else None,
         orderBy=[f"timestamp {order}"],
         limit=limit,
         offset=offset,
@@ -829,10 +869,14 @@ class EventViewSet(
         resp["Cache-Control"] = "max-age=10"
         return resp
 
-    def _parse_properties_param(self, request: request.Request) -> Optional[builtins.list[dict]]:
-        """Parse the `properties` query param into a flat list of property-filter dicts for
-        `EventsQuery.properties`. Legacy-only keys (`property_type`, `property_type_format`)
-        that the schema rejects are dropped; missing `type` defaults to `event` as before."""
+    def _parse_properties_param(self, request: request.Request) -> "builtins.list[dict] | dict | None":
+        """Parse the `properties` query param for `EventsQuery`.
+
+        A flat list of leaf filters maps to `EventsQuery.properties`; a property group
+        (`{"type": "AND"/"OR", "values": [...]}`, possibly nested) is returned intact and later
+        forwarded to the runner's `property_to_expr` via `fixedProperties`, so its AND/OR survives.
+        Legacy-only keys (`property_type`, `property_type_format`) the schema rejects are dropped;
+        missing `type` defaults to `event` as before. Invalid JSON raises the legacy 400."""
         raw = request.GET.get("properties")
         if not raw:
             return None
@@ -840,17 +884,15 @@ class EventViewSet(
             parsed = json.loads(raw)
         except json.JSONDecodeError:
             raise serializers.ValidationError("Properties are unparsable!")
-        # A property group ({"type": "AND", "values": [...]}) collapses to its values.
-        if isinstance(parsed, dict) and "values" in parsed:
-            parsed = parsed.get("values") or []
-        if not isinstance(parsed, list):
-            return None
-        allowed = {"key", "value", "operator", "type", "label", "group_type_index"}
-        return [{k: v for k, v in prop.items() if k in allowed} for prop in parsed if isinstance(prop, dict)]
+        if isinstance(parsed, dict) and isinstance(parsed.get("values"), list):
+            return _clean_property_node(parsed)
+        if isinstance(parsed, list):
+            return [_clean_property_node(prop) for prop in parsed if isinstance(prop, dict)]
+        return None
 
     def _reject_restricted_property_references(
         self,
-        properties: Optional[builtins.list[dict]],
+        properties: "builtins.list[dict] | dict | None",
         order_by: builtins.list[str],
         restricted_context: dict,
     ) -> None:
@@ -862,7 +904,7 @@ class EventViewSet(
         if not restricted_event and not restricted_person:
             return
 
-        for prop in properties or []:
+        for prop in _iter_leaf_property_filters(properties):
             prop_type = prop.get("type", "event")
             key = prop.get("key")
             if prop_type == "event" and key in restricted_event:

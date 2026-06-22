@@ -100,10 +100,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        # Auth/team/membership/instance-setting lookups plus the HogQL pipeline's per-probe
-        # access-control checks (the progressive-window loop probes several windows on this
-        # sparse dataset; the schema is built once and shared across them).
-        with self.assertNumQueries(16):
+        # Auth/team/membership/instance-setting lookups, a persons-DB group-type-mapping lookup,
+        # plus the HogQL pipeline's per-probe access-control checks (the progressive-window loop
+        # probes several windows on this sparse dataset; the schema is built once and shared).
+        with self.assertNumQueries(17):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -128,10 +128,11 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        # Auth/team/membership/access-control/instance-setting lookups plus the HogQL pipeline's
-        # per-probe access-control checks. The progressive-window loop probes several windows on
-        # this sparse dataset; the HogQL schema is built once and shared across them.
-        expected_queries = 24
+        # Auth/team/membership/access-control/instance-setting lookups, a persons-DB
+        # group-type-mapping lookup, plus the HogQL pipeline's per-probe access-control checks.
+        # The progressive-window loop probes several windows on this sparse dataset; the HogQL
+        # schema is built once and shared across them.
+        expected_queries = 25
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -146,6 +147,32 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == self.validation_error_response("Properties are unparsable!", "invalid_input")
+
+    def test_filter_events_by_nested_property_group(self):
+        # A property group with an inner OR must keep OR semantics, not collapse to AND:
+        # (browser = Safari OR Chrome) AND os = Windows
+        _create_event(event="e", team=self.team, distinct_id="2", properties={"$browser": "Safari", "$os": "Windows"})
+        _create_event(event="e", team=self.team, distinct_id="2", properties={"$browser": "Chrome", "$os": "Windows"})
+        _create_event(event="e", team=self.team, distinct_id="2", properties={"$browser": "Firefox", "$os": "Windows"})
+        _create_event(event="e", team=self.team, distinct_id="2", properties={"$browser": "Safari", "$os": "Mac"})
+        flush_persons_and_events()
+
+        group = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        {"key": "$browser", "value": "Safari", "type": "event"},
+                        {"key": "$browser", "value": "Chrome", "type": "event"},
+                    ],
+                },
+                {"key": "$os", "value": "Windows", "type": "event"},
+            ],
+        }
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?properties={json.dumps(group)}").json()
+        # Firefox/Windows fails the OR; Safari/Mac fails the os filter — both excluded.
+        assert sorted(r["properties"]["$browser"] for r in response["results"]) == ["Chrome", "Safari"]
 
     def test_filter_events_by_precalculated_cohort(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
