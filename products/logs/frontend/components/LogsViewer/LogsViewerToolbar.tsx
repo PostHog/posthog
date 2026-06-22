@@ -91,10 +91,14 @@ export const LogsViewerToolbar = ({
                         </div>
                     }
                 >
-                    <span className="text-muted text-xs flex items-center gap-1 cursor-help">
+                    <button
+                        type="button"
+                        className="text-muted text-xs flex items-center gap-1 cursor-help bg-transparent border-none p-0"
+                        aria-label="Keyboard shortcuts"
+                    >
                         <IconKeyboard className="text-base" />
                         Shortcuts
-                    </span>
+                    </button>
                 </Tooltip>
             </div>
         </div>
