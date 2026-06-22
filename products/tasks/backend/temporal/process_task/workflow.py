@@ -387,6 +387,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "run_id": run_id,
                     "task_id": self.context.task_id,
                     "repository": self.context.repository,
+                    "task_kind": self.context.task_kind,
                     "team_id": self.context.team_id,
                 },
             )
@@ -420,6 +421,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "sandbox_url": agent_server_output.sandbox_url,
                     "used_snapshot": sandbox_output.used_snapshot,
                     "repository": self.context.repository,
+                    "task_kind": self.context.task_kind,
                 },
             )
 
@@ -543,6 +545,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "run_id": run_id,
                         "task_id": self.context.task_id,
                         "repository": self.context.repository,
+                        "task_kind": self.context.task_kind,
                         "team_id": self.context.team_id,
                     },
                 )
@@ -572,6 +575,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         "run_id": run_id,
                         "task_id": self.context.task_id,
                         "repository": self.context.repository,
+                        "task_kind": self.context.task_kind,
                         "origin_product": self.context.origin_product,
                         "environment": self.context.environment,
                         "mode": self.context.mode,

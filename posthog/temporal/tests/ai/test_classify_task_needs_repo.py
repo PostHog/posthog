@@ -23,6 +23,11 @@ class TestClassifyTaskNeedsRepo:
                 "debug why this dashboard report always shows a thumbs down",
                 False,
             ),
+            (
+                "general_summary",
+                "summarize the launch feedback in this Slack thread and post the takeaways",
+                False,
+            ),
             # Analytics / data asks — the common no-GitHub case from the
             # 2026-06-17 UPchieve report. None of these should wall a user
             # behind the Connect-GitHub gate.

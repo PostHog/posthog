@@ -321,6 +321,7 @@ def create_posthog_code_task_for_repo_activity(
     repository: str | None,
     repo_research_task_id: str | None = None,
     repo_research_run_id: str | None = None,
+    task_kind: str = "coding",
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
@@ -328,6 +329,10 @@ def create_posthog_code_task_for_repo_activity(
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import execute_task_processing_workflow
+
+    if task_kind not in tasks_facade.TaskKind.values:
+        logger.warning("posthog_code_unknown_task_kind", task_kind=task_kind)
+        task_kind = tasks_facade.TaskKind.CODING
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -406,9 +411,10 @@ def create_posthog_code_task_for_repo_activity(
     except Exception:
         logger.warning("posthog_code_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
 
-    # Slack tasks can intentionally start without an attached repository. Keep
-    # PR tooling enabled so an explicit follow-up can clone a repo and publish.
-    allow_pr_creation = True
+    # General coworker tasks intentionally run without code/PR behavior. Coding
+    # tasks keep PR tooling enabled so an explicit follow-up can clone a repo and publish.
+    allow_pr_creation = task_kind == tasks_facade.TaskKind.CODING
+    posthog_mcp_scopes = "full" if task_kind == tasks_facade.TaskKind.CODING else "read_only"
 
     # 1. Create task + run WITHOUT starting the workflow
     try:
@@ -418,13 +424,14 @@ def create_posthog_code_task_for_repo_activity(
             description=description,
             origin_product=tasks_facade.TaskOriginProduct.SLACK,
             user_id=user_id,
+            task_kind=task_kind,
             repository=repository,
             create_pr=allow_pr_creation,
             mode="interactive",
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             start_workflow=False,
-            posthog_mcp_scopes="full",
+            posthog_mcp_scopes=posthog_mcp_scopes,
             initial_permission_mode="bypassPermissions",
         )
     except Exception as e:
@@ -449,6 +456,7 @@ def create_posthog_code_task_for_repo_activity(
         "posthog_code_task_created",
         team_id=integration.team_id,
         repository=repository,
+        task_kind=task_kind,
         channel=channel,
         thread_ts=thread_ts,
     )
@@ -508,7 +516,7 @@ def create_posthog_code_task_for_repo_activity(
             user_id=user_id,
             create_pr=allow_pr_creation,
             slack_thread_context=slack_thread_context,
-            posthog_mcp_scopes="full",
+            posthog_mcp_scopes=posthog_mcp_scopes,
         )
 
 
@@ -785,8 +793,13 @@ def _resume_task_with_new_run(
         )
         return True
 
+    is_general_task = mapping.task.task_kind == tasks_facade.TaskKind.GENERAL
+    create_pr = not is_general_task
+    posthog_mcp_scopes = "read_only" if is_general_task else "full"
+
     extra_state: dict[str, Any] = {
-        "interaction_origin": "slack",  # Makes the agent auto-push and open a draft PR
+        "interaction_origin": "slack",
+        "task_kind": mapping.task.task_kind,
         # No desktop is attached to Slack runs; bypass the destructive
         # PostHog sub-tool gate so it doesn't make a permission roundtrip
         # only to auto-allow at the cloud client.
@@ -804,7 +817,7 @@ def _resume_task_with_new_run(
 
     previous_pr_url = (previous_run.output or {}).get("pr_url")
     initial_prompt_override = user_text
-    if previous_pr_url:
+    if create_pr and previous_pr_url:
         initial_prompt_override = (
             f"[CONTEXT: This task already has an open pull request: {previous_pr_url}\n"
             f"Check out the existing PR branch with `gh pr checkout {previous_pr_url}`, "
@@ -850,9 +863,9 @@ def _resume_task_with_new_run(
             run_id=str(new_run.id),
             team_id=new_run.team_id,
             user_id=created_by.id,
-            create_pr=True,
+            create_pr=create_pr,
             slack_thread_context=slack_thread_context,
-            posthog_mcp_scopes="full",
+            posthog_mcp_scopes=posthog_mcp_scopes,
         )
     except Exception:
         logger.exception(

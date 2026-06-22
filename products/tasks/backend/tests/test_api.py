@@ -896,9 +896,29 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertEqual(data["origin_product"], Task.OriginProduct.USER_CREATED)
+        self.assertEqual(data["task_kind"], Task.TaskKind.CODING)
 
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+        self.assertEqual(task.task_kind, Task.TaskKind.CODING)
+
+    def test_create_task_accepts_general_task_kind(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "General task",
+                "description": "Summarize the Slack thread",
+                "task_kind": "general",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["task_kind"], Task.TaskKind.GENERAL)
+
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.task_kind, Task.TaskKind.GENERAL)
 
     def test_create_task_with_github_user_integration(self):
         user_integration = _grant_user_github_access(self.user)

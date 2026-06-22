@@ -67,6 +67,16 @@ def classify_task_needs_repo(
         "revenue",
         "marketing analytics",
     )
+    general_coworker_terms = (
+        "summarize",
+        "summary",
+        "takeaways",
+        "write up",
+        "report",
+        "analyze",
+        "investigate",
+        "explain",
+    )
     explicit_code_patterns = (
         r"\brepository\b",
         r"\brepo\b",
@@ -88,8 +98,12 @@ def classify_task_needs_repo(
         r"\bmigration\b",
     )
 
-    if any(term in normalized for term in product_debug_terms) and not any(
-        re.search(pattern, normalized) for pattern in explicit_code_patterns
+    if any(re.search(pattern, normalized) for pattern in explicit_code_patterns):
+        logger.info("slack_app_classify_task_needs_repo_heuristic_repo", event_text=event_text)
+        return True
+
+    if any(term in normalized for term in product_debug_terms) or any(
+        term in normalized for term in general_coworker_terms
     ):
         logger.info("slack_app_classify_task_needs_repo_heuristic_non_repo", event_text=event_text)
         return False

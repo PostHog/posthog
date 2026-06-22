@@ -54,6 +54,7 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    task_kind: str = Task.TaskKind.CODING
     environment: str | None = None
     github_user_integration_id: str | None = None
     task_created_by_id: int | None = None
@@ -180,6 +181,7 @@ class TaskProcessingContext:
             "team_id": self.team_id,
             "repository": self.repository,
             "origin_product": self.origin_product,
+            "task_kind": self.task_kind,
             "environment": self.environment,
             "distinct_id": self.distinct_id,
             "mode": self.mode,
@@ -423,6 +425,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         team_id=task.team_id,
         repository=task.repository,
         origin_product=task.origin_product,
+        task_kind=task.task_kind,
         environment=task_run.environment,
         distinct_id=distinct_id,
         sandbox_environment_id=sandbox_environment_id,
@@ -498,6 +501,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=task.repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
+        task_kind=task.task_kind,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,
