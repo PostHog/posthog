@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { LemonCard, LemonTag } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { VisionActionRunApi, VisionActionRunStatusEnumApi } from '../../generated/api.schemas'
 import { visionActionRunsLogic } from '../visionActionRunsLogic'
@@ -18,67 +19,58 @@ const STATUS_TAG: Record<
     running: { type: 'primary', label: 'Running' },
 }
 
-function runTimestamp(run: VisionActionRunApi): string {
-    return dayjs(run.scheduled_at ?? run.created_at).format('MMM D, YYYY · HH:mm')
+function RunMeta({ run }: { run: VisionActionRunApi }): JSX.Element {
+    const tag = STATUS_TAG[run.status]
+    const count = run.observation_count
+    return (
+        <div className="flex items-center gap-2 text-xs text-secondary">
+            <LemonTag type={tag.type} size="small">
+                {tag.label}
+            </LemonTag>
+            <TZLabel time={run.scheduled_at ?? run.created_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />
+            {count > 0 && <span>· Summarized {count === 1 ? '1 observation' : `${count} observations`}</span>}
+        </div>
+    )
 }
 
-function RunSummary({ run }: { run: VisionActionRunApi }): JSX.Element {
-    if (run.synthesized_markdown) {
-        return <LemonMarkdown>{run.synthesized_markdown}</LemonMarkdown>
-    }
-    return <div className="text-muted italic">{run.error_reason || 'No summary was produced for this run.'}</div>
+function RunCard({ run }: { run: VisionActionRunApi }): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-col gap-3">
+            <RunMeta run={run} />
+            {run.synthesized_markdown ? (
+                // The summary is the point of the run — give it the room.
+                <LemonMarkdown className="text-base">{run.synthesized_markdown}</LemonMarkdown>
+            ) : (
+                <div className="text-muted italic">{run.error_reason || 'No summary was produced for this run.'}</div>
+            )}
+        </LemonCard>
+    )
 }
 
 export function VisionActionRuns(): JSX.Element {
     const { runs, runsLoading } = useValues(visionActionRunsLogic)
 
-    const columns: LemonTableColumns<VisionActionRunApi> = [
-        {
-            title: 'When',
-            key: 'when',
-            render: (_, run) => <span className="whitespace-nowrap">{runTimestamp(run)}</span>,
-        },
-        {
-            title: 'Status',
-            key: 'status',
-            render: (_, run) => {
-                const tag = STATUS_TAG[run.status]
-                return <LemonTag type={tag.type}>{tag.label}</LemonTag>
-            },
-        },
-        {
-            title: 'Observations',
-            key: 'observations',
-            render: (_, run) => <span className="tabular-nums">{run.observation_count}</span>,
-        },
-        {
-            title: 'Outcome',
-            key: 'outcome',
-            render: (_, run) =>
-                run.synthesized_markdown ? (
-                    <span className="text-muted">Expand to read the summary</span>
-                ) : (
-                    <span className="text-muted">{run.error_reason || '—'}</span>
-                ),
-        },
-    ]
+    if (runsLoading && runs.length === 0) {
+        return (
+            <div className="flex justify-center p-8">
+                <Spinner className="text-2xl" />
+            </div>
+        )
+    }
+
+    if (runs.length === 0) {
+        return (
+            <div className="text-muted p-8 text-center">
+                This action hasn't run yet. Summaries will appear here once its schedule fires.
+            </div>
+        )
+    }
 
     return (
-        <LemonTable
-            columns={columns}
-            dataSource={runs}
-            loading={runsLoading}
-            rowKey="id"
-            data-attr="vision-action-runs-table"
-            emptyState="This action hasn't run yet. Runs appear here once its schedule fires."
-            expandable={{
-                expandedRowRender: (run) => (
-                    <div className="p-2">
-                        <RunSummary run={run} />
-                    </div>
-                ),
-                rowExpandable: (run) => !!run.synthesized_markdown || !!run.error_reason,
-            }}
-        />
+        <div className="flex flex-col gap-3">
+            {runs.map((run) => (
+                <RunCard key={run.id} run={run} />
+            ))}
+        </div>
     )
 }
