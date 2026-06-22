@@ -93,6 +93,8 @@ export interface ToggleSignalSourceParams {
     sourceType: SignalSourceType
     enabled: boolean
     config?: Record<string, any>
+    /** True when the enable came through the data-warehouse setup wizard, for `Signal source connected`. */
+    viaSetupWizard?: boolean
 }
 
 export enum SignalSourceConfigStatus {

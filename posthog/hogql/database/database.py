@@ -1185,10 +1185,13 @@ class Database(BaseModel):
                 except Exception as e:
                     capture_exception(e)
 
-        # A materialized view's backing table shares the view's name. Exclude every backing table so the
-        # view owns the access decision - otherwise the backing table would shadow the view and stay
-        # queryable even when the view is denied.
-        backing_table_ids = {sq.table_id for sq in (*saved_queries, *endpoint_saved_queries) if sq.table_id is not None}
+        # Materialized views store their backing table under the saved-query-specific S3 path.
+        # Exclude that private storage table so the view owns access control, even after a rename.
+        backing_table_ids = {
+            sq.table_id
+            for sq in (*saved_queries, *endpoint_saved_queries)
+            if sq.table_id is not None and sq.table is not None and sq.folder_path in sq.table.url_pattern
+        }
 
         with timings.measure("data_warehouse_tables", emit_span=True):
             with timings.measure("select", emit_span=True):

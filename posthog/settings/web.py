@@ -39,6 +39,7 @@ PRODUCTS_APPS = [
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
+    "products.ai_gateway.backend.apps.AIGatewayConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
     "products.skills.backend.apps.SkillsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
@@ -501,6 +502,7 @@ SPECTACULAR_SETTINGS = {
         "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
+        "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "AutonomyPriorityEnum": "products.signals.backend.models.AutonomyPriority",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
@@ -512,6 +514,11 @@ SPECTACULAR_SETTINGS = {
         # generated names so the shared enums don't get component-prefixed auto-names on collision.
         "ExperimentTypeEnum": ["web", "product", None],
         "ExperimentStatusEnum": ["draft", "running", "paused", "stopped"],
+        # Signals now has two serializers (single SignalReportStateRequest + bulk
+        # SignalReportBulkStateRequest) that both expose the same `state` ChoiceField. Pin the
+        # shared enum to a stable name so it doesn't collide with the other `state` enums
+        # (tasks, cdp) into a component-prefixed auto-name.
+        "SignalReportStateEnum": ["suppressed", "potential"],
         # Two serializers now expose an `op` ChoiceField (metrics filters and email-template design
         # patches). Pin both to stable names so neither gets a component-prefixed auto-name on collision.
         # "OpEnum" keeps the metrics filter enum at its pre-existing generated name.

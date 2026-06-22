@@ -1014,7 +1014,7 @@ def get_query_runner(
         )
 
     if kind == "UsageMetricsQuery":
-        from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
+        from products.customer_analytics.backend.facade.queries import UsageMetricsQueryRunner
 
         return UsageMetricsQueryRunner(
             query=query,
@@ -1026,7 +1026,7 @@ def get_query_runner(
         )
 
     if kind == "AccountsQuery":
-        from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
+        from products.customer_analytics.backend.facade.queries import AccountsQueryRunner
 
         return AccountsQueryRunner(
             query=query,

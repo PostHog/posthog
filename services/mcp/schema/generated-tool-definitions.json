@@ -1952,6 +1952,20 @@
             "readOnlyHint": false
         }
     },
+    "desktop-file-system-canvas-partial-update": {
+        "description": "Publish the React source for a freeform canvas (a \"dashboard\" item on the desktop surface). The `id` is the canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do not write a local file.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update canvas code",
+        "title": "Update canvas code",
+        "required_scopes": ["file_system:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "desktop-file-system-create": {
         "description": "Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are created automatically) and `type: folder`. A blank instruction set is created for the channel automatically; use the desktop-file-system-instructions-partial-update tool to fill it in.",
         "category": "Core",
@@ -3614,6 +3628,20 @@
         },
         "feature_flag": "heatmaps-mcp"
     },
+    "inbox-reports-bulk-set-state": {
+        "description": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing or snoozing a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool), `dismissal_note`, and `snooze_for` apply to every id. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Dismiss or snooze signal reports in bulk",
+        "title": "Dismiss or snooze signal reports in bulk",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-list": {
         "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
         "category": "Signals",
@@ -3643,7 +3671,7 @@
         }
     },
     "inbox-reports-set-state": {
-        "description": "Transition a signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze it back into the pipeline for later review. Optionally include a `dismissal_reason` (a short string code owned by the caller, e.g. 'not_a_bug', 'wont_fix', 'duplicate') and a `dismissal_note` (free-form text, up to 4000 chars) — both are persisted as a DISMISSAL artefact on the report so the rationale is preserved even if the report transitions again later. Returns 409 if the transition is not allowed from the report's current status.",
+        "description": "Transition a single signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze/restore it back into the pipeline for later review. Optionally include a `dismissal_reason` — a canonical code from the inbox UI (`already_fixed`, `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw string. `already_fixed` is a snooze, not a dismissal: pair it with state='potential'. Use `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not allowed from the report's current status. To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per report.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Dismiss or snooze a signal report",
@@ -3872,6 +3900,20 @@
         "feature": "integrations",
         "summary": "List integration channels",
         "title": "List integration channels",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integrations-github-repos-retrieve": {
+        "description": "List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default 100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo) plus a has_more flag. Use this to validate that a repository is accessible to the integration before referencing it (e.g. when creating a GitHub data warehouse source).",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List GitHub integration repositories",
+        "title": "List GitHub integration repositories",
         "required_scopes": ["integration:read"],
         "annotations": {
             "destructiveHint": false,
@@ -5990,7 +6032,7 @@
         }
     },
     "signals-scout-config-list": {
-        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `signals-scout-config-create`, or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears once its config is registered — immediately via `signals-scout-config-create` (one skill) or `signals-scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List scout configs",
@@ -6002,6 +6044,21 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "signals-scout-config-sync": {
+        "description": "Materialize the Signals scout fleet for this project (idempotent): seeds the canonical `signals-scout-*` skills and creates a default-schedule config for any scout lacking one, then returns all scout configs. The Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet immediately instead of waiting for the tick. Pair with `signals-scout-config-update` to tune the returned configs.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Sync scout configs",
+        "title": "Sync scout configs",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true
     },
     "signals-scout-config-update": {
         "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
