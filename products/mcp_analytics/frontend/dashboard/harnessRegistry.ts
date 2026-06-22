@@ -3,6 +3,7 @@ import { type ChartTheme } from '@posthog/quill-charts'
 import claudeLogo from '../harness-logos/claude.svg'
 import coderabbitLogo from '../harness-logos/coderabbit.svg'
 import cursorLogo from '../harness-logos/cursor.svg'
+import librechatLogo from '../harness-logos/librechat.svg'
 import linearLogo from '../harness-logos/linear.svg'
 import lovableLogo from '../harness-logos/lovable.png'
 import manusLogo from '../harness-logos/manus.svg'
@@ -130,6 +131,11 @@ const HARNESS_REGISTRY: HarnessDescriptor[] = [
     { category: 'CodeRabbit', match: (n) => n === 'coderabbit', logo: { src: coderabbitLogo, alt: 'CodeRabbit logo' } },
     { category: 'Notion', match: (n) => n.startsWith('notion'), logo: { src: notionLogo, alt: 'Notion logo' } },
     { category: 'Linear', match: (n) => n.startsWith('linear'), logo: { src: linearLogo, alt: 'Linear logo' } },
+    {
+        category: 'LibreChat',
+        match: (n) => n.includes('librechat'),
+        logo: { src: librechatLogo, alt: 'LibreChat logo' },
+    },
     { category: 'Poke', match: (n) => n === 'poke' },
     { category: 'opencode', match: (n) => n === 'opencode', logo: { src: opencodeLogo, alt: 'opencode logo' } },
     { category: 'Kiro', match: (n) => n.startsWith('kiro') },
