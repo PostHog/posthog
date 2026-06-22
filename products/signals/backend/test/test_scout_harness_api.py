@@ -24,6 +24,7 @@ from products.signals.backend.models import (
     SignalScratchpad,
 )
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
+from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
@@ -1028,3 +1029,98 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             self._list_url(), data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 5}, format="json"
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+_METADATA_PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+
+
+class TestScoutHarnessMetadataAPI(APIBaseTest):
+    """Scout metadata endpoint: enrollment, the alpha banner, and the enforced run limits, all
+    resolved from the `signals-scout` flag payload so the UI shows the throttle dispatch applies."""
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/metadata/current/"
+
+    def _get(self, payload: dict | None):
+        # The endpoint reads the flag payload via team_limits; stub it so enrollment + caps are
+        # deterministic without depending on the live flag.
+        with patch(_METADATA_PAYLOAD_PATH, return_value=payload):
+            return self.client.get(self._url())
+
+    def test_returns_metadata_shape(self) -> None:
+        response = self._get({"guaranteed_team_ids": [self.team.id]})
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert set(body.keys()) == {"enrolled", "banner_message", "limits"}
+        assert set(body["limits"].keys()) == {
+            "max_runs_per_tick",
+            "max_runs_per_day",
+            "runs_today",
+            "runs_remaining_today",
+        }
+
+    def test_enrolled_reflects_guaranteed_team_ids(self) -> None:
+        assert self._get({"guaranteed_team_ids": [self.team.id]}).json()["enrolled"] is True
+        assert self._get({"guaranteed_team_ids": [self.team.id + 1]}).json()["enrolled"] is False
+
+    def test_banner_message_surfaced_from_payload(self) -> None:
+        body = self._get(
+            {"guaranteed_team_ids": [self.team.id], "scouts_banner_message": "Alpha: daily runs limited"}
+        ).json()
+        assert body["banner_message"] == "Alpha: daily runs limited"
+
+    @parameterized.expand(
+        [("unset", {}), ("blank", {"scouts_banner_message": "   "}), ("non_string", {"scouts_banner_message": 123})]
+    )
+    def test_banner_message_null_when_unset_blank_or_non_string(self, _name: str, extra: dict) -> None:
+        body = self._get({"guaranteed_team_ids": [self.team.id], **extra}).json()
+        assert body["banner_message"] is None
+
+    def test_limits_unbounded_by_default(self) -> None:
+        # No caps configured anywhere → day is uncapped and the per-tick cap falls back to the
+        # code default; the UI should show "no daily limit" rather than a fabricated number.
+        body = self._get({"guaranteed_team_ids": [self.team.id]}).json()
+        assert body["limits"]["max_runs_per_day"] is None
+        assert body["limits"]["runs_remaining_today"] is None
+        assert body["limits"]["max_runs_per_tick"] == MAX_RUNS_PER_TEAM_PER_TICK
+
+    def test_limits_resolved_from_default_team_config(self) -> None:
+        body = self._get(
+            {
+                "guaranteed_team_ids": [self.team.id],
+                "default_team_config": {"max_runs_per_day": 3, "max_runs_per_tick": 1},
+            }
+        ).json()
+        assert body["limits"]["max_runs_per_day"] == 3
+        assert body["limits"]["max_runs_per_tick"] == 1
+
+    def test_per_team_config_overrides_default(self) -> None:
+        body = self._get(
+            {
+                "guaranteed_team_ids": [self.team.id],
+                "default_team_config": {"max_runs_per_day": 3},
+                "team_configs": {str(self.team.id): {"max_runs_per_day": 50}},
+            }
+        ).json()
+        assert body["limits"]["max_runs_per_day"] == 50
+
+    def test_runs_today_and_remaining_count_recent_runs(self) -> None:
+        _make_run(self.team)
+        _make_run(self.team)
+        body = self._get({"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 5}}).json()
+        assert body["limits"]["runs_today"] == 2
+        assert body["limits"]["runs_remaining_today"] == 3
+
+    def test_remaining_floors_at_zero_when_budget_spent(self) -> None:
+        for _ in range(3):
+            _make_run(self.team)
+        body = self._get({"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 1}}).json()
+        assert body["limits"]["runs_today"] == 3
+        assert body["limits"]["runs_remaining_today"] == 0
+
+    def test_runs_today_does_not_count_other_teams(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        _make_run(other)
+        _make_run(self.team)
+        body = self._get({"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 5}}).json()
+        assert body["limits"]["runs_today"] == 1
