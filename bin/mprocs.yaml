@@ -37,6 +37,7 @@ procs:
     backend:
         sandbox: true
         shell: 'bin/wait-for-docker && ./bin/start-backend'
+        autorestart: true
         ready_pattern: 'Listening at'
         groups:
             layer: Application
@@ -46,6 +47,7 @@ procs:
     celery-worker:
         sandbox: true
         shell: 'bin/wait-for-docker && ./bin/start-celery worker'
+        autorestart: true
         capability: celery_workers
         ready_pattern: 'celery@'
         groups:
@@ -55,6 +57,7 @@ procs:
     celery-beat:
         sandbox: true
         shell: 'bin/wait-for-docker && ./bin/start-celery beat'
+        autorestart: true
         capability: celery_scheduler
         ready_pattern: 'celery beat'
         groups:
