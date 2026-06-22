@@ -61,7 +61,7 @@ export const scene: SceneExport<PersonsLogicProps> = {
 
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     // Show the most human-readable distinct ID first; the rest fall into the "+N" menu.
-    const primaryDistinctId = pickBestPersonDistinctId(person.distinct_ids)
+    const primaryDistinctId = pickBestPersonDistinctId(person.distinct_ids) ?? person.distinct_ids[0]
     const otherDistinctIds = person.distinct_ids.filter((distinct_id) => distinct_id !== primaryDistinctId)
     return (
         <div className="flex flex-wrap items-center gap-2">
