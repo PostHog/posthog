@@ -39,6 +39,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.hogql_queries.insights.paginators import InvalidCursorError
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from ..facade.api import (
@@ -652,7 +653,12 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        try:
+            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        except InvalidCursorError:
+            # A malformed `after` cursor is a client error — return 400 rather than letting the raw
+            # base64/JSON decode error surface as an unhandled 500 in error tracking.
+            return Response({"error": "Invalid cursor format"}, status=status.HTTP_400_BAD_REQUEST)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
         all_results = list(response.results)
 

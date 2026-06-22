@@ -1,4 +1,3 @@
-import json
 import base64
 import datetime as dt
 from typing import TYPE_CHECKING, cast
@@ -22,7 +21,7 @@ from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import get_lowercase_index_hint, operator_is_negative, property_to_expr
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator, InvalidCursorError, decode_cursor
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
@@ -349,12 +348,12 @@ class LogsFilterBuilder:
             )
 
         if self.query.after:
+            cursor = decode_cursor(self.query.after)
             try:
-                cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
                 cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
                 cursor_uuid = cursor["uuid"]
-            except (KeyError, ValueError, json.JSONDecodeError) as e:
-                raise ValueError(f"Invalid cursor format: {e}")
+            except (KeyError, ValueError):
+                raise InvalidCursorError("Invalid cursor format") from None
             # For ASC (earliest first): get rows where (timestamp, uuid) > cursor
             # For DESC (latest first, default): get rows where (timestamp, uuid) < cursor
             op = ">" if self.query.orderBy == "earliest" else "<"

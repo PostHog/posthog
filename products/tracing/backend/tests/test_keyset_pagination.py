@@ -299,3 +299,33 @@ class TestTraceSpansDurationRootScope(_TraceSpansTestBase):
     )
     def test_ranks_by_root_span_duration(self, _name, order_direction, expected):
         self.assertEqual(self._ordered_trace_indices(order_direction=order_direction, limit=10), expected)
+
+
+class TestTraceSpansMalformedCursor(_TraceSpansTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+    @parameterized.expand(
+        [
+            # A relative-date string passed into the cursor field instead of dateRange.
+            ("relative_date", "-3d"),
+            ("non_base64_alphabet", "not-a-cursor"),
+            ("bad_padding", "abc"),
+        ]
+    )
+    def test_malformed_after_cursor_returns_400(self, _name: str, after: str):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/query/",
+            {
+                "query": {
+                    "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                    "orderBy": "timestamp",
+                    "after": after,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json(), {"error": "Invalid cursor format"})

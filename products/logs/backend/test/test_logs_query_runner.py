@@ -472,6 +472,29 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 101)
         self.assertEqual(len(queries), 2)
 
+    @parameterized.expand(
+        [
+            # A relative-date filter value confused for a cursor (the "-3d" pagination mix-up).
+            ("relative_date", "-3d"),
+            # Non-base64 alphabet.
+            ("non_base64_alphabet", "not-a-cursor"),
+            # Valid base64 alphabet but undecodable / non-cursor payloads.
+            ("bad_padding", "abc"),
+            # 21-char non-base64 value (the shape that hit base64.b64decode in the reported signal).
+            ("twenty_one_chars", "aaaaaaaaaaaaaaaaaaaaa"),
+        ]
+    )
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_malformed_cursor_returns_400(self, _name: str, after: str):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "limit": 10,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "after": after,
+        }
+        response = self._make_logs_api_request(query_params, expected_status=status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"error": "Invalid cursor format"})
+
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_filters(self):
         query_params = {

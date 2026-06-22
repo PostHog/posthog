@@ -1,3 +1,4 @@
+import re
 import json
 import base64
 from datetime import datetime
@@ -13,6 +14,37 @@ from posthog.hogql.constants import (
     get_max_limit_for_context,
 )
 from posthog.hogql.query import execute_hogql_query
+
+# Standard base64 alphabet plus optional padding. A pagination cursor is always produced by
+# `base64.b64encode(...)`, so anything outside this alphabet — a relative date like "-3d", a raw
+# session id, an arbitrary SDK string — is a malformed cursor we can reject before decoding.
+_BASE64_CURSOR_RE = re.compile(r"^[A-Za-z0-9+/]+={0,2}$")
+
+
+class InvalidCursorError(ValueError):
+    """A pagination `after` cursor was malformed.
+
+    Subclasses ValueError so existing broad `except ValueError` blocks keep catching it, while query
+    API paths can catch it specifically and translate it to a 400 — rather than letting the raw
+    binascii.Error / UnicodeDecodeError leak into error tracking as an unhandled 500.
+    """
+
+
+def decode_cursor(after: str) -> dict[str, Any]:
+    """Decode a base64-encoded JSON pagination cursor into its dict payload.
+
+    Validates the cursor shape up front so a date filter value or other non-base64 string fails fast
+    with a user-safe error instead of a raw binascii.Error / UnicodeDecodeError.
+    """
+    if not _BASE64_CURSOR_RE.match(after):
+        raise InvalidCursorError("Invalid cursor format")
+    try:
+        decoded = json.loads(base64.b64decode(after, validate=True).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError):
+        raise InvalidCursorError("Invalid cursor format") from None
+    if not isinstance(decoded, dict):
+        raise InvalidCursorError("Invalid cursor format")
+    return decoded
 
 
 class HogQLHasMorePaginator:
@@ -127,19 +159,15 @@ class HogQLCursorPaginator:
         self.cursor_data: dict[str, Any] | None = None
 
         if self.after:
-            try:
-                decoded = base64.b64decode(self.after).decode("utf-8")
-                cursor_data = json.loads(decoded)
-                # Parse datetime strings back to datetime objects
-                if "order_value" in cursor_data and isinstance(cursor_data["order_value"], str):
-                    try:
-                        cursor_data["order_value"] = datetime.fromisoformat(cursor_data["order_value"])
-                    except (ValueError, TypeError):
-                        # If it's not a datetime string, keep it as is
-                        pass
-                self.cursor_data = cursor_data
-            except (ValueError, json.JSONDecodeError):
-                raise ValueError("Invalid cursor format")
+            cursor_data = decode_cursor(self.after)
+            # Parse datetime strings back to datetime objects
+            if "order_value" in cursor_data and isinstance(cursor_data["order_value"], str):
+                try:
+                    cursor_data["order_value"] = datetime.fromisoformat(cursor_data["order_value"])
+                except (ValueError, TypeError):
+                    # If it's not a datetime string, keep it as is
+                    pass
+            self.cursor_data = cursor_data
 
     @classmethod
     def from_limit_context(

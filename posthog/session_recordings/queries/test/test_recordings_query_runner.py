@@ -6,6 +6,7 @@ from parameterized import parameterized
 from posthog.schema import RecordingsQuery, SessionRecordingType, SnapshotSource
 
 from posthog.clickhouse.client import sync_execute
+from posthog.hogql_queries.insights.paginators import InvalidCursorError
 from posthog.session_recordings.queries.recordings_query_runner import RecordingsQueryRunner
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
@@ -121,3 +122,17 @@ class TestRecordingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == []
         assert response.has_next is False
+
+    @parameterized.expand(
+        [
+            # The reported case: a relative-date string passed into the cursor field instead of date_from.
+            ("relative_date", "-3d"),
+            ("non_base64_alphabet", "not-a-cursor"),
+            ("bad_padding", "abc"),
+        ]
+    )
+    def test_malformed_after_cursor_raises_invalid_cursor_error(self, _name: str, after: str):
+        # InvalidCursorError is mapped to a 400 by the query API rather than leaking a 500.
+        runner = RecordingsQueryRunner(query=RecordingsQuery(after=after), team=self.team)
+        with self.assertRaises(InvalidCursorError):
+            runner.calculate()

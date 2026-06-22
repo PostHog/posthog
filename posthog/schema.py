@@ -9022,7 +9022,12 @@ class AssistantRecordingsQuery(BaseModel):
     )
     after: str | None = Field(
         default=None,
-        description=("Cursor for pagination from a previous response's next_cursor field."),
+        description=(
+            "Opaque base64 pagination cursor — pass back the `next_cursor` from a"
+            " previous response verbatim to fetch the next page. This is NOT a date"
+            ' filter; for time ranges use `date_from`/`date_to` (e.g. "-3d"). Passing a'
+            " date value here is invalid."
+        ),
     )
     date_from: str | None = Field(
         default=None,
@@ -22397,8 +22402,10 @@ class RecordingsQuery(BaseModel):
     after: str | None = Field(
         default=None,
         description=(
-            "Cursor for pagination. Contains the ordering value and session_id from the"
-            " last record of the previous page."
+            "Opaque base64 pagination cursor. Pass back the `next_cursor` from a"
+            " previous response verbatim to fetch the next page. This is NOT a date"
+            " filter — to set a time range use `date_from`/`date_to` (which accept"
+            ' relative dates like "-3d"). Passing a date value here is invalid.'
         ),
     )
     comment_text: RecordingPropertyFilter | None = None

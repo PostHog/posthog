@@ -25459,7 +25459,7 @@ export namespace Schemas {
 
     export interface RecordingsQuery {
       actions?: RecordingsQueryActions;
-      /** Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page. */
+      /** Opaque base64 pagination cursor. Pass back the `next_cursor` from a previous response verbatim to fetch the next page. This is NOT a date filter — to set a time range use `date_from`/`date_to` (which accept relative dates like "-3d"). Passing a date value here is invalid. */
       after?: string | null;
       comment_text?: RecordingPropertyFilter | null;
       console_log_filters?: LogEntryPropertyFilter[] | null;

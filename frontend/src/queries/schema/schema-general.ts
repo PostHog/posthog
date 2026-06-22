@@ -643,7 +643,11 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     order_direction?: RecordingOrderDirection
     limit?: integer
     offset?: integer
-    /** Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page. */
+    /**
+     * Opaque base64 pagination cursor. Pass back the `next_cursor` from a previous response verbatim
+     * to fetch the next page. This is NOT a date filter — to set a time range use `date_from`/`date_to`
+     * (which accept relative dates like "-3d"). Passing a date value here is invalid.
+     */
     after?: string
     user_modified_filters?: Record<string, any>
 }

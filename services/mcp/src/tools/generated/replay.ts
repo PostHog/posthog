@@ -627,7 +627,12 @@ const AssistantRecordingPropertyFilter = z.union([
 const AssistantRecordingsQueryPropertyFilter = z.union([AssistantPropertyFilter, AssistantRecordingPropertyFilter])
 
 const AssistantRecordingsQuery = z.object({
-    after: z.string().describe("Cursor for pagination from a previous response's next_cursor field.").optional(),
+    after: z
+        .string()
+        .describe(
+            'Opaque base64 pagination cursor — pass back the `next_cursor` from a previous response verbatim to fetch the next page. This is NOT a date filter; for time ranges use `date_from`/`date_to` (e.g. "-3d"). Passing a date value here is invalid.'
+        )
+        .optional(),
     date_from: z
         .string()
         .nullable()

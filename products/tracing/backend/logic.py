@@ -5,7 +5,6 @@ Validation, calculations, business rules, ORM queries.
 Called by facade/api.py.
 """
 
-import json
 import base64
 import decimal
 import datetime as dt
@@ -41,7 +40,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator, InvalidCursorError, decode_cursor
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
@@ -479,12 +478,12 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         """
         if not self.query.after:
             return None
+        cursor = decode_cursor(self.query.after)
         try:
-            cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
             cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
             cursor_id_b64 = base64.b64encode(bytes.fromhex(cursor[secondary_key])).decode("ascii")
-        except (KeyError, ValueError, json.JSONDecodeError) as e:
-            raise ValueError(f"Invalid cursor format: {e}")
+        except (KeyError, ValueError):
+            raise InvalidCursorError("Invalid cursor format") from None
         return cursor_ts, cursor_id_b64
 
     def to_query(self) -> ast.SelectQuery:

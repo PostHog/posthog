@@ -1590,7 +1590,11 @@ export interface AssistantRecordingsQuery {
     order_direction?: RecordingOrderDirection
     /** Maximum number of recordings to return. */
     limit?: integer
-    /** Cursor for pagination from a previous response's next_cursor field. */
+    /**
+     * Opaque base64 pagination cursor — pass back the `next_cursor` from a previous response verbatim
+     * to fetch the next page. This is NOT a date filter; for time ranges use `date_from`/`date_to`
+     * (e.g. "-3d"). Passing a date value here is invalid.
+     */
     after?: string
     /** Filter recordings to a specific person by their UUID. */
     person_uuid?: string

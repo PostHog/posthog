@@ -31,6 +31,7 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.hogql_queries.insights.paginators import decode_cursor
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
@@ -641,22 +642,24 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # as the user pages through results.
         if after_cursor:
             try:
-                cursor = json.loads(base64.b64decode(after_cursor).decode("utf-8"))
+                cursor = decode_cursor(after_cursor)
                 cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
-                if order_by == LogsOrderBy.EARLIEST:
-                    # For "earliest" ordering, we're looking for logs AFTER the cursor
-                    date_range = DateRange(
-                        date_from=cursor_ts.isoformat(),
-                        date_to=date_range.date_to,
-                    )
-                else:
-                    # For "latest" ordering (default), we're looking for logs BEFORE the cursor
-                    date_range = DateRange(
-                        date_from=date_range.date_from,
-                        date_to=cursor_ts.isoformat(),
-                    )
-            except (KeyError, ValueError, json.JSONDecodeError):
-                pass  # Invalid cursor format, continue with original date range
+            except (KeyError, ValueError):
+                # Reject a malformed cursor with a clean 400 rather than passing it through to the
+                # query runner, where it would surface as an unhandled 500 in error tracking.
+                return Response({"error": "Invalid cursor format"}, status=status.HTTP_400_BAD_REQUEST)
+            if order_by == LogsOrderBy.EARLIEST:
+                # For "earliest" ordering, we're looking for logs AFTER the cursor
+                date_range = DateRange(
+                    date_from=cursor_ts.isoformat(),
+                    date_to=date_range.date_to,
+                )
+            else:
+                # For "latest" ordering (default), we're looking for logs BEFORE the cursor
+                date_range = DateRange(
+                    date_from=date_range.date_from,
+                    date_to=cursor_ts.isoformat(),
+                )
 
         requested_limit = min(query_data.get("limit", 1000), 2000)
         logs_query_params = {

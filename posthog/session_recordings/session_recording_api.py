@@ -74,6 +74,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.insights.paginators import InvalidCursorError
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
@@ -912,6 +913,8 @@ class SessionRecordingViewSet(
         except CHQueryErrorTooManySimultaneousQueries:
             SESSION_RECORDING_THROTTLED.labels(location="too_many_simultaneous_queries", auth_type=auth_type).inc()
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
+        except InvalidCursorError as e:
+            raise exceptions.ValidationError(str(e))
         except (ServerException, Exception) as e:
             if isinstance(e, exceptions.ValidationError):
                 raise

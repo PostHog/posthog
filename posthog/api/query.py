@@ -52,6 +52,7 @@ from posthog.event_usage import get_request_analytics_properties, report_user_or
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.insights.paginators import InvalidCursorError
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -272,6 +273,8 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except ResolutionError as e:
+            raise ValidationError(str(e))
+        except InvalidCursorError as e:
             raise ValidationError(str(e))
         except ValidationError as e:
             query_type = getattr(query, "kind", "unknown")

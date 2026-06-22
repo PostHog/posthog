@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "after": {
-            "description": "Cursor for pagination from a previous response's next_cursor field.",
+            "description": "Opaque base64 pagination cursor — pass back the `next_cursor` from a previous response verbatim to fetch the next page. This is NOT a date filter; for time ranges use `date_from`/`date_to` (e.g. \"-3d\"). Passing a date value here is invalid.",
             "type": "string"
         },
         "date_from": {

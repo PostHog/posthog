@@ -5,6 +5,8 @@ from typing import cast
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.schema import ActorsQuery, PersonPropertyFilter, PropertyOperator
 
 from posthog.hogql.ast import And, CompareOperation, Constant, SelectQuery
@@ -17,7 +19,12 @@ from posthog.hogql.constants import (
 from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
+from posthog.hogql_queries.insights.paginators import (
+    HogQLCursorPaginator,
+    HogQLHasMorePaginator,
+    InvalidCursorError,
+    decode_cursor,
+)
 from posthog.models.utils import UUIDT
 
 
@@ -239,17 +246,46 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(paginator.cursor_data["order_value"], datetime(2025, 1, 6, 12, 0))
         self.assertEqual(paginator.cursor_data["secondary_value"], "session_123")
 
-    def test_invalid_cursor_raises_error(self):
-        """Test that invalid cursor format raises ValueError"""
-        with self.assertRaises(ValueError) as context:
+    @parameterized.expand(
+        [
+            # A relative-date filter value passed into the cursor field (the recordings MCP case):
+            # the leading "-" is outside the base64 alphabet and "-3d" can't be base64-decoded.
+            ("relative_date", "-3d"),
+            # Non-base64 alphabet characters.
+            ("non_base64_alphabet", "invalid_cursor"),
+            # Valid base64 alphabet but bad padding (raised binascii.Error before the fix).
+            ("bad_padding", "abc"),
+            # Valid base64 that decodes to non-UTF-8 bytes (raised UnicodeDecodeError before the fix).
+            ("non_utf8_bytes", base64.b64encode(bytes([0xD3])).decode("ascii")),
+            # Valid base64 of valid UTF-8 that isn't JSON.
+            ("not_json", base64.b64encode(b"not json").decode("ascii")),
+            # Valid base64 of valid JSON that isn't an object.
+            ("json_not_object", base64.b64encode(b"[1, 2, 3]").decode("ascii")),
+        ]
+    )
+    def test_invalid_cursor_raises_clean_error(self, _name: str, after: str):
+        """Malformed cursors raise InvalidCursorError without chaining the underlying decode error."""
+        with self.assertRaises(InvalidCursorError) as context:
             HogQLCursorPaginator(
                 limit=10,
-                after="invalid_cursor",
+                after=after,
                 order_field="start_time",
                 order_direction="DESC",
                 secondary_sort_field="session_id",
             )
         self.assertIn("Invalid cursor format", str(context.exception))
+        # `raise ... from None` keeps the raw binascii/unicode error out of error tracking.
+        self.assertIsNone(context.exception.__cause__)
+
+    def test_invalid_cursor_error_is_value_error(self):
+        """InvalidCursorError stays a ValueError so existing broad excepts keep catching it."""
+        self.assertTrue(issubclass(InvalidCursorError, ValueError))
+
+    def test_decode_cursor_roundtrip(self):
+        """A well-formed cursor decodes back to its dict payload."""
+        payload = {"timestamp": "2025-01-06T12:00:00", "uuid": "abc-123"}
+        cursor = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
+        self.assertEqual(decode_cursor(cursor), payload)
 
     def test_cursor_extraction_from_dict_results(self):
         """Test cursor extraction when results are dicts"""
