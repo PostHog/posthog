@@ -143,6 +143,30 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             repo_research_task_id: str | None = None
             repo_research_run_id: str | None = None
 
+            needs_repo = await _execute_posthog_code_activity(
+                classify_posthog_code_task_needs_repo_activity,
+                event.get("text", ""),
+                thread_messages,
+            )
+            task_kind = "coding" if needs_repo else "general"
+            if not needs_repo:
+                repository = None
+                await _execute_posthog_code_activity(
+                    create_posthog_code_task_for_repo_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                    user_id,
+                    event,
+                    thread_messages,
+                    repository,
+                    repo_research_task_id,
+                    repo_research_run_id,
+                    task_kind,
+                )
+                return
+
             cascade = await _execute_posthog_code_activity(
                 cascade_posthog_code_repository_activity,
                 inputs,
@@ -154,26 +178,19 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 repository = cascade.repository
             elif cascade.mode == "no_repo":
                 # Cascade only emits `no_repo` when neither the team nor the
-                # mentioning user has any GitHub install. Classify first so
-                # non-coding asks ("how do I configure retention?") still
-                # answer with no repo; coding asks surface the connect-personal-
-                # GitHub prompt instead of silently no-op'ing.
+                # mentioning user has any GitHub install. Since task-kind
+                # classification already decided this is a coding ask, surface
+                # the connect-personal-GitHub prompt instead of silently no-op'ing.
                 repository = None
-                needs_repo = await _execute_posthog_code_activity(
-                    classify_posthog_code_task_needs_repo_activity,
-                    event.get("text", ""),
-                    thread_messages,
+                blocked = await _execute_posthog_code_activity(
+                    block_posthog_code_task_if_no_personal_github_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    user_id,
                 )
-                if needs_repo:
-                    blocked = await _execute_posthog_code_activity(
-                        block_posthog_code_task_if_no_personal_github_activity,
-                        inputs,
-                        channel,
-                        thread_ts,
-                        user_id,
-                    )
-                    if blocked:
-                        return
+                if blocked:
+                    return
             elif cascade.mode == "needs_user_github":
                 # Team has GitHub, but the mentioning user hasn't connected their
                 # personal install. Fire the gate so they get the Connect button
@@ -187,59 +204,51 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 )
                 return
             else:
-                # Multiple candidates and no explicit mention. Cheap Haiku
-                # check first to skip the agent entirely for analytics/config
-                # questions; otherwise hand off to the discovery agent.
-                needs_repo = await _execute_posthog_code_activity(
-                    classify_posthog_code_task_needs_repo_activity,
-                    event.get("text", ""),
+                # Multiple candidates and no explicit mention. Hand off to the
+                # discovery agent because the upfront classifier already decided
+                # this task requires repository access.
+                outcome = await _execute_posthog_code_agent_activity(
+                    discover_posthog_code_repository_via_agent_activity,
+                    inputs,
+                    channel,
+                    event,
                     thread_messages,
+                    user_id,
                 )
-                if not needs_repo:
+                repo_research_task_id = outcome.repo_research_task_id
+                repo_research_run_id = outcome.repo_research_run_id
+
+                if outcome.status == "found":
+                    repository = outcome.repository
+                elif outcome.status == "no_match":
                     repository = None
                 else:
-                    outcome = await _execute_posthog_code_agent_activity(
-                        discover_posthog_code_repository_via_agent_activity,
+                    # Agent crashed/timed out/hallucinated — italicize its reason
+                    # above the picker guidance so the user sees why.
+                    picker_guidance = f"_{outcome.reason}_\n\n{POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE}"
+                    await _execute_posthog_code_activity(
+                        post_posthog_code_repo_picker_activity,
                         inputs,
                         channel,
+                        thread_ts,
+                        slack_user_id,
                         event,
-                        thread_messages,
+                        workflow.info().workflow_id,
+                        picker_guidance,
+                        True,
                         user_id,
                     )
-                    repo_research_task_id = outcome.repo_research_task_id
-                    repo_research_run_id = outcome.repo_research_run_id
-
-                    if outcome.status == "found":
-                        repository = outcome.repository
-                    elif outcome.status == "no_match":
-                        repository = None
-                    else:
-                        # Agent crashed/timed out/hallucinated — italicize its reason
-                        # above the picker guidance so the user sees why.
-                        picker_guidance = f"_{outcome.reason}_\n\n{POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE}"
-                        await _execute_posthog_code_activity(
-                            post_posthog_code_repo_picker_activity,
-                            inputs,
-                            channel,
-                            thread_ts,
-                            slack_user_id,
-                            event,
-                            workflow.info().workflow_id,
-                            picker_guidance,
-                            True,
-                            user_id,
+                    try:
+                        await workflow.wait_condition(
+                            lambda: self._repo_selection_resolved,
+                            timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
                         )
-                        try:
-                            await workflow.wait_condition(
-                                lambda: self._repo_selection_resolved,
-                                timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
-                            )
-                        except TimeoutError:
-                            await _execute_posthog_code_activity(
-                                post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
-                            )
-                            return
-                        repository = self._selected_repo
+                    except TimeoutError:
+                        await _execute_posthog_code_activity(
+                            post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                        )
+                        return
+                    repository = self._selected_repo
             if repository and await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
                 return
             await _execute_posthog_code_activity(
@@ -254,6 +263,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 repository,
                 repo_research_task_id,
                 repo_research_run_id,
+                task_kind,
             )
         except Exception as exc:
             workflow.logger.exception(

@@ -190,6 +190,8 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         task = self.Task.objects.get(team=self.team)
         assert task.repository is None
         assert task.origin_product == self.Task.OriginProduct.SLACK
+        assert task.task_kind == self.Task.TaskKind.CODING
+        assert task.latest_run.state["task_kind"] == self.Task.TaskKind.CODING
         assert task.latest_run.state["interaction_origin"] == "slack"
         assert task.latest_run.state["pr_authorship_mode"] == "bot"
 
@@ -211,6 +213,48 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_run_id == task.latest_run.id
 
     @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_general_task_starts_without_pr_creation(self, mock_slack_cls, mock_execute_workflow):
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "summarize the launch feedback"}],
+            None,
+            task_kind=self.Task.TaskKind.GENERAL,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        assert task.repository is None
+        assert task.origin_product == self.Task.OriginProduct.SLACK
+        assert task.task_kind == self.Task.TaskKind.GENERAL
+        assert task.latest_run.state["task_kind"] == self.Task.TaskKind.GENERAL
+
+        mock_execute_workflow.assert_called_once()
+        call_kwargs = mock_execute_workflow.call_args.kwargs
+        assert call_kwargs["task_id"] == str(task.id)
+        assert call_kwargs["run_id"] == str(task.latest_run.id)
+        assert call_kwargs["create_pr"] is False
+        assert call_kwargs["posthog_mcp_scopes"] == "read_only"
+
+        mapping = SlackThreadTaskMapping.objects.get(
+            integration=self.integration, channel="C123", thread_ts="1234.5678"
+        )
+        assert mapping.task_id == task.id
+        assert mapping.task_run_id == task.latest_run.id
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_persists_explicit_event_id_in_workflow_id(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
@@ -608,6 +652,31 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert mock_execute_workflow.call_args.kwargs["create_pr"] is True
 
     @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_terminal_general_run_resumes_without_pr_creation(self, mock_slack_cls, mock_execute_workflow):
+        self.task.repository = None
+        self.task.task_kind = self.Task.TaskKind.GENERAL
+        self.task.save()
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping()
+        mock_slack_cls.return_value = MagicMock()
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> add the Q2 numbers too", "1234.5679"
+        )
+
+        assert result is True
+        mock_execute_workflow.assert_called_once()
+        call_kwargs = mock_execute_workflow.call_args.kwargs
+        assert call_kwargs["create_pr"] is False
+        assert call_kwargs["posthog_mcp_scopes"] == "read_only"
+
+        new_run = self.TaskRun.objects.get(id=call_kwargs["run_id"])
+        assert new_run.state["task_kind"] == self.Task.TaskKind.GENERAL
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_seeds_pr_url_into_new_run_state(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED

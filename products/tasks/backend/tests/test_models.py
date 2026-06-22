@@ -50,6 +50,18 @@ class TestTask(TestCase):
         self.assertEqual(task.title, "Test Task")
         self.assertEqual(task.description, "Test Description")
         self.assertEqual(task.origin_product, origin_product)
+        self.assertEqual(task.task_kind, Task.TaskKind.CODING)
+
+    def test_task_creation_with_general_task_kind(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="General Task",
+            description="Summarize customer feedback",
+            origin_product=Task.OriginProduct.SLACK,
+            task_kind=Task.TaskKind.GENERAL,
+        )
+
+        self.assertEqual(task.task_kind, Task.TaskKind.GENERAL)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_minimal(self, mock_execute_workflow):
@@ -70,6 +82,7 @@ class TestTask(TestCase):
         self.assertEqual(task.title, "Test Create and Run")
         self.assertEqual(task.description, "Test Description")
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+        self.assertEqual(task.task_kind, Task.TaskKind.CODING)
         self.assertEqual(task.team, self.team)
         self.assertEqual(task.created_by, user)
         self.assertEqual(task.repository, "posthog/posthog")
