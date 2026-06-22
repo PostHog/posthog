@@ -58,14 +58,16 @@ def get_export_finished_metric(status: str, model: str) -> MetricCounter:
 
 
 BATCH_EXPORT_ACTIVITY_TYPES = {
+    "copy_into_redshift_activity_from_stage",
+    "export_to_file_download_bucket_with_temporary_credentials",
+    "insert_into_bigquery_activity_from_stage",
+    "insert_into_databricks_activity_from_stage",
     "insert_into_internal_stage_activity",
-    "insert_into_s3_activity_from_stage",
-    "insert_into_snowflake_activity_from_stage",
+    "insert_into_postgres_activity_from_stage",
     "insert_into_redshift_activity",
     "insert_into_redshift_activity_from_stage",
-    "copy_into_redshift_activity_from_stage",
-    "insert_into_postgres_activity_from_stage",
-    "insert_into_databricks_activity_from_stage",
+    "insert_into_s3_activity_from_stage",
+    "insert_into_snowflake_activity_from_stage",
 }
 BATCH_EXPORT_WORKFLOW_TYPES = {
     "s3-export",
