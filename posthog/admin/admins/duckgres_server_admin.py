@@ -13,10 +13,11 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         "port",
         "flight_port",
         "database",
+        "bucket",
         "created_at",
         "updated_at",
     )
-    search_fields = ("=team__id", "=organization__id", "host")
+    search_fields = ("=team__id", "=organization__id", "host", "bucket")
     readonly_fields = ("id", "created_at", "updated_at")
     raw_id_fields = ("team", "organization")
 
@@ -31,6 +32,16 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             "Connection",
             {
                 "fields": ("host", "port", "flight_port", "database", "username", "password"),
+            },
+        ),
+        (
+            "Storage",
+            {
+                # The duckling's per-org S3 bucket. Normally populated automatically
+                # from the provision response (the control plane is the authoritative
+                # source of the name). Editable here for manual reconciliation of rows
+                # provisioned before the CP returned it.
+                "fields": ("bucket", "bucket_region"),
             },
         ),
         (

@@ -53,6 +53,35 @@ def test_provision_persists_duckgres_server_on_success(mock_request: MagicMock) 
 
 
 @pytest.mark.django_db
+@override_settings(CLOUD_DEPLOYMENT="US", DUCKGRES_PG_PORT=5432)
+@patch("products.data_warehouse.backend.api.managed_warehouse._request")
+def test_provision_persists_bucket_returned_by_control_plane(mock_request: MagicMock) -> None:
+    # When the control plane returns the authoritative bucket name, persist it
+    # verbatim instead of re-deriving — the CP owns the naming rule (it pins the
+    # same name on the Duckling CR), and the local derivation has drifted from it.
+    org = Organization.objects.create(name="Org")
+    cp_bucket = "posthog-duckling-0194d6405db400006cde48d6114c0f99-mw-prod-us"
+    mock_request.return_value = Response(
+        {
+            "status": "provisioning started",
+            "org": str(org.id),
+            "username": "root",
+            "password": "secret",
+            "bucket": cp_bucket,
+        },
+        status=202,
+    )
+
+    resp = managed_warehouse.provision(org.id, "my-warehouse")
+
+    assert resp.status_code == 202
+    server = DuckgresServer.objects.get(organization_id=org.id)
+    # Verbatim, not the locally-derived f"posthog-duckling-{org.id}-prod-us".
+    assert server.bucket == cp_bucket
+    assert server.bucket_region == "us-east-1"
+
+
+@pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="EU", DUCKGRES_PG_PORT=5432)
 @patch("products.data_warehouse.backend.api.managed_warehouse._request")
 def test_provision_persists_server_without_bucket_when_region_unsupported(mock_request: MagicMock) -> None:

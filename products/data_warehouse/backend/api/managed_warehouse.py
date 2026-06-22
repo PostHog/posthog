@@ -214,16 +214,28 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
     from posthog.ducklake.common import derive_duckling_bucket, upsert_duckgres_server_for_org  # noqa: PLC0415
 
-    # Best-effort bucket derivation: a region without a managed-warehouse bucket convention
-    # (e.g. EU, where derive_duckling_bucket raises) must not block persisting the connection
-    # row. upsert treats None as "leave unset", so the bucket stays NULL and the backfill
-    # resolver falls back to derivation if it ever needs one.
-    try:
-        bucket: str | None
-        bucket_region: str | None
-        bucket, bucket_region = derive_duckling_bucket(str(organization_id))
-    except NotImplementedError:
-        bucket, bucket_region = None, None
+    bucket: str | None
+    bucket_region: str | None
+
+    # Prefer the authoritative bucket name the control plane provisioned and
+    # returned in the provision response. The CP owns the naming rule (it writes
+    # the same name onto the Duckling CR's spec.dataStore.bucketName), so taking
+    # it verbatim is the only way to avoid re-deriving — the derivation has
+    # already drifted from the Crossplane composition's naming once (UUID
+    # hyphen-compaction + the mw- env suffix) and silently produced buckets that
+    # don't exist. derive_duckling_bucket stays only as a fallback for control
+    # planes that don't yet return `bucket` (older duckgres) or regions without a
+    # bucket convention (EU, where it raises NotImplementedError).
+    returned_bucket = body.get("bucket")
+    if returned_bucket:
+        bucket, bucket_region = returned_bucket, "us-east-1"
+    else:
+        try:
+            bucket, bucket_region = derive_duckling_bucket(str(organization_id))
+        except NotImplementedError:
+            # upsert treats None as "leave unset"; the backfill resolver falls
+            # back to derivation if it ever needs one.
+            bucket, bucket_region = None, None
 
     try:
         connection = _present_connection({"database": database_name, "username": body.get("username", "root")})
