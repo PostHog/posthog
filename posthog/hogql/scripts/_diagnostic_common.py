@@ -40,7 +40,10 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, NoReturn
 
-from posthog.hogql.errors import BaseHogQLError
+from hogql_parser import parse_string_literal_text as _cpp_parse_string_literal_text
+from hogql_parser_rs import parse_string_literal_text as _rust_parse_string_literal_text
+
+from posthog.hogql.errors import BaseHogQLError, ParsingError
 from posthog.hogql.parser import (
     HogQLParserShadowMismatch,
     parse_expr,
@@ -61,6 +64,27 @@ def _parse_full_template_string(query: str, backend: Any = None) -> Any:
     return parse_string_template(body, backend=backend)
 
 
+def _parse_string_literal_text(query: str, backend: Any = None) -> str:
+    """Entry point for the `string_literal` rule — the standalone
+    string-literal/identifier unquoter, NOT a grammar rule. Dispatches by
+    backend family (`cpp*` → the C++ wheel, `rust*` → the Rust wheel) so the
+    grind can fuzz the two implementations for byte-for-byte parity. Returns the
+    decoded string; raises the `BaseHogQLError` subclasses both wheels raise
+    (`SyntaxError` on mismatched quotes, `ParsingError` on empty input), which
+    `_safe_parse` buckets as a `reject`.
+
+    The C++ *wheel* aborts the process on empty input (an uncaught C++
+    `ParsingError` the binding fails to catch), so an empty input would kill the
+    grind. The strategy never emits `""`, but the shrinker can probe it, so we
+    short-circuit it to the `ParsingError` the C++ *function* declares — keeping
+    the grind alive and matching what the Rust wheel raises."""
+    use_cpp = backend is None or str(backend).startswith("cpp")
+    if use_cpp and query == "":
+        raise ParsingError("Encountered an unexpected empty string input")
+    fn = _cpp_parse_string_literal_text if use_cpp else _rust_parse_string_literal_text
+    return fn(query)
+
+
 # Maps a diagnostic `--rule` value to its parser entry point. `program`
 # covers the Hog imperative-statement layer (let / if / while / for /
 # fn / try-catch / return / throw / blocks); `full_template_string` is the
@@ -72,6 +96,7 @@ _PARSER_FOR_RULE: dict[str, Callable[..., Any]] = {
     "select": parse_select,
     "program": parse_program,
     "full_template_string": _parse_full_template_string,
+    "string_literal": _parse_string_literal_text,
 }
 
 # ---------------------------------------------------------------------------
