@@ -1,6 +1,14 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
+from django.http import HttpResponse
+from django.shortcuts import redirect, render
+from django.urls import path, reverse
 
-from posthog.models import DuckgresServer
+import structlog
+
+from posthog.models import DuckgresServer, Organization, Team
+
+logger = structlog.get_logger(__name__)
 
 
 @admin.register(DuckgresServer)
@@ -23,6 +31,10 @@ class DuckgresServerAdmin(admin.ModelAdmin):
     # would just be overwritten. Show them, but read-only.
     readonly_fields = ("id", "created_at", "updated_at", "bucket", "bucket_region")
     raw_id_fields = ("team", "organization")
+
+    # Custom templates add the provision / enable-backfill / deprovision buttons.
+    change_list_template = "admin/posthog/duckgres_server/change_list.html"
+    change_form_template = "admin/posthog/duckgres_server/change_form.html"
 
     fieldsets = (
         (
@@ -54,3 +66,141 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "provision/",
+                self.admin_site.admin_view(self.provision_view),
+                name="posthog_duckgresserver_provision",
+            ),
+            path(
+                "<path:object_id>/enable-backfill/",
+                self.admin_site.admin_view(self.enable_backfill_view),
+                name="posthog_duckgresserver_enable_backfill",
+            ),
+            path(
+                "<path:object_id>/deprovision/",
+                self.admin_site.admin_view(self.deprovision_view),
+                name="posthog_duckgresserver_deprovision",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def provision_view(self, request) -> HttpResponse:
+        """Provision a brand-new managed warehouse for an org + its first team.
+
+        Runs the same path as the in-product provision API: the duckgres control-plane
+        /provision call, then the DuckgresServer, DuckgresServerTeam, and DuckLakeBackfill
+        records. The org's feature flag is bypassed (require_enabled=False) so ops can
+        provision before the org is entitled to the in-product UI.
+        """
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+
+        if request.method == "GET":
+            return render(
+                request,
+                "admin/posthog/duckgres_server/provision_form.html",
+                {**self.admin_site.each_context(request), "title": "Provision managed warehouse"},
+            )
+
+        organization_id = request.POST.get("organization_id", "").strip()
+        team_id = request.POST.get("team_id", "").strip()
+        database_name = request.POST.get("database_name", "").strip()
+        table_name = request.POST.get("table_name", "").strip()
+
+        team = self._resolve_team(request, organization_id, team_id)
+        if team is None:
+            return redirect(reverse("admin:posthog_duckgresserver_provision"))
+
+        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+
+        resp = managed_warehouse.provision(
+            team.organization_id, database_name, team.id, table_name, require_enabled=False
+        )
+        self._report(request, resp, f"Provisioned managed warehouse for org {team.organization_id}")
+        if 200 <= resp.status_code < 300:
+            return redirect(reverse("admin:posthog_duckgresserver_changelist"))
+        return redirect(reverse("admin:posthog_duckgresserver_provision"))
+
+    def enable_backfill_view(self, request, object_id) -> HttpResponse:
+        """Add another team to an already-provisioned org's warehouse with its own tables."""
+        server = DuckgresServer.objects.get(pk=object_id)
+        if not self.has_change_permission(request, server):
+            raise PermissionDenied
+
+        if request.method == "GET":
+            return render(
+                request,
+                "admin/posthog/duckgres_server/enable_backfill_form.html",
+                {
+                    **self.admin_site.each_context(request),
+                    "title": "Enable warehouse backfill for a team",
+                    "server": server,
+                },
+            )
+
+        team_id = request.POST.get("team_id", "").strip()
+        table_name = request.POST.get("table_name", "").strip()
+
+        team = self._resolve_team(request, str(server.organization_id), team_id)
+        if team is None:
+            return redirect(reverse("admin:posthog_duckgresserver_enable_backfill", args=[object_id]))
+
+        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+
+        resp = managed_warehouse.enable_backfill(server.organization_id, team.id, table_name, require_enabled=False)
+        self._report(request, resp, f"Enabled warehouse backfill for team {team.id}")
+        if 200 <= resp.status_code < 300:
+            return redirect(reverse("admin:posthog_duckgresserver_change", args=[object_id]))
+        return redirect(reverse("admin:posthog_duckgresserver_enable_backfill", args=[object_id]))
+
+    def deprovision_view(self, request, object_id) -> HttpResponse:
+        """Tear down an org's managed warehouse via the control-plane /deprovision call."""
+        server = DuckgresServer.objects.get(pk=object_id)
+        if not self.has_change_permission(request, server):
+            raise PermissionDenied
+
+        if request.method == "GET":
+            return render(
+                request,
+                "admin/posthog/duckgres_server/deprovision_confirm.html",
+                {
+                    **self.admin_site.each_context(request),
+                    "title": "Deprovision managed warehouse",
+                    "server": server,
+                },
+            )
+
+        from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+
+        resp = managed_warehouse.deprovision(server.organization_id, require_enabled=False)
+        self._report(request, resp, f"Deprovisioned managed warehouse for org {server.organization_id}")
+        return redirect(reverse("admin:posthog_duckgresserver_changelist"))
+
+    def _resolve_team(self, request, organization_id: str, team_id: str) -> Team | None:
+        """Look up the team and confirm it belongs to the given org, messaging on failure."""
+        if not organization_id or not team_id:
+            messages.error(request, "Organization and team are both required.")
+            return None
+        if not Organization.objects.filter(pk=organization_id).exists():
+            messages.error(request, f"No organization with id {organization_id}.")
+            return None
+        team = Team.objects.filter(pk=team_id).first() if team_id.isdigit() else None
+        if team is None:
+            messages.error(request, f"No team with id {team_id}.")
+            return None
+        if str(team.organization_id) != str(organization_id):
+            messages.error(request, f"Team {team_id} does not belong to organization {organization_id}.")
+            return None
+        return team
+
+    def _report(self, request, resp, success_message: str) -> None:
+        """Turn a managed_warehouse Response into an admin flash message + audit log."""
+        if 200 <= resp.status_code < 300:
+            logger.info("admin_managed_warehouse_action", action=success_message, triggered_by=request.user.email)
+            messages.success(request, f"{success_message}. (status {resp.status_code})")
+            return
+        detail = resp.data.get("error") if isinstance(resp.data, dict) else resp.data
+        messages.error(request, f"Failed (status {resp.status_code}): {detail}")

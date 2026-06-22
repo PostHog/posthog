@@ -187,7 +187,13 @@ def _request(
     return Response(body, status=resp.status_code)
 
 
-def provision(organization_id: UUID | str, database_name: str | None, team_id: int, table_name: str | None) -> Response:
+def provision(
+    organization_id: UUID | str,
+    database_name: str | None,
+    team_id: int,
+    table_name: str | None,
+    require_enabled: bool = True,
+) -> Response:
     name_error = validate_warehouse_name(database_name)
     if name_error:
         return Response({"error": name_error}, status=status.HTTP_400_BAD_REQUEST)
@@ -206,6 +212,7 @@ def provision(organization_id: UUID | str, database_name: str | None, team_id: i
             "metadata_store": {"type": "cnpg-shard"},
             "data_store": {"type": "s3bucket"},
         },
+        require_enabled=require_enabled,
     )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
         _persist_duckgres_server(organization_id, database_name, resp.data)
@@ -302,14 +309,17 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
         logger.exception("Failed to persist DuckgresServer after provision", organization_id=str(organization_id))
 
 
-def enable_backfill(organization_id: UUID | str, team_id: int, table_name: str | None) -> Response:
+def enable_backfill(
+    organization_id: UUID | str, team_id: int, table_name: str | None, require_enabled: bool = True
+) -> Response:
     """Enable warehouse backfill for a team's environment with dedicated per-environment tables.
 
     Per-team (not org-wide): persists the per-environment table suffix on the team's
     DuckLakeBackfill and records team↔duckling membership. Gated on the org's feature flag so
-    a team can't enable a backfill for an org that isn't entitled to the managed warehouse.
+    a team can't enable a backfill for an org that isn't entitled to the managed warehouse;
+    backend/ops callers (the Django admin) pass `require_enabled=False` to bypass that gate.
     """
-    if not is_enabled(organization_id):
+    if require_enabled and not is_enabled(organization_id):
         return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
     table_name_error = _validate_table_name(table_name)
     if table_name_error or table_name is None:
@@ -330,8 +340,8 @@ def enable_backfill(organization_id: UUID | str, team_id: int, table_name: str |
     return Response({"enabled": True, "table_suffix": suffix}, status=status.HTTP_200_OK)
 
 
-def deprovision(organization_id: UUID | str) -> Response:
-    return _request("POST", organization_id, "/deprovision")
+def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Response:
+    return _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
 
 
 def status_for(organization_id: UUID | str) -> Response:
