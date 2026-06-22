@@ -13,19 +13,28 @@ purpose is *derived* — there is no relationship label on the task↔report ass
 
 from __future__ import annotations
 
-from pydantic import ValidationError
+from products.signals.backend.artefact_schemas import (
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+    TASK_RUN_TYPE_REPO_SELECTION,
+    TASK_RUN_TYPE_RESEARCH,
+    TaskRunArtefact,
+)
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 
-from products.signals.backend.artefact_schemas import TaskRunArtefact
-from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact, SignalReportTask
-
-# Product identifier for task runs driven by the built-in signals pipeline (research /
-# implementation / repo-selection). Custom agents supply their own product via `identifier()`.
-SIGNALS_PRODUCT = "signals"
-
-# `type` values used by the built-in pipeline's task runs.
-TASK_RUN_TYPE_REPO_SELECTION = "repo_selection"
-TASK_RUN_TYPE_RESEARCH = "research"
-TASK_RUN_TYPE_IMPLEMENTATION = "implementation"
+# The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
+# without a cycle); re-exported here so existing `from task_run_artefacts import …` callers keep
+# working.
+__all__ = [
+    "SIGNALS_PRODUCT",
+    "TASK_RUN_TYPE_IMPLEMENTATION",
+    "TASK_RUN_TYPE_REPO_SELECTION",
+    "TASK_RUN_TYPE_RESEARCH",
+    "aappend_task_run_artefact",
+    "append_task_run_artefact",
+    "record_implementation_task",
+    "signals_task_ids",
+]
 
 
 def _task_run_content(product: str, type: str, task_id: str, run_id: str | None) -> TaskRunArtefact:
@@ -71,26 +80,17 @@ async def aappend_task_run_artefact(
 
 
 def signals_task_ids(*, report_id: str, type: str) -> list[str]:
-    """Task ids recorded by the built-in signals pipeline's `task_run` artefacts of `type` for
-    the report, oldest first.
+    """Task ids associated with the report by the built-in signals pipeline (product `signals`) for
+    the given `type`, oldest first.
 
-    This is how a task's *purpose* is derived now that task↔report associations are unlabelled.
-    Rows are parse-confirmed in Python rather than via a `content::jsonb` cast: a report has only
-    a handful of task_run rows, and a cast would raise on any malformed legacy TextField content.
+    Thin wrapper over `SignalReport.associated_task_runs`, which unifies the `task_run` artefact log
+    with the legacy `SignalReportTask` gate rows — so this is how a task's *purpose* is derived
+    across both sources during the migration.
     """
-    task_ids: list[str] = []
-    for content in (
-        SignalReportArtefact.objects.filter(report_id=report_id, type=SignalReportArtefact.ArtefactType.TASK_RUN)
-        .order_by("created_at")
-        .values_list("content", flat=True)
-    ):
-        try:
-            run = TaskRunArtefact.model_validate_json(content)
-        except ValidationError:
-            continue
-        if run.product == SIGNALS_PRODUCT and run.type == type:
-            task_ids.append(run.task_id)
-    return task_ids
+    return [
+        run.task_id
+        for run in SignalReport.associated_task_runs(report_id=report_id, product=SIGNALS_PRODUCT, type=type)
+    ]
 
 
 def record_implementation_task(

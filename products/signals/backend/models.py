@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal, cast
 
 from django.contrib.postgres.fields import ArrayField
@@ -9,6 +10,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from django_deprecate_fields import deprecate_field
+from pydantic import ValidationError
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -25,6 +27,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     artefact_type_for,
     parse_artefact_content,
+    task_run_identifier_for_legacy_relationship,
 )
 
 logger = logging.getLogger(__name__)
@@ -365,6 +368,98 @@ class SignalReport(UUIDModel):
         if prior in {s.value for s in researched}:
             return S(prior)
         return S.POTENTIAL
+
+    @staticmethod
+    def _merge_task_runs(
+        artefact_rows: "list[tuple[datetime, str]]",
+        report_task_rows: "list[tuple[datetime, str | None, Any]]",
+        *,
+        product: str | None,
+        type: str | None,
+    ) -> list[TaskRunArtefact]:
+        """Merge `task_run` artefact contents with faked-from-`SignalReportTask` runs into one
+        de-duplicated, oldest-first list — the view that would exist once the backfill has run.
+
+        A `SignalReportTask` row is surfaced as the `task_run` artefact the backfill would create
+        for it (same `(product, type)` mapping). De-dup is by `task_id` (mirroring the backfill,
+        which skips a task that already has an artefact); when a task appears in both sources the
+        real artefact wins, since on equal timestamps it is ordered first.
+        """
+        # (created_at, source_rank, run); source_rank 0 = real artefact, so it wins ties.
+        candidates: list[tuple[datetime, int, TaskRunArtefact]] = []
+        for created_at, content in artefact_rows:
+            try:
+                run = TaskRunArtefact.model_validate_json(content)
+            except ValidationError:
+                continue  # tolerate malformed legacy TextField content
+            candidates.append((created_at, 0, run))
+        for created_at, relationship, task_id in report_task_rows:
+            run_product, run_type = task_run_identifier_for_legacy_relationship(relationship)
+            candidates.append(
+                (created_at, 1, TaskRunArtefact(task_id=str(task_id), run_id=None, product=run_product, type=run_type))
+            )
+
+        candidates = [
+            c
+            for c in candidates
+            if (product is None or c[2].product == product) and (type is None or c[2].type == type)
+        ]
+        candidates.sort(key=lambda c: (c[0], c[1]))
+
+        seen: set[str] = set()
+        result: list[TaskRunArtefact] = []
+        for _created_at, _rank, run in candidates:
+            if run.task_id in seen:
+                continue
+            seen.add(run.task_id)
+            result.append(run)
+        return result
+
+    @classmethod
+    def associated_task_runs(
+        cls, *, report_id: str, team_id: int | None = None, product: str | None = None, type: str | None = None
+    ) -> list[TaskRunArtefact]:
+        """The task runs associated with a report, unified across the `task_run` artefact log and the
+        legacy `SignalReportTask` gate rows and de-duplicated by task — the view you would get once
+        `backfill_task_run_artefacts` has converted every gate row into a `task_run` artefact.
+
+        Gate rows are surfaced as if they were `task_run` artefacts, so "does this report have an
+        associated task (of a given product/type)?" is a single question against one artefact-shaped
+        list — callers should not query `SignalReportArtefact` / `SignalReportTask` directly. Pass
+        `product` / `type` to narrow (e.g. `product="signals", type="implementation"`).
+        """
+        artefacts = SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.TASK_RUN
+        )
+        report_tasks = SignalReportTask.objects.filter(report_id=report_id)
+        if team_id is not None:
+            artefacts = artefacts.filter(team_id=team_id)
+            report_tasks = report_tasks.filter(team_id=team_id)
+        return cls._merge_task_runs(
+            list(artefacts.values_list("created_at", "content")),
+            list(report_tasks.values_list("created_at", "relationship", "task_id")),
+            product=product,
+            type=type,
+        )
+
+    @classmethod
+    async def aassociated_task_runs(
+        cls, *, report_id: str, team_id: int | None = None, product: str | None = None, type: str | None = None
+    ) -> list[TaskRunArtefact]:
+        """Async counterpart of `associated_task_runs`."""
+        artefacts = SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.TASK_RUN
+        )
+        report_tasks = SignalReportTask.objects.filter(report_id=report_id)
+        if team_id is not None:
+            artefacts = artefacts.filter(team_id=team_id)
+            report_tasks = report_tasks.filter(team_id=team_id)
+        return cls._merge_task_runs(
+            [row async for row in artefacts.values_list("created_at", "content")],
+            [row async for row in report_tasks.values_list("created_at", "relationship", "task_id")],
+            product=product,
+            type=type,
+        )
 
 
 class SignalEmissionRecord(UUIDModel):

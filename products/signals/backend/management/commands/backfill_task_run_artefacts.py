@@ -2,14 +2,9 @@ import json
 
 from django.core.management.base import BaseCommand
 
+from products.signals.backend.artefact_schemas import task_run_identifier_for_legacy_relationship
 from products.signals.backend.models import SignalReportArtefact, SignalReportTask
-from products.signals.backend.task_run_artefacts import (
-    SIGNALS_PRODUCT,
-    TASK_RUN_TYPE_IMPLEMENTATION,
-    TASK_RUN_TYPE_REPO_SELECTION,
-    TASK_RUN_TYPE_RESEARCH,
-    append_task_run_artefact,
-)
+from products.signals.backend.task_run_artefacts import append_task_run_artefact
 
 
 class Command(BaseCommand):
@@ -51,22 +46,13 @@ class Command(BaseCommand):
         if team_id is not None:
             report_tasks = report_tasks.filter(team_id=team_id)
 
-        valid_types = {TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_REPO_SELECTION}
-
         created = 0
         skipped = 0
         for report_task in report_tasks.iterator():
-            # Labelled legacy rows are signals-pipeline runs: product is `signals`, type is the
-            # legacy relationship label (research / implementation / repo_selection). Unlabelled
-            # rows usually had their artefact written at creation time; any that didn't (free-form
-            # associations from the brief link-only window) get the generic default identifiers,
-            # since artefacts are now the sole source of task↔report association.
-            task_type = report_task.relationship
-            if task_type in valid_types:
-                product = SIGNALS_PRODUCT
-            else:
-                product = "tasks"
-                task_type = "agent_run"
+            # Labelled legacy rows are signals-pipeline runs (`signals` / relationship label);
+            # unlabelled rows collapse to the generic `tasks` / `agent_run` identifiers — the same
+            # mapping `SignalReport.associated_task_runs` fakes for these rows at read time.
+            product, task_type = task_run_identifier_for_legacy_relationship(report_task.relationship)
 
             task_id = str(report_task.task_id)
             report_id = str(report_task.report_id)

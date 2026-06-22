@@ -14,7 +14,6 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
-    SignalReportTask,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -27,7 +26,11 @@ from products.signals.backend.report_generation.research import (
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
-from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, record_implementation_task
+from products.signals.backend.task_run_artefacts import (
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+    record_implementation_task,
+)
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -113,13 +116,15 @@ def _create_implementation_task_if_absent(
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return False
-        # The gate is the legacy `SignalReportTask` implementation link, not the artefact log:
-        # task_run artefacts are freeform and API-mutable (any agent can append or delete them via
-        # the API), so they can't be trusted to decide whether an implementation has started.
-        # `record_implementation_task` below dual-writes this gate row and the task_run artefact;
-        # once `backfill_task_run_artefacts` has converted every legacy row, the gate can move to
-        # the artefact log and `SignalReportTask` can be dropped.
-        if SignalReportTask.objects.filter(report_id=report_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION).exists():
+        # The gate reads the unified task↔report view (`associated_task_runs` merges the legacy
+        # `SignalReportTask` rows with the `task_run` artefact log). Unifying only *adds* sources,
+        # so it can never under-detect a started implementation — and `record_implementation_task`
+        # below always writes the `SignalReportTask` row, so deleting the (API-mutable) artefact
+        # can't reopen the gate. Both writes happen under this lock, so a racing evaluation that
+        # blocks here observes them and returns False.
+        if SignalReport.associated_task_runs(
+            report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+        ):
             return False
         team = Team.objects.select_related("organization").get(id=team_id)
         created = tasks_facade.create_and_run_task(
@@ -239,9 +244,11 @@ async def maybe_autostart_implementation_task(
     """
     # Cheap pre-check to skip the expensive assignee resolution when a task already exists;
     # the authoritative, race-free check happens under the lock below.
-    task_exists = await SignalReportTask.objects.filter(
-        report_id=report_id, team_id=team_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
-    ).aexists()
+    task_exists = bool(
+        await SignalReport.aassociated_task_runs(
+            report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+    )
     skip_reason: str | None = None
     if task_exists:
         skip_reason = "implementation task already exists"

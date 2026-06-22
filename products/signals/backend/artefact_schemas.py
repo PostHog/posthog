@@ -322,6 +322,40 @@ class TaskRunArtefact(BaseModel):
         return normalized
 
 
+# ── Task-run vocabulary ──────────────────────────────────────────────────────────
+#
+# A `task_run` artefact carries a `(product, type)` pair. The built-in signals pipeline uses
+# `product="signals"` with one of the `TASK_RUN_TYPE_*` types below; custom agents supply their
+# own identifier pair. These live in this leaf module so both the artefact helpers and the
+# `SignalReport` model can share them without an import cycle (`task_run_artefacts` re-exports
+# them for existing importers).
+SIGNALS_PRODUCT = "signals"
+
+TASK_RUN_TYPE_REPO_SELECTION = "repo_selection"
+TASK_RUN_TYPE_RESEARCH = "research"
+TASK_RUN_TYPE_IMPLEMENTATION = "implementation"
+
+# Generic identifiers for a legacy `SignalReportTask` row with no `(product, type)` label — an
+# unlabelled link from the brief link-only window before associations carried identifiers.
+_LEGACY_TASK_RUN_PRODUCT = "tasks"
+_LEGACY_TASK_RUN_TYPE = "agent_run"
+
+_SIGNALS_TASK_RUN_TYPES = frozenset(
+    {TASK_RUN_TYPE_REPO_SELECTION, TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_IMPLEMENTATION}
+)
+
+
+def task_run_identifier_for_legacy_relationship(relationship: str | None) -> tuple[str, str]:
+    """Map a legacy `SignalReportTask.relationship` to the `(product, type)` its `task_run` artefact
+    would carry — the same mapping `backfill_task_run_artefacts` applies. A labelled signals
+    relationship keeps its label under `product="signals"`; anything else (including the unlabelled
+    link-only rows) collapses to the generic `tasks` / `agent_run` identifiers.
+    """
+    if relationship is not None and relationship in _SIGNALS_TASK_RUN_TYPES:
+        return SIGNALS_PRODUCT, relationship
+    return _LEGACY_TASK_RUN_PRODUCT, _LEGACY_TASK_RUN_TYPE
+
+
 class NoteArtefact(BaseModel):
     """Content schema for a `note` artefact: a free-form note authored by an agent or by code."""
 
