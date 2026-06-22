@@ -8,10 +8,12 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CachedFunnelsQueryResponse,
     DateRange,
+    FunnelsDataWarehouseNode,
     FunnelsQuery,
     FunnelsQueryResponse,
     FunnelTimeToConvertResults,
@@ -29,6 +31,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
+from posthog.errors import ExposedCHQueryError, look_up_clickhouse_error_code_meta
 from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvertUDF
@@ -55,6 +58,11 @@ from posthog.models.user import User
 logger = structlog.get_logger(__name__)
 
 _T = TypeVar("_T")
+
+# Raised (as a ValidationError code) when a data-warehouse funnel's id column contains nulls.
+# Surfaced to the frontend so it can offer a one-click "exclude null ID rows" fix — keep this
+# string in sync with InsightVizDisplay.tsx.
+DATA_WAREHOUSE_NULL_ID_ERROR_CODE = "data_warehouse_null_id_field"
 
 
 class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
@@ -117,9 +125,37 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         return self.funnel_actor_class.actor_query()
 
     def _calculate(self):
-        if self._is_compare_active():
-            return self._calculate_compare()
-        return self._calculate_single_period(self.funnel_class)
+        try:
+            if self._is_compare_active():
+                return self._calculate_compare()
+            return self._calculate_single_period(self.funnel_class)
+        except ExposedCHQueryError as e:
+            # A data-warehouse funnel whose id column contains a null trips the throwIf guard in
+            # FunnelEventQuery, surfacing as a raw ClickHouse exception that lands in error tracking.
+            # Convert it into a user-facing validation error so it stops being captured as a server
+            # error and the frontend can offer a one-click fix (exclude the null id rows).
+            if (validation_error := self._data_warehouse_null_id_error(e)) is not None:
+                raise validation_error from e
+            raise
+
+    def _data_warehouse_null_id_error(self, error: ExposedCHQueryError) -> ValidationError | None:
+        """Build a friendly validation error for the data-warehouse null-id case, else None.
+
+        Match on the ClickHouse error code rather than the message: the funnels path emits exactly
+        one throwIf (the non-UUID id_field null guard), so this code can only originate there.
+        """
+        if look_up_clickhouse_error_code_meta(error).name != "FUNCTION_THROW_IF_VALUE_IS_NON_ZERO":
+            return None
+
+        id_fields = sorted(
+            {series.id_field for series in self.query.series if isinstance(series, FunnelsDataWarehouseNode)}
+        )
+        columns = ", ".join(id_fields) if id_fields else "the selected ID column"
+        return ValidationError(
+            f"The data warehouse ID column ({columns}) contains null values, which can't be used to "
+            "identify users in a funnel. Exclude the rows where the ID is null to run this funnel.",
+            code=DATA_WAREHOUSE_NULL_ID_ERROR_CODE,
+        )
 
     def _calculate_single_period(
         self,

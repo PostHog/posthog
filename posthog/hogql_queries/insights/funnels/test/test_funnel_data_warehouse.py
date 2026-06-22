@@ -12,6 +12,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActorsQuery,
     DataWarehousePersonPropertyFilter,
@@ -27,7 +29,6 @@ from posthog.schema import (
     StepOrderValue,
 )
 
-from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.test.test_journeys import journeys_for
@@ -426,14 +427,14 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         assert isinstance(funnels_query.series[0], FunnelsDataWarehouseNode)  # for mypy
         assert isinstance(funnels_query.series[1], FunnelsDataWarehouseNode)  # for mypy
 
-        # throws an error because of nulls in id field
+        # surfaces a friendly validation error (carrying a fix-it code) instead of a raw ClickHouse exception
         with freeze_time("2025-11-07"):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
-            with pytest.raises(ExposedCHQueryError) as exc_info:
+            with pytest.raises(ValidationError) as exc_info:
                 runner.calculate()
 
-        assert type(exc_info.value).__name__ == "CHQueryErrorFunctionThrowIfValueIsNonZero"
-        assert "posthog_test_test_table_1.id_with_nulls, but a non-null value" in str(exc_info.value)
+        assert exc_info.value.get_codes() == ["data_warehouse_null_id_field"]
+        assert "id_with_nulls" in str(exc_info.value)
 
         # nulls can be filtered to make the query work
         not_null_filter: list[AnyPropertyFilter] = [

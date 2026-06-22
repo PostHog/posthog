@@ -1,6 +1,8 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { FunnelsDataWarehouseNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
+    excludeNullDataWarehouseIdRows,
     filterVariablesReferencedInQuery,
     hasInvalidRegexFilter,
     isBoxPlotMissingProperty,
@@ -214,5 +216,75 @@ describe('isBoxPlotMissingProperty', () => {
                 { kind: NodeKind.EventsNode, event: '$signup', math_property: 'revenue' },
             ])
         ).toBe(false)
+    })
+})
+
+describe('excludeNullDataWarehouseIdRows', () => {
+    const warehouseNode: FunnelsDataWarehouseNode = {
+        kind: NodeKind.FunnelsDataWarehouseNode,
+        id: 'my_table',
+        table_name: 'my_table',
+        id_field: 'clientid',
+        timestamp_field: 'created',
+        aggregation_target_field: 'user_id',
+    }
+    const expectedFilter = {
+        type: PropertyFilterType.DataWarehouse,
+        key: 'clientid',
+        operator: PropertyOperator.IsSet,
+        value: PropertyOperator.IsSet,
+    }
+
+    it('appends an is_set filter on the id column of every data-warehouse series', () => {
+        const result = excludeNullDataWarehouseIdRows({
+            kind: NodeKind.FunnelsQuery,
+            series: [warehouseNode, { ...warehouseNode, id_field: 'leadid' }],
+        } as FunnelsQuery)
+
+        expect(result?.series).toEqual([
+            { ...warehouseNode, properties: [expectedFilter] },
+            { ...warehouseNode, id_field: 'leadid', properties: [{ ...expectedFilter, key: 'leadid' }] },
+        ])
+    })
+
+    it('preserves existing properties and leaves non-warehouse series untouched', () => {
+        const eventNode = { kind: NodeKind.EventsNode, event: '$pageview' }
+        const existingFilter = {
+            type: PropertyFilterType.DataWarehouse,
+            key: 'amount',
+            operator: PropertyOperator.GreaterThan,
+            value: 10,
+        }
+
+        const result = excludeNullDataWarehouseIdRows({
+            kind: NodeKind.FunnelsQuery,
+            series: [eventNode, { ...warehouseNode, properties: [existingFilter] }],
+        } as FunnelsQuery)
+
+        expect(result?.series[0]).toEqual(eventNode)
+        expect(result?.series[1].properties).toEqual([existingFilter, expectedFilter])
+    })
+
+    it('is idempotent — returns null when every warehouse series already excludes nulls', () => {
+        const result = excludeNullDataWarehouseIdRows({
+            kind: NodeKind.FunnelsQuery,
+            series: [{ ...warehouseNode, properties: [expectedFilter] }],
+        } as FunnelsQuery)
+
+        expect(result).toBeNull()
+    })
+
+    it('returns null for a funnel without any data-warehouse series', () => {
+        const result = excludeNullDataWarehouseIdRows({
+            kind: NodeKind.FunnelsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+        } as FunnelsQuery)
+
+        expect(result).toBeNull()
+    })
+
+    it('returns null for a non-funnel query', () => {
+        expect(excludeNullDataWarehouseIdRows({ kind: NodeKind.TrendsQuery, series: [] } as any)).toBeNull()
+        expect(excludeNullDataWarehouseIdRows(null)).toBeNull()
     })
 })

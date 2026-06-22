@@ -29,7 +29,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
+import { excludeNullDataWarehouseIdRows, isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
@@ -198,35 +198,51 @@ export function InsightVizDisplay({
         }
 
         if (validationError) {
-            const isUnsupportedDataWarehouseSettings =
-                validationErrorCode === 'data_warehouse_series_unsupported_settings'
-            const resetCta = isUnsupportedDataWarehouseSettings ? (
-                <LemonButton
-                    type="primary"
-                    loading={insightDataLoading}
-                    onClick={() =>
-                        updateQuerySource({
-                            filterTestAccounts: false,
-                            properties: undefined,
-                            samplingFactor: undefined,
-                        })
-                    }
-                >
-                    Reset unsupported settings
-                </LemonButton>
-            ) : undefined
+            let cta: JSX.Element | undefined = undefined
+            if (validationErrorCode === 'data_warehouse_series_unsupported_settings') {
+                cta = (
+                    <LemonButton
+                        type="primary"
+                        loading={insightDataLoading}
+                        onClick={() =>
+                            updateQuerySource({
+                                filterTestAccounts: false,
+                                properties: undefined,
+                                samplingFactor: undefined,
+                            })
+                        }
+                    >
+                        Reset unsupported settings
+                    </LemonButton>
+                )
+            } else if (validationErrorCode === 'data_warehouse_null_id_field') {
+                cta = (
+                    <LemonButton
+                        type="primary"
+                        loading={insightDataLoading}
+                        onClick={() => {
+                            const update = excludeNullDataWarehouseIdRows(querySource)
+                            if (update) {
+                                updateQuerySource(update)
+                            }
+                        }}
+                    >
+                        Exclude null ID rows
+                    </LemonButton>
+                )
+            }
             return (
                 <InsightValidationError
                     query={query}
                     detail={validationError}
                     onRetry={
-                        resetCta
+                        cta
                             ? undefined
                             : () => {
                                   loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                               }
                     }
-                    cta={resetCta}
+                    cta={cta}
                 />
             )
         }

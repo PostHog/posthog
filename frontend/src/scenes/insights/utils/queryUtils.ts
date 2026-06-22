@@ -3,7 +3,15 @@ import { isValidRE2 } from 'lib/utils/regexp'
 import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from 'scenes/funnels/funnelUtils'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { DataNode, HogQLVariable, InsightQueryNode, Node, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataNode,
+    FunnelsQuery,
+    HogQLVariable,
+    InsightQueryNode,
+    Node,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     getMathTypeWarning,
@@ -21,7 +29,13 @@ import {
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    DataWarehousePropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
 
@@ -297,4 +311,47 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
     }
 
     return cleanedQuery
+}
+
+/**
+ * Append an `is_set` filter on each data-warehouse series' id column so rows with a null id are
+ * excluded. Used by the one-click fix for the `data_warehouse_null_id_field` validation error
+ * (see funnels_query_runner.py). Idempotent — skips series that already exclude nulls. Returns the
+ * query-source update, or null if there's nothing to change (not a funnel, or already filtered).
+ */
+export const excludeNullDataWarehouseIdRows = (
+    query: InsightQueryNode | null | undefined
+): Pick<FunnelsQuery, 'series'> | null => {
+    if (!isFunnelsQuery(query) || !query.series) {
+        return null
+    }
+
+    let didAddFilter = false
+    const series = query.series.map((node) => {
+        if (node.kind !== NodeKind.FunnelsDataWarehouseNode) {
+            return node
+        }
+
+        const existingProperties = node.properties ?? []
+        const alreadyExcludesNulls = existingProperties.some(
+            (property) =>
+                property.type === PropertyFilterType.DataWarehouse &&
+                property.key === node.id_field &&
+                property.operator === PropertyOperator.IsSet
+        )
+        if (alreadyExcludesNulls) {
+            return node
+        }
+
+        didAddFilter = true
+        const excludeNullIdFilter: DataWarehousePropertyFilter = {
+            type: PropertyFilterType.DataWarehouse,
+            key: node.id_field,
+            operator: PropertyOperator.IsSet,
+            value: PropertyOperator.IsSet,
+        }
+        return { ...node, properties: [...existingProperties, excludeNullIdFilter] }
+    })
+
+    return didAddFilter ? { series } : null
 }
