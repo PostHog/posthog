@@ -220,7 +220,8 @@ export const signupLogic = kea<signupLogicType>([
                     return
                 }
                 actions.setPendingInvite(null)
-                actions.setPanel(1)
+                // Demo is passwordless — skip the password/passkey panel straight to onboarding.
+                actions.setPanel(values.preflight?.demo ? 2 : 1)
             },
         },
         signupPanelAuth: {
